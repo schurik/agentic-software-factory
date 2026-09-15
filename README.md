@@ -8,6 +8,13 @@ repository, and it stamps a small Python control plane — `asf/` — into that 
 on, a workflow is something you run, read, check and edit, not a chat you supervise.
 
 ```bash
+# 1 · the skill, into your agent
+npx skills add schurik/agentic-software-factory
+
+# 2 · the factory, into a repository — run from that repository's root
+uv run .claude/skills/agentic-sf/scripts/install.py --harness claude_code
+
+# 3 · from then on
 just do "add rate limiting to the public API"   # plan → implement → verify → commit
 just list                                        # every workflow this repo has
 just check                                       # would they run? spawns nothing, costs nothing
@@ -120,13 +127,45 @@ just obs             # the trace UI (Vue + Vite on Bun, ships with the skill)
 
 ## Install
 
-Into a target repository, from that repository's root:
+Two installs, and they are not the same one. The **skill** goes into your agent, once per machine
+or per project. The **factory** goes into a repository, once per repository, and is what `asf/`
+actually is.
+
+### 1 · The skill, into your agent
 
 ```bash
-uv run /path/to/agentic-software-factory/skills/agentic-sf/scripts/install.py --harness claude_code
+npx skills add schurik/agentic-software-factory          # this project, .claude/skills/
+npx skills add schurik/agentic-software-factory -g       # every project, ~/.claude/skills/
+```
+
+It finds the one skill in here (`agentic-sf`) and asks which agents to wire it into; `-a claude-code
+-y` answers ahead of time, and `--copy` copies instead of symlinking. Any agent that reads a
+`SKILL.md` works — the CLI targets Claude Code, Codex, Cursor, opencode, Windsurf, Zed, Cline,
+Roo, Amp, Goose, Devin, Antigravity and Eve.
+
+As a Claude Code plugin instead, which also brings the `/agentic-sf` command:
+
+```
+/plugin marketplace add schurik/agentic-software-factory
+/plugin install agentic-sf@agentic-sf
+```
+
+Either way, the next step is one sentence to your agent — *"install agentic-sf here"* — and it reads
+the install cookbook and walks you through the four decisions below. What follows is that same path
+by hand.
+
+### 2 · The factory, into a repository
+
+From the target repository's root:
+
+```bash
+uv run .claude/skills/agentic-sf/scripts/install.py --harness claude_code
 just doctor          # keys, git, quality commands — every check with its fix; spawns nothing
 just check           # every workflow loaded and validated
 ```
+
+That path is wherever step 1 put the skill — `~/.claude/skills/agentic-sf/…` if you installed it
+globally, or a clone of this repository if you are working on the skill itself.
 
 Harnesses: `claude_code` (runs `claude -p`, model aliases, brings its own auth — no API key) and
 `pi` (runs `pi -p --mode json`, `provider/model-id`, needs that provider's key). The installer asks
@@ -150,15 +189,6 @@ Removing it is one command and it is the one irreversible thing here:
 just uninstall --dry-run    # the plan, first
 just uninstall
 ```
-
-### As a Claude Code plugin
-
-```
-/plugin marketplace add schurik/agentic-software-factory
-/plugin install agentic-sf@agentic-sf
-```
-
-Then `/agentic-sf install` from the repository you want the factory in.
 
 ## Developing the skill
 
