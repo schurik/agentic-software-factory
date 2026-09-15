@@ -13,9 +13,11 @@ Consequences that shape every change here:
 - `skills/agentic-sf/templates/` is **exactly what `install.py` copies into a target repo**. Code
   under `templates/` is never imported from here in production; it runs as `asf/` in the target
   repo, with paths relative to *that* repo's root.
-- The tests import straight out of the template directories (see `skills/agentic-sf/tests/conftest.py`)
-  and install into a real `git init`'d `tmp_path`. So a fix goes in `templates/`, never in a
-  stamped copy.
+- The tests live at the repo root in `tests/`, **not** inside the skill: every installer
+  (`npx skills add`, a plugin marketplace clone) copies a skill directory wholesale and none of
+  them offer an ignore file, so anything under `skills/agentic-sf/` ships to every user. They
+  import straight out of the template directories anyway (see `tests/conftest.py`) and install
+  into a real `git init`'d `tmp_path`. So a fix goes in `templates/`, never in a stamped copy.
 - `skills/agentic-sf/SKILL.md` + `cookbooks/` + `references/` are **read by an agent at runtime**.
   They are product surface, not documentation about the product — editing behaviour usually means
   editing both the Python and the SKILL.md routing/rules that describe it.
@@ -28,8 +30,8 @@ cookbooks, and `references/design.md` — and the rest is prose next to the code
 
 ```bash
 pytest                                                       # testpaths + addopts in pyproject.toml
-pytest skills/agentic-sf/tests/test_asf_e2e.py               # one file
-pytest skills/agentic-sf/tests/test_asf_e2e.py::test_name    # one test
+pytest tests/test_asf_e2e.py                                 # one file
+pytest tests/test_asf_e2e.py::test_name                      # one test
 pytest -k permissions                                        # by name
 ruff check .                            # line-length 100; apps/ (TypeScript) excluded
 ```

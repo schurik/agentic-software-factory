@@ -16,7 +16,7 @@ import yaml
 
 from engine import frontmatter      # conftest puts templates/asf on the path first
 
-SKILL_ROOT = Path(__file__).resolve().parent.parent
+SKILL_ROOT = Path(__file__).resolve().parent.parent / "skills" / "agentic-sf"
 INSTALL = SKILL_ROOT / "scripts" / "install.py"
 DB = "asf/data/asf.db"
 

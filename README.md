@@ -164,7 +164,8 @@ Then `/agentic-sf install` from the repository you want the factory in.
 
 This repository is not an application and not an installable package. It is the source of the
 skill; `skills/agentic-sf/templates/` is exactly what `install.py` copies into a target repo, and
-the tests import straight out of it and install into a real `git init`'d tmpdir.
+the tests — at the repo root in `tests/`, so they never ship to anyone who installs the skill —
+import straight out of it and install into a real `git init`'d tmpdir.
 
 ```bash
 pytest                  # nothing calls a model, opens a socket or needs a token

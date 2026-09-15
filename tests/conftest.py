@@ -12,9 +12,8 @@ Two things every test here needs and nothing else provides:
     the tests run against a real install into a tmp_path, not against a mock
     of one.
 
-Helpers live in `asf_helpers.py` and this directory is a package (see
-`__init__.py`): another test directory in this repository is not one and imports its own
-`conftest` by that bare name, so this one must not be importable as it.
+Helpers live in `asf_helpers.py`; `__init__.py` says why this directory is a
+package, and why it sits beside the skill rather than inside it.
 """
 
 from __future__ import annotations
@@ -25,7 +24,8 @@ from pathlib import Path
 import pytest
 
 TESTS_DIR = Path(__file__).resolve().parent
-SKILL_ROOT = TESTS_DIR.parent
+REPO_ROOT = TESTS_DIR.parent
+SKILL_ROOT = REPO_ROOT / "skills" / "agentic-sf"
 TEMPLATES = SKILL_ROOT / "templates" / "asf"
 
 if str(TEMPLATES) not in sys.path:

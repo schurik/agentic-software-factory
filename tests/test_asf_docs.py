@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-SKILL_ROOT = Path(__file__).resolve().parent.parent
+SKILL_ROOT = Path(__file__).resolve().parent.parent / "skills" / "agentic-sf"
 SKILL_MD = SKILL_ROOT / "SKILL.md"
 COOKBOOKS = SKILL_ROOT / "cookbooks"
 
