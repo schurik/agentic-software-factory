@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, git,
-                          phase_names, run_state, session_dir, wire, write_workflow)
+                          phase_names, run_state, session_dir, set_config, wire,
+                          write_workflow)
 
 
 SHIP_ID = "5c0075aa"       # pinned, so the scout's scripted write can name the handoff dir
@@ -54,6 +55,9 @@ def test_ship_reviews_revises_retests_documents_and_lands_three_commits(stamped:
         reviewer=[review_reply(False, "ok must be 2"), review_reply(True)],
         documenter=[document_reply()])
     wire(stamped, "test", PY_CHECK)
+    # The stamped default is `pr`, which lands nothing on main; this test is
+    # about the three commits main receives, so it asks for a merge.
+    set_config(stamped, worktree={"integration": {"mode": "merge"}})
     commit_all(stamped)
     before = git(stamped, "rev-parse", "main")
 

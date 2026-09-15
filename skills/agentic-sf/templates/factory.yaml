@@ -40,25 +40,31 @@ worktree:
   base_ref: ""                     # "" = whatever the main checkout has checked out
   keep_on_success: false
   integration:
-    mode: merge                    # none | merge | pr
+    # pr by default: a machine proposes, a human moves the base branch. `merge`
+    # suits a solo repo where nobody reviews; `none` leaves every branch alone.
+    mode: pr                       # none | merge | pr
     merge_flags: ["--no-ff"]
     remote: origin
-    open_pr: false
+    open_pr: true                  # mode: pr — push AND open it; false = push only
     pr_command: ["gh", "pr", "create", "--fill"]
     pr_body_template: ""
 
 # ── where work comes from, and where it goes back to ────────────────────────
 #
-# Both OFF by default: the text driving the agents on these paths is written
-# by whoever can file an issue or review a pull request, not by the engineer
-# at the keyboard. A workflow says which it takes with `input: issue` or
-# `input: pr`; these blocks say how the tracker is read and written.
+# Both ON by default, and neither starts anything by itself: an issue needs a
+# human to apply a routing label, and a review needs a pull request the factory
+# opened. Still, the text driving the agents on these paths is written by
+# whoever can file an issue or review a pull request, not by the engineer at
+# the keyboard — so where anyone can label or review, narrow `trusted_authors`
+# and `trusted_reviewers`, or set `enabled: false`. A workflow says which it
+# takes with `input: issue` or `input: pr`; these blocks say how the tracker is
+# read and written.
 
 # Work items. THE LABEL IS THE QUEUE and the routing label is the authorization:
 # a human applied it, and the watcher (`asf issues loop`, or `asf up`) never
 # looks at an issue that does not carry one.
 issues:
-  enabled: false
+  enabled: true
   # WHICH REPO is watched. "" resolves once at startup from the origin remote of
   # this checkout. Set it explicitly for cron — a watcher that silently polls
   # the wrong project looks exactly like one with nothing to do.
@@ -69,11 +75,11 @@ issues:
   list_command:    ["gh", "issue", "list"]
   comment_command: ["gh", "issue", "comment"]
   state_command:   ["gh", "issue", "edit"]
-  # label -> WORKFLOW (one with `input: issue`). An empty map means nothing
-  # ever launches, which is the safe default.
-  route: {}
-  # route:
-  #   "asf:ship": issue
+  # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
+  # AND a label here launches that workflow. `route: {}` means nothing ever
+  # launches, whatever `enabled` says.
+  route:
+    "asf:ship": issue
   states:                          # the label state machine
     queued:  "asf:queued"
     running: "asf:running"
@@ -92,7 +98,7 @@ issues:
 # claim: the forge already tracks which asks are outstanding and shows it to the
 # reviewer who wrote them. A run answers a thread and resolves it.
 pull_requests:
-  enabled: false
+  enabled: true
   project: ""                      # "" = resolved once from origin, as in issues
   workflow: pr-review              # which workflow answers a review; must say `input: pr`
   # Review THREADS are the one thing `gh pr view --json` cannot return, so a
