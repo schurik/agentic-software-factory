@@ -8,13 +8,6 @@ This repo is **not an application and not an installable package**. It is the so
 *agent skill* — `skills/agentic-sf` — which stamps a deterministic Python control plane
 ("a factory") into *someone else's* repository.
 
-It was extracted from [`schurik/software-factory`](https://github.com/schurik/software-factory),
-a fork of [disler/super-simple-software-factory](https://github.com/disler/super-simple-software-factory),
-so that agentic-sf could be developed on its own. The sibling skill it grew up next to (`sssf`,
-where a workflow is a hand-written Python script) stayed behind; agentic-sf never imported it, so
-nothing here depends on it. Where the two engines still share a shape, a fix worth porting goes
-back there by hand.
-
 Consequences that shape every change here:
 
 - `skills/agentic-sf/templates/` is **exactly what `install.py` copies into a target repo**. Code
@@ -27,9 +20,9 @@ Consequences that shape every change here:
   They are product surface, not documentation about the product — editing behaviour usually means
   editing both the Python and the SKILL.md routing/rules that describe it.
 
-`README.md` is the long-form explanation of the design; `docs/` is the inherited phase roadmap from
-the fork this skill came out of (phases 1, 2, 5, 6, 7, 9 built; 3, 4, 8 not started) and is written
-against the older `adws/` paths in places.
+`README.md` is the long-form explanation of the design. There is no `docs/` directory on purpose:
+what the factory does is documented where an agent will actually read it — `SKILL.md`, the
+cookbooks, and `references/design.md` — and the rest is prose next to the code.
 
 ## Commands
 

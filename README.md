@@ -13,10 +13,6 @@ just list                                        # every workflow this repo has
 just check                                       # would they run? spawns nothing, costs nothing
 ```
 
-> Extracted from [`schurik/software-factory`](https://github.com/schurik/software-factory) — a fork
-> of [disler/super-simple-software-factory](https://github.com/disler/super-simple-software-factory)
-> — so this second factory could grow on its own. It shares that lineage and none of its code.
-
 ---
 
 ## Why this shape
@@ -179,10 +175,6 @@ The `fake` harness answers from a script, so the whole machinery — stages, gat
 envelopes, permissions, budgets, the trace — is exercised for free in CI. `CLAUDE.md` is the
 orientation for agents working in here, and [`skills/agentic-sf/references/design.md`](skills/agentic-sf/references/design.md)
 is why each rule exists.
-
-`docs/` is the inherited phase roadmap from the fork this skill came out of; phases 1, 2, 5, 6, 7
-and 9 are built, 3 (a central trace store), 4 (a learning loop) and 8 (linked branches) are not.
-Parts of it are written against the older `adws/` paths of the sibling factory.
 
 ## License
 
