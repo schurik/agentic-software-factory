@@ -8,13 +8,14 @@ repository, and it stamps a small Python control plane — `asf/` — into that 
 on, a workflow is something you run, read, check and edit, not a chat you supervise.
 
 ```bash
-# 1 · the skill, into your agent
-npx skills add schurik/agentic-software-factory
+npx skills add schurik/agentic-software-factory      # the skill, into your agent
+```
 
-# 2 · the factory, into a repository — run from that repository's root
-uv run .claude/skills/agentic-sf/scripts/install.py --harness claude_code
+Then, from the repository you want a factory in, ask your agent to **install agentic-sf here**. It
+reads [the install cookbook](skills/agentic-sf/cookbooks/install.md) and walks you through the four
+decisions that belong to the repo. From then on:
 
-# 3 · from then on
+```bash
 just do "add rate limiting to the public API"   # plan → implement → verify → commit
 just list                                        # every workflow this repo has
 just check                                       # would they run? spawns nothing, costs nothing
@@ -125,13 +126,7 @@ just tail <id>       # follow a live run
 just obs             # the trace UI (Vue + Vite on Bun, ships with the skill)
 ```
 
-## Install
-
-Two installs, and they are not the same one. The **skill** goes into your agent, once per machine
-or per project. The **factory** goes into a repository, once per repository, and is what `asf/`
-actually is.
-
-### 1 · The skill, into your agent
+## Install the skill
 
 ```bash
 npx skills add schurik/agentic-software-factory          # this project, .claude/skills/
@@ -150,45 +145,13 @@ As a Claude Code plugin instead, which also brings the `/agentic-sf` command:
 /plugin install agentic-sf@agentic-sf
 ```
 
-Either way, the next step is one sentence to your agent — *"install agentic-sf here"* — and it reads
-the install cookbook and walks you through the four decisions below. What follows is that same path
-by hand.
-
-### 2 · The factory, into a repository
-
-From the target repository's root:
-
-```bash
-uv run .claude/skills/agentic-sf/scripts/install.py --harness claude_code
-just doctor          # keys, git, quality commands — every check with its fix; spawns nothing
-just check           # every workflow loaded and validated
-```
-
-That path is wherever step 1 put the skill — `~/.claude/skills/agentic-sf/…` if you installed it
-globally, or a clone of this repository if you are working on the skill itself.
-
-Harnesses: `claude_code` (runs `claude -p`, model aliases, brings its own auth — no API key) and
-`pi` (runs `pi -p --mode json`, `provider/model-id`, needs that provider's key). The installer asks
-if you do not say.
-
-It is the only supported way in. Stamping `templates/asf/` by hand reproduces the files and none of
-the decisions around them — `.env` with `ASF_SKILL=`, the `.gitignore` block that keeps the run
-record out of your history, and the quality detection that reads your `package.json` / lockfiles /
-`pyproject.toml` and writes the real test, lint, typecheck and build commands. **An undetected
-quality block fails the run rather than passing it**, because a chain that reports a green suite it
-never ran is the most expensive default a factory could ship.
-
-Four decisions belong to the repository and are worth answering at install time: the harness, how
-the repo runs its checks, how a run's branch lands (`merge` / `pr` / `none`), and whether issues and
-reviews may start runs (off until you opt in). See
-[`skills/agentic-sf/cookbooks/install.md`](skills/agentic-sf/cookbooks/install.md).
-
-Removing it is one command and it is the one irreversible thing here:
-
-```bash
-just uninstall --dry-run    # the plan, first
-just uninstall
-```
+That is the whole of what you install on your machine. **Putting a factory into a repository is a
+separate step with decisions in it, and it lives in
+[`cookbooks/install.md`](skills/agentic-sf/cookbooks/install.md)** — which harness (`claude_code`
+brings its own auth and needs no API key; `pi` needs that provider's key), how this repo runs its
+tests and lint, how a run's branch lands, and whether issues may start runs. Ask your agent to
+install agentic-sf and it reads that cookbook for you; `just doctor` then answers whether the repo
+is ready. Taking the factory back out again is [`cookbooks/uninstall.md`](skills/agentic-sf/cookbooks/uninstall.md).
 
 ## Developing the skill
 
