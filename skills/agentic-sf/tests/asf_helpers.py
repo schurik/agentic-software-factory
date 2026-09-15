@@ -145,9 +145,17 @@ def db_rows(repo: Path, sql: str) -> list[tuple]:
 
 
 def adw_id_of(result: subprocess.CompletedProcess) -> str:
-    """From the workspace line every run prints first — a suspended run never
-    reaches the closing banner that also carries it."""
-    match = re.search(r" on asf/(\w{8}) ", result.stdout)
+    """From the `adw_id:` header — the first line of every run, and the only one
+    carrying the id that nothing can shorten.
+
+    Not the closing banner: a suspended run stops at its gate and never reaches
+    it. Not the workspace line beneath this one either, though it names the
+    branch — `console.note` clips at 160 characters, and a tmpdir deep enough
+    (macOS hands pytest `/private/var/folders/…`) eats the `on asf/<id>` off the
+    end of it. That truncation is deliberate in the console and wrong to design
+    a test around.
+    """
+    match = re.search(r"^adw_id: (\w{8})\b", result.stdout, re.MULTILINE)
     assert match, result.stdout + result.stderr
     return match.group(1)
 
