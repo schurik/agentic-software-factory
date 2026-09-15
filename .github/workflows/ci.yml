@@ -1,0 +1,131 @@
+name: CI
+
+# This repository is the source of one agent skill (skills/agentic-sf) that stamps
+# Python into other people's repositories. Everything below runs without an agent,
+# without a network call and without a token: the `fake` harness answers from a
+# script, so a whole workflow — stages, gates, retries, envelopes, permissions,
+# budgets, the trace — is exercised here for free.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # The same four the stamped scripts declare in their PEP-723 headers, plus
+      # pytest. Unpinned on purpose: a stamped repo installs whatever `uv run`
+      # resolves that day, so CI should meet the same versions its users do —
+      # and `filterwarnings = error::DeprecationWarning` is what turns "a
+      # dependency moved on" into a red build here instead of in their repo.
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pydantic python-dotenv pyyaml rich pytest
+
+      # session.ensure() cuts a real worktree and permissions.py reads a real
+      # `git diff`, so the tests do a real `git init`. A runner with no identity
+      # cannot commit.
+      - name: Configure git
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "asf ci"
+          git config --global init.defaultBranch main
+
+      - run: pytest
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip ruff
+      # Configured in pyproject.toml, so this is the same command a contributor
+      # runs with no arguments.
+      - run: ruff check .
+
+  smoke:
+    name: install into a scratch repo
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        harness: [claude_code, pi]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # `install.py` and `asf.py` carry a `#!/usr/bin/env -S uv run` shebang and
+      # a PEP-723 dependency block. Running them through uv is the path a user
+      # actually takes, and it is the only thing that proves those blocks
+      # resolve — pytest invokes the installer with `sys.executable`, which
+      # never reads them.
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Configure git
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "asf ci"
+          git config --global init.defaultBranch main
+
+      - name: Stamp the factory into a fresh repository
+        run: |
+          set -euxo pipefail
+          mkdir -p "$RUNNER_TEMP/asf-scratch"
+          cd "$RUNNER_TEMP/asf-scratch"
+          git init -q .
+          printf '# scratch\n' > README.md
+          printf '[tool.pytest.ini_options]\n' > pyproject.toml
+          git add -A && git commit -qm init
+          uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/install.py" \
+            --harness "${{ matrix.harness }}"
+
+      # `check` loads every workflow — roster, stages, bindings, task files
+      # against their types — and spawns nothing. A stamped repo whose own
+      # workflows do not check is a broken install that looks like a working one.
+      - name: Every stamped workflow checks
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/asf-scratch"
+          uv run asf/asf.py list
+          uv run asf/asf.py check
+          git add -A
+          if git diff --cached --name-only | grep -E '^asf/data/|\.pyc$|^\.asf-worktrees/|^\.env$'; then
+            echo "::error::the install staged its own runtime — check GITIGNORE_ENTRIES"
+            exit 1
+          fi
+
+      # The inverse, through uv as well: stdlib only, and it must leave the
+      # scratch repo the way it found it.
+      - name: Uninstall leaves nothing of the factory behind
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/asf-scratch"
+          uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/uninstall.py" --dry-run
+          uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/uninstall.py" --yes
+          test ! -e asf && test ! -e justfile && test ! -e .env.sample
+          uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/uninstall.py" --yes | grep -q "no factory here"

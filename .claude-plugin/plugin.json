@@ -1,0 +1,22 @@
+{
+  "name": "agentic-sf",
+  "displayName": "Agentic Software Factory",
+  "version": "1.0.0",
+  "description": "Deploy and operate agentic workflows in any codebase: a workflow is a directory over a closed stage vocabulary, deterministic Python owns sequencing, retries and acceptance; coding agents work inside bounded phases; typed JSON envelopes cross the seams; every event streams into SQLite.",
+  "author": {
+    "name": "schurik",
+    "url": "https://github.com/schurik"
+  },
+  "homepage": "https://github.com/schurik/agentic-software-factory",
+  "repository": "https://github.com/schurik/agentic-software-factory",
+  "license": "MIT",
+  "keywords": [
+    "agentic-sf",
+    "asf",
+    "software-factory",
+    "agent-orchestration",
+    "workflow",
+    "sdlc",
+    "observability"
+  ]
+}

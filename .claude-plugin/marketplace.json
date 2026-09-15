@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "agentic-sf",
+  "owner": {
+    "name": "schurik",
+    "url": "https://github.com/schurik/agentic-software-factory"
+  },
+  "metadata": {
+    "description": "Agentic Software Factory — workflows as directories over a closed stage vocabulary, as an agent skill.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "agentic-sf",
+      "source": "./",
+      "description": "Deploy and operate agentic workflows in any codebase: deterministic Python owns sequencing, retries and acceptance; coding agents work inside bounded phases; every event streams into SQLite.",
+      "version": "1.0.0",
+      "author": { "name": "schurik" },
+      "homepage": "https://github.com/schurik/agentic-software-factory",
+      "license": "MIT",
+      "keywords": [
+        "agentic-sf",
+        "asf",
+        "software-factory",
+        "agent-orchestration",
+        "workflow",
+        "sdlc",
+        "observability"
+      ]
+    }
+  ]
+}
