@@ -17,8 +17,8 @@ from .asf_helpers import (BUILD_REPORT, PY_CHECK, adw_id_of, asf, commit_all, db
 
 
 def plan_reply() -> dict:
-    return {"writes": {"specs/plan.md": "# Plan\n"}, "tokens": 100, "cost": 0.01,
-            "envelope": envelope(artifacts=["specs/plan.md"], commit_message="docs: plan")}
+    return {"writes": {"docs/asf/spec/plan.md": "# Plan\n"}, "tokens": 100, "cost": 0.01,
+            "envelope": envelope(artifacts=["docs/asf/spec/plan.md"], commit_message="docs: plan")}
 
 
 def build_reply(content: str, message: str) -> dict:

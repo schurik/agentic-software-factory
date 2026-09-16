@@ -5,8 +5,7 @@
 purpose: Write up the change that was just made, from the diff; document only.
 color: "#e879f9"
 writes:
-  - app_docs/
-  - docs/
+  - docs/                          # write-ups land in docs/asf/ (the document stage's task)
   - "**/*.md"
   - "*.md"
 ---

@@ -127,9 +127,11 @@ line rather than the last phase.
 ## Where the work went
 
 The branch is `asf/<adw_id>`, and what happened to it is
-`worktree.integration.mode` in `asf/factory.yaml`: `merge` moved the base
-branch, `pr` opened a pull request, `none` left the branch for a person. Say
-which of these happened, with the branch name or the PR link — an engineer
+`worktree.integration.mode` in `asf/factory.yaml`: `pr` (the default) opened a
+pull request, `merge` moved the base branch, `none` left the branch for a
+person. A `pr` run that could not push — no `origin`, a rejected push — is still
+accepted, with its work on the branch; the `integrate` phase's notes say why.
+Say which of these happened, with the branch name or the PR link — an engineer
 whose run "succeeded" still needs to know where to look.
 
 ## Report

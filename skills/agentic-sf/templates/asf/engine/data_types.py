@@ -144,7 +144,7 @@ class ReviewOutput(EnvelopeBase):
 class DocumentOutput(EnvelopeBase):
     """Where the write-up of a completed change landed."""
 
-    document_path: str = ""         # the doc in the repo, e.g. app_docs/<adw_id>_<slug>.md
+    document_path: str = ""         # the doc in the repo, e.g. docs/asf/<adw_id>_<slug>.md
     documented_files: list[str] = Field(default_factory=list)
     commit_message: str = ""
 
