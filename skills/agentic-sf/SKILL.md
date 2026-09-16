@@ -83,7 +83,7 @@ acting, not after.
 | "is this repo ready to run?" / something failed before the first phase | `just doctor` — every check with its fix, then every workflow checked; spawns nothing. [cookbooks/install.md](cookbooks/install.md#post-install-checklist) |
 | run a workflow | `just do "<prompt>"` (sdlc), `just quick`, `just ship`, or `just run <name> "<prompt>" [--hitl all\|none\|plan]` — turning the request into a prompt, watching it, gates, failures: [cookbooks/run_workflow.md](cookbooks/run_workflow.md) |
 | work a tracked issue / answer a review | `just issue 42`, `just pr-review 17` — the number, never a prompt; the run reports back on the issue or in the threads |
-| start the watchers / "is anything polling?" | `just up` (both watchers + trace UI, ctrl-c stops all), `just status`; one poll: `just issues`, `just prs`; cron form: `just issues-watch`, `just prs-watch`. Turn them on in `factory.yaml` (`issues.enabled`, `issues.route`, `pull_requests.enabled`) |
+| start the watchers / "is anything polling?" | `just up` (both watchers + trace UI, ctrl-c stops all), `just status`; one poll: `just issues`, `just prs`; cron form: `just issues-watch`, `just prs-watch`. Both on by default; `factory.yaml` routes labels (`issues.route`) and turns a path off (`issues.enabled`, `pull_requests.enabled`) |
 | stop a run | `just kill <id>` — agents first, then the workflow; `--force` SIGKILLs |
 | tidy up | `just worktrees`, `just worktrees-prune [--force]`, `just worktrees-remove <id>`; branches are never deleted |
 | remove the factory from this repo | [cookbooks/uninstall.md](cookbooks/uninstall.md) — `just uninstall --dry-run` first and show the plan; the skill is untouched, the run record goes with `asf/`, and it is the one irreversible thing here |

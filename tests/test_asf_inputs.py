@@ -26,8 +26,8 @@ def scout_reply(repo: Path, adw_id: str = ID) -> dict:
 
 
 def plan_reply() -> dict:
-    return {"writes": {"specs/plan.md": "# Plan\n"},
-            "envelope": envelope(artifacts=["specs/plan.md"], commit_message="docs: plan")}
+    return {"writes": {"docs/asf/spec/plan.md": "# Plan\n"},
+            "envelope": envelope(artifacts=["docs/asf/spec/plan.md"], commit_message="docs: plan")}
 
 
 def build_reply(content: str, message: str) -> dict:
@@ -40,8 +40,8 @@ def review_reply() -> dict:
 
 
 def document_reply() -> dict:
-    return {"writes": {"app_docs/app.md": "# app\n"},
-            "envelope": envelope(artifacts=["app_docs/app.md"], document_path="app_docs/app.md",
+    return {"writes": {"docs/asf/app.md": "# app\n"},
+            "envelope": envelope(artifacts=["docs/asf/app.md"], document_path="docs/asf/app.md",
                                  documented_files=["app.py"], commit_message="docs: app")}
 
 

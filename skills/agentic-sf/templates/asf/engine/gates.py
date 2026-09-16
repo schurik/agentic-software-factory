@@ -9,7 +9,7 @@ Gates check what is mechanically checkable; plan quality is a reviewer's job.
 
 Every gate resolves paths and runs commands inside `run.repo_root` — the run's
 own worktree. `run` was always in the signature and was always ignored; a
-relative artifact path such as `specs/plan.md` resolved against the ADW
+relative artifact path such as `docs/asf/spec/plan.md` resolved against the ADW
 process's working directory instead, so an agent that wrote its plan exactly
 where it was told would be reported as having written nothing.
 """

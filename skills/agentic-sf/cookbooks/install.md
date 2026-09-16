@@ -38,8 +38,8 @@ at, a missing flag is an error rather than a silent choice.
 |---|---|---|
 | **Which harness?** (`claude_code`, `pi`) | none — it is asked | `claude_code` runs `claude -p`, takes model *aliases* (`opus`, `sonnet`, `haiku`) and brings its own auth: **no API key at all**, which is usually the shortest path to a first green run. `pi` runs `pi -p --mode json`, takes `provider/model-id`, and needs that provider's key in `.env`. |
 | **How does this repo run its tests, lint, typecheck and build?** | whatever the installer detects; **anything it cannot detect stays a placeholder, and a placeholder fails** | `install.py` reads `package.json` scripts, the lockfiles and `pyproject.toml`, and writes what it finds into `asf/engine/quality.py` marked `# detected at install`. Confirm those lines — a detected command is a guess from a filename. An unwired block exits 78 rather than passing, because a chain that reports a green suite it never ran is the most expensive default this factory could ship. |
-| **How should a run's branch land?** (`worktree.integration.mode`: `merge`, `pr`, `none`) | `merge` | Repositories genuinely disagree about whether a machine may move the base branch. `merge` suits a solo repo; `pr` suits anywhere a human reviews first; `none` leaves every branch for a person. Issue- and review-triggered runs can never merge regardless — `integration` downgrades them to a pull request, in code. |
-| **May issues and reviews start runs?** (`issues.enabled`, `pull_requests.enabled`) | both off | This is the one path where the prompt is written by whoever can file an issue rather than by the engineer at the keyboard. Off until the repo opts in. |
+| **How should a run's branch land?** (`worktree.integration.mode`: `merge`, `pr`, `none`) | `pr`, opened with `gh pr create` (`open_pr: true`) | Repositories genuinely disagree about whether a machine may move the base branch. `pr` suits anywhere a human reviews first; `merge` suits a solo repo; `none` leaves every branch for a person. Issue- and review-triggered runs can never merge regardless — `integration` downgrades them to a pull request, in code. |
+| **May issues and reviews start runs?** (`issues.enabled`, `pull_requests.enabled`) | both on; `asf:ship` routes to the `issue` workflow | Neither starts anything by itself: an issue needs a human to apply `asf:queued` plus a routing label, and a review needs a pull request the factory opened. But this is the one path where the prompt is written by whoever can file an issue or leave a review rather than by the engineer at the keyboard — where that is anyone, narrow `trusted_authors` / `trusted_reviewers`, or turn it off. |
 
 Two more worth naming only if the answer is not the default: `worktree.enabled`
 (on — every run works in its own tree on branch `asf/<adw_id>`, never the
@@ -133,12 +133,15 @@ which writes `node_modules/` inside the tracked skill tree. The skill ships
 `apps/visualizer/.gitignore` to cover it, so it stays out of the host repo's
 `git status` — and out of the `git add -A` a commit stage runs.
 
-## Turning on issue- and review-triggered runs
+## Issue- and review-triggered runs
 
-Off by default, and a separate decision from installing. `issues.enabled`,
-`issues.route` and `pull_requests.enabled` in `asf/factory.yaml`, then
-`just issues-status` and `just prs-status` to see what the watchers would do and
-whether they can. `just up` runs both watchers and the trace UI in one process.
+On by default, but nothing polls until a watcher is started: `just up` runs
+both watchers and the trace UI in one process. `just issues-status` and
+`just prs-status` say what the watchers would do and whether they can — both
+need the forge CLI (`gh`) on PATH and authenticated, and `doctor` warns when it
+is not. `issues.route` decides which label launches which workflow (`asf:ship`
+→ `issue` as stamped); `issues.enabled` and `pull_requests.enabled` in
+`asf/factory.yaml` turn a path off.
 
 ## Removing it again
 

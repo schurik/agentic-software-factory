@@ -30,8 +30,8 @@ The agent's `harness_options` block IS the script (see `Options`):
       model: fake
       harness_options:
         replies:
-          - writes: {"specs/plan.md": "# Plan\\n"}
-            envelope: {status: success, summary: planned, artifacts: [specs/plan.md]}
+          - writes: {"docs/asf/spec/plan.md": "# Plan\\n"}
+            envelope: {status: success, summary: planned, artifacts: [docs/asf/spec/plan.md]}
 
 One reply is consumed per SEND — and a phase can send more than once: a
 malformed JSON response is re-prompted, and a gate violation comes back as a

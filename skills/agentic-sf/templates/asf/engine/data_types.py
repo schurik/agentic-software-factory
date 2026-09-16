@@ -144,7 +144,7 @@ class ReviewOutput(EnvelopeBase):
 class DocumentOutput(EnvelopeBase):
     """Where the write-up of a completed change landed."""
 
-    document_path: str = ""         # the doc in the repo, e.g. app_docs/<adw_id>_<slug>.md
+    document_path: str = ""         # the doc in the repo, e.g. docs/asf/<adw_id>_<slug>.md
     documented_files: list[str] = Field(default_factory=list)
     commit_message: str = ""
 
@@ -580,10 +580,12 @@ class IntegrationConfig(BaseModel):
     configuration. The integration phase reads it; nothing in it is hard-coded.
     """
 
-    mode: IntegrationMode = "merge"
+    # `pr` by default: a machine proposes and a human moves the base branch. The
+    # repo that wants a machine to merge says so in its config.
+    mode: IntegrationMode = "pr"
     merge_flags: list[str] = Field(default_factory=lambda: ["--no-ff"])
     remote: str = "origin"                       # mode: pr — where the branch is pushed
-    open_pr: bool = False                        # mode: pr — also run pr_command
+    open_pr: bool = True                         # mode: pr — also run pr_command
     # Left as a command rather than an API call: whichever forge CLI the repo
     # uses is already authenticated in the engineer's shell, and the phase runs
     # under operator_env() so it resolves exactly as it does in their terminal.
@@ -720,7 +722,9 @@ class IssuesConfig(BaseModel):
     engineer's shell already, and everything here runs under operator_env().
     """
 
-    enabled: bool = False
+    # On, because `enabled` alone starts nothing: a run needs `asf:queued` plus
+    # a routing label, and a human applies both.
+    enabled: bool = True
     # WHICH REPO the watcher watches. Empty resolves ONCE at startup from the
     # origin remote of the main checkout — never left to each command's cwd,
     # because cron has an arbitrary working directory and a watcher that
@@ -732,8 +736,9 @@ class IssuesConfig(BaseModel):
     list_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "list"])
     comment_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "comment"])
     state_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
-    # label -> ADW script. The watcher routes on this; no ADW knows about it.
-    route: dict[str, str] = Field(default_factory=dict)
+    # label -> workflow. The watcher routes on this; no workflow knows about it.
+    # An empty map launches nothing, whatever `enabled` says.
+    route: dict[str, str] = Field(default_factory=lambda: {"asf:ship": "issue"})
     states: IssueStates = Field(default_factory=IssueStates)
     # Empty = every issue author is accepted, and the human who applied the
     # routing label is the only authorization. Narrow it where anyone can label.
@@ -764,9 +769,11 @@ class PullRequestStates(BaseModel):
 class PullRequestsConfig(BaseModel):
     """Review feedback as a run's entry point: read threads, answer them, resolve.
 
-    The sibling of IssuesConfig one step later in a branch's life, and off by
-    default for the same reason: the text driving the agents is written by
-    whoever can review, not by the engineer at the keyboard.
+    The sibling of IssuesConfig one step later in a branch's life, and on by
+    default for the same reason: it only ever acts on a pull request the factory
+    opened itself. The text driving the agents is still written by whoever can
+    review, not by the engineer at the keyboard — `trusted_reviewers` is where a
+    repository with strangers among its reviewers narrows that.
 
     Commands rather than API calls, as everywhere else here — with one shape the
     issue path does not need. Review THREADS (their ids, and whether they are
@@ -779,7 +786,7 @@ class PullRequestsConfig(BaseModel):
     merged between them.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     # WHICH REPO, resolved once — same rule and same failure mode as
     # IssuesConfig.project: a watcher that cannot name its project polls
     # nothing, and polling nothing looks exactly like having nothing to do.

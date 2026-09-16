@@ -69,7 +69,7 @@ def test_the_roster_is_directories_and_factory_yaml_may_not_carry_agents(factory
     scout = next(a for a in cfg.agents if a.name == "scout")
     assert scout.writes == [] and scout.thinking == "low"             # read-only recon, cheap
     planner = next(a for a in cfg.agents if a.name == "planner")
-    assert planner.writes == ["specs/"]
+    assert planner.writes == ["docs/asf/spec/"]
     assert planner.prompt_engineering.user == ""          # tasks belong to stages
     assert planner.prompt_engineering.system.endswith("asf/agents/planner/agent.md")
 
@@ -188,14 +188,14 @@ def test_a_task_that_omits_a_placeholder_is_refused(factory_repo):
 def test_a_binding_may_narrow_writes_but_never_widen_them(factory_repo):
     write_workflow(factory_repo, "narrow", {
         "description": "x",
-        "agents": {"planner": {"from": "planner", "writes": ["specs/api/"]}},
+        "agents": {"planner": {"from": "planner", "writes": ["docs/asf/spec/api/"]}},
         "stages": [{"plan": {"agent": "planner"}}]})
     loaded = workflow.load("narrow")
-    assert next(a for a in loaded.cfg.agents if a.name == "planner").writes == ["specs/api/"]
+    assert next(a for a in loaded.cfg.agents if a.name == "planner").writes == ["docs/asf/spec/api/"]
 
     write_workflow(factory_repo, "wide", {
         "description": "x",
-        "agents": {"planner": {"from": "planner", "writes": ["specs/", "src/"]}},
+        "agents": {"planner": {"from": "planner", "writes": ["docs/asf/spec/", "src/"]}},
         "stages": [{"plan": {"agent": "planner"}}]})
     assert "writes ['src/'] are not covered" in refused("wide")
 

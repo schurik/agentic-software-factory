@@ -100,9 +100,9 @@ just abort <id>
 
 ## Issues and reviews close the loop
 
-Turn them on in `factory.yaml` and a labelled issue starts a run that reports back on the issue,
-while review feedback on the factory's own pull requests comes back as a `pr-review` run that
-answers in the threads.
+A run lands as a pull request by default. With the watchers up, an issue labelled `asf:queued` and
+`asf:ship` starts a run that reports back on the issue, while review feedback on the factory's own
+pull requests comes back as a `pr-review` run that answers in the threads.
 
 ```bash
 just issue 42        # work a tracked issue

@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, git,
-                          phase_names, run_state, session_dir, wire, write_workflow)
+                          phase_names, run_state, session_dir, set_config, wire,
+                          write_workflow)
 
 
 SHIP_ID = "5c0075aa"       # pinned, so the scout's scripted write can name the handoff dir
@@ -22,8 +23,8 @@ def scout_reply(repo: Path) -> dict:
 
 
 def plan_reply(text: str = "# Plan\n") -> dict:
-    return {"writes": {"specs/plan.md": text},
-            "envelope": envelope(artifacts=["specs/plan.md"], commit_message="docs: plan")}
+    return {"writes": {"docs/asf/spec/plan.md": text},
+            "envelope": envelope(artifacts=["docs/asf/spec/plan.md"], commit_message="docs: plan")}
 
 
 def build_reply(content: str, message: str) -> dict:
@@ -39,8 +40,8 @@ def review_reply(approved: bool, *blocking: str) -> dict:
 
 
 def document_reply() -> dict:
-    return {"writes": {"app_docs/app.md": "# app\n\nWhat changed: app.py.\n"},
-            "envelope": envelope(artifacts=["app_docs/app.md"], document_path="app_docs/app.md",
+    return {"writes": {"docs/asf/app.md": "# app\n\nWhat changed: app.py.\n"},
+            "envelope": envelope(artifacts=["docs/asf/app.md"], document_path="docs/asf/app.md",
                                  documented_files=["app.py"], commit_message="docs: app")}
 
 
@@ -54,6 +55,9 @@ def test_ship_reviews_revises_retests_documents_and_lands_three_commits(stamped:
         reviewer=[review_reply(False, "ok must be 2"), review_reply(True)],
         documenter=[document_reply()])
     wire(stamped, "test", PY_CHECK)
+    # The stamped default is `pr`, which lands nothing on main; this test is
+    # about the three commits main receives, so it asks for a merge.
+    set_config(stamped, worktree={"integration": {"mode": "merge"}})
     commit_all(stamped)
     before = git(stamped, "rev-parse", "main")
 
@@ -72,7 +76,7 @@ def test_ship_reviews_revises_retests_documents_and_lands_three_commits(stamped:
     assert subjects[1:] == ["docs: app", "feat: app, ok is 2 as reviewed", "docs: plan"]
     assert subjects[0].startswith(f"asf({adw_id}): merge asf/{adw_id} into main")
     assert (stamped / "app.py").read_text() == "ok = 2\n"
-    assert (stamped / "app_docs" / "app.md").is_file()
+    assert (stamped / "docs" / "asf" / "app.md").is_file()
     # The reviewer was asked with the review task and the builder's revision
     # with the revise task, not the implement task.
     prompts = session_dir(stamped, adw_id)
