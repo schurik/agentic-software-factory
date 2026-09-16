@@ -228,17 +228,58 @@ def max_phase_seq(session_dir: Path, adw_id: str) -> int:
     A joined or resumed run continues the sequence instead of restarting at 1 —
     restarting collides with the first process's phases on both the ordering and
     the `phase_id`, which is the name of the envelope file this module writes.
-    Read from `events.jsonl` rather than the db for the reason the rest of this
-    module exists: a run whose db was deleted must still number its phases
-    correctly, and the seq is right there in every phase id the session emitted
-    (`<adw_id>_<seq>_<name>`, so the prefix comes off and the digits are next).
+    This is where a phase the session has NOT seen before gets its number; one
+    it has seen is re-entered under the one it already has — `phase_identities`.
     """
-    highest = 0
+    return max((seq for seq, _ in _phase_ids(session_dir, adw_id)), default=0)
+
+
+def phase_identities(session_dir: Path, adw_id: str) -> dict[str, tuple[int, str]]:
+    """{phase name: (seq, phase_id)} for every phase this session has opened.
+
+    What a RESUMED run re-enters a phase under, instead of minting a number
+    nothing has seen. A resume re-walks the chain from the top — the phases
+    before the failure replay from the record or, when code owns them, run
+    again for real — and under fresh numbers each of those walks writes a
+    SECOND row for a phase that already has one: two `plan`s after the first
+    resume, three after the next, and a visualizer drawing the same stage once
+    per recovery. Keyed by name because that is what a resumed chain matches on
+    (`engine/replay.py`), and because `PhaseParams` already requires a name to
+    be unique within a run.
+
+    Includes phases that only ever STARTED — a run picked up at the phase that
+    killed it must land back on that phase's row, not beside it.
+
+    The LOWEST number wins per name, so a session that was resumed before this
+    existed, and already holds the duplicates, converges back onto the row it
+    opened first rather than adding a fourth.
+    """
+    found: dict[str, tuple[int, str]] = {}
+    for seq, phase_id in _phase_ids(session_dir, adw_id):
+        name = phase_id.removeprefix(f"{adw_id}_{seq:02d}_")
+        if not name or name == phase_id:
+            continue          # not this session's id shape; nothing to re-enter
+        current = found.get(name)
+        if current is None or seq < current[0]:
+            found[name] = (seq, phase_id)
+    return found
+
+
+def _phase_ids(session_dir: Path, adw_id: str) -> list[tuple[int, str]]:
+    """(seq, phase_id) for every phase id this session emitted, in event order.
+
+    The seq is read out of the id rather than out of a column, for the reason
+    the rest of this module exists: a run whose db was deleted must still number
+    its phases correctly, and the number is right there in every phase id the
+    session wrote to its own event log (`<adw_id>_<seq>_<name>`, so the prefix
+    comes off and the digits are next).
+    """
+    found = []
     for phase_id in _phase_outcomes(session_dir, every=True):
         tail = phase_id.removeprefix(f"{adw_id}_").split("_", 1)[0]
         if tail.isdigit():
-            highest = max(highest, int(tail))
-    return highest
+            found.append((int(tail), phase_id))
+    return found
 
 
 def _phase_outcomes(session_dir: Path, every: bool = False) -> dict[str, str]:

@@ -6,9 +6,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, git,
-                          phase_names, run_state, session_dir, set_config, wire,
-                          write_workflow)
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, db_rows, envelope,
+                          fake_roster, git, phase_names, run_state, session_dir,
+                          set_config, wire, write_workflow)
 
 
 SHIP_ID = "5c0075aa"       # pinned, so the scout's scripted write can name the handoff dir
@@ -141,6 +141,11 @@ def test_the_gate_cli_answers_a_suspended_run_and_brings_it_back(stamped: Path):
     assert approved.returncode == 0, approved.stdout + approved.stderr
     names = phase_names(stamped, adw_id)
     assert names[-2:] == ["implement", "commit_implement"]
+    # Three processes walked this chain — the run, the reject, the approve —
+    # and every phase each of them re-entered landed back on its own row
+    # rather than beside it (issue #4).
+    assert names == ["request", "plan", "approve_plan", "plan_revise_1",
+                     "approve_plan_2", "implement", "commit_implement"]
     assert run_state(stamped, adw_id)["status"] == "success"
     assert git(stamped, "log", "-1", "--format=%s", f"asf/{adw_id}") == "feat: app"
 
@@ -174,6 +179,45 @@ def test_resume_rebuilds_the_recorded_invocation_and_refuses_an_unanswered_gate(
     resumed = asf(stamped, "resume", adw_id)
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     assert run_state(stamped, adw_id)["status"] == "success"
+
+
+def test_a_resumed_run_re_enters_its_phases_instead_of_recording_them_again(stamped: Path):
+    """The trace is a session's phases, not a log of how often it was picked up.
+
+    A resume re-walks the chain from the top by design — the phases before the
+    failure are replayed or, where code owns them, re-run — and each of those
+    walks used to open a NEW phase, so the visualizer drew every finished stage
+    once per recovery. They land on the rows they already have.
+    """
+    # A builder that claims a file it never writes: the gate catches it, the
+    # correction gets the same answer back, and the implement phase fails with
+    # the plan before it already on the record.
+    fake_roster(stamped, planner=[plan_reply()],
+                builder=[{"envelope": envelope(changed_files=["app.py"],
+                                               commit_message="feat: app")}])
+    wire(stamped, "test", PY_CHECK)
+    write_workflow(stamped, "recoverable", {
+        "description": "a chain whose builder gets it wrong the first time",
+        "stages": [{"plan": {}}, {"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+
+    failed = asf(stamped, "run", "recoverable", "add app.py")
+    assert failed.returncode == 1, failed.stdout + failed.stderr
+    adw_id = adw_id_of(failed)
+    assert phase_names(stamped, adw_id) == ["request", "plan", "implement"]
+
+    # Script the builder and pick it back up: `plan` replays, `implement` runs
+    # for real under the number it already had, and `commit` is the only phase
+    # the resume adds.
+    fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
+    resumed = asf(stamped, "resume", adw_id)
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    assert run_state(stamped, adw_id)["status"] == "success"
+
+    rows = db_rows(stamped, "select seq, name, status from phases "
+                            f"where adw_id='{adw_id}' order by seq")
+    assert rows == [(1, "request", "success"), (2, "plan", "success"),
+                    (3, "implement", "success"), (4, "commit_implement", "success")]
 
 
 def test_doctor_names_every_placeholder_and_checks_every_workflow(stamped: Path):
