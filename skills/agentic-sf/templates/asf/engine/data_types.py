@@ -125,6 +125,25 @@ class ScoutOutput(EnvelopeBase):
     findings: list[ScoutFinding] = Field(default_factory=list)
 
 
+class Option(BaseModel):
+    """One answer the analyst is PROPOSING, so a person picks instead of composing.
+
+    The difference between a question and a useful question. An analyst that
+    has read the issue and the code knows the two or three shapes an answer can
+    take; asking "what should happen here?" throws that work away and hands a
+    blank page to the person least able to fill it. `because` is what the
+    option buys and what it costs — a choice offered without that is a menu,
+    not a recommendation.
+    """
+
+    answer: str
+    because: str = ""
+    # Exactly one option per question carries this, checked by
+    # `gates.questions_are_answerable`. An analyst with a view says so; one
+    # that recommends everything, or nothing, has not finished thinking.
+    recommended: bool = False
+
+
 class Question(BaseModel):
     """One thing the analyst could not settle from the material it was given.
 
@@ -133,6 +152,12 @@ class Question(BaseModel):
     is what makes an answer worth the round trip — it says what changes about
     the solution depending on the answer, and a question that cannot say that
     is one the analyst should have decided itself.
+
+    A QUESTION ARRIVES WITH ITS OPTIONS. Two or three of them, one recommended,
+    and the analyst's own priority order kept for the rest — a person answering
+    from their phone should be able to reply "2" and be done. The gate enforces
+    the count and the single recommendation, because an instruction in a task
+    file is a hope and a gate is a condition.
     """
 
     topic: str
@@ -142,6 +167,21 @@ class Question(BaseModel):
     # questions keep the loop going; the rest ride along on a round that was
     # going to happen anyway, and are dropped when none is.
     blocking: bool = True
+    options: list[Option] = Field(default_factory=list)
+
+    @property
+    def ranked(self) -> list[Option]:
+        """The options as a person should read them: recommended first.
+
+        A STABLE sort, and that is the whole of it — the rest keep the order
+        the analyst gave them, which the task file asks to be priority order,
+        most important first. So this re-ranks exactly one thing and leaves the
+        analyst's judgement about everything else intact. Sorting here rather
+        than trusting the agent to emit them in order means the envelope in the
+        trace records what the analyst actually said, while the person always
+        reads the recommendation at the top.
+        """
+        return sorted(self.options, key=lambda option: not option.recommended)
 
 
 class RequirementsOutput(EnvelopeBase):

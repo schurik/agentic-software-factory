@@ -336,13 +336,23 @@ def render_questions(questions: list[Question], adw_id: str, round: int,
         body.append(f"### {topic}")
         for question in group:
             mark = "" if question.blocking else " _(nice to have)_"
-            body.append(f"- {question.question}{mark}")
+            body.append(f"**{question.question}**{mark}")
             if question.why:
-                body.append(f"  <sub>{question.why}</sub>")
-        body.append("")
+                body.append(f"<sub>{question.why}</sub>")
+            # The options are what make this answerable in one line. Recommended
+            # first — `Question.ranked`, not the order the envelope happened to
+            # carry — and numbered, because "2" is an answer a person can give
+            # from a phone while the alternative is composing a paragraph.
+            for index, option in enumerate(question.ranked, start=1):
+                lead = f"{index}. **{option.answer}**"
+                if option.recommended:
+                    lead += " — *recommended*"
+                body.append(lead + (f" · {option.because}" if option.because else ""))
+            body.append("")
 
-    tail = ["Answer in a comment on this issue — prose is fine, and you do not have to "
-            "keep the order. Anything you leave out stays open, and I will ask again.",
+    tail = ["Reply in a comment on this issue. A number per question is enough — or say "
+            "something else entirely, the options are a starting point and not a ballot. "
+            "Anything you leave out stays open, and I will ask again.",
             "", "<sub>Nothing is spending while this waits. `asf pending` names the run; "
             "at a terminal, `asf answer <adw_id> -m \"...\"` works too.</sub>"]
 

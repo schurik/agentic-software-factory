@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from engine import factory, issues, watch
-from engine.data_types import IssueComment, IssueRef, Question
+from engine import factory, gates, issues, watch
+from engine.data_types import IssueComment, IssueRef, Option, Question, RequirementsOutput
 
 from .asf_helpers import comment_json, forge, forge_calls, forge_data, issue_json, set_config
 
@@ -44,8 +44,16 @@ def tracked(stamped: Path, monkeypatch):
     return factory.load(CONFIG), issue
 
 
+def options(*answers: str, recommend: int = 0) -> list[Option]:
+    return [Option(answer=answer, because=f"because of {answer}", recommended=i == recommend)
+            for i, answer in enumerate(answers)]
+
+
 def questions(*pairs: tuple[str, str]) -> list[Question]:
-    return [Question(topic=topic, question=text) for topic, text in pairs]
+    """Well-formed questions: a topic, a body, two options and one recommendation.
+    Anything a test wants to be wrong about, it says so itself."""
+    return [Question(topic=topic, question=text, options=options("this", "that"))
+            for topic, text in pairs]
 
 
 # ── asking ───────────────────────────────────────────────────────────────────
@@ -62,14 +70,39 @@ def test_a_question_comment_is_grouped_by_topic_and_names_its_round():
 
 
 def test_a_question_comment_stays_under_its_ceiling_and_keeps_what_makes_it_answerable():
-    long = [Question(topic="scope", question="q" * 400) for _ in range(20)]
+    long = [Question(topic="scope", question="q" * 400, options=options("this", "that"))
+            for _ in range(20)]
     text = issues.render_questions(long, "abc123", 1, limit=1200)
 
     assert len(text) <= 1200
     # What survives truncation is the mark and the instructions — a comment
     # that lost those is one nobody can answer, which is worse than a short one.
     assert issues.questions_mark("abc123", 1) in text
-    assert "Answer in a comment on this issue" in text
+    assert "Reply in a comment on this issue" in text
+
+
+def test_a_question_arrives_with_its_options_and_the_recommendation_on_top():
+    asked = Question(topic="scope", question="Which endpoint is meant?",
+                     options=[Option(answer="the login form", because="what the reporter names"),
+                              Option(answer="the OAuth refresh path", recommended=True,
+                                     because="the only one that 500s today")])
+
+    text = issues.render_questions([asked], "abc123", 1)
+
+    # The analyst emitted the recommendation second; a person reads it first.
+    # Sorting at render time rather than trusting the agent's order means the
+    # envelope in the trace still records what the analyst actually said.
+    assert text.index("the OAuth refresh path") < text.index("the login form")
+    assert "1. **the OAuth refresh path** — *recommended*" in text
+    assert "the only one that 500s today" in text
+    assert "A number per question is enough" in text
+
+
+def test_ranking_moves_the_recommendation_and_leaves_every_other_order_alone():
+    asked = Question(topic="scope", question="Which?",
+                     options=options("first", "second", "third", recommend=2))
+
+    assert [option.answer for option in asked.ranked] == ["third", "first", "second"]
 
 
 def test_a_resumed_run_recognises_its_own_round_and_does_not_ask_twice():
@@ -136,6 +169,70 @@ def test_answers_reach_an_agent_as_a_file_that_says_they_are_not_instructions(tm
     # is not the operator, and an answer is material, not a command.
     assert "instructions addressed to you" in text
     assert "COMMENTS BY PEOPLE" in text
+
+
+# ── the gate ─────────────────────────────────────────────────────────────────
+#
+# `run` is unused by this gate and passed as None on purpose: it checks the
+# envelope against itself and touches no tree, which is what makes it safe to
+# run before a person is asked anything.
+
+def asked(*questions_: Question, **fields) -> RequirementsOutput:
+    return RequirementsOutput(status="success", open_questions=list(questions_), **fields)
+
+
+def test_a_well_formed_question_round_passes_the_gate():
+    report = gates.questions_are_answerable(asked(*questions(("scope", "Which endpoint?"))),
+                                            None)
+
+    assert report.passed
+
+
+def test_a_question_with_no_options_is_a_blank_page_and_the_gate_says_so():
+    report = gates.questions_are_answerable(
+        asked(Question(topic="scope", question="What should happen here?")), None)
+
+    assert not report.passed
+    assert any("so a person can answer by picking one" in violation
+               for violation in report.violations)
+
+
+def test_four_options_is_as_refused_as_none():
+    report = gates.questions_are_answerable(
+        asked(Question(topic="scope", question="Which?",
+                       options=options("a", "b", "c", "d"))), None)
+
+    assert not report.passed
+
+
+def test_two_options_is_enough_because_some_questions_have_two_honest_answers():
+    report = gates.questions_are_answerable(
+        asked(Question(topic="scope", question="Keep the 500?",
+                       options=options("keep it", "return 503"))), None)
+
+    assert report.passed
+
+
+def test_an_analyst_that_recommends_everything_or_nothing_has_not_finished_thinking():
+    none_marked = Question(topic="scope", question="Which?",
+                           options=[Option(answer="a"), Option(answer="b")])
+    both_marked = Question(topic="scope", question="Which?",
+                           options=[Option(answer="a", recommended=True),
+                                    Option(answer="b", recommended=True)])
+
+    assert not gates.questions_are_answerable(asked(none_marked), None).passed
+    assert not gates.questions_are_answerable(asked(both_marked), None).passed
+
+
+def test_ordering_a_scout_without_saying_what_to_look_for_is_refused():
+    vague = asked(needs_recon=True)
+    pointed = asked(needs_recon=True, recon_focus="where the OAuth refresh is handled")
+
+    assert not gates.questions_are_answerable(vague, None).passed
+    assert gates.questions_are_answerable(pointed, None).passed
+    # Not asking for recon is never a finding — the gate checks the pair, not
+    # whether a scout would have helped. That would be a prediction.
+    assert gates.questions_are_answerable(asked(), None).passed
 
 
 # ── writing it down ──────────────────────────────────────────────────────────

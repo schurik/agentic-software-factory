@@ -131,6 +131,57 @@ def verdict_consistent(envelope: EnvelopeBase, run) -> GateReport:
     return report
 
 
+MIN_OPTIONS, MAX_OPTIONS = 2, 3
+
+
+def questions_are_answerable(envelope: EnvelopeBase, run) -> GateReport:
+    """A question round, checked against itself before it costs a person a reply.
+
+    Nothing here judges whether the questions are GOOD — that is the analyst's
+    job and a reviewer's. What it refuses is a round that would waste the one
+    expensive thing in this loop, which is somebody's attention: a question with
+    no options is a blank page handed to the person least able to fill it, and
+    an analyst that recommends everything or nothing has not finished thinking.
+
+    The two or three options are a range, not a preference for three. A yes/no
+    question has two honest answers and inventing a third to satisfy a gate
+    would be worse than the gate not existing.
+
+    `needs_recon` is checked the same way every other claim in this package is:
+    against the envelope, never against the future. Whether the recon would have
+    helped is a prediction, and gates do not verify predictions — only that an
+    analyst asking for one said what it is looking for.
+    """
+    report = GateReport()
+    for question in getattr(envelope, "open_questions", []):
+        name = (question.question or "<empty>")[:60]
+        report.check(f"{name} · asked", bool(question.topic and question.question),
+                     "has a topic and a question" if question.topic and question.question
+                     else "a question needs both a topic and something to ask")
+
+        count = len(question.options)
+        report.check(f"{name} · options",
+                     MIN_OPTIONS <= count <= MAX_OPTIONS,
+                     f"{count} option(s)" if MIN_OPTIONS <= count <= MAX_OPTIONS
+                     else f"{count} option(s); a question arrives with "
+                          f"{MIN_OPTIONS}-{MAX_OPTIONS}, so a person can answer by "
+                          f"picking one")
+
+        recommended = [option for option in question.options if option.recommended]
+        report.check(f"{name} · recommendation", len(recommended) == 1,
+                     f"recommends {recommended[0].answer[:40]!r}" if len(recommended) == 1
+                     else f"{len(recommended)} options marked recommended; exactly one "
+                          f"carries it — an analyst with a view says which")
+
+    if getattr(envelope, "needs_recon", False):
+        focus = (getattr(envelope, "recon_focus", "") or "").strip()
+        report.check("recon_focus", bool(focus),
+                     f"looking for: {focus[:60]}" if focus
+                     else "needs_recon is set with no recon_focus — a scout cannot be "
+                          "sent to find out 'something'")
+    return report
+
+
 def tests_pass(command: str):
     """Gate factory: the given shell command must exit 0.
 
