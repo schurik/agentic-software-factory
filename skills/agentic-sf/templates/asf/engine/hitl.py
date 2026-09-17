@@ -231,6 +231,30 @@ def resolve_paths(run, paths: list[str]) -> list[Path]:
     return [Path(p) if Path(p).is_absolute() else Path(run.repo_root) / p for p in paths]
 
 
+def channel_of(run) -> str:
+    """Where this run's questions go, and where its answer comes back from.
+
+    THE WORK ITEM FIRST, then the pull request, then the terminal. A run that
+    was launched from one of the first two answers THERE — at every gate, not
+    only at a question round — because the person who filed the work or asked
+    for the change is already looking at that page. A terminal is the thing
+    that is usually not there: under cron, inside a watcher, in CI. Deriving
+    the other way round would have a suspended run claim to be waiting
+    somewhere nobody is standing.
+
+    Only "issue" has a reader today. "pr" is recorded anyway, because what a
+    suspended review run is waiting on is a fact worth writing down truthfully
+    before there is code that acts on it — and a watcher that cannot serve a
+    channel must skip it by NAME rather than by assuming everything it does not
+    recognise is its own.
+    """
+    if getattr(run, "issue_number", 0):
+        return "issue"
+    if getattr(run, "pr_url", ""):
+        return "pr"
+    return "terminal"
+
+
 def how_to_answer(run, gate: str) -> str:
     return (f"record a Decision with engine.hitl.answer({run.session_dir}, "
             f"'approve'|'reject'|'abort', notes, by), then re-run the workflow with "
@@ -251,7 +275,9 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
     waiting = WaitingFor(gate=subject.gate, round=subject.round, phase_id=phase.phase_id,
                          phase_name=phase.params.name, since=now_iso(),
                          subject_digest=fingerprint, paths=[str(p) for p in paths],
-                         summary=subject.summary, notes=subject.notes)
+                         summary=subject.summary, notes=subject.notes,
+                         channel=channel_of(run),
+                         issue_number=getattr(run, "issue_number", 0))
     run.console.note(f"gate {subject.gate} round {subject.round}: {subject.summary}")
     for path in waiting.paths:
         run.console.note(f"subject: {path}")

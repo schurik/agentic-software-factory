@@ -574,13 +574,20 @@ class WaitingFor(BaseModel):
     phase_id: str = ""
     phase_name: str = ""
     since: str = ""
-    # WHERE the answer is expected from: "terminal" (a person at this run's
-    # keyboard or `asf answer`) or "issue" (a comment on the work item). The
-    # answers watcher reads this to know which suspended sessions are its own;
-    # without it, it would have to guess from the gate name.
-    channel: str = "terminal"
-    # The work item a question round was published to, and the comment id the
-    # answer must come after. Both empty on the terminal channel.
+    # WHERE the answer is expected from, and THE WORK ITEM IS THE DEFAULT.
+    # "issue" — a comment on the work item. "pr" — a review thread. "terminal"
+    # — a person at this run's keyboard, or `asf answer` from another one.
+    #
+    # The order of that list is the point and not an accident. A factory is
+    # normally reached from a tracker: the person who filed the work is already
+    # looking at that page, and the terminal is the thing that is usually NOT
+    # there — under cron, in a watcher, in CI. Defaulting to it would make the
+    # exception the assumption, and a suspended run would claim to be waiting
+    # somewhere nobody is standing. `hitl.channel_of()` derives the real value
+    # from the run; this default is what a hand-built one gets.
+    channel: str = "issue"
+    # The work item a question round was published to, and when it went up — an
+    # answer is a comment AFTER this. Both empty off the issue channel.
     issue_number: int = 0
     asked_at: str = ""
     subject_digest: str = ""

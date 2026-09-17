@@ -17,8 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from engine import factory, gates, issues, watch
-from engine.data_types import IssueComment, IssueRef, Option, Question, RequirementsOutput
+from engine import factory, gates, hitl, issues, watch
+from engine.data_types import (IssueComment, IssueRef, Option, Question,
+                               RequirementsOutput, WaitingFor)
 
 from .asf_helpers import comment_json, forge, forge_calls, forge_data, issue_json, set_config
 
@@ -112,6 +113,32 @@ def test_a_resumed_run_recognises_its_own_round_and_does_not_ask_twice():
     assert issues.already_asked([asked], "abc123", 1)
     assert not issues.already_asked([asked], "abc123", 2)      # the next round is unasked
     assert not issues.already_asked([asked], "def456", 1)      # another run's, not ours
+
+
+# ── which channel ────────────────────────────────────────────────────────────
+
+class FakeRun:
+    """Only what `channel_of` looks at. A Run needs a worktree and a tracer;
+    which channel a run answers on is a question about three attributes."""
+
+    def __init__(self, issue_number: int = 0, pr_url: str = ""):
+        self.issue_number = issue_number
+        self.pr_url = pr_url
+
+
+def test_a_run_answers_where_it_was_launched_from_and_the_work_item_comes_first():
+    assert hitl.channel_of(FakeRun(issue_number=42)) == "issue"
+    assert hitl.channel_of(FakeRun(pr_url="https://forge/acme/widgets/pull/9")) == "pr"
+    # An issue-triggered run that also opened a pull request still answers on
+    # the issue: that is where the person who asked for the work is looking.
+    assert hitl.channel_of(FakeRun(issue_number=42, pr_url="https://forge/x/pull/9")) == "issue"
+
+
+def test_the_terminal_is_the_fallback_and_never_the_assumption():
+    assert hitl.channel_of(FakeRun()) == "terminal"
+    # A hand-built wait gets the work item, not the keyboard. The terminal is
+    # the thing that is usually NOT there — under cron, in a watcher, in CI.
+    assert WaitingFor(gate="requirements").channel == "issue"
 
 
 # ── hearing back ─────────────────────────────────────────────────────────────
