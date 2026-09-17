@@ -65,7 +65,8 @@ def test_the_shipped_workflows_load_and_name_their_agents(factory_repo):
 
 def test_the_roster_is_directories_and_factory_yaml_may_not_carry_agents(factory_repo):
     cfg = factory.load()
-    assert sorted(a.name for a in cfg.agents) == ["builder", "documenter", "planner", "reviewer", "scout"]
+    assert sorted(a.name for a in cfg.agents) == ["analyst", "builder", "documenter", "planner",
+                                                  "reviewer", "scout"]
     scout = next(a for a in cfg.agents if a.name == "scout")
     assert scout.writes == [] and scout.thinking == "low"             # read-only recon, cheap
     planner = next(a for a in cfg.agents if a.name == "planner")
@@ -118,7 +119,8 @@ def test_a_stage_outside_the_vocabulary_is_refused_with_the_vocabulary(factory_r
                                          "stages": [{"deploy": {}}]})
     message = refused("bad")
     assert "'deploy' is not a stage" in message
-    assert "commit, document, implement, integrate, plan, review, scout, verify" in message
+    assert ("commit, document, implement, integrate, plan, refine, review, scout, verify"
+            in message)
 
 
 def test_an_input_outside_the_three_is_refused(factory_repo):

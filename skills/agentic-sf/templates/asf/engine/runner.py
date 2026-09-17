@@ -301,7 +301,8 @@ class Run:
             self.tracer.session_waiting(self.adw_id, stop.waiting.gate)
             artifacts.suspend_run(self.session_dir, stop.waiting)
             self.console.phase_ended(phase, time.monotonic() - clock)
-            self.console.waiting(stop.waiting, hitl.how_to_answer(self, stop.waiting.gate))
+            self.console.waiting(stop.waiting, hitl.how_to_answer(self, stop.waiting.gate,
+                                                    stop.waiting.kind))
             raise
         except BaseException as error:
             phase.status = "fail"                      # success must be earned

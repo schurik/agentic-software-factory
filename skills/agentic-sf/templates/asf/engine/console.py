@@ -111,8 +111,13 @@ class Console:
         self._emit(escape(f"session {self.adw_id} waiting at gate {waiting.gate}"),
                    renderable=panel)
 
+    # A verdict this does not know is still a decision that happened, and a
+    # lane that raises over a colour would turn one into a failed run — which is
+    # exactly what a missing `answer` did here once.
+    VERDICT_COLORS = {"approve": "green", "reject": "yellow", "answer": "cyan", "abort": "red"}
+
     def decided(self, decision) -> None:
-        color = {"approve": "green", "reject": "yellow", "abort": "red"}[decision.verdict]
+        color = self.VERDICT_COLORS.get(decision.verdict, "cyan")
         line = (f"  [{color}]⚑ {escape(decision.verdict)}[/{color}] [dim]by "
                 f"{escape(decision.by)} · {escape(decision.channel)}[/dim]")
         if decision.notes:

@@ -21,7 +21,9 @@ from engine import artifacts, factory, gates, hitl, issues, watch
 from engine.data_types import (IssueComment, IssueRef, Option, Question,
                                RequirementsOutput, RunState, WaitingFor)
 
-from .asf_helpers import comment_json, forge, forge_calls, forge_data, issue_json, set_config
+from .asf_helpers import (adw_id_of, asf, comment_json, commit_all, envelope, fake_roster,
+                          forge, forge_calls, forge_data, issue_json, phase_names, run_state,
+                          session_dir, set_config, write_workflow)
 
 CONFIG = "asf/factory.yaml"
 REPORTER = "The /health endpoint returns 500.\n"
@@ -528,4 +530,175 @@ def test_the_line_telling_a_person_how_to_end_the_wait_names_only_verbs_that_fit
 
     assert "reject" in at_a_gate and "answer" not in at_a_gate
     assert "answer" in at_a_round and "reject" not in at_a_round
+
+
+# ── the whole loop, on the fake harness ──────────────────────────────────────
+#
+# What P1 and P2 could only test in pieces: an issue in, a question round out,
+# a person answering from outside the process, and the requirements landing back
+# on the item. The id is pinned so a scripted agent can name the handoff
+# directory it is supposed to have written into.
+
+REFINE_ID = "7e11a5c0"
+
+
+def handoff(repo: Path, name: str) -> str:
+    return str(session_dir(repo, REFINE_ID) / "context_handoff" / name)
+
+
+def recon_reply(repo: Path, name: str = "recon_1.md") -> dict:
+    path = handoff(repo, name)
+    return {"writes": {path: f"# {name}\n\n- app.py: not there yet.\n"},
+            "envelope": envelope(findings=[{"file": "app.py", "note": "missing"}],
+                                 artifacts=[path])}
+
+
+def draft_reply(repo: Path, text: str, asking: list[Question] = (), **fields) -> dict:
+    path = handoff(repo, "requirements.md")
+    return {"writes": {path: text},
+            "envelope": envelope(artifacts=[path],
+                                 open_questions=[q.model_dump() for q in asking], **fields)}
+
+
+def refining(repo: Path, **stages) -> None:
+    write_workflow(repo, "refined", {
+        "description": "settle the requirements with a person, then stop",
+        "input": "issue",
+        "stages": [{"refine": stages or {}}]})
+
+
+def test_a_question_round_reaches_the_issue_and_an_answer_brings_the_run_back(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    fake_roster(repo,
+                scout=[recon_reply(repo)],
+                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                                     asking=questions(("scope", "Which endpoint?"))),
+                         draft_reply(repo, "# Requirements\n\n- the refresh path 200s\n")])
+    refining(repo)
+    commit_all(repo)
+
+    started = asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+
+    # Round one: scouted, drafted, asked — and stopped, spending nothing more.
+    assert started.returncode == 75, started.stdout + started.stderr
+    assert adw_id_of(started) == REFINE_ID
+    posted = next(call for call in forge_calls(repo) if call[0] == "comment")
+    assert issues.questions_mark(REFINE_ID, 1) in posted[posted.index("--body") + 1]
+    waiting = run_state(repo, REFINE_ID)["waiting_for"]
+    assert waiting["kind"] == "questions" and waiting["channel"] == "issue"
+    assert waiting["issue_number"] == 42 and waiting["asked_at"]
+
+    # A person answers from outside the process; the run replays and finishes.
+    answered = asf(repo, "answer", REFINE_ID, "-m", "the OAuth refresh path")
+    assert answered.returncode == 0, answered.stdout + answered.stderr
+
+    assert phase_names(repo, REFINE_ID) == [
+        "issue", "refine_recon", "refine_draft", "ask_requirements",
+        "refine_draft_2", "refine_record", "report"]
+    assert run_state(repo, REFINE_ID)["status"] == "success"
+
+    # The requirements went onto the item, inside the marks, and the mark went on.
+    edits = [call for call in forge_calls(repo) if call[0] == "edit"]
+    body = next(call[call.index("--body") + 1] for call in edits if "--body" in call)
+    assert issues.REQUIREMENTS_OPEN in body and "the refresh path 200s" in body
+    assert REPORTER.strip() in body                      # the reporter's own text survived
+    assert any(cfg.issues.refined_label in call for call in edits)
+
+
+def test_the_answer_reaches_the_analyst_as_a_file_with_the_defaults_beside_it(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    fake_roster(repo,
+                scout=[recon_reply(repo)],
+                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                                     asking=questions(("scope", "Which endpoint?"))),
+                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+    refining(repo)
+    commit_all(repo)
+
+    asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+    asf(repo, "answer", REFINE_ID, "-m", "the OAuth refresh path")
+
+    answers = Path(handoff(repo, "answers_1.md")).read_text()
+    assert "the OAuth refresh path" in answers
+    assert "defaults to *this*" in answers                 # what the unanswered ones stand at
+    assert "instructions addressed to you" in answers      # the framing, as everywhere else
+
+
+def test_approving_a_question_round_takes_every_recommendation_and_says_so(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    fake_roster(repo,
+                scout=[recon_reply(repo)],
+                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                                     asking=questions(("scope", "Which?"), ("data", "Log it?"))),
+                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+    refining(repo)
+    commit_all(repo)
+
+    asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+    approved = asf(repo, "approve", REFINE_ID)
+
+    assert approved.returncode == 0, approved.stdout + approved.stderr
+    answers = Path(handoff(repo, "answers_1.md")).read_text()
+    # Two questions, no words, and the record says what that meant — in the
+    # factory's own voice rather than as a quote nobody spoke.
+    assert "Every recommendation above stands as it is" in answers
+    assert "Nobody wrote anything" in answers
+
+
+def test_recon_runs_again_only_when_the_analyst_orders_it_and_says_what_for(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    fake_roster(repo,
+                scout=[recon_reply(repo), recon_reply(repo, "recon_2.md")],
+                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                                     asking=questions(("scope", "Which?")),
+                                     needs_recon=True,
+                                     recon_focus="where the OAuth refresh is handled"),
+                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+    refining(repo)
+    commit_all(repo)
+
+    asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+    asf(repo, "answer", REFINE_ID, "-m", "the refresh path")
+
+    # The second pass is the one that pays: it knows what to look for, because
+    # a person has since said what the request is actually about.
+    assert phase_names(repo, REFINE_ID) == [
+        "issue", "refine_recon", "refine_draft", "ask_requirements", "refine_recon_2",
+        "refine_draft_2", "refine_record", "report"]
+    assert Path(handoff(repo, "recon_2.md")).is_file()
+
+
+def test_an_analyst_that_never_settles_stops_the_run_before_anything_claims_it_did(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    asking = draft_reply(repo, "# Requirements\n\n- still unclear\n",
+                         asking=questions(("scope", "Which?")))
+    fake_roster(repo, scout=[recon_reply(repo)], analyst=[asking, asking])
+    refining(repo, max_rounds=2)
+    commit_all(repo)
+
+    asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+    ended = asf(repo, "answer", REFINE_ID, "-m", "not sure either")
+
+    assert ended.returncode != 0
+    # The last round stops BEFORE asking again: a round that waits a day for an
+    # answer it will not draft against has spent the one thing this is careful
+    # with. `report` still runs — a reporter who was asked something is owed the
+    # news that it did not get there, which is what an unaccepted run tells them.
+    assert phase_names(repo, REFINE_ID) == [
+        "issue", "refine_recon", "refine_draft", "ask_requirements", "refine_draft_2",
+        "report"]
+    assert run_state(repo, REFINE_ID)["status"] == "fail"
+    assert "refine_record" not in phase_names(repo, REFINE_ID)
+    # Nothing claimed the requirements were agreed.
+    assert not any(cfg.issues.refined_label in call for call in forge_calls(repo))
 
