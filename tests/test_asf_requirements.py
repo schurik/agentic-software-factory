@@ -79,7 +79,7 @@ def test_a_question_comment_stays_under_its_ceiling_and_keeps_what_makes_it_answ
     # What survives truncation is the mark and the instructions — a comment
     # that lost those is one nobody can answer, which is worse than a short one.
     assert issues.questions_mark("abc123", 1) in text
-    assert "Reply in a comment on this issue" in text
+    assert "only need to write about what you would change" in text
 
 
 def test_a_question_arrives_with_its_options_and_the_recommendation_on_top():
@@ -97,6 +97,27 @@ def test_a_question_arrives_with_its_options_and_the_recommendation_on_top():
     assert "1. **the OAuth refresh path** — *recommended*" in text
     assert "the only one that 500s today" in text
     assert "A number per question is enough" in text
+
+
+def test_the_comment_says_that_an_unanswered_question_takes_its_recommendation():
+    text = issues.render_questions(questions(("scope", "Which endpoint?")), "abc123", 1)
+
+    # A person who agrees with seven recommendations should write one line, not
+    # seven. Saying so is half of making it true; `write_answers` is the other.
+    assert "only need to write about what you would change" in text
+    assert "takes the option marked *recommended*" in text
+    # And the limit of it: a default is for a question a reply did not cover,
+    # never for a reply that never came.
+    assert "nothing proceeds on silence" in text
+
+
+def test_the_recommendation_is_the_question_s_default_and_the_gate_guarantees_one():
+    asked = Question(topic="scope", question="Which?", options=options("a", "b", recommend=1))
+
+    assert asked.default is not None and asked.default.answer == "b"
+    # Every question the gate lets through has one, which is what makes
+    # "answer only what you disagree with" a rule rather than a hope.
+    assert Question(topic="t", question="q").default is None
 
 
 def test_ranking_moves_the_recommendation_and_leaves_every_other_order_alone():
@@ -196,6 +217,31 @@ def test_answers_reach_an_agent_as_a_file_that_says_they_are_not_instructions(tm
     # is not the operator, and an answer is material, not a command.
     assert "instructions addressed to you" in text
     assert "COMMENTS BY PEOPLE" in text
+
+
+def test_the_analyst_is_handed_the_defaults_so_one_line_of_agreement_is_readable(tmp_path: Path):
+    asked = [Question(topic="scope", question="Which endpoint?",
+                      options=options("the login form", "the refresh path", recommend=1)),
+             Question(topic="data", question="Log the 500?", options=options("yes", "no"))]
+
+    text = issues.write_answers(tmp_path / "answers.md",
+                                [IssueComment(body="go with the recommendations",
+                                              author="schurik")], asked)
+
+    # "sounds good" is only cheap for the person. The analyst has to know what
+    # it agreed TO, and reconstructing that from the reply alone is how a cheap
+    # round becomes a wrong one — so the defaults are restated as fact.
+    assert "defaults to *the refresh path*" in text and "defaults to *yes*" in text
+    assert "A reply overrides the questions it addresses" in text
+    # And the record has to say which ones were taken that way.
+    assert "which defaults you took" in text
+
+
+def test_the_defaults_section_is_left_out_when_there_is_nothing_to_restate(tmp_path: Path):
+    text = issues.write_answers(tmp_path / "answers.md",
+                                [IssueComment(body="anything", author="schurik")])
+
+    assert "What was asked, and what it stands at" not in text
 
 
 # ── the gate ─────────────────────────────────────────────────────────────────

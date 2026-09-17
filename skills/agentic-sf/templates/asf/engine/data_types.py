@@ -170,6 +170,25 @@ class Question(BaseModel):
     options: list[Option] = Field(default_factory=list)
 
     @property
+    def default(self) -> Optional[Option]:
+        """The answer this question already has: the recommended option.
+
+        THE RECOMMENDATION IS A DEFAULT, not a hint. A person who agrees with
+        the analyst should not have to type seven replies to say so, and one
+        who disagrees about two of seven should have to write about two. So a
+        reply overrides the questions it addresses and the rest stand at their
+        recommendation.
+
+        A default is not consent to SILENCE, and the distinction is the whole
+        safety of this: it applies to a question a reply did not cover, never
+        to a reply that never came. A round with no answer at all stays
+        suspended — `gates.questions_are_answerable` is what guarantees the
+        default exists in the first place, and it can only be taken by someone
+        who actually came back.
+        """
+        return next((option for option in self.options if option.recommended), None)
+
+    @property
     def ranked(self) -> list[Option]:
         """The options as a person should read them: recommended first.
 
