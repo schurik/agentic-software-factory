@@ -81,6 +81,21 @@ issues:
   # the description to three different places.
   comments_command: ["gh", "issue", "view"]
   body_command:     ["gh", "issue", "edit"]
+  # Reading which labels this project DEFINES, and defining one. EVERY LABEL
+  # NAMED BELOW HAS TO EXIST BEFORE ANYTHING CAN APPLY IT: a route label the
+  # forge never heard of cannot be applied by anyone, so the workflow behind it
+  # looks configured and is inert, and `--add-label` on an undefined name fails
+  # the write it rides on. `just labels` says which are missing; `just labels
+  # --create` defines exactly those and touches nothing else. `just doctor`
+  # asks the same question every time it runs, which is how an UPGRADE that
+  # adds a label gets noticed — the installer never rewrites this file.
+  #
+  # A FIFTH VERB the four above do not imply: glab, jira and linear all fit
+  # `view | list | comment | edit`, and none of them define labels the way
+  # `gh label` does. Empty on either = skip, which is the honest answer for a
+  # tracker whose labels are not created this way.
+  labels_list_command:   ["gh", "label", "list"]
+  labels_create_command: ["gh", "label", "create"]
   # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
   # AND a label here launches that workflow. `route: {}` means nothing ever
   # launches, whatever `enabled` says.

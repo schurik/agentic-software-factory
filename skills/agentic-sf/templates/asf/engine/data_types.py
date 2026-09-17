@@ -322,6 +322,66 @@ class Finding(BaseModel):
         return f"{self.check}: {self.detail}" if self.detail else self.check
 
 
+# ── Forge labels: the names this config will one day try to apply ────────────
+
+class Label(BaseModel):
+    """One label the config NAMES, and what to say about it when defining it.
+
+    `why` is written for the person who finds the label on a work item months
+    later and wonders who put it there — not for the factory, which only ever
+    matches on `name`.
+    """
+
+    name: str
+    color: str = ""                 # six hex digits, no `#` — what `gh label` wants
+    why: str = ""                   # the label's description at the forge
+    role: str = ""                  # route | queued | running | done | failed | refined | …
+
+
+class LabelSurvey(BaseModel):
+    """What the config names, what the forge defines, and the gap between them.
+
+    One object rather than a tuple of three lists, because both callers ask all
+    three questions and `asked` is the one that decides whether the other two
+    mean anything: a forge that could not be reached defines nothing AS FAR AS
+    WE KNOW, and reporting every label as missing on that basis would be a
+    confident wrong answer. See `labels.survey`.
+    """
+
+    referenced: list[Label] = Field(default_factory=list)
+    defined: list[str] = Field(default_factory=list)
+    # Three outcomes, not two, because the middle one is the honest answer often
+    # enough to deserve its own field: the question does not APPLY here (no path
+    # applies labels, or this tracker does not define them with a command), the
+    # forge could not be ASKED (no auth, no remote, no network), or it answered.
+    # Callers that collapsed the first two into "missing" would tell somebody on
+    # a plane that nine labels are gone.
+    applicable: bool = True
+    asked: bool = False             # False = the forge could not be asked at all
+    note: str = ""                  # why not, when `applicable` or `asked` is False
+
+    @property
+    def missing(self) -> list[Label]:
+        return [label for label in self.referenced if label.name not in set(self.defined)]
+
+    @property
+    def stale(self) -> list[str]:
+        """Labels in OUR namespace that nothing in the config names any more.
+
+        The namespace is derived from the referenced names rather than assumed
+        to be `asf:` — a repository that renamed every state gets the same
+        answer about its own prefix, and a repository's ordinary `bug` is never
+        ours to have an opinion about. Reported, never deleted: removing a label
+        at the forge strips it from every item that carries it, and that history
+        is not the factory's to destroy.
+        """
+        ours = {name.split(":", 1)[0] + ":" for name in
+                (label.name for label in self.referenced) if ":" in name}
+        named = {label.name for label in self.referenced}
+        return sorted(name for name in self.defined
+                      if name not in named and any(name.startswith(p) for p in ours))
+
+
 # ── Change capture (git diff, deterministic) ─────────────────────────────────
 
 class ChangeCapture(BaseModel):
@@ -902,6 +962,22 @@ class IssuesConfig(BaseModel):
     # config that had conflated them could not say so.
     comments_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "view"])
     body_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
+    # Reading which labels the project DEFINES, and defining one. Every name in
+    # `route`, `states`, `refined_label` and `pull_requests.states.failed` is
+    # one this factory will hand to `--add-label`, and a forge answers that with
+    # an error when nothing ever defined it — so an undefined route label makes
+    # a workflow that looks configured unreachable, and an undefined
+    # `refined_label` kills a `refine` run at its last write.
+    #
+    # A FIFTH VERB the other four do not imply: glab, jira and linear all fit
+    # `view | list | comment | edit`, and none of them define labels the way
+    # `gh label` does. EMPTY MEANS SKIP, on both of these, which is the honest
+    # answer for a tracker whose labels are not created this way — better than
+    # inventing `gh` for it. They live here rather than under `pull_requests`
+    # because a label is a fact about the project, not about issues, and the
+    # two paths share one project (see `issues.resolve_project`).
+    labels_list_command: list[str] = Field(default_factory=lambda: ["gh", "label", "list"])
+    labels_create_command: list[str] = Field(default_factory=lambda: ["gh", "label", "create"])
     # label -> workflow. The watcher routes on this; no workflow knows about it.
     # An empty map launches nothing, whatever `enabled` says.
     route: dict[str, str] = Field(default_factory=lambda: {"asf:ship": "issue"})

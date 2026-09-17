@@ -8,6 +8,7 @@ Usage:
     uv run asf/asf.py list                       every workflow, one line each
     uv run asf/asf.py check [<workflow>]         load and validate, spawn nothing
     uv run asf/asf.py doctor                     is this repo ready to run? checks + fixes
+    uv run asf/asf.py labels [--create]          the forge labels this config names
     uv run asf/asf.py run <workflow> "<prompt or path/to/prompt.md>"
                         [--adw-id a1b2c3d4] [--resume] [--hitl all|none|every|plan]
     uv run asf/asf.py run <workflow> <number>    for a workflow with input: issue | pr
@@ -80,6 +81,10 @@ def cmd_doctor(args) -> int:
     print()
     args.workflow = None
     return max(code, cmd_check(args))
+
+
+def cmd_labels(args) -> int:
+    return operate.labels(factory.load(args.config), args.create)
 
 
 def cmd_run(args) -> int:
@@ -190,6 +195,10 @@ def build_parser() -> argparse.ArgumentParser:
     check.set_defaults(func=cmd_check)
     _config_on(sub.add_parser("doctor", help="is this repo ready to run? checks + fixes")
                ).set_defaults(func=cmd_doctor)
+    lbl = _config_on(sub.add_parser("labels", help="the forge labels this config names"))
+    lbl.add_argument("--create", action="store_true",
+                     help="define the missing ones; never edits or deletes an existing label")
+    lbl.set_defaults(func=cmd_labels)
 
     run = _config_on(sub.add_parser("run", help="run one workflow against a prompt"))
     run.add_argument("workflow")

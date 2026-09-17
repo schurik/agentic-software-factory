@@ -15,6 +15,7 @@ STAMPED = ["asf/asf.py", "asf/factory.yaml", "asf/engine/session.py", "asf/engin
            "asf/stages/scout/stage.py", "asf/stages/scout/task.md", "asf/agents/scout/agent.md",
            "asf/workflows/issue/workflow.yaml", "asf/workflows/pr-review/tasks/implement.md",
            "asf/engine/inputs.py", "asf/engine/watch.py", "asf/engine/supervise.py",
+           "asf/engine/labels.py",
            ".env.sample", ".env", "justfile"]
 
 

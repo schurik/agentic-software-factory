@@ -43,6 +43,7 @@ import subprocess
 from pathlib import Path
 
 from . import git_helper, harnesses
+from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
 from .utils import anchor
 
@@ -289,6 +290,52 @@ def forge(cfg: FactoryConfig) -> list[Finding]:
     return findings
 
 
+# ── the labels the config names, and whether the forge defines them ──────────
+
+def labels(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
+    """Whether every label this config will try to apply actually exists.
+
+    Doctor-only, never `before_run`: it is a network round-trip, and what it
+    asks about changes roughly twice a year. It is also the check that catches
+    the UPGRADE path, which is the one the installer can never reach — a repo
+    stamped a release ago keeps its own factory.yaml (that is the whole point
+    of `--force` not eating it), so a release that adds a label adds a
+    reference and no way for the name to exist. This says so.
+
+    Warn, never fatal, in both directions: a label that is missing does not stop
+    the run that does not use it, and a forge that could not be asked has told
+    us nothing — see `labels.survey`, and rule 1 at the top of this module.
+    """
+    found = labels_module.survey(cfg, main_root)
+    if not found.applicable:
+        return []                                  # nothing to check, or not this tracker
+    if not found.asked:
+        return [Finding(
+            check="forge labels", level="warn",
+            detail=f"could not ask which labels the project defines — {found.note}",
+            fix="name the project in issues.project, authenticate the forge CLI, or "
+                "clear issues.labels_list_command if this tracker does not define "
+                "labels that way. Nothing is assumed either way: the labels below "
+                "may all be fine")]
+    # Said in both outcomes, never only the green one: a renamed route leaves its
+    # old label behind, and the items still carrying it are evidence rather than
+    # litter — which is also why nothing here offers to delete it.
+    aside = (f" · {', '.join(found.stale)} defined here but named by nothing in the "
+             f"config" if found.stale else "")
+    if not found.missing:
+        return [Finding(
+            check="forge labels",
+            detail=f"{len(found.referenced)} label(s) the config names are all "
+                   f"defined{aside}")]
+    return [Finding(
+        check="forge labels", level="warn",
+        detail=f"{len(found.missing)} label(s) this config applies do not exist at the "
+               f"forge: {', '.join(label.name for label in found.missing)} — "
+               f"a route nobody can label is a workflow nothing can trigger, and "
+               f"`--add-label` on an undefined name fails the write it rides on{aside}",
+        fix="uv run asf/asf.py labels --create  (adds exactly these, nothing else)")]
+
+
 # ── the skill, and the UI that ships with it ─────────────────────────────────
 
 def skill() -> list[Finding]:
@@ -401,4 +448,4 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + skill() + trace_ui())
+            + forge(cfg) + labels(cfg, root) + skill() + trace_ui())
