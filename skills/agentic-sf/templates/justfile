@@ -121,6 +121,18 @@ status:
 issues:
     {{asf}} issues once
 
+# one poll for answers: resume every run somebody answered on its work item
+answers:
+    {{asf}} answers once
+
+# which runs are waiting on an answer from the tracker, and who may give it
+answers-status:
+    @{{asf}} answers status
+
+# cron form: poll for answers forever
+answers-watch *ARGS:
+    {{asf}} answers loop "${@:2}"
+
 # what the issue watcher would do, and whether it can
 issues-status:
     @{{asf}} issues status

@@ -21,8 +21,9 @@ Usage:
     uv run asf/asf.py kill    <adw_id> [--force]     stop a run: agents first, then the workflow
 
     uv run asf/asf.py issues  once|loop|status [--interval 120]   a run per labelled issue
+    uv run asf/asf.py answers once|loop|status [--interval 120]   resume what was answered
     uv run asf/asf.py prs     once|loop|status [--interval 120] [--pr 17]   answer review threads
-    uv run asf/asf.py up      [--only issues,prs,obs] [--interval 120]   both watchers + trace UI
+    uv run asf/asf.py up      [--only issues,answers,prs,obs] [--interval 120]   all of it
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
 
@@ -124,6 +125,19 @@ def cmd_issues(args) -> int:
     return watch.issues_loop(cfg, args.config, args.interval)
 
 
+def cmd_answers(args) -> int:
+    cfg = factory.load(args.config)
+    if args.action == "status":
+        return watch.answers_status(cfg)
+    # No `_watched_workflows` check: this poller launches nothing. It resumes
+    # runs that already loaded their workflow once, and a workflow that has
+    # since been edited into something unloadable fails in that run's own
+    # process, where the record of it belongs.
+    if args.action == "once":
+        return watch.answers_once(cfg, args.config)
+    return watch.answers_loop(cfg, args.config, args.interval)
+
+
 def cmd_prs(args) -> int:
     cfg = factory.load(args.config)
     if args.action == "status":
@@ -221,6 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
     kill.set_defaults(func=cmd_kill)
 
     for kind, help_text in (("issues", "a run per labelled issue"),
+                            ("answers", "resume a run somebody answered on its work item"),
                             ("prs", "answer review threads on this factory's pull requests")):
         one = _config_on(sub.add_parser(kind, help=help_text))
         one.add_argument("action", choices=["once", "loop", "status"])
@@ -228,10 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
         if kind == "prs":
             one.add_argument("--pr", type=int, default=0,
                              help="watch one pull request; loop exits when it is merged or closed")
-        one.set_defaults(func=cmd_issues if kind == "issues" else cmd_prs)
-    up = _config_on(sub.add_parser("up", help="both watchers and the trace UI, in one process"))
+        one.set_defaults(func={"issues": cmd_issues, "answers": cmd_answers,
+                               "prs": cmd_prs}[kind])
+    up = _config_on(sub.add_parser("up", help="every watcher and the trace UI, in one process"))
     up.add_argument("--interval", type=int, default=120, help="seconds between polls")
-    up.add_argument("--only", default="", help="comma-separated subset of obs,issues,prs")
+    up.add_argument("--only", default="",
+                    help="comma-separated subset of obs,issues,answers,prs")
     up.set_defaults(func=cmd_up)
     _config_on(sub.add_parser("status", help="what is watching, running, waiting, left behind")
                ).set_defaults(func=cmd_status)

@@ -44,7 +44,7 @@ from typing import Optional
 
 from . import artifacts, issues
 from .data_types import (Decision, EnvelopeBase, EventRecord, Gate, HitlConfig, IssueRef,
-                         IssueUpdate, Phase, PhaseParams, Subject, WaitingFor)
+                         IssueUpdate, Phase, PhaseParams, Reply, Subject, WaitingFor)
 from .utils import now_iso
 
 EXIT_WAITING = 75          # EX_TEMPFAIL: "try again later", which is exactly it
@@ -456,7 +456,7 @@ def _notify(run, waiting: WaitingFor) -> None:
 
 # ── answering from outside the run ───────────────────────────────────────────
 
-def answer(session_dir: Path, verdict: str, notes: str, by: str) -> Decision:
+def answer(session_dir: Path, reply: Reply) -> Decision:
     """A decision from OUTSIDE the run — the CLI. Takes the digest from the wait record.
 
     A blocked run (attended, still polling) has `waiting_for` set with
@@ -468,6 +468,7 @@ def answer(session_dir: Path, verdict: str, notes: str, by: str) -> Decision:
     if state is None or state.waiting_for is None:
         raise RuntimeError(f"{Path(session_dir).name} is not waiting at a gate — "
                            f"`just pending` lists the sessions that are")
+    verdict, notes = reply.verdict, reply.notes
     if verdict == "reject" and not notes.strip():
         raise RuntimeError("a reject needs notes (-m \"...\") — they are what the agent "
                            "revises from")
@@ -486,7 +487,7 @@ def answer(session_dir: Path, verdict: str, notes: str, by: str) -> Decision:
         raise RuntimeError("an answer needs words (-m \"...\") — an empty one says nothing "
                            "the agent did not already assume")
     decision = Decision(gate=waiting.gate, round=waiting.round, verdict=verdict,
-                        notes=notes.strip(), by=by, channel="cli",
+                        notes=notes.strip(), by=reply.by, channel=reply.channel,
                         subject_digest=waiting.subject_digest, decided_at=now_iso())
     record(session_dir, decision)
     return decision

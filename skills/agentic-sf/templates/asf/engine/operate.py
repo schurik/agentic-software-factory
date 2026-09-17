@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 from . import artifacts, git_helper, hitl, inputs, preflight, worktree
-from .data_types import FactoryConfig
+from .data_types import FactoryConfig, Reply
 from .utils import engineer_name
 
 GRACE_SECONDS = 5.0
@@ -99,7 +99,8 @@ def decide(cfg: FactoryConfig, config_path: str, verdict: str, adw_id: str, note
     """
     session_dir = sessions_dir(cfg) / adw_id
     try:
-        decision = hitl.answer(session_dir, verdict, notes, by=engineer_name())
+        decision = hitl.answer(session_dir, Reply(verdict=verdict, notes=notes,
+                                                  by=engineer_name(), channel="cli"))
     except RuntimeError as error:
         print(f"{adw_id}: {error}")
         return 1

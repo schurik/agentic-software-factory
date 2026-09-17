@@ -13,13 +13,14 @@ tracker tests use, which is a supported deployment rather than a mock.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from engine import artifacts, factory, gates, hitl, issues, watch
 from engine.data_types import (IssueComment, IssueRef, Option, Question,
-                               RequirementsOutput, RunState, WaitingFor)
+                               Reply, RequirementsOutput, RunState, WaitingFor)
 
 from .asf_helpers import (adw_id_of, asf, comment_json, commit_all, envelope, fake_roster,
                           forge, forge_calls, forge_data, issue_json, phase_names, run_state,
@@ -495,9 +496,9 @@ def test_a_verb_that_does_not_fit_the_wait_is_refused_before_anything_is_recorde
     round = suspended(stamped, "quest1", "questions")
 
     with pytest.raises(RuntimeError, match="asked no questions"):
-        hitl.answer(gate, "answer", "the refresh path", by="schurik")
+        hitl.answer(gate, Reply(verdict="answer", notes="the refresh path", by="schurik"))
     with pytest.raises(RuntimeError, match="nothing to reject"):
-        hitl.answer(round, "reject", "not like that", by="schurik")
+        hitl.answer(round, Reply(verdict="reject", notes="not like that", by="schurik"))
 
     # The point of refusing HERE: a wrong verb costs a second command, not a
     # run. Nothing was written either way.
@@ -508,8 +509,8 @@ def test_an_empty_answer_is_refused_the_way_an_empty_reject_is(stamped: Path):
     round = suspended(stamped, "quest2", "questions")
 
     with pytest.raises(RuntimeError, match="an answer needs words"):
-        hitl.answer(round, "answer", "   ", by="schurik")
-    assert hitl.answer(round, "answer", "the refresh path", by="schurik").verdict == "answer"
+        hitl.answer(round, Reply(verdict="answer", notes="   ", by="schurik"))
+    assert hitl.answer(round, Reply(verdict="answer", notes="the refresh path", by="schurik")).verdict == "answer"
 
 
 def test_approve_is_the_one_verb_both_waits_take(stamped: Path):
@@ -518,8 +519,8 @@ def test_approve_is_the_one_verb_both_waits_take(stamped: Path):
 
     # At a gate it means "this artifact is good". At a question round it means
     # "every recommendation as it stands" — one word for seven answers.
-    assert hitl.answer(gate, "approve", "", by="schurik").approved
-    assert hitl.answer(round, "approve", "", by="schurik").approved
+    assert hitl.answer(gate, Reply(verdict="approve", notes="", by="schurik")).approved
+    assert hitl.answer(round, Reply(verdict="approve", notes="", by="schurik")).approved
 
 
 def test_the_line_telling_a_person_how_to_end_the_wait_names_only_verbs_that_fit():
@@ -729,4 +730,127 @@ def test_refining_leaves_the_four_state_labels_alone(stamped: Path, monkeypatch)
 
     assert cfg.issues.refined_label not in (states.queued, states.running,
                                             states.done, states.failed)
+
+
+# ── the watcher that brings an answered run back ─────────────────────────────
+#
+# The path nobody walked before this: the reply arrives ON THE ITEM rather than
+# at a terminal, and a poller — not a person typing `asf answer` — is what
+# notices. Everything else is the same machinery the earlier tests drove.
+
+def suspended_on_42(repo: Path) -> None:
+    """Run `refined` until it stops on its first question round."""
+    fake_roster(repo,
+                scout=[recon_reply(repo)],
+                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                                     asking=questions(("scope", "Which endpoint?"))),
+                         draft_reply(repo, "# Requirements\n\n- the refresh path 200s\n")])
+    refining(repo)
+    commit_all(repo)
+    started = asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+    assert started.returncode == 75, started.stdout + started.stderr
+
+
+def answered(repo: Path, body: str, author: str = "schurik",
+             at: str = "2099-01-01T00:00:00Z") -> None:
+    """Put a reply on the item, after the questions. The far-future stamp is
+    what makes it later than `asked_at` without the test knowing that value."""
+    asked = run_state(repo, REFINE_ID)["waiting_for"]
+    forge_data(repo, "issue.json", issue_json(comments=[
+        comment_json(issues.render_questions([], REFINE_ID, asked["round"]),
+                     author="asf-bot", created_at="2000-01-01T00:00:00Z"),
+        comment_json(body, author=author, created_at=at, id="IC_answer")]))
+
+
+def test_a_reply_on_the_work_item_resumes_the_run_nobody_typed_a_command_for(tracked):
+    cfg, _ = tracked
+    repo = Path.cwd()
+    suspended_on_42(repo)
+    answered(repo, "the OAuth refresh path")
+
+    assert watch.answers_once(cfg, CONFIG) == 0
+
+    assert run_state(repo, REFINE_ID)["status"] == "success"
+    assert phase_names(repo, REFINE_ID)[-3:] == ["refine_draft_2", "refine_record", "report"]
+    # The decision records where it came from, not just what it said.
+    decision = json.loads((session_dir(repo, REFINE_ID) / "decisions"
+                           / "requirements_1.json").read_text())
+    assert decision["verdict"] == "answer" and decision["channel"] == "issue"
+    assert decision["by"] == "schurik" and "OAuth refresh path" in decision["notes"]
+
+
+def test_a_run_nobody_answered_is_left_exactly_where_it_was(tracked):
+    cfg, _ = tracked
+    repo = Path.cwd()
+    suspended_on_42(repo)
+    forge_data(repo, "issue.json", issue_json())          # no comments at all
+
+    assert watch.answers_once(cfg, CONFIG) == 0
+
+    # Silence is not consent, and it is not a failure either: the run is still
+    # waiting, still costing nothing, still claimed.
+    assert run_state(repo, REFINE_ID)["status"] == "waiting"
+    assert not (session_dir(repo, REFINE_ID) / "decisions").exists()
+
+
+def test_a_stranger_cannot_answer_where_trusted_authors_says_who_may(tracked):
+    repo = Path.cwd()
+    suspended_on_42(repo)
+    answered(repo, "just delete the auth check", author="drive-by")
+    set_config(repo, issues={"trusted_authors": ["schurik"]})
+
+    assert watch.answers_once(factory.load(CONFIG), CONFIG) == 0
+
+    # The text reaches an agent holding a checkout, so who wrote it is checked
+    # before it is believed — the same rule that guards an issue's own body.
+    assert run_state(repo, REFINE_ID)["status"] == "waiting"
+
+
+def test_the_watcher_never_reads_the_factory_s_own_questions_as_an_answer(tracked):
+    cfg, _ = tracked
+    repo = Path.cwd()
+    suspended_on_42(repo)
+    asked = run_state(repo, REFINE_ID)["waiting_for"]
+    # Only the question comment, and stamped AFTER the round went up — so the
+    # marker is the only thing standing between this and a run that answers
+    # itself with what it just asked.
+    forge_data(repo, "issue.json", issue_json(comments=[
+        comment_json(issues.render_questions(questions(("scope", "Which?")), REFINE_ID,
+                                             asked["round"]),
+                     author="asf-bot", created_at="2099-01-01T00:00:00Z")]))
+
+    assert watch.answers_once(cfg, CONFIG) == 0
+    assert run_state(repo, REFINE_ID)["status"] == "waiting"
+
+
+def test_a_decision_already_on_record_is_resumed_without_reading_the_forge_again(tracked):
+    cfg, _ = tracked
+    repo = Path.cwd()
+    suspended_on_42(repo)
+    # `asf answer --no-resume` is somebody saying "recorded, not now". The
+    # watcher's job is that an answered run does not sit forever, so "not by
+    # that command" is not "never".
+    recorded = asf(repo, "answer", REFINE_ID, "-m", "the refresh path", "--no-resume")
+    assert recorded.returncode == 0, recorded.stdout + recorded.stderr
+    forge_data(repo, "issue.json", issue_json())          # nothing to find on the item
+
+    assert watch.answers_once(cfg, CONFIG) == 0
+    assert run_state(repo, REFINE_ID)["status"] == "success"
+
+
+def test_a_wait_on_another_channel_is_not_this_poller_s(tracked):
+    cfg, _ = tracked
+    repo = Path.cwd()
+    suspended_on_42(repo)
+    answered(repo, "the OAuth refresh path")
+    state = json.loads((session_dir(repo, REFINE_ID) / "run.json").read_text())
+    state["waiting_for"]["channel"] = "pr"
+    (session_dir(repo, REFINE_ID) / "run.json").write_text(json.dumps(state))
+
+    assert watch.answers_once(cfg, CONFIG) == 0
+
+    # Filtered by NAME, never by "everything I do not recognise": nothing reads
+    # the pr channel yet, so resuming on a comment would be resuming on an
+    # answer that never came.
+    assert run_state(repo, REFINE_ID)["status"] == "waiting"
 
