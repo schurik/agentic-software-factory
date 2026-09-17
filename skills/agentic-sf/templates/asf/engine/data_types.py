@@ -125,6 +125,111 @@ class ScoutOutput(EnvelopeBase):
     findings: list[ScoutFinding] = Field(default_factory=list)
 
 
+class Option(BaseModel):
+    """One answer the analyst is PROPOSING, so a person picks instead of composing.
+
+    The difference between a question and a useful question. An analyst that
+    has read the issue and the code knows the two or three shapes an answer can
+    take; asking "what should happen here?" throws that work away and hands a
+    blank page to the person least able to fill it. `because` is what the
+    option buys and what it costs — a choice offered without that is a menu,
+    not a recommendation.
+    """
+
+    answer: str
+    because: str = ""
+    # Exactly one option per question carries this, checked by
+    # `gates.questions_are_answerable`. An analyst with a view says so; one
+    # that recommends everything, or nothing, has not finished thinking.
+    recommended: bool = False
+
+
+class Question(BaseModel):
+    """One thing the analyst could not settle from the material it was given.
+
+    `topic` groups questions so a person answers a subject rather than a list:
+    a reporter who is asked eight things at once answers three of them. `why`
+    is what makes an answer worth the round trip — it says what changes about
+    the solution depending on the answer, and a question that cannot say that
+    is one the analyst should have decided itself.
+
+    A QUESTION ARRIVES WITH ITS OPTIONS. Two or three of them, one recommended,
+    and the analyst's own priority order kept for the rest — a person answering
+    from their phone should be able to reply "2" and be done. The gate enforces
+    the count and the single recommendation, because an instruction in a task
+    file is a hope and a gate is a condition.
+    """
+
+    topic: str
+    question: str
+    why: str = ""
+    # False: worth asking, but the requirements hold without it. Only blocking
+    # questions keep the loop going; the rest ride along on a round that was
+    # going to happen anyway, and are dropped when none is.
+    blocking: bool = True
+    options: list[Option] = Field(default_factory=list)
+
+    @property
+    def default(self) -> Optional[Option]:
+        """The answer this question already has: the recommended option.
+
+        THE RECOMMENDATION IS A DEFAULT, not a hint. A person who agrees with
+        the analyst should not have to type seven replies to say so, and one
+        who disagrees about two of seven should have to write about two. So a
+        reply overrides the questions it addresses and the rest stand at their
+        recommendation.
+
+        A default is not consent to SILENCE, and the distinction is the whole
+        safety of this: it applies to a question a reply did not cover, never
+        to a reply that never came. A round with no answer at all stays
+        suspended — `gates.questions_are_answerable` is what guarantees the
+        default exists in the first place, and it can only be taken by someone
+        who actually came back.
+        """
+        return next((option for option in self.options if option.recommended), None)
+
+    @property
+    def ranked(self) -> list[Option]:
+        """The options as a person should read them: recommended first.
+
+        A STABLE sort, and that is the whole of it — the rest keep the order
+        the analyst gave them, which the task file asks to be priority order,
+        most important first. So this re-ranks exactly one thing and leaves the
+        analyst's judgement about everything else intact. Sorting here rather
+        than trusting the agent to emit them in order means the envelope in the
+        trace records what the analyst actually said, while the person always
+        reads the recommendation at the top.
+        """
+        return sorted(self.options, key=lambda option: not option.recommended)
+
+
+class RequirementsOutput(EnvelopeBase):
+    """What the analyst turned a request into, plus what it still cannot answer.
+
+    THE REQUIREMENTS ARE NOT A FIELD, for the reason IssueOutput gives about
+    bodies: they are prose a person reads and a planner works from, so they
+    live in `artifacts[0]` and the envelope carries only what CODE decides with
+    — whether to ask, whether to scout again, and which round this is.
+
+    `needs_recon` / `recon_focus` are an ORDER, not a claim: the analyst says
+    what it must know about this repository before the request can become
+    requirements, and the stage decides whether to spend a scout on it. Gates
+    check the pair against itself (a focus whenever recon is asked for), never
+    whether the recon would have helped — that is a prediction, and gates do
+    not verify predictions.
+    """
+
+    number: int = 0                 # the work item these belong to; 0 = a prompt run
+    round: int = 1
+    open_questions: list[Question] = Field(default_factory=list)
+    needs_recon: bool = False
+    recon_focus: str = ""
+
+    @property
+    def blocking_questions(self) -> list[Question]:
+        return [q for q in self.open_questions if q.blocking]
+
+
 class ReviewFinding(BaseModel):
     """One thing the request (or plan) asked for, and whether it is there."""
 
@@ -399,7 +504,14 @@ class AgentCall(BaseModel):
 
 # ── Human-in-the-loop (engine/hitl.py) ──────────────────────────────────
 
-Verdict = Literal["approve", "reject", "abort"]
+# `answer` is the odd one out and deliberately so. approve/reject/abort are a
+# person JUDGING a work product; `answer` is a person SUPPLYING one the agent
+# said was missing. Folding it into `reject` was the first shape of this, and
+# it reads wrong everywhere it surfaces: nobody "rejects" a question. A gate
+# takes the three verdicts, a question round takes `answer`, `approve` (go with
+# what you have) and `abort` — and each refuses the verdicts that are not its
+# own rather than quietly doing something with them.
+Verdict = Literal["approve", "reject", "abort", "answer"]
 
 
 class Decision(EnvelopeBase):
@@ -481,6 +593,22 @@ class WaitingFor(BaseModel):
     phase_id: str = ""
     phase_name: str = ""
     since: str = ""
+    # WHERE the answer is expected from, and THE WORK ITEM IS THE DEFAULT.
+    # "issue" — a comment on the work item. "pr" — a review thread. "terminal"
+    # — a person at this run's keyboard, or `asf answer` from another one.
+    #
+    # The order of that list is the point and not an accident. A factory is
+    # normally reached from a tracker: the person who filed the work is already
+    # looking at that page, and the terminal is the thing that is usually NOT
+    # there — under cron, in a watcher, in CI. Defaulting to it would make the
+    # exception the assumption, and a suspended run would claim to be waiting
+    # somewhere nobody is standing. `hitl.channel_of()` derives the real value
+    # from the run; this default is what a hand-built one gets.
+    channel: str = "issue"
+    # The work item a question round was published to, and when it went up — an
+    # answer is a comment AFTER this. Both empty off the issue channel.
+    issue_number: int = 0
+    asked_at: str = ""
     subject_digest: str = ""
     paths: list[str] = Field(default_factory=list)
     summary: str = ""
@@ -736,6 +864,13 @@ class IssuesConfig(BaseModel):
     list_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "list"])
     comment_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "comment"])
     state_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
+    # Reading the answers a person wrote, and writing the requirements block
+    # back into the description. Separate entries although `gh` spells both
+    # with verbs it already has: a tracker that is not the forge routes
+    # comments, labels and the description to three different places, and a
+    # config that had conflated them could not say so.
+    comments_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "view"])
+    body_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
     # label -> workflow. The watcher routes on this; no workflow knows about it.
     # An empty map launches nothing, whatever `enabled` says.
     route: dict[str, str] = Field(default_factory=lambda: {"asf:ship": "issue"})
@@ -747,6 +882,17 @@ class IssuesConfig(BaseModel):
     # An issue-triggered run must not be able to move the base branch. Enforced
     # in integration.integrate(), not left to whoever edits the config.
     force_pr: bool = True
+    # NOT a fifth state. The four above are mutually exclusive and the watcher
+    # clears whichever of them an issue still carries; "this has been refined"
+    # is a different axis entirely — a refined item is still queued, still
+    # running, still done. `watch.stale_states()` keeps it out of that set on
+    # purpose, so a later run cannot strip it.
+    refined_label: str = "asf:refined"
+    # A ceiling on the question comment, which is text an agent produced landing
+    # on a page anyone can read. The questions are RENDERED from the envelope
+    # rather than written by the agent as markdown, so this is a second bound
+    # and not the only one.
+    max_question_chars: int = 4000
 
 
 class PullRequestStates(BaseModel):
@@ -1020,6 +1166,28 @@ class IssueContext(BaseModel):
     author: str = ""
     state: str = ""
     body_path: str = ""             # written into context_handoff/
+    # Written by `issues.comments()` when a run asks for the conversation, not
+    # by `fetch()`: most runs never need it, and a busy issue's comments are a
+    # second novel to carry through every envelope that does not.
+    comments_path: str = ""
+
+
+class IssueComment(BaseModel):
+    """One comment on a work item — an ANSWER, when a question round asked for one.
+
+    Text written by whoever can comment on the issue, so it is untrusted in
+    exactly the way the body is, and it reaches an agent the same way: written
+    to a file and named in `artifacts`, never interpolated into a prompt. What
+    makes it an answer rather than noise is `created_at` (after the questions
+    were asked) and `author` (someone `trusted_authors` accepts) — both checked
+    in code, before any of it is shown to a model.
+    """
+
+    id: str = ""
+    author: str = ""
+    body: str = ""
+    created_at: str = ""
+    url: str = ""
 
 
 class IssueUpdate(BaseModel):

@@ -89,6 +89,13 @@ bug already shipped once.
 
 ## Working in here
 
+- **Build for the tracker first: issue, then pull request, then prompt.** When something new
+  needs a default, a channel, a code path or an example, the work item is the case to design
+  for and the typed prompt is the fallback — not the other way round. A factory is normally
+  reached from a tracker by someone who is already looking at that page; the engineer at a
+  keyboard is the exception, and under cron, in a watcher or in CI there is no keyboard at all.
+  A default that assumes one makes the exception the assumption (see `hitl.channel_of`, and
+  `WaitingFor.channel` defaulting to `issue`).
 - **Prompts are stamped per harness.** `templates/harnesses/{pi,claude_code}/` each carry their own
   roster, defaults, `env.sample` and prompt set — pi's prompts reference `subagent_*` tools Claude
   Code does not have. Moving an agent between harnesses means moving its prose too; validation only
