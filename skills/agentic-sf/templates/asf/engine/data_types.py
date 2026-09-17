@@ -1197,6 +1197,12 @@ class IssueContext(BaseModel):
     author: str = ""
     state: str = ""
     body_path: str = ""             # written into context_handoff/
+    # Whether the description already carries a requirements block this factory
+    # wrote and agreed with a person. A LATER run is a different session: it
+    # re-fetches the item and gets the block back inside the body, where the
+    # framing would otherwise call the factory's own settled requirements a
+    # stranger's words. This flag is what lets the framing say which is which.
+    carries_requirements: bool = False
     # Written by `issues.comments()` when a run asks for the conversation, not
     # by `fetch()`: most runs never need it, and a busy issue's comments are a
     # second novel to carry through every envelope that does not.

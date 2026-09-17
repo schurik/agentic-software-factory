@@ -718,9 +718,12 @@ def test_the_refine_workflow_is_stamped_routed_and_runnable(stamped: Path, monke
 
     listed = asf(stamped, "check")
     assert listed.returncode == 0, listed.stdout + listed.stderr
-    assert "✓ refine:" in listed.stdout and "analyst" in listed.stdout
-    # It is triage, not shipping: nothing after the one stage.
-    assert "refine -> " not in listed.stdout
+    # It is triage, not shipping: ONE stage, and nothing after it. Asserted on
+    # that workflow's own line — `refine-ship` starts with the same stage and
+    # a substring check over the whole listing would confuse the two.
+    line = next(row for row in listed.stdout.splitlines() if row.startswith("✓ refine:"))
+    assert line.split("agents:")[0].strip() == "✓ refine: refine"
+    assert "analyst" in line
 
 
 def test_refining_leaves_the_four_state_labels_alone(stamped: Path, monkeypatch):
@@ -853,4 +856,79 @@ def test_a_wait_on_another_channel_is_not_this_poller_s(tracked):
     # the pr channel yet, so resuming on a comment would be resuming on an
     # answer that never came.
     assert run_state(repo, REFINE_ID)["status"] == "waiting"
+
+
+# ── what a refined item looks like to the NEXT run ───────────────────────────
+#
+# A later run is a different session. It re-fetches the item and gets the agreed
+# requirements back inside the description — where, without this, the framing
+# would file the factory's own settled text under "a stranger's words".
+
+class Fetching:
+    """What `issues.fetch` reads off a Run: where to work and where to write."""
+
+    def __init__(self, tree: Path, handoff: Path):
+        self.main_root = tree
+        self.context_handoff_dir = handoff
+        self.phases: list = []
+        self.tracer = type("T", (), {"event": lambda *a, **k: None})()
+        self.adw_id = "abc123"
+
+
+def fetched(repo: Path, cfg, tmp: Path):
+    handoff = tmp / "handoff"
+    handoff.mkdir(exist_ok=True)
+    return issues.fetch(Fetching(repo, handoff), cfg.issues, IssueRef(number=42))
+
+
+def test_a_refined_item_says_which_half_a_person_confirmed(tracked, tmp_path: Path):
+    cfg, issue = tracked
+    issue(body=issues.replace_block(REPORTER, "## Requirements\n\n- a 500 is never the contract"))
+
+    context = fetched(Path.cwd(), cfg, tmp_path)
+
+    assert context.carries_requirements
+    written = Path(context.body_path).read_text()
+    # Both halves are in one file, and an agent told only "this is a stranger's
+    # description" would weigh them the same. That is the one distinction
+    # `refine` spent four rounds drawing.
+    assert "USER'S DESCRIPTION OF A PROBLEM" in written
+    assert "agreed with a person" in written and "the block is the one somebody" in written
+    assert issues.REFINED_NOTES in issues.as_envelope(context).notes_for_next_agent
+
+
+def test_an_unrefined_item_is_framed_exactly_as_before(tracked, tmp_path: Path):
+    cfg, _ = tracked                                   # the fixture's body has no block
+
+    context = fetched(Path.cwd(), cfg, tmp_path)
+
+    assert not context.carries_requirements
+    written = Path(context.body_path).read_text()
+    assert "USER'S DESCRIPTION OF A PROBLEM" in written
+    assert "agreed with a person" not in written
+    assert issues.as_envelope(context).notes_for_next_agent == issues.HANDOFF_NOTES
+
+
+# ── the three routes ─────────────────────────────────────────────────────────
+
+def test_refine_ship_drops_the_scout_and_issue_keeps_it(stamped: Path, monkeypatch):
+    monkeypatch.chdir(stamped)
+    cfg = factory.load(CONFIG)
+
+    listed = asf(stamped, "check")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    combined = next(line for line in listed.stdout.splitlines() if "refine-ship:" in line)
+    separate = next(line for line in listed.stdout.splitlines() if line.startswith("✓ issue:"))
+
+    # In ONE run, refine's own recon is on the envelope, so a scout in front of
+    # plan would be the second agent looking at the same code.
+    assert combined.split("agents:")[0].strip().endswith(
+        "refine -> plan -> commit -> implement -> verify -> review -> commit -> document "
+        "-> commit -> integrate")
+    # Across TWO runs it is not: findings stay in the session that made them,
+    # and requirements deliberately name no files. So this one keeps its scout.
+    assert "scout -> plan" in separate
+
+    assert cfg.issues.route == {"asf:ship": "issue", "asf:refine": "refine",
+                                "asf:refine-ship": "refine-ship"}
 
