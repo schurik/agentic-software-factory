@@ -248,10 +248,20 @@ def with_origin(repo: Path) -> Path:
 
 
 def issue_json(number: int = 42, author: str = "someone", labels=("asf:queued", "asf:ship"),
-               body: str = "The /health endpoint returns 500.\n") -> dict:
+               body: str = "The /health endpoint returns 500.\n", comments=()) -> dict:
+    """One issue as the forge returns it. `comments` needs no support in the
+    stand-in above: `gh issue view --json comments` answers out of the same
+    payload `view` already prints, so a conversation is a key on this dict."""
     return {"number": number, "title": f"health check broken (#{number})", "body": body,
             "labels": [{"name": name} for name in labels], "author": {"login": author},
-            "state": "OPEN", "url": f"https://forge/acme/widgets/issues/{number}"}
+            "state": "OPEN", "url": f"https://forge/acme/widgets/issues/{number}",
+            "comments": [dict(entry) for entry in comments]}
+
+
+def comment_json(body: str, author: str = "schurik", created_at: str = "2026-01-02T00:00:00Z",
+                 id: str = "IC_1") -> dict:
+    return {"id": id, "author": {"login": author}, "body": body, "createdAt": created_at,
+            "url": f"https://forge/acme/widgets/issues/42#issuecomment-{id}"}
 
 
 def pr_json(number: int, branch: str, threads: list[dict] | None = None,

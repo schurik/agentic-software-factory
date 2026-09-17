@@ -189,9 +189,17 @@ def route(cfg: FactoryConfig, labels: list) -> str:
 def stale_states(cfg: FactoryConfig, labels: list, keep: str) -> list[str]:
     """State labels this issue still carries from an EARLIER run, and only ones
     it actually carries: `gh issue edit --remove-label` on a name the repository
-    never defined is an error, and it would fail the claim it rides on."""
+    never defined is an error, and it would fail the claim it rides on.
+
+    THE FOUR STATES ARE THE ONLY THINGS THIS CLEARS. `refined_label` is not one
+    of them — it is a different axis, and a refined item is still queued, still
+    running, still done. It says the requirements were settled with a person,
+    and that does not stop being true because the issue was queued again. The
+    discard below makes that hold even if someone spells the two the same.
+    """
     states = cfg.issues.states
     known = {states.queued, states.running, states.done, states.failed}
+    known.discard(cfg.issues.refined_label)
     return sorted({name for name in _names(labels) if name in known and name != keep})
 
 
