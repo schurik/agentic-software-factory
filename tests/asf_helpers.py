@@ -177,9 +177,11 @@ def phase_names(repo: Path, adw_id: str) -> list[str]:
 #
 # The forge commands are config, so a python script standing in for `gh` is a
 # supported deployment, not a mock. It answers `view` from issue.json, `list`
-# from listing.json, `graphql` from pr.json, prints a url for `pr-create`, and
-# appends every other call to calls.json. `refuse.json` names verbs it refuses
-# with exit 1, the way a real one does when it cannot do an edit.
+# from listing.json, `label-list` from labels.json, `graphql` from pr.json,
+# prints a url for `pr-create`, and appends every other call to calls.json —
+# `label-create` among them, so a test reads back which labels were defined.
+# `refuse.json` names verbs it refuses with exit 1, the way a real one does
+# when it cannot do an edit.
 
 FORGE = '''\
 import json, sys
@@ -196,6 +198,8 @@ if verb == "view":
     print((home / "issue.json").read_text())
 elif verb == "list":
     print((home / "listing.json").read_text() if (home / "listing.json").exists() else "[]")
+elif verb == "label-list":
+    print((home / "labels.json").read_text() if (home / "labels.json").exists() else "[]")
 elif verb == "graphql":
     query = next((a for a in argv if a.startswith("query=")), "")
     if "addPullRequestReviewThreadReply" in query or "resolveReviewThread" in query:

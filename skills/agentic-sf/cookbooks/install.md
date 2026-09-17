@@ -121,7 +121,19 @@ commit before you force.
 4. **The quality blocks** — `doctor` names every block still unwired. Write the
    real argv into `asf/engine/quality.py` as a **list**, calling binaries by
    bare name. A `verify` stage that names an unwired block fails the run.
-5. **`just list`** — the workflows, one line each. Then a first run:
+5. **`just labels --create`** — only if either watcher is on. Every label in
+   `issues.route`, `issues.states`, `issues.refined_label` and
+   `pull_requests.states.failed` has to EXIST at the forge before anything can
+   apply it, and a fresh repository defines none of them. A route label nobody
+   can apply makes the workflow behind it unreachable — it looks configured and
+   is inert — and `--add-label` on an undefined name fails the write it rides
+   on, which is how a `refine` run dies at its last step. `just labels` shows
+   the answer without changing anything; `--create` adds exactly the missing
+   ones and never edits or deletes an existing label. `doctor` asks the same
+   question on every run, so an **upgrade** that adds a label is caught too —
+   `install.py` never rewrites the `factory.yaml` you own, so a new label
+   reference arrives in the code with no way for the name to exist.
+6. **`just list`** — the workflows, one line each. Then a first run:
    [run_workflow.md](run_workflow.md).
 
 ## If the skill is vendored inside the repo
@@ -142,6 +154,12 @@ need the forge CLI (`gh`) on PATH and authenticated, and `doctor` warns when it
 is not. `issues.route` decides which label launches which workflow (`asf:ship`
 → `issue` as stamped); `issues.enabled` and `pull_requests.enabled` in
 `asf/factory.yaml` turn a path off.
+
+The labels themselves are a separate job from routing them: run
+`just labels --create` once, and again after any upgrade or any edit that names
+a new one. On a tracker that is not the forge, clear `issues.labels_list_command`
+and `issues.labels_create_command` — empty means skip, and skipping is honest
+where `gh label` has no equivalent.
 
 ## Removing it again
 

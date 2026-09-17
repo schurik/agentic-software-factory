@@ -25,6 +25,10 @@ default:
 doctor:
     @{{asf}} doctor
 
+# the forge labels this config names: just labels [--create]
+labels *ARGS:
+    @{{asf}} labels "$@"
+
 # every workflow, one line each
 list:
     @{{asf}} list

@@ -21,7 +21,8 @@ import sys
 import time
 from pathlib import Path
 
-from . import artifacts, git_helper, hitl, inputs, preflight, worktree
+from . import artifacts, git_helper, hitl, inputs, issues, preflight, worktree
+from . import labels as labels_module
 from .data_types import FactoryConfig, Reply
 from .utils import engineer_name
 
@@ -367,4 +368,71 @@ def doctor(cfg: FactoryConfig) -> int:
         print(_paint(YELLOW, f"  {len(warn)} warning(s) — runs work, with the caveats above"))
         return 0
     print(_paint(GREEN, "  all clear"))
+    return 0
+
+
+# ── labels ───────────────────────────────────────────────────────────────────
+
+def labels(cfg: FactoryConfig, create: bool) -> int:
+    """Which labels this config names, which the forge defines, and — with
+    `--create` — the ones that are missing, defined.
+
+    ONE COMMAND FOR A FRESH INSTALL AND AN UPGRADE ALIKE, which is why it is
+    here and not in the installer. `install.py` renders factory.yaml from the
+    templates and never rewrites an existing one, so on the upgrade path — the
+    path a release that ADDS a label actually travels — it would be creating
+    labels the shipped defaults name while the operator's own config says
+    something else. This reads the resolved config, so it is right on both.
+
+    Adds only. A label nothing in the config names any more is printed and left
+    exactly where it is: deleting it at the forge strips it from every item that
+    carries it, and that history belongs to whoever put it there.
+    """
+    main_root = git_helper.main_root()
+    found = labels_module.survey(cfg, main_root)
+    print(f"asf labels — {issues.resolve_project(cfg.issues, main_root) or main_root}\n")
+    if not found.applicable:
+        print(f"  nothing to do: {found.note}")
+        return 0
+    if not found.asked:
+        print(_paint(YELLOW, f"  could not ask the forge which labels exist — {found.note}"))
+        print(_paint(DIM, "    → name the project in issues.project, or authenticate the "
+                          "forge CLI, and try again"))
+        print(_paint(DIM, "      nothing was assumed: these may all be defined already"))
+        return 1
+
+    defined = set(found.defined)
+    width = max(len(label.name) for label in found.referenced)
+    for label in found.referenced:
+        here = label.name in defined
+        color, mark = MARKS["ok" if here else "warn"]
+        print(f"  {_paint(color, mark)} {label.name.ljust(width)}  "
+              f"{label.why if here else _paint(DIM, 'not defined at the forge')}")
+    for name in found.stale:
+        print(f"  {_paint(YELLOW, '~')} {name.ljust(width)}  "
+              f"{_paint(DIM, 'defined here, named by nothing in the config — left alone')}")
+    print()
+
+    if not found.missing:
+        print(_paint(GREEN, "  every label this config applies exists"))
+        return 0
+    if not create:
+        print(_paint(YELLOW, f"  {len(found.missing)} missing — a route nobody can label is a "
+                             f"workflow nothing can trigger"))
+        print(_paint(DIM, f"    → {RUNNER} labels --create"))
+        return 1
+
+    failed = []
+    for label in found.missing:
+        result = labels_module.define(cfg, main_root, label)
+        color, mark = MARKS["ok" if result.ok else "fatal"]
+        print(f"  {_paint(color, mark)} {label.name.ljust(width)}  "
+              f"{' · '.join(result.notes) or 'no answer'}")
+        if not result.ok:
+            failed.append(label.name)
+    print()
+    if failed:
+        print(_paint(RED, f"  {len(failed)} could not be defined: {', '.join(failed)}"))
+        return 1
+    print(_paint(GREEN, f"  defined {len(found.missing)} label(s)"))
     return 0

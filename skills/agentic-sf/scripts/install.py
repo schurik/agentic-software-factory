@@ -230,7 +230,16 @@ def main() -> int:
         print(f"\n  ! NO .env, SO ASF_SKILL IS UNSET — `just up` and `just obs` will start "
               f"the watchers\n    without the trace UI, and `just uninstall` cannot find "
               f"the skill.\n    write it yourself:  echo 'ASF_SKILL={SKILL_ROOT}' >> .env")
-    print("\nnext:  just doctor        then  just do \"<prompt>\"   (or: uv run asf/asf.py …)")
+    # `just labels --create` and not a label call from here: the labels a repo
+    # needs come from its RESOLVED config, and this script never reads one — it
+    # renders factory.yaml from the templates and, on a re-install, skips the
+    # one the operator owns. So on the upgrade path, which is the path a release
+    # that adds a label actually travels, anything created here would be created
+    # from the wrong list. `doctor` asks the right question every time.
+    print("\nnext:  just doctor        is this repo ready? it names what is missing"
+          "\n       just labels       the forge labels this config applies "
+          "(--create defines them)"
+          "\n       just do \"<prompt>\"                       (or: uv run asf/asf.py …)")
     return 0
 
 
