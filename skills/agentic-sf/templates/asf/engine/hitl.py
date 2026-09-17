@@ -42,9 +42,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import artifacts
-from .data_types import (Decision, EnvelopeBase, EventRecord, Gate, HitlConfig,
-                         Phase, PhaseParams, Subject, WaitingFor)
+from . import artifacts, issues
+from .data_types import (Decision, EnvelopeBase, EventRecord, Gate, HitlConfig, IssueRef,
+                         IssueUpdate, Phase, PhaseParams, Subject, WaitingFor)
 from .utils import now_iso
 
 EXIT_WAITING = 75          # EX_TEMPFAIL: "try again later", which is exactly it
@@ -125,21 +125,37 @@ def attended() -> bool:
         return False
 
 
+def _insist(prompt: str) -> str:
+    """A verdict whose whole content is the words. Asking again beats recording
+    an empty one — a reject with no notes is an agent told to change nothing."""
+    text = ""
+    while not text:
+        text = input(prompt).strip()
+    return text
+
+
 def read_keypress(waiting: WaitingFor) -> tuple[str, str]:
     """The real `ask`: one line from a TTY, or ("", "") after POLL_SECONDS so the
-    caller can look at the decision record again. Notes are required on a reject
-    — they are what the agent revises from."""
+    caller can look at the decision record again.
+
+    The keys on offer follow `waiting.kind`, because the two waits want
+    different things. At a GATE: approve, reject, abort. At a QUESTION ROUND:
+    answer, approve (take every recommendation as it stands), abort — there is
+    nothing to reject, the agent did not claim anything.
+    """
     ready, _, _ = select.select([sys.stdin], [], [], POLL_SECONDS)
     if not ready:
         return "", ""
     key = sys.stdin.readline().strip().lower()[:1]
+    questions = waiting.kind == "questions"
     if key == "a":
-        return "approve", input("notes for the next agent (optional): ").strip()
-    if key == "r":
-        notes = ""
-        while not notes:
-            notes = input("what should change: ").strip()
-        return "reject", notes
+        return "approve", input(
+            "taking every recommendation — anything to add? (optional): " if questions
+            else "notes for the next agent (optional): ").strip()
+    if key == "n" and questions:
+        return "answer", _insist("your answers: ")
+    if key == "r" and not questions:
+        return "reject", _insist("what should change: ")
     if key == "x":
         return "abort", input("reason (optional): ").strip()
     if key == "d":
@@ -255,10 +271,13 @@ def channel_of(run) -> str:
     return "terminal"
 
 
-def how_to_answer(run, gate: str) -> str:
-    return (f"record a Decision with engine.hitl.answer({run.session_dir}, "
-            f"'approve'|'reject'|'abort', notes, by), then re-run the workflow with "
-            f"--adw-id {run.adw_id} --resume  (a gate CLI is not stamped yet)")
+def how_to_answer(run, gate: str, kind: str = "gate") -> str:
+    """The one line that tells a person how to end this wait, in the verbs that
+    actually apply to it. A question round has nothing to reject."""
+    verbs = ((f'asf answer {run.adw_id} -m "..."', f"asf approve {run.adw_id}")
+             if kind == "questions"
+             else (f"asf approve {run.adw_id}", f'asf reject {run.adw_id} -m "..."'))
+    return "  ".join([*verbs, f"asf abort {run.adw_id}"])
 
 
 def decide(run, phase: Phase, subject: Subject) -> Decision:
@@ -272,7 +291,8 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
     """
     paths = resolve_paths(run, subject.paths)
     fingerprint = digest(paths)
-    waiting = WaitingFor(gate=subject.gate, round=subject.round, phase_id=phase.phase_id,
+    waiting = WaitingFor(gate=subject.gate, round=subject.round, kind=subject.kind,
+                         phase_id=phase.phase_id,
                          phase_name=phase.params.name, since=now_iso(),
                          subject_digest=fingerprint, paths=[str(p) for p in paths],
                          summary=subject.summary, notes=subject.notes,
@@ -299,6 +319,11 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
         run.console.note(f"decision {subject.gate}_{subject.round} is stale — it decided "
                          f"on a different {subject.gate}; asking again")
 
+    # Nothing was recorded, so this round is really going to wait — and only
+    # now is it worth putting the questions where a person will see them.
+    # Publishing before the lookups above would ask again on every resume.
+    publish(run, waiting, subject.questions)
+
     # The blocked-and-polling path. `run.hitl.ask` is None without a TTY; a
     # test injects a scripted answerer the same way a keypress would answer.
     if run.hitl.ask is not None:
@@ -309,6 +334,67 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
 
     _notify(run, waiting)
     raise Suspended(waiting)
+
+
+def publish(run, waiting: WaitingFor, questions: list) -> None:
+    """Put this round's questions where the run's channel says a person is.
+
+    MUTATES `waiting.asked_at`, which is the point as much as the comment is:
+    an answer is a reply that came AFTER the question, and the moment it went
+    up is read back off the posted comment rather than taken from this
+    process's clock. The two are not the same one, and a run a few seconds
+    ahead of the forge would stamp a `since` in the tracker's future and throw
+    away the first reply as if it had arrived before the question.
+
+    IDEMPOTENT ACROSS A SUSPEND, and that is not a nicety: `decide()` re-enters
+    the round it suspended in — that is what replay means — so without the
+    check a resumed process would post the same questions under the first set,
+    to someone already looking at them.
+
+    Only the issue channel has anywhere to put them. At a terminal the subject
+    is already on the screen and `asf show` prints the rest; on a pull request
+    there is no reader yet, so a run there waits without asking and says so.
+
+    A failed post is not a failed run — the questions are in the session's own
+    record either way — but it IS a run about to wait for an answer nobody was
+    asked for, so it says that out loud instead of suspending quietly.
+    """
+    if not questions or waiting.channel != "issue" or not waiting.issue_number:
+        if questions and waiting.channel != "issue":
+            run.console.note(f"{len(questions)} question(s) to ask, but this run answers on "
+                             f"{waiting.channel} — `asf show {run.adw_id}` prints them")
+        return
+
+    config = run.cfg.issues
+    ref = IssueRef(number=waiting.issue_number)
+    try:
+        heard = issues.comments(run.main_root, config, ref)
+    except RuntimeError as error:
+        run.console.note(f"could not read #{waiting.issue_number} before asking: {error}")
+        heard = []
+
+    if not issues.already_asked(heard, run.adw_id, waiting.round):
+        posted = issues.comment(run.main_root, config, IssueUpdate(
+            number=waiting.issue_number,
+            comment=issues.render_questions(questions, run.adw_id, waiting.round,
+                                            config.max_question_chars)))
+        if not posted.ok:
+            run.console.note(f"! the questions did NOT reach #{waiting.issue_number} "
+                             f"({' · '.join(posted.notes)}) — this run is about to wait for "
+                             f"an answer nobody was asked for. `asf show {run.adw_id}` "
+                             f"prints them; `asf answer {run.adw_id} -m \"...\"` answers.")
+            waiting.asked_at = waiting.asked_at or now_iso()
+            return
+        run.console.note(f"asked {len(questions)} question(s) on #{waiting.issue_number}, "
+                         f"round {waiting.round}")
+        try:
+            heard = issues.comments(run.main_root, config, ref)
+        except RuntimeError:
+            heard = []
+
+    # The forge's own stamp when it can be read back, this clock only as a
+    # fallback — see the note above about which clock an answer is measured by.
+    waiting.asked_at = issues.asked_at(heard, run.adw_id, waiting.round) or now_iso()
 
 
 def _consume(run, phase: Phase, decision: Decision) -> Decision:
@@ -333,8 +419,11 @@ def _attended(run, waiting: WaitingFor) -> Optional[Decision]:
     the same thing with nobody at the keyboard.
     """
     deadline = time.monotonic() + max(0, run.cfg.hitl.wait_seconds)
-    run.console.note("waiting for you — [a]pprove / [r]eject / [x] abort / [d]etach; "
-                     "or from another terminal: " + how_to_answer(run, waiting.gate))
+    keys = ("[n] answer / [a]pprove all as recommended / [x] abort / [d]etach"
+            if waiting.kind == "questions"
+            else "[a]pprove / [r]eject / [x] abort / [d]etach")
+    run.console.note(f"waiting for you — {keys}; or from another terminal: "
+                     + how_to_answer(run, waiting.gate, waiting.kind))
     while True:
         recorded = read_decision(run.session_dir, waiting.gate, waiting.round)
         if recorded is not None and recorded.subject_digest == waiting.subject_digest:
@@ -342,7 +431,7 @@ def _attended(run, waiting: WaitingFor) -> Optional[Decision]:
         verdict, notes = run.hitl.ask(waiting)
         if verdict == "detach":
             return None
-        if verdict in ("approve", "reject", "abort"):
+        if verdict in ("approve", "reject", "abort", "answer"):
             return Decision(gate=waiting.gate, round=waiting.round, verdict=verdict,
                             notes=notes, by=run.engineer, channel="terminal",
                             subject_digest=waiting.subject_digest)
@@ -383,6 +472,19 @@ def answer(session_dir: Path, verdict: str, notes: str, by: str) -> Decision:
         raise RuntimeError("a reject needs notes (-m \"...\") — they are what the agent "
                            "revises from")
     waiting = state.waiting_for
+    # The wrong verb typed at the right run is a typo, not a decision. Refusing
+    # it HERE — before anything is recorded — costs the person a second command;
+    # recording it would make the run act on a verdict its gate cannot read.
+    if verdict == "answer" and waiting.kind != "questions":
+        raise RuntimeError(f"{Path(session_dir).name} is waiting at the {waiting.gate} gate, "
+                           f"which asked no questions — approve, reject or abort it")
+    if verdict == "reject" and waiting.kind == "questions":
+        raise RuntimeError(f"{Path(session_dir).name} is waiting on questions, and there is "
+                           f"nothing to reject — `answer -m \"...\"` supplies what is "
+                           f"missing, `approve` takes every recommendation as it stands")
+    if verdict == "answer" and not notes.strip():
+        raise RuntimeError("an answer needs words (-m \"...\") — an empty one says nothing "
+                           "the agent did not already assume")
     decision = Decision(gate=waiting.gate, round=waiting.round, verdict=verdict,
                         notes=notes.strip(), by=by, channel="cli",
                         subject_digest=waiting.subject_digest, decided_at=now_iso())
@@ -443,6 +545,15 @@ def gated(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
             if decision.verdict == "abort":
                 raise Aborted(f"aborted by {decision.by} at gate {gate.name}"
                               + (f": {decision.notes}" if decision.notes else ""))
+            if decision.verdict == "answer":
+                # `hitl.answer()` refuses this at the CLI, so reaching here means
+                # a decision file written by hand or by something that did not
+                # read the wait. Acting on it would mean guessing which of
+                # approve or reject a person meant, at the one moment guessing
+                # is least excusable.
+                raise Aborted(f"gate {gate.name} takes approve, reject or abort — the "
+                              f"recorded decision is an `answer`, which belongs to a "
+                              f"question round, and this gate asked none")
             if decision.verdict == "reject" and gate.call is None:
                 raise Aborted(f"gate {gate.name} is approve/abort only — nothing can "
                               f"revise it; rejected by {decision.by}: {decision.notes}")
@@ -465,6 +576,44 @@ def gated(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
                 "previous": decision,
                 "prompt": REVISE_PROMPT.format(prompt=gate.call.prompt)}))
         round += 1
+
+
+def asked(run, subject: Subject) -> Decision:
+    """Put ONE round of questions to a person and hand back what they said.
+
+    THE LOOP IS THE CALLER'S, and that is the difference from `gated()`. A
+    reject at a gate means "this same artifact, reworked", so the loop belongs
+    with the gate and `gated()` owns it. What comes back from a question round
+    is INPUT, not a verdict on a work product: whether another round is needed
+    is the agent's answer to that input, and only the stage driving the agent
+    knows. So this asks once, and the stage asks again if it must.
+
+    Everything underneath is `decide()` unchanged — the digest, the record, the
+    suspend at exit 75, the replay on `--resume`. The only thing a question
+    round adds is that somebody is TOLD, which `publish()` does from inside
+    `decide()`, once the round is known to be really waiting.
+
+    A question round takes `answer`, `approve` (every recommendation as it
+    stands) and `abort`. `reject` is refused at the CLI and again here.
+    """
+    name = (f"ask_{subject.gate}" if subject.round == 1
+            else f"ask_{subject.gate}_{subject.round}")
+    blocking = sum(1 for question in subject.questions if question.blocking)
+    with run.phase(PhaseParams(
+            name=name, kind="engineer", owner=run.engineer,
+            description=f"Put {len(subject.questions)} open question(s) to a person and "
+                        f"wait, rather than guess at {blocking} thing(s) the request does "
+                        f"not say")) as ph:
+        decision = ph.decide(subject.model_copy(update={"kind": "questions"}))
+        if decision.verdict == "abort":
+            raise Aborted(f"aborted by {decision.by} at the {subject.gate} questions"
+                          + (f": {decision.notes}" if decision.notes else ""))
+        if decision.verdict == "reject":
+            raise Aborted(f"the {subject.gate} questions were rejected by {decision.by}, and "
+                          f"there is nothing to reject — an agent asking what it cannot "
+                          f"know has not claimed anything yet"
+                          + (f": {decision.notes}" if decision.notes else ""))
+    return decision
 
 
 def _already_approved(run, gate: Gate, envelope: EnvelopeBase) -> bool:

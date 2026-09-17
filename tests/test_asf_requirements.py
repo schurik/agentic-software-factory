@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from engine import factory, gates, hitl, issues, watch
+from engine import artifacts, factory, gates, hitl, issues, watch
 from engine.data_types import (IssueComment, IssueRef, Option, Question,
-                               RequirementsOutput, WaitingFor)
+                               RequirementsOutput, RunState, WaitingFor)
 
 from .asf_helpers import comment_json, forge, forge_calls, forge_data, issue_json, set_config
 
@@ -385,3 +385,147 @@ def test_a_refined_label_spelled_like_a_state_is_still_never_cleared(stamped: Pa
                                keep=cfg.issues.states.running)
 
     assert stale == ["asf:queued"]
+
+
+# ── putting the questions where a person is ──────────────────────────────────
+#
+# `publish()` needs four things off a Run and no worktree, so the stand-in
+# below is the honest shape of its dependency rather than a mock of a Run. The
+# stage that drives all of this arrives with the next package; what is testable
+# now is that a round reaches the tracker once, and knows when it did.
+
+class Console:
+    def __init__(self):
+        self.notes: list[str] = []
+
+    def note(self, text: str) -> None:
+        self.notes.append(text)
+
+
+class PublishingRun:
+    def __init__(self, cfg, tree: Path, adw_id: str = "abc123"):
+        self.cfg = cfg
+        self.main_root = tree
+        self.adw_id = adw_id
+        self.console = Console()
+
+
+def waiting_on(number: int = 42, round: int = 1, channel: str = "issue") -> WaitingFor:
+    return WaitingFor(gate="requirements", round=round, kind="questions",
+                      channel=channel, issue_number=number)
+
+
+def test_a_round_reaches_the_issue_and_records_when_by_the_forge_s_clock(tracked):
+    cfg, issue = tracked
+    issue()
+    run = PublishingRun(cfg, Path.cwd())
+    waiting = waiting_on()
+
+    hitl.publish(run, waiting, questions(("scope", "Which endpoint?")))
+
+    posted = next(call for call in forge_calls(Path.cwd()) if call[0] == "comment")
+    body = posted[posted.index("--body") + 1]
+    assert issues.questions_mark("abc123", 1) in body and "Which endpoint?" in body
+    # `asked_at` is what an answer has to be later than. It is read back off the
+    # posted comment, so it is the tracker's clock and not this process's.
+    assert waiting.asked_at
+
+
+def test_a_resumed_round_does_not_ask_twice_and_still_knows_when_it_asked(tracked):
+    cfg, issue = tracked
+    asked = issues.render_questions(questions(("scope", "Which?")), "abc123", 1)
+    issue(comments=[comment_json(asked, author="asf-bot",
+                                 created_at="2026-01-01T10:00:00Z")])
+    run = PublishingRun(cfg, Path.cwd())
+    waiting = waiting_on()
+
+    hitl.publish(run, waiting, questions(("scope", "Which?")))
+
+    # `decide()` re-enters the round it suspended in — that is what replay
+    # means — so the second process must find its own comment, not add one.
+    assert not [call for call in forge_calls(Path.cwd()) if call[0] == "comment"]
+    assert waiting.asked_at == "2026-01-01T10:00:00Z"
+
+
+def test_a_round_that_could_not_be_posted_says_so_instead_of_waiting_quietly(tracked):
+    cfg, issue = tracked
+    issue()
+    forge_data(Path.cwd(), "refuse.json", ["comment"])
+    run = PublishingRun(cfg, Path.cwd())
+    waiting = waiting_on()
+
+    hitl.publish(run, waiting, questions(("scope", "Which?")))
+
+    # The run is about to wait for an answer nobody was asked for. That is not
+    # a failed run — the questions are in its own record — but it must not be
+    # a silent one.
+    assert any("did NOT reach #42" in note for note in run.console.notes)
+    # And it still stamps a moment, so a pre-existing comment is not read back
+    # as an answer to a question that never went up.
+    assert waiting.asked_at
+
+
+def test_a_run_answering_at_a_terminal_posts_nothing_and_names_where_to_look(tracked):
+    cfg, _ = tracked
+    run = PublishingRun(cfg, Path.cwd())
+    waiting = waiting_on(channel="terminal")
+
+    hitl.publish(run, waiting, questions(("scope", "Which?")))
+
+    assert not forge_calls(Path.cwd())
+    assert any("asf show abc123" in note for note in run.console.notes)
+
+
+# ── the verbs a wait can take ────────────────────────────────────────────────
+
+def suspended(repo: Path, adw_id: str, kind: str) -> Path:
+    """A session record waiting on a person, as a suspended run leaves it."""
+    session = repo / "asf" / "data" / "sessions" / adw_id
+    artifacts.write_run(session, RunState(
+        adw_id=adw_id, status="waiting",
+        waiting_for=WaitingFor(gate="requirements" if kind == "questions" else "plan",
+                               round=1, kind=kind, subject_digest="d")))
+    return session
+
+
+def test_a_verb_that_does_not_fit_the_wait_is_refused_before_anything_is_recorded(stamped: Path):
+    gate = suspended(stamped, "gate1", "gate")
+    round = suspended(stamped, "quest1", "questions")
+
+    with pytest.raises(RuntimeError, match="asked no questions"):
+        hitl.answer(gate, "answer", "the refresh path", by="schurik")
+    with pytest.raises(RuntimeError, match="nothing to reject"):
+        hitl.answer(round, "reject", "not like that", by="schurik")
+
+    # The point of refusing HERE: a wrong verb costs a second command, not a
+    # run. Nothing was written either way.
+    assert not (gate / "decisions").exists() and not (round / "decisions").exists()
+
+
+def test_an_empty_answer_is_refused_the_way_an_empty_reject_is(stamped: Path):
+    round = suspended(stamped, "quest2", "questions")
+
+    with pytest.raises(RuntimeError, match="an answer needs words"):
+        hitl.answer(round, "answer", "   ", by="schurik")
+    assert hitl.answer(round, "answer", "the refresh path", by="schurik").verdict == "answer"
+
+
+def test_approve_is_the_one_verb_both_waits_take(stamped: Path):
+    gate = suspended(stamped, "gate2", "gate")
+    round = suspended(stamped, "quest3", "questions")
+
+    # At a gate it means "this artifact is good". At a question round it means
+    # "every recommendation as it stands" — one word for seven answers.
+    assert hitl.answer(gate, "approve", "", by="schurik").approved
+    assert hitl.answer(round, "approve", "", by="schurik").approved
+
+
+def test_the_line_telling_a_person_how_to_end_the_wait_names_only_verbs_that_fit():
+    run = PublishingRun(None, Path.cwd())
+
+    at_a_gate = hitl.how_to_answer(run, "plan", "gate")
+    at_a_round = hitl.how_to_answer(run, "requirements", "questions")
+
+    assert "reject" in at_a_gate and "answer" not in at_a_gate
+    assert "answer" in at_a_round and "reject" not in at_a_round
+
