@@ -84,9 +84,15 @@ issues:
   # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
   # AND a label here launches that workflow. `route: {}` means nothing ever
   # launches, whatever `enabled` says.
+  # Three labels, three decisions, and each one is a person saying so. `refine`
+  # settles an item and hands it back; `issue` builds one that is already clear;
+  # `refine-ship` does both in one run and drops the scout, because refine's own
+  # recon is in that run's envelope. Across TWO runs it is not — findings stay in
+  # the session that made them — which is why `issue` keeps its scout.
   route:
     "asf:ship": issue
     "asf:refine": refine
+    "asf:refine-ship": refine-ship
   states:                          # the label state machine
     queued:  "asf:queued"
     running: "asf:running"

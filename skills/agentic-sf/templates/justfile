@@ -60,6 +60,10 @@ issue NUMBER *ARGS:
 refine NUMBER *ARGS:
     {{asf}} run refine {{NUMBER}} "${@:2}"
 
+# settle it with a person AND build it, in one run: just refine-ship 42
+refine-ship NUMBER *ARGS:
+    {{asf}} run refine-ship {{NUMBER}} "${@:2}"
+
 # answer the review threads on one of this factory's pull requests: just pr-review 17
 pr-review NUMBER *ARGS:
     {{asf}} run pr-review {{NUMBER}} "${@:2}"

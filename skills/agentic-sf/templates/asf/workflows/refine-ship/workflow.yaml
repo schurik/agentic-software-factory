@@ -1,0 +1,37 @@
+# refine-ship — settle what the item asks for, then build it, in ONE run.
+# `asf run refine-ship 42`, or the issue watcher on `asf:queued` + `asf:refine-ship`.
+#
+# `issue` with `refine` where its `scout` is, which is the chain `refine/`'s own
+# prose describes. THERE IS NO SCOUT HERE and that is the whole point: `refine`
+# does its own recon inside its loop and appends the findings to the envelope it
+# hands on, so a scout in front of `plan` would be the second agent to look at
+# the same code in the same run.
+#
+# WHY THAT DOES NOT MAKE `issue` REDUNDANT. Recon findings live in the session
+# that produced them. Run `refine` today and `issue` tomorrow and those are two
+# sessions: the second re-fetches the item, gets the agreed requirements back in
+# the description — and no map of the code, because requirements deliberately
+# say what must be TRUE, never which files to touch. So `issue` keeps its scout,
+# and only this chain can drop it.
+#
+# Three labels, three decisions, and the routing label is the authorization in
+# every one of them:
+#
+#   asf:refine        refine only — triage; the item comes back refined
+#   asf:ship          issue       — scout, plan, build; for an item already clear
+#   asf:refine-ship   this        — settle it with a person, then build it
+name: refine-ship
+description: settle the requirements with a person, then plan, build, verify, review and propose a pull request
+input: issue
+
+stages:
+  - refine:    {}                                  # asks on the item; suspends until answered
+  - plan:      {agent: planner}                    # takes the refine envelope: requirements + recon
+  - commit:    {of: plan}
+  - implement: {agent: builder}
+  - verify:    {blocks: [test], max_fix_loops: 3, fix: {agent: builder}}
+  - review:    {agent: reviewer, max_rounds: 2, revise: {agent: builder}, retest: [test]}
+  - commit:    {of: implement}
+  - document:  {agent: documenter}
+  - commit:    {of: document}
+  - integrate: {}                                  # a pull request, never a merge, on this input

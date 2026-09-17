@@ -80,6 +80,15 @@ and the thing that decides whether to ask again is the analyst's own answer to
 what it just heard. A workflow gets the ceiling (`max_rounds`), never the
 condition.
 
+Which chain a stage belongs in is decided by WHAT TRAVELS BETWEEN RUNS, not by
+what reads well in a list. `refine-ship` drops the scout because refine's recon
+is already on the envelope it hands to `plan` — same run, same session. `issue`
+keeps it, because a `refine` run and an `issue` run are two sessions: the second
+re-fetches the item and gets the agreed requirements back in the description,
+with no findings, since requirements deliberately say what must be TRUE and
+never which files to touch. A stage looks redundant from the workflow file and
+is not; the question to ask is which session produced the thing it would repeat.
+
 `refine` also shows why a stage sometimes does a job another stage already
 does. It runs its own recon rather than sitting behind `scout`, because a
 single pass before the loop searches against the reporter's guess: once a
