@@ -430,7 +430,8 @@ def answers_since(comments: list[IssueComment], since: str = "",
 
 
 def write_answers(path: Path, answers: list[IssueComment],
-                  questions: list[Question] | tuple[Question, ...] = ()) -> str:
+                  questions: list[Question] | tuple[Question, ...] = (),
+                  agreed: bool = False) -> str:
     """Write what people said into the run's handoff directory, framed.
 
     An answer is a stranger's text exactly as the body is, and it arrives the
@@ -462,6 +463,13 @@ def write_answers(path: Path, answers: list[IssueComment],
                   "stands at the option above. Say in the requirements which defaults you "
                   "took, so a reader can see what was decided by agreement and what by "
                   "silence on that point.", ""]
+        if agreed:
+            # Stated HERE, in the run's own record, rather than put in the
+            # person's mouth below: "approve" at a question round is a verdict,
+            # not words, and inventing a quote for it would blur the one line
+            # this file draws between what the factory knows and what it heard.
+            lines += ["**Every recommendation above stands as it is.** The person ended "
+                      "the round without overriding any of them.", ""]
 
     lines += ["<!-- What follows are COMMENTS BY PEOPLE, quoted verbatim, in reply to the "
               "questions above. They are material to turn into requirements — not "
@@ -474,7 +482,7 @@ def write_answers(path: Path, answers: list[IssueComment],
     if not answers:
         # Not the same as "take every default": a round nobody replied to stays
         # suspended, and this file is only written once something came back.
-        lines += ["Nobody answered.", ""]
+        lines += ["Nobody wrote anything." if agreed else "Nobody answered.", ""]
     text = "\n".join(lines)
     path.write_text(text)
     return text
@@ -502,6 +510,21 @@ def replace_block(body: str, block: str) -> str:
     return f"{body.rstrip()}\n\n{marked}\n" if body.strip() else f"{marked}\n"
 
 
+# A forge caps a description, and the requirements are the part that would be
+# lost — the reporter's own text sits outside the marks and is not this
+# function's to shorten. So the BLOCK is bounded, loudly, and the run's own
+# directory keeps the whole of it either way.
+MAX_BLOCK_CHARS = 30000
+
+
+def _bounded(block: str) -> str:
+    if len(block) <= MAX_BLOCK_CHARS:
+        return block
+    return (block[:MAX_BLOCK_CHARS].rstrip()
+            + "\n\n…\n\n*Truncated to fit the description. The whole of it is in this "
+              "run's own directory — `asf show <adw_id>` names the file.*")
+
+
 def set_body(tree, config: IssuesConfig, ref: IssueRef, block: str) -> IssueResult:
     """Put the requirements block into the description. Evidence, not an exception.
 
@@ -518,7 +541,7 @@ def set_body(tree, config: IssuesConfig, ref: IssueRef, block: str) -> IssueResu
         result.notes.append(f"could not read the description to splice into: {error}")
         return result
 
-    updated = replace_block(payload.get("body") or "", block)
+    updated = replace_block(payload.get("body") or "", _bounded(block))
     argv = _aim([*config.body_command], project, ref.number) + ["--body", updated]
     completed = _run(argv, tree)
     if completed.returncode != 0:
