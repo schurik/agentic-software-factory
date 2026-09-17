@@ -702,3 +702,31 @@ def test_an_analyst_that_never_settles_stops_the_run_before_anything_claims_it_d
     # Nothing claimed the requirements were agreed.
     assert not any(cfg.issues.refined_label in call for call in forge_calls(repo))
 
+
+# ── what a stamped repo ships ────────────────────────────────────────────────
+
+def test_the_refine_workflow_is_stamped_routed_and_runnable(stamped: Path, monkeypatch):
+    monkeypatch.chdir(stamped)
+    cfg = factory.load(CONFIG)
+
+    # A route is an authorization a person applies, so the label and the
+    # workflow it names have to agree — a route to a workflow that is not there
+    # would be a label that silently does nothing.
+    assert cfg.issues.route["asf:refine"] == "refine"
+    assert (stamped / "asf" / "workflows" / "refine" / "workflow.yaml").is_file()
+
+    listed = asf(stamped, "check")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    assert "✓ refine:" in listed.stdout and "analyst" in listed.stdout
+    # It is triage, not shipping: nothing after the one stage.
+    assert "refine -> " not in listed.stdout
+
+
+def test_refining_leaves_the_four_state_labels_alone(stamped: Path, monkeypatch):
+    monkeypatch.chdir(stamped)
+    cfg = factory.load(CONFIG)
+    states = cfg.issues.states
+
+    assert cfg.issues.refined_label not in (states.queued, states.running,
+                                            states.done, states.failed)
+

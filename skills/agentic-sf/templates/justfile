@@ -56,6 +56,10 @@ run WORKFLOW *ARGS:
 issue NUMBER *ARGS:
     {{asf}} run issue {{NUMBER}} "${@:2}"
 
+# settle what a work item is asking for, with a person, and write it back: just refine 42
+refine NUMBER *ARGS:
+    {{asf}} run refine {{NUMBER}} "${@:2}"
+
 # answer the review threads on one of this factory's pull requests: just pr-review 17
 pr-review NUMBER *ARGS:
     {{asf}} run pr-review {{NUMBER}} "${@:2}"
@@ -85,6 +89,11 @@ show ADW_ID:
 # approve the artifact and continue the run: just approve <adw_id> [-m "remarks"]
 approve ADW_ID *ARGS:
     {{asf}} approve {{ADW_ID}} "${@:2}"
+
+# answer what a question round asked: just answer <adw_id> -m "the refresh path"
+# (`approve` there means "every recommendation as it stands" — one word, seven answers)
+answer ADW_ID *ARGS:
+    {{asf}} answer {{ADW_ID}} "${@:2}"
 
 # send it back with notes; the agent revises, then asks again: just reject <adw_id> -m "..."
 reject ADW_ID *ARGS:

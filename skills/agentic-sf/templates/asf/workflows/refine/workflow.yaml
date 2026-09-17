@@ -1,0 +1,28 @@
+# refine — settle what a work item is actually asking for, with a person.
+# `asf run refine 42`, or the issue watcher on `asf:queued` + `asf:refine`.
+#
+# TRIAGE, NOT SHIPPING. Nothing is built here: the analyst reads the item and
+# the code, asks what it cannot decide, folds the answers in, and writes the
+# agreed requirements into the item's own description. Then the item carries
+# `asf:refined` and whoever is running the queue decides what happens next.
+#
+# WHY THIS IS ITS OWN WORKFLOW rather than a stage in front of `issue`. The
+# routing label IS the authorization — a person applied it, and that is the
+# whole of what lets a stranger's text start a run here. Two labels are two
+# decisions: "this needs settling first" and "this is ready to build". Folding
+# refinement into `issue` would take the first one away and make every tracked
+# item liable to stop for a human, which is a different product.
+#
+# Want the combined chain? Copy `issue/`, put `refine` where its `scout` is —
+# refine does its own recon and hands the findings on, so the scout would be
+# looking twice — and route a third label at it. That is what copying a
+# workflow directory is for.
+name: refine
+description: read the item and the code, ask what cannot be decided, and write the agreed requirements back onto it
+input: issue
+
+stages:
+  # The loop is the stage's: recon, draft, ask, repeat. `max_rounds` is how many
+  # times a person may be asked before the run gives up rather than guessing;
+  # `recon.max_passes` bounds the looking, and round one always scouts.
+  - refine: {max_rounds: 3, recon: {agent: scout, max_passes: 2}}

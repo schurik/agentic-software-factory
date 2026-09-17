@@ -71,6 +71,27 @@ A stage that must end the run without failing its phase raises `StageStop`.
 The runner finishes the run as not accepted, with the reason, and nothing after
 it runs.
 
+**A stage owns its loops.** `verify` owns its fix loop, `review` its revise
+rounds, and `refine` its question rounds — because the YAML has no `loop:` and
+no `if:` (rule 7), and because what decides whether another round is needed is
+not policy a workflow should vary but a judgement the code makes from what the
+last round produced. `refine` is the clearest case: it asks a person, suspends,
+and the thing that decides whether to ask again is the analyst's own answer to
+what it just heard. A workflow gets the ceiling (`max_rounds`), never the
+condition.
+
+`refine` also shows why a stage sometimes does a job another stage already
+does. It runs its own recon rather than sitting behind `scout`, because a
+single pass before the loop searches against the reporter's guess: once a
+person says which code is really involved, findings gathered before that
+describe the wrong files. So recon moves inside the loop, and the analyst
+ORDERS it (`needs_recon`, `recon_focus`) while the code decides whether to
+spend it. The same envelope-appending trick `scout` uses carries the
+accumulated material — the reporter's words, the findings, the draft, the
+answers — through the one `previous` slot every agent handoff has, each part
+with a note saying where it came from, because that is what decides how much
+of it to believe.
+
 ### Workflows
 
 ```yaml
