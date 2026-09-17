@@ -558,13 +558,26 @@ class Decision(EnvelopeBase):
 
 
 class Subject(BaseModel):
-    """What a gate shows the human, and what its digest is taken over."""
+    """What a gate shows the human, and what its digest is taken over.
+
+    `kind` is what the person is being asked FOR, and the two are not the same
+    job. A "gate" shows a work product and takes a verdict on it; "questions"
+    shows what an agent could not settle and takes the missing input. Writing
+    it down here is what lets `hitl.answer()` refuse a verdict that does not
+    belong — an `answer` typed at a plan gate, a `reject` typed at a question
+    round — at the CLI, before anything is recorded and without killing a run
+    over a wrong keystroke.
+    """
 
     gate: str
     round: int = 1
+    kind: Literal["gate", "questions"] = "gate"
     summary: str = ""               # the envelope's own one-liner
     paths: list[str] = Field(default_factory=list)   # absolute, or relative to repo_root
     notes: str = ""                 # the producing agent's notes_for_next_agent
+    # A question round's questions, which the channel renders for the person.
+    # Empty on a gate — there is nothing to publish, the artifact IS the ask.
+    questions: list[Question] = Field(default_factory=list)
 
 
 class Gate(BaseModel):
@@ -590,6 +603,7 @@ class WaitingFor(BaseModel):
 
     gate: str
     round: int = 1
+    kind: Literal["gate", "questions"] = "gate"     # see Subject.kind
     phase_id: str = ""
     phase_name: str = ""
     since: str = ""

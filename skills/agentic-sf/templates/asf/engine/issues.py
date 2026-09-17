@@ -319,6 +319,22 @@ def already_asked(comments: list[IssueComment], adw_id: str, round: int) -> bool
     return any(mark in comment.body for comment in comments)
 
 
+def asked_at(comments: list[IssueComment], adw_id: str, round: int) -> str:
+    """When THIS round's questions went up, BY THE FORGE'S OWN CLOCK.
+
+    The moment an answer has to be later than, and it is read back off the
+    posted comment rather than taken from `now_iso()` at publish time on
+    purpose: the two clocks are not the same one. A run on a machine a few
+    seconds ahead of the forge would stamp a `since` in the tracker's future
+    and discard the first reply as if it had come before the question.
+    """
+    mark = questions_mark(adw_id, round)
+    for comment in comments:
+        if mark in comment.body:
+            return comment.created_at
+    return ""
+
+
 def render_questions(questions: list[Question], adw_id: str, round: int,
                      limit: int = 4000) -> str:
     """The comment a person answers. Grouped by topic, because a list of eight

@@ -194,11 +194,19 @@ def build_parser() -> argparse.ArgumentParser:
     show = _config_on(sub.add_parser("show", help="what a waiting run wants you to read"))
     show.add_argument("adw_id")
     show.set_defaults(func=cmd_show)
-    for verdict in ("approve", "reject", "abort"):
-        one = _config_on(sub.add_parser(verdict, help=f"{verdict} the gate a run waits at"))
+    # Four verbs, two waits. A GATE shows a work product and takes a verdict on
+    # it; a QUESTION ROUND shows what an agent could not settle and takes the
+    # missing input. `hitl.answer()` refuses the verb that does not fit the wait
+    # in front of it, so a wrong one costs a second command rather than a run.
+    for verdict, what in (("approve", "approve the gate a run waits at, or take every "
+                                      "recommendation a question round offered"),
+                          ("reject", "send the artifact back to the agent that made it"),
+                          ("answer", "supply what a question round asked for"),
+                          ("abort", "end the run where it stands")):
+        one = _config_on(sub.add_parser(verdict, help=what))
         one.add_argument("adw_id")
         one.add_argument("-m", "--notes", default="",
-                         help="your words for the agent (required on reject)")
+                         help="your words for the agent (required on reject and answer)")
         one.add_argument("--no-resume", action="store_true",
                          help="record the decision and stop; do not relaunch the run")
         one.set_defaults(func=cmd_decide)
