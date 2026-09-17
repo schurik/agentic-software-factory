@@ -557,6 +557,23 @@ class Decision(EnvelopeBase):
         return self.verdict == "approve"
 
 
+class Reply(BaseModel):
+    """What a person said to end a wait, and how it reached the run.
+
+    One type rather than four arguments, because the two places that build one
+    disagree about every field: `asf answer` knows the engineer at the keyboard
+    and `channel="cli"`, while the answers watcher knows a forge login and
+    `channel="issue"`. `channel` is not decoration — it is what the record says
+    about WHERE the decision came from, and a run's trace is worth as much as
+    the provenance in it.
+    """
+
+    verdict: Verdict
+    notes: str = ""
+    by: str = ""
+    channel: str = "cli"
+
+
 class Subject(BaseModel):
     """What a gate shows the human, and what its digest is taken over.
 

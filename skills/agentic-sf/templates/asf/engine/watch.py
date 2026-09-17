@@ -1,4 +1,5 @@
-"""The two pollers: a run per labelled issue, a run per pull request with open threads.
+"""The three pollers: a run per labelled issue, a run per reviewed pull request, a
+run resumed because somebody answered it.
 
 Deliberately ABOVE the control plane: a queue and a worker sit over the runner,
 not inside it, and nothing here knows what a phase is. Both live in one module
@@ -11,6 +12,13 @@ the forge has no conditional label change, so two watchers that listed
 concurrently both come back ok. Exclusion is a file lock per issue, taken
 before the claim and held for the whole run — which covers one watcher per
 repository on one machine, and nothing covers two machines. Run one.
+
+THE SUSPENDED SESSION IS THE QUEUE for answers, and it is the odd one of the
+three: nothing new is launched, an existing run is brought back. A question
+round put its questions on a work item and stopped at exit 75, and without this
+poller the reply sits there while the run waits for somebody to type
+`asf answer`. So this one walks the sessions THIS REPOSITORY already has
+waiting, looks for a comment that came after the question, and resumes.
 
 THE UNRESOLVED THREAD IS THE QUEUE for pull requests. No label to claim: the
 forge maintains that state, and the run that answers a thread resolves it.
@@ -40,8 +48,9 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import artifacts, git_helper, hitl, issues, pull_requests, worktree
-from .data_types import Decision, IssueUpdate, PullRequestRef, PullRequestUpdate, FactoryConfig
+from . import artifacts, git_helper, hitl, issues, operate, pull_requests, worktree
+from .data_types import (Decision, IssueRef, IssueUpdate, PullRequestRef, PullRequestUpdate,
+                         FactoryConfig, Reply)
 from .tracer import watcher_beat as db_beat
 from .utils import anchor, ensure_dir, now_iso, operator_env
 
@@ -298,6 +307,147 @@ def issues_status(cfg: FactoryConfig) -> int:
         print(f"  {label:<16} -> {workflow}")
     if not cfg.issues.route:
         print("  (none — no label routes to a workflow, so nothing would ever launch)")
+    return 0
+
+
+# ── answers ──────────────────────────────────────────────────────────────────
+#
+# Nothing is launched here; a run that already exists is brought BACK. That
+# makes this the only poller with no queue of its own — it reads the sessions
+# this repository has waiting, which is the same record `asf pending` prints.
+
+
+def _answering(cfg: FactoryConfig, main_root) -> dict:
+    """{adw_id: what it waits for} for the waits this poller can actually end.
+
+    Filtered by CHANNEL and by name, never by "everything I do not recognise":
+    a pull request round records `channel: "pr"` and nothing reads that yet, so
+    treating an unknown channel as this one's would resume a run on an answer
+    that never came.
+    """
+    sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+    return {adw_id: what for adw_id, what in artifacts.waiting_sessions(sessions).items()
+            if what.channel == "issue" and what.issue_number}
+
+
+def _heard(cfg: FactoryConfig, main_root, what) -> list:
+    """The comments that could answer THIS wait. Never raises: a forge outage
+    is a poll that found nothing, not a crash of the loop above it."""
+    # `asked_at` is stamped when the questions go up and should always be set;
+    # `since` — when the wait was recorded — is the honest fallback, and it is
+    # the conservative one. An empty value would accept every comment ever
+    # written on the item, including ones from before the question.
+    since = what.asked_at or what.since
+    try:
+        comments = issues.comments(main_root, cfg.issues, IssueRef(number=what.issue_number))
+    except RuntimeError as error:
+        print(f"  #{what.issue_number}: could not be read ({error})")
+        return []
+    return issues.answers_since(comments, since=since, authors=cfg.issues.trusted_authors)
+
+
+def _as_reply(answers: list) -> Reply:
+    """What several comments say, as one answer, with everyone attributed.
+
+    The analyst reads this as prose, so two people disagreeing in two comments
+    must not arrive as one anonymous paragraph — which is what joining the
+    bodies alone would do.
+    """
+    return Reply(verdict="answer", channel="issue", by=answers[-1].author or "someone",
+                 notes="\n\n".join(f"{c.author or 'someone'}: {c.body.strip()}"
+                                    for c in answers))
+
+
+def answers_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
+    main_root = git_helper.main_root()
+    project = issues.resolve_project(cfg.issues, main_root)
+    if not cfg.issues.enabled:
+        print("issues.enabled is false — nothing to answer")
+        beat(cfg, main_root, "answers", "disabled", note="issues.enabled is false")
+        return 0
+    if not project:
+        print("issues.project is empty and no origin remote could be read. Set "
+              "issues.project: a watcher that cannot name its project polls nothing.",
+              file=sys.stderr)
+        beat(cfg, main_root, "answers", "error", note="issues.project is unresolved")
+        return 2
+
+    # THIS PROCESS IS NOT ANYBODY'S TERMINAL, and every run it resumes inherits
+    # that. `issues_once` says the same thing per launch; here the resume goes
+    # through `operate.relaunch`, which runs the child on this environment — so
+    # the statement belongs to the process. A resumed run that prompted would
+    # be asking whoever left the watcher running, about a round they never read.
+    os.environ[hitl.UNATTENDED_ENV] = "1"
+
+    waits = _answering(cfg, main_root)
+    print(f"{project}: {len(waits)} run(s) waiting on an answer")
+    beat(cfg, main_root, "answers", "polling", project=project, interval=interval,
+         note=f"{len(waits)} waiting")
+
+    resumed = 0
+    for adw_id, what in sorted(waits.items(), key=lambda item: item[1].since):
+        if len(live_runs(cfg, main_root)) >= cfg.issues.max_concurrent:
+            print(f"  {adw_id}: max_concurrent ({cfg.issues.max_concurrent}) reached — "
+                  f"next poll")
+            break
+        session_dir = artifacts.sessions_root(main_root, cfg.defaults.data_dir) / adw_id
+        with claim(cfg, main_root, "issue-locks", project, what.issue_number) as mine:
+            # The SAME lock the issue watcher takes. The two cannot collide
+            # today — that one only claims `queued` items and this one's are on
+            # `running` — but sharing the key costs nothing and means the
+            # question never has to be re-answered when a third poller appears.
+            if not mine:
+                continue
+            if hitl.read_decision(session_dir, what.gate, what.round) is None:
+                answers = _heard(cfg, main_root, what)
+                if not answers:
+                    continue
+                reply = _as_reply(answers)
+                try:
+                    hitl.answer(session_dir, reply)
+                except RuntimeError as error:
+                    print(f"  {adw_id}: {error}")
+                    continue
+                print(f"  {adw_id}: #{what.issue_number} answered by {reply.by}")
+            else:
+                # A decision is already on record — written by `asf answer
+                # --no-resume`, or by a poll whose relaunch then died. Either
+                # way the run is answered and still stopped, which is the one
+                # state this poller exists to clear. `--no-resume` means "not
+                # by that command", not "never".
+                print(f"  {adw_id}: already answered and still waiting — resuming")
+            beat(cfg, main_root, "answers", "working", project=project, interval=interval,
+                 note=f"{adw_id} #{what.issue_number}")
+            code = operate.relaunch(cfg, config_path, adw_id)
+            resumed += 1
+            if code == EXIT_WAITING:
+                print(f"  {adw_id}: asked again — round {what.round + 1} is on "
+                      f"#{what.issue_number}")
+    print(f"resumed {resumed} run(s)")
+    beat(cfg, main_root, "answers", "polling", project=project, interval=interval,
+         note=f"{len(waits)} waiting, resumed {resumed}")
+    return 0
+
+
+def answers_loop(cfg: FactoryConfig, config_path: str, interval: int) -> int:
+    _exit_on_sigterm()
+    return _loop("answers", lambda: answers_once(cfg, config_path, interval), cfg,
+                 git_helper.main_root(), interval)
+
+
+def answers_status(cfg: FactoryConfig) -> int:
+    main_root = git_helper.main_root()
+    project = issues.resolve_project(cfg.issues, main_root)
+    waits = _answering(cfg, main_root)
+    print(f"enabled:        {cfg.issues.enabled}")
+    print(f"project:        {project or '(unresolved — set issues.project)'}")
+    print(f"trusted:        {', '.join(cfg.issues.trusted_authors) or '(anyone who can comment)'}")
+    print(f"waiting on an answer: {len(waits)}")
+    for adw_id, what in sorted(waits.items(), key=lambda item: item[1].since):
+        print(f"  {adw_id}  #{what.issue_number}  {what.gate} · round {what.round}  "
+              f"asked {what.asked_at or what.since}")
+    if not waits:
+        print("  (none — `asf pending` lists every wait, including the ones on a terminal)")
     return 0
 
 

@@ -39,7 +39,8 @@ from .utils import anchor
 RUNNER = "asf/asf.py"
 API_PORT = int(os.environ.get("PORT", "4600"))
 UI_PORT = 4601
-COLORS = {"obs": "\033[36m", "ui": "\033[35m", "issues": "\033[33m", "prs": "\033[32m"}
+COLORS = {"obs": "\033[36m", "ui": "\033[35m", "issues": "\033[33m",
+          "answers": "\033[34m", "prs": "\033[32m"}
 DIM, WARN, RESET = "\033[2m", "\033[33m", "\033[0m"
 
 
@@ -99,15 +100,18 @@ def _stop(service: Service, grace: float = 8.0) -> None:
 def wanted(cfg: FactoryConfig, only: str) -> set[str]:
     if only:
         chosen = {part.strip() for part in only.split(",") if part.strip()}
-        unknown = chosen - {"obs", "issues", "prs"}
+        unknown = chosen - {"obs", "issues", "answers", "prs"}
         if unknown:
             raise SystemExit(f"--only: unknown service(s) {', '.join(sorted(unknown))} — "
-                             f"pick from obs, issues, prs")
+                             f"pick from obs, issues, answers, prs")
         return chosen
-    want = {"obs", "issues", "prs"}
+    want = {"obs", "issues", "answers", "prs"}
     if not cfg.issues.enabled:
-        print(paint(DIM, "  ~ issues.enabled is false — not starting the issue watcher"))
-        want.discard("issues")
+        # Both tracker pollers go: one launches runs from the item, the other
+        # brings them back from it, and neither has anywhere to look without it.
+        print(paint(DIM, "  ~ issues.enabled is false — not starting the issue or "
+                         "answer watcher"))
+        want -= {"issues", "answers"}
     if not cfg.pull_requests.enabled:
         print(paint(DIM, "  ~ pull_requests.enabled is false — not starting the review watcher"))
         want.discard("prs")
@@ -131,7 +135,7 @@ def check(cfg: FactoryConfig, want: set[str]) -> list[str]:
                               f"without the trace UI: `lsof -ti :{API_PORT} | xargs kill`"))
             want.discard("obs")
     forge = (cfg.issues.list_command or ["gh"])[0]
-    if want & {"issues", "prs"} and not shutil.which(forge):
+    if want & {"issues", "answers", "prs"} and not shutil.which(forge):
         print(paint(WARN, f"  ! {forge!r} is not on PATH — the watchers can start, but every "
                           f"poll will fail to list anything"))
     return ["nothing to start — see the messages above"] if not want else []
@@ -145,7 +149,7 @@ def services(want: set[str], config_path: str, interval: int, main_root: Path,
         found.append(Service("obs", ["bun", "run", "server/index.ts"], home,
                              {"ASF_DB": str(db), "PORT": str(API_PORT)}))
         found.append(Service("ui", ["bunx", "vite"], home, {"PORT": str(API_PORT)}))
-    for name in ("issues", "prs"):
+    for name in ("issues", "answers", "prs"):
         if name in want:
             found.append(Service(name, [sys.executable, RUNNER, "--config", config_path, name,
                                         "loop", "--interval", str(interval)],
@@ -187,7 +191,7 @@ def up(cfg: FactoryConfig, config_path: str, interval: int, only: str) -> int:
     print()
     if "obs" in want:
         print(f"  trace UI   http://localhost:{UI_PORT}   (api on :{API_PORT})")
-    for name in ("issues", "prs"):
+    for name in ("issues", "answers", "prs"):
         if name in want:
             print(f"  {name:<9}  polling every {interval}s")
     print(f"\n{paint(DIM, '  ctrl-c stops all of it')}\n")
