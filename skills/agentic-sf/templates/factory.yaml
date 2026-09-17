@@ -75,16 +75,32 @@ issues:
   list_command:    ["gh", "issue", "list"]
   comment_command: ["gh", "issue", "comment"]
   state_command:   ["gh", "issue", "edit"]
+  # Reading the answers a person wrote, and writing the requirements block back
+  # into the description. Separate entries although `gh` spells both with verbs
+  # it already has: a tracker that is not the forge routes comments, labels and
+  # the description to three different places.
+  comments_command: ["gh", "issue", "view"]
+  body_command:     ["gh", "issue", "edit"]
   # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
   # AND a label here launches that workflow. `route: {}` means nothing ever
   # launches, whatever `enabled` says.
   route:
     "asf:ship": issue
+    "asf:refine": refine
   states:                          # the label state machine
     queued:  "asf:queued"
     running: "asf:running"
     done:    "asf:done"
     failed:  "asf:failed"
+  # NOT a fifth state. The four above are mutually exclusive and a claim clears
+  # whichever one an issue still carries; "the requirements were settled with a
+  # person" is a different axis, and it does not stop being true because the
+  # item was queued again. `refine` puts this on; nothing takes it off.
+  refined_label: "asf:refined"
+  # A ceiling on the question comment a `refine` run posts. The questions are
+  # RENDERED from the agent's structured answer rather than written by it as
+  # markdown, so this is a second bound and not the only one.
+  max_question_chars: 4000
   # [] accepts every issue author, because the person who applied the routing
   # label is then the only authorization. Narrow it where anyone can label.
   trusted_authors: []
