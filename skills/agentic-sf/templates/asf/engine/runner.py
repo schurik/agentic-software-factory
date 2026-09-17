@@ -112,6 +112,11 @@ class Run:
         # what is replayed and what is deliberately re-run.
         self.resuming = spec.resume
         self.replay = replay.load(self.session_dir, spec.resume)
+        # ...and re-enter each of those phases under the id it already has, so a
+        # resume UPDATES this session's phases rather than appending a second
+        # copy of every one it re-walks. See `_identity`.
+        self._recorded_phases = (artifacts.phase_identities(self.session_dir, spec.adw_id)
+                                 if spec.resume else {})
         # Which gates stop for a human this run. Built once, asked at every
         # gate with the trigger the run knows THEN — an issue chain learns it is
         # issue-triggered in its first phase, after this constructor ran.
@@ -243,11 +248,32 @@ class Run:
                               self._prior_cost + self.cost, self.cfg.budget)
 
     # ── the phase primitive ─────────────────────────────────────────────────
+    def _identity(self, params: PhaseParams) -> tuple[int, str]:
+        """The number and id this phase runs under: a new one, or the one it had.
+
+        A resumed run re-walks the chain from the top. Everything before the
+        failure is cheap — an agent phase replays from the record, a code phase
+        runs again for real — but it is the SAME phase of the same session
+        either way, and a fresh number would file it beside its own row instead
+        of on it: two `plan`s after one resume, three after the next, and a
+        visualizer drawing every completed stage once per recovery. Re-entering
+        it under the recorded id makes `phase_upsert` an update, which is what
+        that ON CONFLICT clause was always for.
+
+        Only when resuming. A joined run (`--adw-id` without `--resume`) is new
+        work continuing a session, and new work gets a new number even where it
+        reuses a name — see `artifacts.max_phase_seq`.
+        """
+        recorded = self._recorded_phases.get(params.name)
+        if recorded:
+            return recorded
+        self._seq += 1
+        return self._seq, f"{self.adw_id}_{self._seq:02d}_{params.name}"
+
     @contextmanager
     def phase(self, params: PhaseParams):
-        self._seq += 1
-        phase = Phase(phase_id=f"{self.adw_id}_{self._seq:02d}_{params.name}",
-                      adw_id=self.adw_id, seq=self._seq, params=params,
+        seq, phase_id = self._identity(params)
+        phase = Phase(phase_id=phase_id, adw_id=self.adw_id, seq=seq, params=params,
                       status="running", started_at=now_iso())
         self.phases.append(phase)
         self.tracer.phase_upsert(phase)

@@ -392,13 +392,24 @@ class Tracer:
 
     # ── phases ──────────────────────────────────────────────────────────────
     def phase_upsert(self, phase: Phase) -> None:
+        """Write this phase's row, or update the one it already has.
+
+        A phase is upserted twice per walk — once when it opens, once when it
+        ends — and a RESUMED run re-enters it under the same id (see
+        `runner.Run._identity`), so the row is also what a second and third walk
+        land on. `started_at` moves with them for that reason: a row left on the
+        first walk's start and stamped with the latest walk's end measures the
+        hours a human took to answer a gate, and the visualizer draws that as
+        the phase's own duration.
+        """
         p = phase.params
         self.conn.execute(
             "INSERT INTO phases (phase_id, adw_id, seq, name, kind, owner, description,"
             " status, attempt, retries, error, started_at, ended_at)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(phase_id) DO UPDATE SET status=excluded.status,"
-            " attempt=excluded.attempt, error=excluded.error, ended_at=excluded.ended_at",
+            " attempt=excluded.attempt, error=excluded.error,"
+            " started_at=excluded.started_at, ended_at=excluded.ended_at",
             (phase.phase_id, phase.adw_id, phase.seq, p.name, p.kind, p.owner,
              p.description, phase.status, phase.attempt, p.retries, phase.error,
              phase.started_at, phase.ended_at),
