@@ -80,6 +80,16 @@ recorded. WHERE it asks follows the run, not the workflow: a run launched from
 a work item asks on that item, a pull request run on its pull request, and only
 a run started at somebody's keyboard asks at a terminal.
 
+A RUN KEEPS A JOURNAL of what it has done — one line per phase as it closes,
+plus every note an agent filed on an accepted envelope (`for_the_record`:
+`deviation`, `discovery`, `risk`). It is appended to every agent prompt
+rendered afterwards and mirrored to `asf/data/sessions/<id>/context_handoff/
+journal.md`, so a reviewer knows the builder swapped a library the plan named,
+and why, instead of reading the swap as a mistake and asking for it back. A
+`deviation` that does not say what it departed from and why is refused at parse
+time. The agent declares the note; CODE files it — nothing lets an agent write
+the journal itself.
+
 WHAT A PERSON SAYS THERE IS KEPT, and it outlives the round that heard it. The
 words typed beside a verdict (`just approve <id> -m "…and give status a --json
 flag"`) are an amendment to the request, not a note to one agent: they are

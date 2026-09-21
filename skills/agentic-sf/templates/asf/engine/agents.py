@@ -16,8 +16,8 @@ from typing import Optional
 
 import yaml
 
-from . import (artifacts, git_helper, harnesses, limits, permissions, preflight,
-               prompts, remarks)
+from . import (artifacts, git_helper, harnesses, journal, limits, permissions,
+               preflight, prompts, remarks)
 from .data_types import (AgentCall, AgentConfig, AgentRequest, AgentResult,
                          AgentSession, EnvelopeBase, EventRecord, GateCheck,
                          GateReport, Phase, RecordedPhase, FactoryConfig,
@@ -209,9 +209,13 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     # placeholders. engine/remarks.py says why one agent's handoff was not
     # enough. The audit copy below is saved after this, so `user.md` is the
     # prompt that was actually sent.
-    standing = remarks.render(remarks.load(run.session_dir))
-    if standing:
-        user_text = f"{user_text.rstrip()}\n\n{standing}"
+    # What this run has already done, and what a person has already said to it.
+    # Facts first, instructions last — the instructions are what an agent must
+    # still be holding when it starts work.
+    for block in (journal.render(journal.load(run.session_dir)),
+                  remarks.render(remarks.load(run.session_dir))):
+        if block:
+            user_text = f"{user_text.rstrip()}\n\n{block}"
     prompts.save(agent_dir / "prompts", "system.md", system_text)
     prompts.save(agent_dir / "prompts", "user.md", user_text)
 
@@ -335,6 +339,15 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                                      payload={"agent": agent.name, "paths": touched}))
 
     _persist_envelope(run, phase, agent.name, call, envelope, attempt, valid=True)
+    # The agent proposed these; code files them. Deliberately AFTER permissions
+    # and the gates, so nothing an agent was not allowed to do reaches the
+    # record as a thing that happened — and before the status check below, so a
+    # failing agent's "the library is not on the index" survives the phase that
+    # died of it.
+    filed = journal.record_notes(run, phase, agent.name, envelope.for_the_record)
+    if filed:
+        run.console.note(f"{filed} note(s) for the record from {agent.name} — "
+                         f"every agent after this one reads them")
     run.console.envelope_summary(envelope)
     context = latest or result
     run.tracer.agent_session_row(run.adw_id, agent, session.session_id,

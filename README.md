@@ -105,6 +105,29 @@ builder acts on it *and* the reviewer knows it was asked for. Before that, a rem
 agent only: the builder built what you asked for, and the reviewer measured the result against a
 plan nobody had amended and sent it back to be removed.
 
+## The run keeps a journal
+
+`asf/data/sessions/<id>/context_handoff/journal.md` is the run's record of itself: one line per
+phase as it closes, and every note an agent filed on an envelope the gates accepted. The same
+content is appended to every agent prompt rendered afterwards.
+
+```
+3. implement · builder · success — Added app.py with the /health route
+   ⚑ deviation (builder, in implement): used `httpx` for the probe
+     instead of: the plan names `requests`
+     because: `requests` is not in this repo's lockfile
+4. verify_1 · quality · success — passed: False, checks: 0/1
+```
+
+An agent declares a note on its envelope (`for_the_record`, typed `deviation`, `discovery` or
+`risk`); **code** lifts it into the journal once the envelope is accepted — nothing lets an agent
+write the journal itself. A `deviation` that does not say what it departed from and why is refused
+at parse time and re-prompted in the same session.
+
+This is the reviewer's other missing spec. Without it the builder swaps a library the plan named
+for one that actually exists, and the reviewer — holding only the plan — files the swap as
+unrequested work and sends it back.
+
 ## Issues and reviews close the loop
 
 A run lands as a pull request by default. With the watchers up, an issue labelled `asf:queued` and

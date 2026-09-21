@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional, Type
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 PhaseKind = Literal["engineer", "agent", "code"]
 PhaseStatus = Literal["queued", "running", "success", "fail", "waiting"]
@@ -90,6 +90,58 @@ class Phase(BaseModel):
 
 # ── Envelopes (agent output types) ───────────────────────────────────────────
 
+class Note(BaseModel):
+    """One thing an agent learned that the REST of the run has to know.
+
+    `notes_for_next_agent` is prose and travels one hop. This is typed and
+    travels to the end of the run: code lifts it off the envelope into the
+    journal (engine/journal.py), and every agent called afterwards reads it.
+
+    A DEVIATION is the case this exists for. The plan names a library that
+    turns out not to be on the index; the builder picks another one and says so
+    here. Without it the reviewer measures the build against the plan, finds an
+    import the plan never mentions, and sends the builder back to use a package
+    that does not exist — the same round trip a person's remark used to cause,
+    from the other direction.
+
+    `because` is what makes a note worth its line. A deviation without a reason
+    is a surprise, and the validator below refuses it rather than let one reach
+    a reviewer that cannot tell the two apart.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # deviation: what was done is not what was planned, and that is now a fact.
+    # discovery: something true of this repository that nobody knew going in.
+    # risk:      something left standing that the next agent should weigh.
+    kind: Literal["deviation", "discovery", "risk"] = "discovery"
+    what: str                       # one line: what is now true
+    because: str = ""               # the evidence for it, not an opinion about it
+    instead_of: str = ""            # deviation only: what it was supposed to be
+
+    @model_validator(mode="after")
+    def _a_deviation_names_what_it_departed_from(self) -> "Note":
+        """A deviation that cannot be compared with the plan is not one.
+
+        Refused at PARSE time rather than by a gate, so it is caught wherever
+        the field exists instead of only where a stage remembered to list a
+        gate — and so the correction re-prompts the same session, which is what
+        a malformed envelope already does.
+        """
+        if not self.what.strip():
+            raise ValueError("a note needs `what` — one line saying what is now true")
+        if self.kind != "deviation":
+            return self
+        missing = [name for name in ("instead_of", "because")
+                   if not getattr(self, name).strip()]
+        if missing:
+            raise ValueError(
+                f"a deviation must name {' and '.join(missing)} — a departure from the "
+                f"plan that does not say what it departed from, and why, reads to the "
+                f"next agent as a mistake rather than a decision")
+        return self
+
+
 class EnvelopeBase(BaseModel):
     """Base of every agent's final JSON response. Output types extend this."""
 
@@ -97,6 +149,9 @@ class EnvelopeBase(BaseModel):
     summary: str = ""
     artifacts: list[str] = Field(default_factory=list)
     notes_for_next_agent: str = ""
+    # For the whole run, not for the next agent. Code lifts these into the
+    # journal the moment the envelope is accepted — see engine/journal.py.
+    for_the_record: list[Note] = Field(default_factory=list)
 
 
 class GenericOutput(EnvelopeBase):
@@ -615,6 +670,36 @@ class Decision(EnvelopeBase):
     @property
     def approved(self) -> bool:
         return self.verdict == "approve"
+
+
+class JournalEntry(BaseModel):
+    """One line of the run's own record of itself — see engine/journal.py.
+
+    Two shapes in one type, because they are read as one list and a reader
+    wants them interleaved in the order they happened:
+
+      * a PHASE closing — what ran, who owned it, how it went, in one line;
+      * a NOTE an agent filed on the envelope it was accepted on.
+
+    `seq` is the phase number the entry belongs to, so the journal orders the
+    way the run did even when a resumed process rewrites an entry in place.
+    """
+
+    seq: int = 0
+    at: str = ""
+    kind: Literal["phase", "note"] = "phase"
+    phase: str                      # the phase name this came out of
+    by: str = ""                    # the agent, "quality", "git", the engineer
+    status: str = ""                # phase entries: success | fail | waiting
+    summary: str = ""               # phase entries: the envelope's own one-liner
+    note: Optional[Note] = None     # note entries: what the agent filed
+
+    @property
+    def key(self) -> tuple:
+        """What makes two entries the same one. A resumed process re-walks
+        phases it already walked; its entries must land ON their old rows."""
+        return (self.kind, self.phase,
+                f"{self.note.kind}:{self.note.what}" if self.note else "")
 
 
 class Remark(BaseModel):

@@ -21,7 +21,8 @@ import sys
 import time
 from pathlib import Path
 
-from . import artifacts, git_helper, hitl, inputs, issues, preflight, remarks, worktree
+from . import (artifacts, git_helper, hitl, inputs, issues, journal, preflight,
+               remarks, worktree)
 from . import labels as labels_module
 from .data_types import FactoryConfig, Reply
 from .utils import engineer_name
@@ -84,6 +85,15 @@ def show(cfg: FactoryConfig, adw_id: str) -> int:
             print(f"    · {remark.gate} round {remark.round} "
                   f"({remark.verdict} by {remark.by or 'someone'}): {remark.text}")
     print(f"  tree:    {state.repo_root} ({state.branch})")
+    session = sessions_dir(cfg) / adw_id
+    if journal.load(session):
+        # The PATH, not the contents: `show` is about the decision in front of
+        # this person, and the run's whole story would bury it. Deviations are
+        # the exception — a departure from the plan is exactly what somebody
+        # about to approve that plan's outcome needs told out loud.
+        print(f"  journal: {session / 'context_handoff' / journal.RENDERED}")
+        for entry in journal.deviations(session):
+            print(f"    ⚑ deviation ({entry.by}, in {entry.phase}): {entry.note.what}")
     for path in what.paths:
         print(f"\n─── {path} ───")
         try:
