@@ -47,8 +47,10 @@ one place.
 Keyed, not appended blindly: a resumed process re-walks phases it already
 walked, and its entries must land on their old rows rather than beside them.
 
-Files only. `<session_dir>/journal.json` is the record; the trace db mirrors
-the same phases and decisions, and nothing here reads it.
+Two files and one of them is derived: `<session_dir>/journal.json` holds the
+entries, and `<context_handoff_dir>/journal.md` is that same list rendered,
+rewritten whole on every write so it cannot drift from what it shows. The trace
+db mirrors the same phases and decisions, and nothing here reads it.
 """
 
 from __future__ import annotations
@@ -60,9 +62,8 @@ from typing import Optional
 from .data_types import EnvelopeBase, JournalEntry, Note, Remark
 from .utils import now_iso
 
-LEDGER = "journal.json"
-RENDERED = "journal.md"
-
+RECORD = "journal.json"      # the entries
+RENDERED = "journal.md"      # the same entries, as the file a person opens
 NOTE_MARK = "⚑"
 REMARK_MARK = "✎"
 
@@ -93,21 +94,21 @@ WHERE = {"gate": "gate", "questions": "question round"}
 
 
 def path(session_dir: str | Path) -> Path:
-    return Path(session_dir) / LEDGER
+    return Path(session_dir) / RECORD
 
 
 def load(session_dir: str | Path) -> list[JournalEntry]:
     """Every entry this session has filed, in the order the run made them.
 
-    A half-written or hand-mangled ledger reads as an empty journal rather than
+    A half-written or hand-mangled file reads as an empty journal rather than
     killing a run: the journal is an addition to a prompt, and a run that
     cannot read it is the run everyone had before this file existed.
     """
-    ledger = path(session_dir)
-    if not ledger.is_file():
+    record = path(session_dir)
+    if not record.is_file():
         return []
     try:
-        raw = json.loads(ledger.read_text())
+        raw = json.loads(record.read_text())
     except (ValueError, OSError):
         return []
     found = []
@@ -121,13 +122,13 @@ def load(session_dir: str | Path) -> list[JournalEntry]:
 
 def _write(session_dir: str | Path, entries: list[JournalEntry],
            handoff_dir: Optional[Path] = None) -> None:
-    ledger = path(session_dir)
-    ledger.parent.mkdir(parents=True, exist_ok=True)
-    ledger.write_text(json.dumps([e.model_dump() for e in entries], indent=2))
+    record = path(session_dir)
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps([e.model_dump() for e in entries], indent=2))
     if handoff_dir is not None:
         # The same content, as the file a person opens. Rewritten whole every
         # time rather than appended to, so it can never disagree with the
-        # ledger it is a view of.
+        # entries it is a view of.
         handoff_dir.mkdir(parents=True, exist_ok=True)
         (handoff_dir / RENDERED).write_text(render(entries) or f"{PREAMBLE}\n(nothing yet)\n")
 

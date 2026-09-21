@@ -677,7 +677,7 @@ class Remark(BaseModel):
 
     A `Decision` is a verdict and belongs to the round that took it: read back
     by gate and round, spent, then history. The words beside it are the
-    opposite. "Approve, and give status a --json flag too" amends the request
+    opposite. "Approve, and make the probe time out after 2s" amends the request
     for the rest of the run, and an agent three phases later needs it as much
     as the one that came next.
 

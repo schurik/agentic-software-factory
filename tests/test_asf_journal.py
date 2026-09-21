@@ -176,7 +176,7 @@ def test_a_gate_remark_lands_on_the_timeline_between_the_plan_and_the_build(stam
     run = asf(stamped, "run", "remarked", "add app.py")
     assert run.returncode == 75, run.stdout + run.stderr
     adw_id = adw_id_of(run)
-    said = "yes — and give status a --json flag while you are in there"
+    said = "yes — and make the probe time out after 2s while you are in there"
 
     approved = asf(stamped, "approve", adw_id, "-m", said)
     assert approved.returncode == 0, approved.stdout + approved.stderr

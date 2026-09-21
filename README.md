@@ -110,8 +110,8 @@ and not of the plan goes on it.
 ```
 2. plan · planner · success — Split the probe out of the handler
 3. approve_plan · engineer · success — approve by schurik
-   ✎ schurik said, approve at the plan gate (round 1): and give status a --json flag
-4. implement · builder · success — Added app.py with the /health route and --json
+   ✎ schurik said, approve at the plan gate (round 1): and make the probe time out after 2s
+4. implement · builder · success — Added app.py with the /health route, probe capped at 2s
    ⚑ deviation (builder, in implement): used `httpx` for the probe
      instead of: the plan names `requests`
      because: `requests` is not in this repo's lockfile
