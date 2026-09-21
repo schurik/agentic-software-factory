@@ -90,13 +90,20 @@ Any stage takes `hitl: true`. The run stops after that phase with exit 75 and th
 
 ```bash
 just pending             # what is waiting, and on what
-just show <id>           # the artifact it wants a decision on
+just show <id>           # the artifact, and everything already said to this run
 just approve <id>        # continue
+just approve <id> -m "…" # continue, and amend the request while you are at it
 just reject <id> -m "…"  # the same agent revises, in the same session
 just abort <id>
 ```
 
 `--hitl all|none|plan` overrides the workflow's own gates for one run.
+
+What you type after `-m` is kept as a **remark** and appended to every agent prompt the run renders
+afterwards — the whole run, not just the next phase. It is an amendment to the request, so the
+builder acts on it *and* the reviewer knows it was asked for. Before that, a remark reached the next
+agent only: the builder built what you asked for, and the reviewer measured the result against a
+plan nobody had amended and sent it back to be removed.
 
 ## Issues and reviews close the loop
 

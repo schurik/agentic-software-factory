@@ -617,6 +617,30 @@ class Decision(EnvelopeBase):
         return self.verdict == "approve"
 
 
+class Remark(BaseModel):
+    """One thing a person said to this run, kept for every agent after them.
+
+    A `Decision` is a verdict and belongs to the round that took it — read back
+    by gate and round, spent, and then history. The WORDS beside that verdict
+    are the opposite: "approve, and give status a --json flag too" amends the
+    request for the rest of the run, and an agent three phases later needs it
+    as much as the one that came next. Splitting them is the whole point; see
+    engine/remarks.py for what went wrong while they were the same thing.
+
+    `verdict`, `by` and `channel` travel with the text because a remark is read
+    as an instruction, and an instruction is worth what its provenance is.
+    """
+
+    gate: str
+    round: int = 1
+    kind: Literal["gate", "questions"] = "gate"     # see Subject.kind
+    verdict: Verdict = "approve"
+    text: str
+    by: str = ""                    # engineer name or forge login; never "policy"
+    channel: str = ""               # terminal | cli | issue | pr
+    at: str = ""                    # when it was decided, not when it was filed
+
+
 class Reply(BaseModel):
     """What a person said to end a wait, and how it reached the run.
 

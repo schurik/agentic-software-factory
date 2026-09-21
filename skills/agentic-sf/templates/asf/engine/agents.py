@@ -17,7 +17,7 @@ from typing import Optional
 import yaml
 
 from . import (artifacts, git_helper, harnesses, limits, permissions, preflight,
-               prompts)
+               prompts, remarks)
 from .data_types import (AgentCall, AgentConfig, AgentRequest, AgentResult,
                          AgentSession, EnvelopeBase, EventRecord, GateCheck,
                          GateReport, Phase, RecordedPhase, FactoryConfig,
@@ -202,6 +202,16 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                            f"has no fallback user prompt — a stage must resolve a task "
                            f"file before it calls an agent")
     user_text = prompts.render(anchor(run.main_root, task_ref), variables)
+    # What a person already said to this run, appended to EVERY task file there
+    # is. Not a `{{placeholder}}`, on purpose and twice over: a task file that
+    # forgot to name one would silently drop what somebody asked for, and a
+    # remark added before rendering would have its own words read as
+    # placeholders. engine/remarks.py says why one agent's handoff was not
+    # enough. The audit copy below is saved after this, so `user.md` is the
+    # prompt that was actually sent.
+    standing = remarks.render(remarks.load(run.session_dir))
+    if standing:
+        user_text = f"{user_text.rstrip()}\n\n{standing}"
     prompts.save(agent_dir / "prompts", "system.md", system_text)
     prompts.save(agent_dir / "prompts", "user.md", user_text)
 

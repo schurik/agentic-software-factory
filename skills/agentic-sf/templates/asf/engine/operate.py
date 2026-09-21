@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import artifacts, git_helper, hitl, inputs, issues, preflight, worktree
+from . import artifacts, git_helper, hitl, inputs, issues, preflight, remarks, worktree
 from . import labels as labels_module
 from .data_types import FactoryConfig, Reply
 from .utils import engineer_name
@@ -73,6 +73,16 @@ def show(cfg: FactoryConfig, adw_id: str) -> int:
     print(f"  subject: {what.summary}")
     if what.notes:
         print(f"  the agent's notes: {what.notes}")
+    said = remarks.load(sessions_dir(cfg) / adw_id)
+    if said:
+        # What this run was already told, so a second gate is answered by
+        # somebody who can see what they said at the first one — and so the
+        # standing amendments every agent is now reading are visible to the
+        # person they came from. See engine/remarks.py.
+        print("  already said to this run:")
+        for remark in said:
+            print(f"    · {remark.gate} round {remark.round} "
+                  f"({remark.verdict} by {remark.by or 'someone'}): {remark.text}")
     print(f"  tree:    {state.repo_root} ({state.branch})")
     for path in what.paths:
         print(f"\n─── {path} ───")

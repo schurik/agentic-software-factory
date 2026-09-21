@@ -258,3 +258,73 @@ def test_doctor_will_not_tick_a_trace_ui_that_cannot_start(stamped: Path):
     # and the ASF_SKILL finding names the visualizer, not only re-installing
     skill_line = next(line for line in result.stdout.splitlines() if "ASF_SKILL" in line)
     assert "trace UI" in skill_line
+
+
+def test_a_gate_remark_reaches_every_agent_after_it_not_only_the_next_one(stamped: Path):
+    """Issue #2: an engineer approved a plan and asked for one more thing in the
+    same breath. The builder read it off `notes_for_next_agent` and built it; the
+    reviewer, two phases later, measured that build against a plan nobody had
+    amended, called the extra work unrequested and sent the builder back to take
+    it out. A remark is a standing amendment to the request, so every agent the
+    run calls afterwards reads it — see engine/remarks.py."""
+    fake_roster(stamped, planner=[plan_reply()], builder=[build_reply("ok = 1\n", "feat: app")],
+                reviewer=[review_reply(True)])
+    wire(stamped, "test", PY_CHECK)
+    write_workflow(stamped, "remarked", {
+        "description": "a person approves the plan and asks for one more thing",
+        "stages": [{"plan": {"hitl": True}}, {"implement": {}},
+                   {"review": {"max_rounds": 1, "retest": []}},
+                   {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+
+    run = asf(stamped, "run", "remarked", "add app.py")
+    assert run.returncode == 75, run.stdout + run.stderr
+    adw_id = adw_id_of(run)
+    said = "yes — and give status a --json flag while you are in there"
+
+    approved = asf(stamped, "approve", adw_id, "-m", said)
+    assert approved.returncode == 0, approved.stdout + approved.stderr
+
+    session = session_dir(stamped, adw_id)
+    # The next agent, which always had it.
+    assert said in (session / "builder" / "prompts" / "user.md").read_text()
+    # And the one after that, which is the whole point.
+    reviewed = (session / "reviewer" / "prompts" / "user.md").read_text()
+    assert "## What a person said to this run" in reviewed
+    assert said in reviewed
+    assert "### plan gate, round 1 — approve by" in reviewed   # provenance travels too
+    # The planner asked before anybody had said anything, and its prompt says so.
+    assert "What a person said" not in (session / "planner" / "prompts" / "user.md").read_text()
+
+    # One remark, though two processes walked that round — the second replayed it.
+    ledger = json.loads((session / "remarks.json").read_text())
+    assert [(r["gate"], r["round"], r["kind"], r["verdict"], r["text"]) for r in ledger] == [
+        ("plan", 1, "gate", "approve", said)]
+
+
+def test_every_round_that_said_something_is_kept_in_the_order_it_was_said(stamped: Path):
+    """A reject's notes are a remark too: the run reworked the plan along them,
+    and an agent reading only the approve would not know why the plan says what
+    it says. `asf show` prints them back, so whoever answers the second gate can
+    see what they asked for at the first."""
+    fake_roster(stamped, planner=[plan_reply("# Plan v1\n"), plan_reply("# Plan v2\n")],
+                builder=[build_reply("ok = 1\n", "feat: app")])
+    wire(stamped, "test", PY_CHECK)
+    write_workflow(stamped, "gated", {
+        "description": "a person between the plan and the code",
+        "stages": [{"plan": {"hitl": True}}, {"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+    adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
+
+    assert asf(stamped, "reject", adw_id, "-m", "name the migration").returncode == 75
+    shown = asf(stamped, "show", adw_id)
+    assert "already said to this run:" in shown.stdout
+    assert "plan round 1 (reject by" in shown.stdout and "name the migration" in shown.stdout
+
+    assert asf(stamped, "approve", adw_id, "-m", "ship it behind a flag").returncode == 0
+    session = session_dir(stamped, adw_id)
+    ledger = json.loads((session / "remarks.json").read_text())
+    assert [(r["round"], r["verdict"], r["text"]) for r in ledger] == [
+        (1, "reject", "name the migration"), (2, "approve", "ship it behind a flag")]
+    built = (session / "builder" / "prompts" / "user.md").read_text()
+    assert "name the migration" in built and "ship it behind a flag" in built

@@ -80,6 +80,15 @@ recorded. WHERE it asks follows the run, not the workflow: a run launched from
 a work item asks on that item, a pull request run on its pull request, and only
 a run started at somebody's keyboard asks at a terminal.
 
+WHAT A PERSON SAYS THERE IS KEPT, and it outlives the round that heard it. The
+words typed beside a verdict (`just approve <id> -m "…and give status a --json
+flag"`) are an amendment to the request, not a note to one agent: they are
+filed as a remark and appended to EVERY agent prompt the run renders
+afterwards, with who said it and at which gate. So the builder acts on it and
+the reviewer two phases later knows it was asked for, instead of ruling the
+extra work unplanned and sending the builder back to remove it. `just show
+<id>` prints back everything already said to a run.
+
 ## Request routing
 
 Commands are inline; three rows carry a cookbook as well, and those are the
