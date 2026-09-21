@@ -21,8 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import (artifacts, git_helper, hitl, inputs, issues, journal, preflight,
-               remarks, worktree)
+from . import artifacts, git_helper, hitl, inputs, issues, journal, preflight, worktree
 from . import labels as labels_module
 from .data_types import FactoryConfig, Reply
 from .utils import engineer_name
@@ -74,18 +73,19 @@ def show(cfg: FactoryConfig, adw_id: str) -> int:
     print(f"  subject: {what.summary}")
     if what.notes:
         print(f"  the agent's notes: {what.notes}")
-    said = remarks.load(sessions_dir(cfg) / adw_id)
+    session = sessions_dir(cfg) / adw_id
+    said = journal.remarks(session)
     if said:
         # What this run was already told, so a second gate is answered by
         # somebody who can see what they said at the first one — and so the
         # standing amendments every agent is now reading are visible to the
-        # person they came from. See engine/remarks.py.
+        # person they came from. See engine/journal.py.
         print("  already said to this run:")
-        for remark in said:
+        for entry in said:
+            remark = entry.remark
             print(f"    · {remark.gate} round {remark.round} "
-                  f"({remark.verdict} by {remark.by or 'someone'}): {remark.text}")
+                  f"({remark.verdict} by {entry.by}): {remark.text}")
     print(f"  tree:    {state.repo_root} ({state.branch})")
-    session = sessions_dir(cfg) / adw_id
     if journal.load(session):
         # The PATH, not the contents: `show` is about the decision in front of
         # this person, and the run's whole story would bury it. Deviations are

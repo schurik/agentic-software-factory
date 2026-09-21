@@ -29,8 +29,8 @@ shows every gate it passed and who passed it.
 
 THE VERDICT IS SPENT, THE WORDS ARE NOT. Whatever a person types beside a
 verdict is usually an amendment to the request, and it has to outlive the round
-that heard it — `_consume` files it as a `Remark`, and engine/remarks.py puts it
-in front of every agent the run calls afterwards.
+that heard it — `_consume` files it as a `Remark` on the run's journal, which
+engine/journal.py puts in front of every agent the run calls afterwards.
 
 Files only. The trace db mirrors the events; nothing here reads it.
 """
@@ -47,7 +47,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import artifacts, issues, remarks
+from . import artifacts, issues, journal
 from .data_types import (Decision, EnvelopeBase, EventRecord, Gate, HitlConfig, IssueRef,
                          IssueUpdate, Phase, PhaseParams, Remark, Reply, Subject,
                          WaitingFor)
@@ -410,7 +410,7 @@ def _consume(run, phase: Phase, decision: Decision, kind: str = "gate") -> Decis
     if not decision.consumed_at:
         decision.consumed_at = now_iso()
     record(run.session_dir, decision)
-    _remember(run, decision, kind)
+    _remember(run, phase, decision, kind)
     artifacts.clear_waiting(run.session_dir)
     run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="decision", name=decision.gate,
@@ -419,25 +419,27 @@ def _consume(run, phase: Phase, decision: Decision, kind: str = "gate") -> Decis
     return decision
 
 
-def _remember(run, decision: Decision, kind: str) -> None:
+def _remember(run, phase: Phase, decision: Decision, kind: str) -> None:
     """Keep the WORDS somewhere the whole rest of the run reads them.
 
     The counterpart to `record()`, and deliberately not the same file. That one
     keeps the verdict, keyed by gate and round, and a round reads it back to
     learn whether it is settled; this one keeps what the person typed, which
-    outlives the round it was typed at — engine/remarks.py has the argument.
+    outlives the round it was typed at — engine/journal.py has the argument.
 
-    Every path that takes a decision comes through `_consume`: the terminal,
-    `asf approve -m`, a reply on the work item, and a resumed process replaying
-    a round it already walked. That last one is why `remarks.record` is keyed
-    rather than appending.
+    It goes on the run's timeline under the phase this gate IS, so a later
+    agent reads it between the plan and the build rather than in a list with no
+    when. Every path that takes a decision comes through `_consume`: the
+    terminal, `asf approve -m`, a reply on the work item, and a resumed process
+    replaying a round it already walked. That last one is why the journal is
+    keyed rather than appended to.
     """
     text = decision.notes.strip()
     if not text:
         return
-    remarks.record(run.session_dir, Remark(
+    journal.record_remark(run, phase, Remark(
         gate=decision.gate, round=decision.round, kind=kind, verdict=decision.verdict,
-        text=text, by=decision.by, channel=decision.channel, at=decision.decided_at))
+        text=text, channel=decision.channel), by=decision.by, at=decision.decided_at)
 
 
 def _attended(run, waiting: WaitingFor) -> Optional[Decision]:
@@ -594,7 +596,7 @@ def gated(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
             if decision.notes:
                 # The POINTED handoff, and not the only one: `_consume` already
                 # filed the same words as a standing remark, which is what
-                # carries them past the next agent (engine/remarks.py). This
+                # carries them past the next agent (engine/journal.py). This
                 # line stays because `notes_for_next_agent` travels further
                 # than a prompt does — it is what the NEXT gate shows a person
                 # as the producing agent's notes, and what an envelope carries

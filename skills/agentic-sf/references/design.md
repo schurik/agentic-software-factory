@@ -146,26 +146,30 @@ Rules, enforced at load:
    missing required ones, and the three placeholders present.
 5. **Gates layer.** `--hitl` on the command line, then the stage's `hitl:`
    option, then factory.yaml's `hitl:` block.
-6. **What a run learns about itself travels forward.** `engine/journal.py` keeps
-   one line per closed phase plus every `for_the_record` note an agent declared
-   on an accepted envelope, and `agents.execute` appends the lot to every later
-   prompt. The agent proposes the note and code files it, which is rule 1 applied
-   to the record itself. A `deviation` must name `instead_of` and `because`, and
-   `data_types.Note` refuses one that does not — at parse time, so the correction
-   re-enters the same session wherever the field exists rather than only where a
-   stage remembered to list a gate.
-7. **What a person says at a gate stands for the rest of the run.** The verdict
-   belongs to its round; the WORDS beside it are an amendment to the request,
-   so `engine/remarks.py` files them once and `agents.execute` appends them to
-   every agent prompt rendered after — not through a `{{placeholder}}`, because
-   a task file that forgot to name one would silently drop what somebody asked
-   for. Without it a remark reached the next agent only, and the reviewer two
-   phases later called the work it asked for unplanned.
+6. **What a run learns about itself travels forward, on one timeline.**
+   `engine/journal.py` keeps a line per closed phase, every `for_the_record`
+   note an agent declared on an accepted envelope, and every word a person
+   typed beside a verdict — and `agents.execute` appends the lot to each later
+   prompt. Not through a `{{placeholder}}`: a task file that forgot to name one
+   would silently drop what somebody asked for.
+
+   One record and not two, because a remark HAPPENS somewhere — at the
+   `approve_<gate>` phase, between the plan and the build — and on a timeline
+   that is visible without anyone explaining it. What separates a remark from a
+   note is authority, not storage: a note is a report and may be judged, a
+   remark is an instruction and may not. The preamble spends its words there;
+   the code has one `file()`.
+
+   The agent proposes a note and code files it, which is rule 1 applied to the
+   record itself. A `deviation` must name `instead_of` and `because`, and
+   `data_types.Note` refuses one that does not — at parse time, so the
+   correction re-enters the same session wherever the field exists rather than
+   only where a stage remembered to list a gate.
 
 ## The engine
 
 `asf/engine/` is the run machinery: session, worktree, permissions, gates,
-replay, hitl, remarks, journal, limits, the tracer, the harnesses. The workflow layer sits on
+replay, hitl, journal, limits, the tracer, the harnesses. The workflow layer sits on
 top of it through a small seam:
 
 - `PromptEngineering.user` is optional and `system_append` exists: an

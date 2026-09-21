@@ -1,4 +1,7 @@
-"""The run's journal: what each phase did, and what the agents learned doing it.
+"""The run's journal: what each phase did, what the agents learned, what people said.
+
+One timeline, three kinds of line, because they are read by one agent for one
+purpose: to find out what is true of this run that the plan does not say.
 
 The failure this machinery exists for has no test that could have caught it,
 because nothing was ever written down. The plan named a library; the builder
@@ -18,7 +21,7 @@ import json
 from pathlib import Path
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster,
-                          phase_names, session_dir, wire, write_workflow)
+                          git, phase_names, run_state, session_dir, wire, write_workflow)
 
 DEVIATION = {"kind": "deviation", "what": "used `httpx` for the probe",
              "instead_of": "the plan names `requests`",
@@ -77,7 +80,7 @@ def test_a_deviation_reaches_the_reviewer_that_would_otherwise_undo_it(stamped: 
 
     # And the reviewer read it, with the reason, before ruling on the build.
     reviewed = reviewed_with(stamped, adw_id)
-    assert "## What this run has done so far" in reviewed
+    assert "## This run so far" in reviewed
     assert "deviation (builder, in implement): used `httpx` for the probe" in reviewed
     assert "instead of: the plan names `requests`" in reviewed
     assert "not in this repo's lockfile" in reviewed
@@ -85,8 +88,8 @@ def test_a_deviation_reaches_the_reviewer_that_would_otherwise_undo_it(stamped: 
     # The planner ran before the build, so it saw the run so far and none of
     # what the builder had not done yet — the journal is a record, not a plan.
     planned = (session_dir(stamped, adw_id) / "planner" / "prompts" / "user.md").read_text()
-    assert "## What this run has done so far" in planned
-    assert "⚑" not in planned and "2. implement" not in planned
+    assert "## This run so far" in planned
+    assert "⚑ deviation (builder" not in planned and "2. implement" not in planned
 
     # A file a person can open, saying the same thing as the ledger.
     story = (session_dir(stamped, adw_id) / "context_handoff" / "journal.md").read_text()
@@ -151,3 +154,80 @@ def test_the_journal_carries_the_run_s_progress_red_check_and_fix_included(stamp
     reviewed = reviewed_with(stamped, adw_id)
     assert "verify_1 · quality · success — passed: False" in reviewed
     assert "fix_1 · builder · success — " in reviewed
+
+
+def test_a_gate_remark_lands_on_the_timeline_between_the_plan_and_the_build(stamped: Path):
+    """The other half of the same bug. An engineer approved a plan and asked for
+    one more thing in the same breath; the builder built it and the reviewer,
+    holding only the plan, called the extra work unrequested and asked for it
+    back. A remark happens AT a phase, so it goes on the run's timeline under
+    that phase — which is also what makes the causality legible three lines
+    later."""
+    fake_roster(stamped, planner=[plan_reply()],
+                builder=[build_reply("ok = 1\n", "feat: app")], reviewer=[review_reply()])
+    wire(stamped, "test", PY_CHECK)
+    write_workflow(stamped, "remarked", {
+        "description": "a person approves the plan and asks for one more thing",
+        "stages": [{"plan": {"hitl": True}}, {"implement": {}},
+                   {"review": {"max_rounds": 1, "retest": []}},
+                   {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+
+    run = asf(stamped, "run", "remarked", "add app.py")
+    assert run.returncode == 75, run.stdout + run.stderr
+    adw_id = adw_id_of(run)
+    said = "yes — and give status a --json flag while you are in there"
+
+    approved = asf(stamped, "approve", adw_id, "-m", said)
+    assert approved.returncode == 0, approved.stdout + approved.stderr
+
+    # Under the gate phase it came from, after that phase's own line, before
+    # the build it changed.
+    entries = journal_of(stamped, adw_id)
+    order = [(e["kind"], e["phase"]) for e in entries]
+    assert order.index(("remark", "approve_plan")) == order.index(("phase", "approve_plan")) + 1
+    assert order.index(("remark", "approve_plan")) < order.index(("phase", "implement"))
+    remark = next(e for e in entries if e["kind"] == "remark")
+    who = remark["by"]
+    assert who and remark["remark"]["verdict"] == "approve"
+    assert remark["remark"]["text"] == said
+
+    # The next agent had it, and so did the one two phases later.
+    assert said in (session_dir(stamped, adw_id) / "builder" / "prompts" / "user.md").read_text()
+    reviewed = reviewed_with(stamped, adw_id)
+    assert f"✎ {who} said, approve at the plan gate (round 1): {said}" in reviewed
+    # The planner asked before anybody had said anything.
+    planned = (session_dir(stamped, adw_id) / "planner" / "prompts" / "user.md").read_text()
+    assert "✎ " not in planned.split("## This run so far")[1].split("\n1. ")[1]
+
+    # One entry, though two processes walked that round — the second replayed it.
+    assert len([e for e in entries if e["kind"] == "remark"]) == 1
+
+
+def test_every_round_that_said_something_is_kept_in_the_order_it_was_said(stamped: Path):
+    """A reject's notes are a remark too: the run reworked the plan along them,
+    and an agent reading only the approve would not know why the plan says what
+    it says. `asf show` prints them back, so whoever answers the second gate can
+    see what they asked for at the first."""
+    fake_roster(stamped, planner=[plan_reply(), plan_reply()],
+                builder=[build_reply("ok = 1\n", "feat: app")])
+    wire(stamped, "test", PY_CHECK)
+    write_workflow(stamped, "gated", {
+        "description": "a person between the plan and the code",
+        "stages": [{"plan": {"hitl": True}}, {"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+    adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
+
+    assert asf(stamped, "reject", adw_id, "-m", "name the migration").returncode == 75
+    shown = asf(stamped, "show", adw_id)
+    assert "already said to this run:" in shown.stdout
+    assert "plan round 1 (reject by" in shown.stdout and "name the migration" in shown.stdout
+    assert run_state(stamped, adw_id)["waiting_for"]["round"] == 2
+
+    assert asf(stamped, "approve", adw_id, "-m", "ship it behind a flag").returncode == 0
+    remarks = [e for e in journal_of(stamped, adw_id) if e["kind"] == "remark"]
+    assert [(e["remark"]["round"], e["remark"]["verdict"], e["remark"]["text"]) for e in remarks] == [
+        (1, "reject", "name the migration"), (2, "approve", "ship it behind a flag")]
+    built = (session_dir(stamped, adw_id) / "builder" / "prompts" / "user.md").read_text()
+    assert "name the migration" in built and "ship it behind a flag" in built
+    assert git(stamped, "log", "-1", "--format=%s", f"asf/{adw_id}") == "feat: app"

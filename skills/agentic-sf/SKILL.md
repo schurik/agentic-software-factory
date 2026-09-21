@@ -80,24 +80,24 @@ recorded. WHERE it asks follows the run, not the workflow: a run launched from
 a work item asks on that item, a pull request run on its pull request, and only
 a run started at somebody's keyboard asks at a terminal.
 
-A RUN KEEPS A JOURNAL of what it has done — one line per phase as it closes,
-plus every note an agent filed on an accepted envelope (`for_the_record`:
-`deviation`, `discovery`, `risk`). It is appended to every agent prompt
-rendered afterwards and mirrored to `asf/data/sessions/<id>/context_handoff/
-journal.md`, so a reviewer knows the builder swapped a library the plan named,
-and why, instead of reading the swap as a mistake and asking for it back. A
-`deviation` that does not say what it departed from and why is refused at parse
-time. The agent declares the note; CODE files it — nothing lets an agent write
-the journal itself.
+A RUN KEEPS A JOURNAL, and everything that is true of the run and not of the
+plan goes on it: one line per phase as it closes, every note an agent declared
+on an accepted envelope (`for_the_record`: `deviation`, `discovery`, `risk`),
+and every word a person typed beside a verdict. It is appended to every agent
+prompt rendered afterwards and mirrored to
+`asf/data/sessions/<id>/context_handoff/journal.md`.
 
-WHAT A PERSON SAYS THERE IS KEPT, and it outlives the round that heard it. The
-words typed beside a verdict (`just approve <id> -m "…and give status a --json
-flag"`) are an amendment to the request, not a note to one agent: they are
-filed as a remark and appended to EVERY agent prompt the run renders
-afterwards, with who said it and at which gate. So the builder acts on it and
-the reviewer two phases later knows it was asked for, instead of ruling the
-extra work unplanned and sending the builder back to remove it. `just show
-<id>` prints back everything already said to a run.
+One timeline and not two lists, because a remark HAPPENS somewhere — at the
+`approve_<gate>` phase, between the plan and the build — so a reviewer reads
+why the build has a flag the plan never mentioned without being told. What
+separates the two markers is authority: `✎` is a person's INSTRUCTION and
+outranks the plan; `⚑` is an agent's REPORT and may be judged, but a departure
+it accounts for is not unrequested work. A `deviation` that does not say what
+it departed from and why is refused at parse time. The agent declares a note;
+CODE files it — nothing lets an agent write the journal.
+
+`just show <id>` prints back everything already said to a run, names the
+journal file and lists its deviations.
 
 ## Request routing
 

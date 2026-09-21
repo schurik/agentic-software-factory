@@ -85,10 +85,12 @@ bug already shipped once.
 7. **The vocabulary is closed**: no `loop:` or `if:` in `workflow.yaml`. A shape the vocabulary
    cannot express is a new stage in Python. `check` refuses a workflow before it costs anything
    (unknown stage/option, missing agent, drifted report block, widened binding).
-8. **Context flows forward, and code carries it.** What a person said at a gate (`remarks.py`)
-   and what the run found out about its own work (`journal.py`) are appended to every agent
-   prompt rendered afterwards — not through a `{{placeholder}}`, because a task file that forgot
-   to name one would silently drop it. An agent DECLARES a note on its envelope; code files it.
+8. **Context flows forward on one timeline, and code carries it.** `journal.py` holds what
+   each phase did, what an agent declared on an accepted envelope (`for_the_record`) and what
+   a person typed at a gate, and appends the lot to every agent prompt rendered afterwards —
+   not through a `{{placeholder}}`, because a task file that forgot to name one would silently
+   drop it. An agent DECLARES a note; code files it. A remark and a note differ in authority
+   (instruction vs report), which is the preamble's job, not a second module's.
 9. Functions over four parameters take one concrete type instead (`AgentCall`, `PhaseParams`).
 
 ## Working in here

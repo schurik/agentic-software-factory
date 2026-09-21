@@ -99,34 +99,37 @@ just abort <id>
 
 `--hitl all|none|plan` overrides the workflow's own gates for one run.
 
-What you type after `-m` is kept as a **remark** and appended to every agent prompt the run renders
-afterwards — the whole run, not just the next phase. It is an amendment to the request, so the
-builder acts on it *and* the reviewer knows it was asked for. Before that, a remark reached the next
-agent only: the builder built what you asked for, and the reviewer measured the result against a
-plan nobody had amended and sent it back to be removed.
+What you type after `-m` goes on the run's journal, below.
 
 ## The run keeps a journal
 
-`asf/data/sessions/<id>/context_handoff/journal.md` is the run's record of itself: one line per
-phase as it closes, and every note an agent filed on an envelope the gates accepted. The same
-content is appended to every agent prompt rendered afterwards.
+`asf/data/sessions/<id>/context_handoff/journal.md` is the run's record of itself, and the same
+content is appended to every agent prompt rendered afterwards. Everything that is true of the run
+and not of the plan goes on it.
 
 ```
-3. implement · builder · success — Added app.py with the /health route
+2. plan · planner · success — Split the probe out of the handler
+3. approve_plan · engineer · success — approve by schurik
+   ✎ schurik said, approve at the plan gate (round 1): and give status a --json flag
+4. implement · builder · success — Added app.py with the /health route and --json
    ⚑ deviation (builder, in implement): used `httpx` for the probe
      instead of: the plan names `requests`
      because: `requests` is not in this repo's lockfile
-4. verify_1 · quality · success — passed: False, checks: 0/1
+5. verify_1 · quality · success — passed: False, checks: 0/1
 ```
 
-An agent declares a note on its envelope (`for_the_record`, typed `deviation`, `discovery` or
-`risk`); **code** lifts it into the journal once the envelope is accepted — nothing lets an agent
-write the journal itself. A `deviation` that does not say what it departed from and why is refused
-at parse time and re-prompted in the same session.
+- **`✎`** — what you typed after `-m` at a gate or a question round. An *instruction*: it amends
+  the request and outranks the plan, so the builder acts on it and the reviewer knows it was asked
+  for.
+- **`⚑`** — a note an agent declared on its envelope (`for_the_record`, typed `deviation`,
+  `discovery` or `risk`). A *report*: it may be judged, but a departure it accounts for is not
+  unrequested work. **Code** lifts it into the journal once the envelope is accepted — nothing lets
+  an agent write the journal itself. A `deviation` that does not say what it departed from and why
+  is refused at parse time and re-prompted in the same session.
 
-This is the reviewer's other missing spec. Without it the builder swaps a library the plan named
-for one that actually exists, and the reviewer — holding only the plan — files the swap as
-unrequested work and sends it back.
+Both fix the same failure from opposite directions: an agent late in a workflow judging work
+against a spec that has since moved. The reviewer used to hold only the plan, so it asked for the
+flag you requested to be removed, and for the library that does not exist to be put back.
 
 ## Issues and reviews close the loop
 

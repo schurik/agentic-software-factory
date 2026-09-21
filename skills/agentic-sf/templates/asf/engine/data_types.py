@@ -672,48 +672,19 @@ class Decision(EnvelopeBase):
         return self.verdict == "approve"
 
 
-class JournalEntry(BaseModel):
-    """One line of the run's own record of itself — see engine/journal.py.
-
-    Two shapes in one type, because they are read as one list and a reader
-    wants them interleaved in the order they happened:
-
-      * a PHASE closing — what ran, who owned it, how it went, in one line;
-      * a NOTE an agent filed on the envelope it was accepted on.
-
-    `seq` is the phase number the entry belongs to, so the journal orders the
-    way the run did even when a resumed process rewrites an entry in place.
-    """
-
-    seq: int = 0
-    at: str = ""
-    kind: Literal["phase", "note"] = "phase"
-    phase: str                      # the phase name this came out of
-    by: str = ""                    # the agent, "quality", "git", the engineer
-    status: str = ""                # phase entries: success | fail | waiting
-    summary: str = ""               # phase entries: the envelope's own one-liner
-    note: Optional[Note] = None     # note entries: what the agent filed
-
-    @property
-    def key(self) -> tuple:
-        """What makes two entries the same one. A resumed process re-walks
-        phases it already walked; its entries must land ON their old rows."""
-        return (self.kind, self.phase,
-                f"{self.note.kind}:{self.note.what}" if self.note else "")
-
-
 class Remark(BaseModel):
-    """One thing a person said to this run, kept for every agent after them.
+    """What a person SAID beside a verdict — one payload of a journal entry.
 
-    A `Decision` is a verdict and belongs to the round that took it — read back
-    by gate and round, spent, and then history. The WORDS beside that verdict
-    are the opposite: "approve, and give status a --json flag too" amends the
-    request for the rest of the run, and an agent three phases later needs it
-    as much as the one that came next. Splitting them is the whole point; see
-    engine/remarks.py for what went wrong while they were the same thing.
+    A `Decision` is a verdict and belongs to the round that took it: read back
+    by gate and round, spent, then history. The words beside it are the
+    opposite. "Approve, and give status a --json flag too" amends the request
+    for the rest of the run, and an agent three phases later needs it as much
+    as the one that came next.
 
-    `verdict`, `by` and `channel` travel with the text because a remark is read
-    as an instruction, and an instruction is worth what its provenance is.
+    `verdict` and `channel` travel with the text because a remark is read as an
+    INSTRUCTION, and an instruction is worth what its provenance is. Who said
+    it and when live on the `JournalEntry` that carries this, the way they do
+    for a `Note` — provenance belongs to the entry, content to the payload.
     """
 
     gate: str
@@ -721,9 +692,54 @@ class Remark(BaseModel):
     kind: Literal["gate", "questions"] = "gate"     # see Subject.kind
     verdict: Verdict = "approve"
     text: str
-    by: str = ""                    # engineer name or forge login; never "policy"
     channel: str = ""               # terminal | cli | issue | pr
-    at: str = ""                    # when it was decided, not when it was filed
+
+
+class JournalEntry(BaseModel):
+    """One line of the run's own record of itself — see engine/journal.py.
+
+    Three shapes in one type, because they are read as ONE list. A reader wants
+    them interleaved in the order the run made them, and the order is most of
+    the meaning: a remark that landed between the plan and the build is why the
+    build has a flag the plan never mentioned.
+
+      * a PHASE closing — what ran, who owned it, how it went;
+      * a NOTE an agent filed on the envelope it was accepted on;
+      * a REMARK a person typed at the gate or question round that phase was.
+
+    `seq` is the phase number the entry belongs to, so the journal orders the
+    way the run did even when a resumed process rewrites an entry in place.
+    """
+
+    seq: int = 0
+    at: str = ""                    # when it happened, not when it was filed
+    kind: Literal["phase", "note", "remark"] = "phase"
+    phase: str                      # the phase name this came out of
+    by: str = ""                    # the agent, "quality", "git", a person
+    status: str = ""                # phase entries: success | fail | waiting
+    summary: str = ""               # phase entries: the envelope's own one-liner
+    note: Optional[Note] = None     # note entries: what the agent filed
+    remark: Optional[Remark] = None  # remark entries: what the person said
+
+    @property
+    def key(self) -> tuple:
+        """What makes two entries the same one. A resumed process re-walks
+        phases it already walked; its entries must land ON their old rows."""
+        if self.note is not None:
+            body = f"{self.note.kind}:{self.note.what}"
+        elif self.remark is not None:
+            body = f"{self.remark.gate}:{self.remark.round}:{self.remark.kind}"
+        else:
+            body = ""
+        return (self.kind, self.phase, body)
+
+    @property
+    def rank(self) -> int:
+        """Within one phase: the phase's own line first, then what came out of
+        it. A note is filed while the phase is still open and a remark before
+        the gate phase closes, so arrival order alone would print both above
+        the line they belong under."""
+        return 0 if self.kind == "phase" else 1
 
 
 class Reply(BaseModel):

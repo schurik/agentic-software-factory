@@ -19,11 +19,12 @@
 Confirm that the work reported in `previous_envelope` is what was asked for.
 
 1. Establish the spec: read `<context_handoff_dir>/plan.md` if it exists, else use `prompt`.
-   A *What a person said to this run* section below amends it and outranks it.
+   The *This run so far* section below amends it and outranks it: a `✎` is an
+   instruction somebody gave, a `⚑` is a departure somebody already made.
 2. Read the code that was actually written, starting from `previous_envelope.changed_files`.
-3. Rule on every requirement in the spec, a person's remarks included — one `findings`
-   entry each, with evidence. Work a remark asked for is requested work: never file it
-   as `blocking` for being absent from the plan.
+3. Rule on every requirement in the spec, the timeline's own included — one `findings`
+   entry each, with evidence. Work a `✎` asked for and work a `⚑ deviation` accounts for
+   are both requested work: never file either as `blocking` for being absent from the plan.
 4. Write the review to `<context_handoff_dir>/review.md`, then emit your `Report` JSON.
 
 ## Report
