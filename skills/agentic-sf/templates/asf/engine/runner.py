@@ -19,7 +19,7 @@ import os
 import time
 from contextlib import contextmanager
 
-from . import agents, artifacts, hitl, limits, replay, worktree
+from . import agents, artifacts, hitl, journal, limits, replay, worktree
 from .console import Console
 from .data_types import (AgentCall, Decision, EnvelopeBase, EventRecord, Gate, Phase,
                          PhaseParams, RunSpec, Subject)
@@ -31,13 +31,19 @@ class PhaseHandle:
         self.run = run
         self.phase = phase
         self.envelope: EnvelopeBase | None = None   # what ph.call() produced, for a checkpoint
+        # What this phase said about itself, for the journal line. An agent
+        # phase has an envelope summary; a CODE phase has only what it logged,
+        # and "verify_1 · quality · success" without it does not say whether the
+        # suite was green — which is the one thing a later agent needs from it.
+        self.said = ""
 
     def log(self, **payload) -> None:
         self.run.tracer.event(EventRecord(adw_id=self.run.adw_id,
                                           phase_id=self.phase.phase_id,
                                           type="log", name=self.phase.params.name,
                                           payload=payload))
-        self.run.console.note(", ".join(f"{k}: {v}" for k, v in payload.items()))
+        self.said = ", ".join(f"{k}: {v}" for k, v in payload.items())
+        self.run.console.note(self.said)
         if self.phase.params.kind == "engineer" and "input" in payload:
             self.run.tracer.session_request(self.run.adw_id, str(payload["input"]))
 
@@ -328,6 +334,11 @@ class Run:
                                           type="phase_end", name=params.name,
                                           payload={"status": "success"}))
             self.tracer.phase_upsert(phase)
+            # ...and one line in the run's own journal, which is the copy every
+            # agent after this phase READS. The db is for the engineer and the
+            # UI; this is what makes a reviewer know that verify_1 went red and
+            # fix_1 followed. See engine/journal.py.
+            journal.record_phase(self, phase, handle.envelope, handle.said)
             self.console.phase_ended(phase, time.monotonic() - clock)
             # `--hitl every`: a checkpoint after each agent phase, once THIS one
             # has closed — a phase inside a phase would put a wait in an agent's

@@ -15,6 +15,7 @@ Implement the plan (or request) exactly; report every file you changed.
 ## Instructions
 
 - If `previous_envelope` references a plan or check failures, follow them — they are your spec.
+- Where you cannot follow the plan — it names a package that is not on the index, an API that no longer exists, a file that is not there — do the thing that works and file it as a `deviation` in `for_the_record`, with what the plan said and why it could not stand. That entry is what tells the reviewer your import is a decision and not a mistake; a departure you keep to yourself gets reverted by somebody who only had the plan.
 - Make the smallest change that satisfies the request; do not refactor unrelated code.
 - When fixing failures, address every reported failure.
 - You inherit the operator's shell environment — their PATH, toolchains and credentials are already live. Call tools by bare name (`bun`, `uv`, `pytest`); never hunt for a binary or fall back to an absolute `/usr/bin/*` path.

@@ -16,8 +16,8 @@ from typing import Optional
 
 import yaml
 
-from . import (artifacts, git_helper, harnesses, limits, permissions, preflight,
-               prompts)
+from . import (artifacts, git_helper, harnesses, journal, limits, permissions,
+               preflight, prompts)
 from .data_types import (AgentCall, AgentConfig, AgentRequest, AgentResult,
                          AgentSession, EnvelopeBase, EventRecord, GateCheck,
                          GateReport, Phase, RecordedPhase, FactoryConfig,
@@ -202,6 +202,16 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                            f"has no fallback user prompt — a stage must resolve a task "
                            f"file before it calls an agent")
     user_text = prompts.render(anchor(run.main_root, task_ref), variables)
+    # What this run has already done — its phases, the notes its agents filed
+    # and what people said at its gates, as one timeline. Appended to EVERY
+    # task file there is, not offered as a `{{placeholder}}`: a task that forgot
+    # to name one would silently drop what somebody asked for, and a remark
+    # added before rendering would have its own words read as placeholders. The
+    # audit copy below is saved after this, so `user.md` is the prompt that was
+    # actually sent.
+    story = journal.render(journal.load(run.session_dir))
+    if story:
+        user_text = f"{user_text.rstrip()}\n\n{story}"
     prompts.save(agent_dir / "prompts", "system.md", system_text)
     prompts.save(agent_dir / "prompts", "user.md", user_text)
 
@@ -325,6 +335,15 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                                      payload={"agent": agent.name, "paths": touched}))
 
     _persist_envelope(run, phase, agent.name, call, envelope, attempt, valid=True)
+    # The agent proposed these; code files them. Deliberately AFTER permissions
+    # and the gates, so nothing an agent was not allowed to do reaches the
+    # record as a thing that happened — and before the status check below, so a
+    # failing agent's "the library is not on the index" survives the phase that
+    # died of it.
+    filed = journal.record_notes(run, phase, agent.name, envelope.for_the_record)
+    if filed:
+        run.console.note(f"{filed} note(s) for the record from {agent.name} — "
+                         f"every agent after this one reads them")
     run.console.envelope_summary(envelope)
     context = latest or result
     run.tracer.agent_session_row(run.adw_id, agent, session.session_id,

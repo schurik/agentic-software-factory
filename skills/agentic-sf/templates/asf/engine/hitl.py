@@ -27,6 +27,11 @@ TRUST IS RECORDED. A gate the policy skips writes `verdict=approve,
 by="policy", channel="auto"` to the same directory, so the record of a run
 shows every gate it passed and who passed it.
 
+THE VERDICT IS SPENT, THE WORDS ARE NOT. Whatever a person types beside a
+verdict is usually an amendment to the request, and it has to outlive the round
+that heard it — `_consume` files it as a `Remark` on the run's journal, which
+engine/journal.py puts in front of every agent the run calls afterwards.
+
 Files only. The trace db mirrors the events; nothing here reads it.
 """
 
@@ -42,9 +47,10 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import artifacts, issues
+from . import artifacts, issues, journal
 from .data_types import (Decision, EnvelopeBase, EventRecord, Gate, HitlConfig, IssueRef,
-                         IssueUpdate, Phase, PhaseParams, Reply, Subject, WaitingFor)
+                         IssueUpdate, Phase, PhaseParams, Remark, Reply, Subject,
+                         WaitingFor)
 from .utils import now_iso
 
 EXIT_WAITING = 75          # EX_TEMPFAIL: "try again later", which is exactly it
@@ -313,9 +319,9 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
             run.console.note(f"↺ decision {subject.gate}_{subject.round} replayed — "
                              f"{recorded.verdict} by {recorded.by}, already acted on by "
                              f"an earlier process of this session")
-            return _consume(run, phase, recorded)
+            return _consume(run, phase, recorded, subject.kind)
         if recorded.subject_digest == fingerprint:
-            return _consume(run, phase, recorded)
+            return _consume(run, phase, recorded, subject.kind)
         run.console.note(f"decision {subject.gate}_{subject.round} is stale — it decided "
                          f"on a different {subject.gate}; asking again")
 
@@ -330,7 +336,7 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
         artifacts.update_run(run.session_dir, waiting_for=waiting)   # `just pending` sees it
         answer = _attended(run, waiting)
         if answer is not None:
-            return _consume(run, phase, answer)
+            return _consume(run, phase, answer, subject.kind)
 
     _notify(run, waiting)
     raise Suspended(waiting)
@@ -397,19 +403,43 @@ def publish(run, waiting: WaitingFor, questions: list) -> None:
     waiting.asked_at = issues.asked_at(heard, run.adw_id, waiting.round) or now_iso()
 
 
-def _consume(run, phase: Phase, decision: Decision) -> Decision:
+def _consume(run, phase: Phase, decision: Decision, kind: str = "gate") -> Decision:
     """Record that a decision was taken, in the trace and by clearing the wait."""
     if not decision.decided_at:
         decision.decided_at = now_iso()
     if not decision.consumed_at:
         decision.consumed_at = now_iso()
     record(run.session_dir, decision)
+    _remember(run, phase, decision, kind)
     artifacts.clear_waiting(run.session_dir)
     run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="decision", name=decision.gate,
                                  payload=decision.model_dump()))
     run.console.decided(decision)
     return decision
+
+
+def _remember(run, phase: Phase, decision: Decision, kind: str) -> None:
+    """Keep the WORDS somewhere the whole rest of the run reads them.
+
+    The counterpart to `record()`, and deliberately not the same file. That one
+    keeps the verdict, keyed by gate and round, and a round reads it back to
+    learn whether it is settled; this one keeps what the person typed, which
+    outlives the round it was typed at — engine/journal.py has the argument.
+
+    It goes on the run's timeline under the phase this gate IS, so a later
+    agent reads it between the plan and the build rather than in a list with no
+    when. Every path that takes a decision comes through `_consume`: the
+    terminal, `asf approve -m`, a reply on the work item, and a resumed process
+    replaying a round it already walked. That last one is why the journal is
+    keyed rather than appended to.
+    """
+    text = decision.notes.strip()
+    if not text:
+        return
+    journal.record_remark(run, phase, Remark(
+        gate=decision.gate, round=decision.round, kind=kind, verdict=decision.verdict,
+        text=text, channel=decision.channel), by=decision.by, at=decision.decided_at)
 
 
 def _attended(run, waiting: WaitingFor) -> Optional[Decision]:
@@ -564,6 +594,13 @@ def gated(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
                               f"hitl.max_rounds reached")
         if decision.approved:
             if decision.notes:
+                # The POINTED handoff, and not the only one: `_consume` already
+                # filed the same words as a standing remark, which is what
+                # carries them past the next agent (engine/journal.py). This
+                # line stays because `notes_for_next_agent` travels further
+                # than a prompt does — it is what the NEXT gate shows a person
+                # as the producing agent's notes, and what an envelope carries
+                # into a pull request body.
                 envelope.notes_for_next_agent = (
                     f"{envelope.notes_for_next_agent}\n\n"
                     f"Engineer's remarks at the {gate.name} gate: {decision.notes}").strip()

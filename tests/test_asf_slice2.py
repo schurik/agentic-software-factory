@@ -258,3 +258,4 @@ def test_doctor_will_not_tick_a_trace_ui_that_cannot_start(stamped: Path):
     # and the ASF_SKILL finding names the visualizer, not only re-installing
     skill_line = next(line for line in result.stdout.splitlines() if "ASF_SKILL" in line)
     assert "trace UI" in skill_line
+

@@ -90,13 +90,46 @@ Any stage takes `hitl: true`. The run stops after that phase with exit 75 and th
 
 ```bash
 just pending             # what is waiting, and on what
-just show <id>           # the artifact it wants a decision on
+just show <id>           # the artifact, and everything already said to this run
 just approve <id>        # continue
+just approve <id> -m "…" # continue, and amend the request while you are at it
 just reject <id> -m "…"  # the same agent revises, in the same session
 just abort <id>
 ```
 
 `--hitl all|none|plan` overrides the workflow's own gates for one run.
+
+What you type after `-m` goes on the run's journal, below.
+
+## The run keeps a journal
+
+`asf/data/sessions/<id>/context_handoff/journal.md` is the run's record of itself, and the same
+content is appended to every agent prompt rendered afterwards. Everything that is true of the run
+and not of the plan goes on it.
+
+```
+2. plan · planner · success — Split the probe out of the handler
+3. approve_plan · engineer · success — approve by schurik
+   ✎ schurik said, approve at the plan gate (round 1): and make the probe time out after 2s
+4. implement · builder · success — Added app.py with the /health route, probe capped at 2s
+   ⚑ deviation (builder, in implement): used `httpx` for the probe
+     instead of: the plan names `requests`
+     because: `requests` is not in this repo's lockfile
+5. verify_1 · quality · success — passed: False, checks: 0/1
+```
+
+- **`✎`** — what you typed after `-m` at a gate or a question round. An *instruction*: it amends
+  the request and outranks the plan, so the builder acts on it and the reviewer knows it was asked
+  for.
+- **`⚑`** — a note an agent declared on its envelope (`for_the_record`, typed `deviation`,
+  `discovery` or `risk`). A *report*: it may be judged, but a departure it accounts for is not
+  unrequested work. **Code** lifts it into the journal once the envelope is accepted — nothing lets
+  an agent write the journal itself. A `deviation` that does not say what it departed from and why
+  is refused at parse time and re-prompted in the same session.
+
+Both fix the same failure from opposite directions: an agent late in a workflow judging work
+against a spec that has since moved. The reviewer used to hold only the plan, so it asked for the
+flag you requested to be removed, and for the library that does not exist to be put back.
 
 ## Issues and reviews close the loop
 
