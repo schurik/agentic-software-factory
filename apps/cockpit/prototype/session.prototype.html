@@ -8,6 +8,8 @@
     A  Waterfall: the legacy visualizer's shape (lanes over time, phase panel), rebuilt on events.
     B  Stepper: the workflow's phases as an outline, with tabs for one phase.
     C  Story: a readable account of what happened, with gates as the headline.
+    D  Story + tabs: C as the page, with B's per-phase tabs inside each phase's
+       "everything about this phase" (asked for after the first round).
 
   The floating bar also switches:
     ?s=live|gate|failed|ci|done  the session's situation (drives status, liveness, commands)
@@ -94,6 +96,8 @@
   .C .beat.ok::before { border-color:var(--ok) } .C .beat.bad::before { border-color:var(--bad) } .C .beat.run::before { border-color:var(--accent); animation:p 1.2s infinite }
   .C .beat.human { } .C .beat.human .card { border-left:3px solid var(--warn); background:var(--panel); padding:8px 12px; border-radius:6px }
   .C .beat h3 { font-size:14.5px; margin:0 0 3px } .C .beat .t { font-size:11.5px; color:var(--mute) }
+  .D .more { font-size:13px; margin-top:4px } .D .more > a { color:var(--mute); text-decoration:none }
+  .D .tabs { margin:6px 0 10px } .D .tabs button { font-size:12.5px; padding:4px 10px }
   .C .note { font-style:italic; color:var(--mute) } .C .cost { margin-top:18px; font-size:13px }
 
   @media (max-width: 860px) { .A, .B { grid-template-columns:1fr } .A .panel { position:static; max-height:none } #head .cmds { margin-left:0 } }
@@ -194,12 +198,13 @@ function story(scen) {
 
 // ─── state ───
 const q = new URLSearchParams(location.search);
-const VARIANTS = { A: "Waterfall", B: "Stepper", C: "Story" };
+const VARIANTS = { A: "Waterfall", B: "Stepper", C: "Story", D: "Story + tabs" };
 let variant = VARIANTS[q.get("variant")] ? q.get("variant") : "A";
 let scen = q.get("s") || "live";
 let transcripts = q.get("t") === "1";
 let sel = null;              // selected phase instance (A, B)
 let tab = "overview";        // B
+const openPh = new Set(), tabOf = {};   // D: which phases are expanded, and on which tab
 let S, liveTimer;
 
 function load() {
@@ -392,22 +397,26 @@ function B() {
     return `<div class="step ${x.id === sel ? "sel" : ""}" onclick="pick(${x.id})"><span class="g">${GLYPH[x.status]}</span>
       <div>${x.phase}${x.attempt ? ` <span class="tag">attempt ${x.attempt}</span>` : ""}<small>${x.pkind === "agent" ? x.owner : x.pkind === "human" ? "a person decides" : "code"}${u ? ` · $${u.toFixed(2)}` : ""}</small></div><small>${d}</small></div>`;
   }).join("");
-  const TABS = { overview: "Overview", checks: "Gates & commands", transcript: "Transcript", cost: "Cost", events: "Events" };
-  const body = {
-    overview: p.pkind === "code" ? pChecks(p) : `${pDecisions(p)}${pJournal(p)}<h4>Outputs</h4>${pEnvelopes(p)}`,
-    checks: pChecks(p), transcript: pTranscript(p), cost: pUsage(p),
-    events: `<pre>${p.events.map(e => `${fmt(e.ts)}  #${e.seq}  ${e.kind}`).join("\n")}</pre>`,
-  }[tab];
   return `<div class="B"><div class="steps">${steps}
       <div class="mute" style="font-size:12px;padding:10px 14px">Upcoming phases come from the self-description, not events: <span class="mono">${summary().fin ? "none" : "review → integrate"}</span></div></div>
     <div class="body"><h2 style="margin:0">${GLYPH[p.status]} ${p.phase}</h2>
       <div class="mute">${pMeta(p)} · ${esc(p.description)}</div>${p.error ? `<p class="tag bad">${esc(p.error)}</p>` : ""}
-      <div class="tabs">${Object.entries(TABS).map(([k, v]) => `<button class="${k === tab ? "on" : ""}" onclick="setTab('${k}')">${v}${k === "transcript" && !transcripts ? " (off)" : ""}</button>`).join("")}</div>
-      ${body}</div></div>`;
+      ${phaseTabs(p, tab, k => `setTab('${k}')`)}</div></div>`;
+}
+const TABS = { overview: "Overview", checks: "Gates & commands", transcript: "Transcript", cost: "Cost", events: "Events" };
+function phaseTabs(p, cur, onclick) {
+  const tabs = Object.keys(TABS).filter(k => !(k === "transcript" && p.pkind !== "agent") && !(k === "cost" && p.pkind !== "agent") && !(k === "overview" && p.pkind === "code"));
+  if (!tabs.includes(cur)) cur = tabs[0];
+  const body = {
+    overview: p.pkind === "code" ? pChecks(p) : `${pDecisions(p)}${pJournal(p)}<h4>Outputs</h4>${pEnvelopes(p)}`,
+    checks: pChecks(p), transcript: pTranscript(p), cost: pUsage(p),
+    events: `<pre>${p.events.map(e => `${fmt(e.ts)}  #${e.seq}  ${e.kind}`).join("\n")}</pre>`,
+  }[cur];
+  return `<div class="tabs">${tabs.map(k => `<button class="${k === cur ? "on" : ""}" onclick="${onclick(k)}">${TABS[k]}${k === "transcript" && !transcripts ? " (off)" : ""}</button>`).join("")}</div>${body}`;
 }
 
 // ─── C: story (what happened, readable by someone arriving from an issue link) ───
-function C() {
+function C(tabbed = false) {
   const ps = phases(), s = summary();
   const w = s.waiting && s.waiting.waiting_for;
   const headline = s.status === "waiting" ? `Waiting on a person: <b>${w.gate} gate, round ${w.round}</b>, asked on issue #${w.issue_number} ${mins((Date.parse("2026-09-25T14:40:00Z") - Date.parse(s.waiting.ts)) / 60000)} ago.`
@@ -441,8 +450,11 @@ function C() {
     return [[S.ev.find(e => e.ts === p.start && e.kind === "phase_started").seq, `<div class="beat ${cls}"><h3>${p.phase}${p.attempt ? `, again` : ""}</h3>
       <div class="t">${fmt(p.start)}${d ? ` · ${d}` : ""} · ${pMeta(p)}</div>
       <div>${what}</div>${notes ? `<div style="margin-top:4px">${notes}</div>` : ""}
-      <details><summary>everything about this phase</summary>
-        ${pEnvelopes(p)}${pChecks(p)}${pUsage(p)}${pTranscript(p)}</details></div>`]];
+      ${tabbed
+        ? `<div class="more"><a href="#" onclick="togglePh(${p.id});return false">${openPh.has(p.id) ? "▾" : "▸"} everything about this phase</a>
+            ${openPh.has(p.id) ? `<div class="B" style="display:block;min-height:0">${phaseTabs(p, tabOf[p.id] || (p.pkind === "code" ? "checks" : "overview"), k => `tabPh(${p.id},'${k}')`)}</div>` : ""}</div>`
+        : `<details><summary>everything about this phase</summary>
+        ${pEnvelopes(p)}${pChecks(p)}${pUsage(p)}${pTranscript(p)}</details>`}</div>`]];
   }).sort((a, b) => a[0] - b[0]).map(b => b[1]).join("");
   return `<div class="C">
     <div class="now"><div class="mute" style="font-size:12px;text-transform:uppercase;letter-spacing:.05em">now</div><div class="big">${headline}</div>
@@ -455,9 +467,12 @@ function C() {
 // ─── wiring ───
 function pick(id) { sel = sel === id && variant === "A" ? null : id; render(); }
 function setTab(t) { tab = t; render(); }
+function togglePh(id) { openPh.has(id) ? openPh.delete(id) : openPh.add(id); render(); }
+function tabPh(id, k) { tabOf[id] = k; render(); }
+const D = () => C(true);
 function render() {
   head();
-  document.getElementById("app").innerHTML = { A, B, C }[variant]();
+  document.getElementById("app").innerHTML = { A, B, C, D }[variant]().replace('<div class="C">', variant === "D" ? '<div class="C D">' : '<div class="C">');
   document.getElementById("label").textContent = `${variant} (${VARIANTS[variant]})`;
   document.getElementById("scen").value = scen;
   document.getElementById("tr").checked = transcripts;
