@@ -15,8 +15,16 @@ A named, checked composition of stages inside a factory, started against a promp
 _Avoid_: pipeline, flow
 
 **Session**:
-One run of one workflow, identified by its id, with its own directory of state under the factory's data dir.
+One piece of work on one branch, identified by its id, with its own directory of state under the
+factory's data dir. It may pass through several workflows in turn: an issue's workflow, then a round
+of pull-request review for each round of feedback.
 _Avoid_: run (as a noun for the whole thing), job, execution
+
+**Artifact**:
+A file a phase writes and declares as its output, or code writes as the request a workflow answers.
+It either lives in the repository and is committed on the session's branch, or is handed off inside
+the session and never committed.
+_Avoid_: output file, attachment, deliverable
 
 **Cockpit**:
 A separately deployed, optional system that observes and steers many factories. It never runs a
