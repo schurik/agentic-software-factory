@@ -22,7 +22,8 @@ Consequences that shape every change here:
   They are product surface, not documentation about the product — editing behaviour usually means
   editing both the Python and the SKILL.md routing/rules that describe it.
 
-`README.md` is the long-form explanation of the design. There is no `docs/` directory on purpose:
+`README.md` is the long-form explanation of the design. There is no `docs/` directory for prose
+on purpose (`docs/agents/` is agent configuration, not documentation — see `## Agent skills`):
 what the factory does is documented where an agent will actually read it — `SKILL.md`, the
 cookbooks, and `references/design.md` — and the rest is prose next to the code.
 
@@ -122,3 +123,15 @@ bug already shipped once.
 - When a claim in this repo is worth making, it is usually made in prose *next to the code* (see the
   comment headers in `pyproject.toml`, `ci.yml`, `stage.py`). Match that register rather than
   stripping it.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues, driven by the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root, both created
+lazily when a term or decision actually gets resolved. See `docs/agents/domain.md`.
