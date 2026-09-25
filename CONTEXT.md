@@ -25,10 +25,26 @@ fully without a shared one.
 _Avoid_: control tower, dashboard, hub, factory manager, visualizer
 
 **Station**:
-One machine or CI job that runs a given factory's sessions and announces them to a cockpit. A factory
-is known to a cockpit through its repository; its sessions reach the cockpit through its stations.
+One checkout of a repository — on a machine or in a CI job — that runs its factory's sessions and
+ships them to a cockpit. A factory is known to a cockpit through its repository; its sessions reach
+the cockpit through its stations.
 _Avoid_: agent, runner, node, host
 
 **Inbox**:
 The cross-repo list, in a cockpit, of every gate currently waiting on the person looking at it.
 _Avoid_: queue, pending list, notifications
+
+**Command**:
+One steering action, from a closed set, that a cockpit asks a station to carry out on a named session
+when the forge cannot carry it: kill, resume, answering a terminal-channel gate, or a prompt run.
+_Avoid_: instruction, order, job, RPC
+
+**Self-description**:
+A factory's own machine-readable account of its workflows, stages, agents and gates, produced by the
+factory's code at one commit. A cockpit renders it and never interprets workflow files itself.
+_Avoid_: manifest, schema, config dump
+
+**Domain event**:
+A typed, versioned fact about a session, emitted by the factory as it happens. It is the only thing a
+station ships; a cockpit builds every view it shows from domain events.
+_Avoid_: trace, log line, message, file sync

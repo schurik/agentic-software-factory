@@ -9,7 +9,7 @@ without a *shared* cockpit. The visualizer is legacy and is deleted once the coc
 The cockpit's code lives in a top-level `apps/cockpit/` of this repo, not under `skills/agentic-sf/`:
 everything in the skill directory ships to every skill user, and a server they did not ask for does
 not belong in a stamp. It stays in this repo rather than its own while the station ↔ cockpit protocol
-is still moving, so one pull request can change both ends.
+is still moving, so one pull request can change both ends. The stack itself is recorded in ADR 0002.
 
 ## Considered Options
 
