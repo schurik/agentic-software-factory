@@ -9,7 +9,9 @@
     B  Stepper: the workflow's phases as an outline, with tabs for one phase.
     C  Story: a readable account of what happened, with gates as the headline.
     D  Story + tabs: C as the page, with B's per-phase tabs inside each phase's
-       "everything about this phase" (asked for after the first round).
+       "everything about this phase" (asked for after the first round). Round 3 adds
+       artifacts: handoff files shipped as `artifact_written` events, repo files read from
+       GitHub at the `committed` sha; and the journal, rebuilt from events.
 
   The floating bar also switches:
     ?s=live|gate|failed|ci|done  the session's situation (drives status, liveness, commands)
@@ -98,6 +100,8 @@
   .C .beat h3 { font-size:14.5px; margin:0 0 3px } .C .beat .t { font-size:11.5px; color:var(--mute) }
   .D .more { font-size:13px; margin-top:4px } .D .more > a { color:var(--mute); text-decoration:none }
   .D .tabs { margin:6px 0 10px } .D .tabs button { font-size:12.5px; padding:4px 10px }
+  .md { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 14px; font-size:13px }
+  .md h4 { margin:4px 0 6px; font-size:14px } .md h5 { margin:8px 0 2px; font-size:13px } .md code { background:var(--code); padding:0 3px; border-radius:3px }
   .C .note { font-style:italic; color:var(--mute) } .C .cost { margin-top:18px; font-size:13px }
 
   @media (max-width: 860px) { .A, .B { grid-template-columns:1fr } .A .panel { position:static; max-height:none } #head .cmds { margin-left:0 } }
@@ -129,24 +133,40 @@ function story(scen) {
   const ev = [
     E(0, "session_started", { workflow: "issue", trigger: "issue", by: "schurik", request: "Refund endpoint double-charges on retry",
       work: { kind: "issue", n: 142 }, base: "main@3e1f0a2", station: st }),
+    E(0.02, "phase_started", { phase: "scout", pkind: "agent", owner: "scout", model: "claude-haiku-4-5", harness: "claude_code",
+      description: "Map the code the issue touches, for the planner." }),
+    E(0.08, "envelope_accepted", { phase: "scout", owner: "scout", type: "ScoutReport", attempt: 1,
+      payload: { findings: [{ file: "src/refunds/handler.ts", note: "retry path re-posts without a key" }, { file: "migrations/0042_refunds.sql", note: "request_id nullable" }], artifacts: ["context_handoff/scout_findings.md"] } }),
+    E(0.08, "artifact_written", { phase: "scout", owner: "scout", path: "context_handoff/scout_findings.md", where: "handoff", bytes: 1840, digest: "5d1a…",
+      content: "# Scout findings: #142\n\n## Where retries happen\n- `src/refunds/handler.ts:41`: the client retries on 502 and re-posts the whole body.\n- No idempotency key is read anywhere.\n\n## Data\n- `refunds.request_id` exists (migration 0042) but is **nullable** and unused.\n\n## Tests\n- `refunds.test.ts` covers the happy path only." }),
+    E(0.08, "usage", { phase: "scout", owner: "scout", input: 21000, output: 900, cache_read: 0, cost: 0.02, context: [23000, 200000] }),
+    E(0.08, "phase_ended", { phase: "scout", status: "ok" }),
     E(0.1, "phase_started", { phase: "plan", pkind: "agent", owner: "planner", model: "claude-sonnet-5", harness: "claude_code",
       description: "Read the issue and the refunds module; write a plan the builder can follow." }),
     E(0.1, "prompt_rendered", { phase: "plan", owner: "planner", system: "You are the planner. You write plans, never code…\n(412 lines)", user: "## Issue #142\nRefund endpoint double-charges on retry…\n\n## Report\n```json\n{\"plan_path\": …}\n```" }),
     E(0.6, "harness_output", { phase: "plan", owner: "planner", chunk: "→ read src/refunds/handler.ts\n→ grep request_id\n→ read migrations/0042_refunds.sql" }),
     E(3.2, "envelope_rejected", { phase: "plan", owner: "planner", type: "PlanEnvelope", attempt: 1, reason: "missing field: risks" }),
     E(3.9, "envelope_accepted", { phase: "plan", owner: "planner", type: "PlanEnvelope", attempt: 2,
-      payload: { plan_path: "specs/refund-idempotency.md", risks: ["legacy rows have null request_id"] } }),
+      payload: { risks: ["legacy rows have null request_id"], artifacts: ["context_handoff/plan.md", "docs/asf/spec/a41c9e02_refund-idempotency.md"] } }),
+    E(3.9, "artifact_written", { phase: "plan", owner: "planner", path: "docs/asf/spec/a41c9e02_refund-idempotency.md", where: "tree", bytes: 612, digest: "9f2c…" }),
     E(3.9, "journal_noted", { phase: "plan", by: "planner", note: "request_id is nullable today; the migration backfills it from created_at+amount" }),
     E(4.0, "usage", { phase: "plan", owner: "planner", input: 48200, output: 3100, cache_read: 31000, cost: 0.31, context: [61000, 200000] }),
     E(4.0, "phase_ended", { phase: "plan", status: "ok" }),
+    E(4.02, "phase_started", { phase: "commit", pkind: "code", owner: "code", description: "Commit the plan's spec to the work branch and push it." }),
+    E(4.05, "committed", { phase: "commit", sha: "a90c11d", branch: "asf/a41c9e02", pushed: true, paths: ["docs/asf/spec/a41c9e02_refund-idempotency.md"] }),
+    E(4.05, "phase_ended", { phase: "commit", status: "ok" }),
     E(4.1, "phase_started", { phase: "plan-gate", pkind: "human", owner: "you", description: "A person approves the plan before anything is built." }),
     E(4.1, "suspended", { phase: "plan-gate", waiting_for: { gate: "plan", round: 1, channel: "issue", issue_number: 142 }, base_commit: "3e1f0a2", head_sha: "a90c11d" }),
     E(40, "decision_recorded", { phase: "plan-gate", round: 1, verdict: "reject", by: "schurik", notes: "Don't add a new table: refunds already has request_id." }),
     E(40.2, "phase_started", { phase: "plan", pkind: "agent", owner: "planner", model: "claude-sonnet-5", harness: "claude_code", attempt: 2,
       description: "Read the issue and the refunds module; write a plan the builder can follow." }),
-    E(42, "envelope_accepted", { phase: "plan", owner: "planner", type: "PlanEnvelope", attempt: 1, payload: { plan_path: "specs/refund-idempotency.md", risks: [] } }),
+    E(42, "envelope_accepted", { phase: "plan", owner: "planner", type: "PlanEnvelope", attempt: 1, payload: { risks: [], artifacts: ["context_handoff/plan.md", "docs/asf/spec/a41c9e02_refund-idempotency.md"] } }),
+    E(42, "artifact_written", { phase: "plan", owner: "planner", path: "docs/asf/spec/a41c9e02_refund-idempotency.md", where: "tree", bytes: 701, digest: "c41e…" }),
     E(42, "usage", { phase: "plan", owner: "planner", input: 22000, output: 1400, cache_read: 40000, cost: 0.12, context: [74000, 200000] }),
     E(42, "phase_ended", { phase: "plan", status: "ok" }),
+    E(42.02, "phase_started", { phase: "commit", pkind: "code", owner: "code", description: "Commit the plan's spec to the work branch and push it." }),
+    E(42.05, "committed", { phase: "commit", sha: "c41e7b0", branch: "asf/a41c9e02", pushed: true, paths: ["docs/asf/spec/a41c9e02_refund-idempotency.md"] }),
+    E(42.05, "phase_ended", { phase: "commit", status: "ok" }),
     E(42.1, "suspended", { phase: "plan-gate", waiting_for: { gate: "plan", round: 2, channel: "issue", issue_number: 142 }, base_commit: "3e1f0a2", head_sha: "c41e7b0" }),
   ];
   if (scen === "gate") return { ev, st, online: false };
@@ -184,7 +204,9 @@ function story(scen) {
     E(63, "phase_ended", { phase: "quality", status: "ok" }),
     E(63.1, "phase_started", { phase: "review", pkind: "agent", owner: "reviewer", model: "claude-sonnet-5", harness: "claude_code",
       description: "Review the diff against the plan; declare anything worth keeping on the record." }),
-    E(66, "envelope_accepted", { phase: "review", owner: "reviewer", type: "ReviewReport", attempt: 1, payload: { verdict: "approve", findings: 0 } }),
+    E(66, "envelope_accepted", { phase: "review", owner: "reviewer", type: "ReviewReport", attempt: 1, payload: { approved: true, blocking: [], artifacts: ["context_handoff/review.md"] } }),
+    E(66, "artifact_written", { phase: "review", owner: "reviewer", path: "context_handoff/review.md", where: "handoff", bytes: 930, digest: "e07b…",
+      content: "# Review: a41c9e02\n\n**Approved.** The diff follows the plan at c41e7b0.\n\n- Backfill is batched (10k); OK for 1.2M rows.\n- 409 body names the conflicting request_id: good for support.\n- Nit: `handler.ts:88` shadowed variable (fixed by the lint gate)." }),
     E(66, "journal_noted", { phase: "review", by: "reviewer", note: "Backfill touches 1.2M rows; the migration batches in 10k chunks." }),
     E(66, "usage", { phase: "review", owner: "reviewer", input: 64000, output: 2100, cache_read: 50000, cost: 0.29, context: [88000, 200000] }),
     E(66, "phase_ended", { phase: "review", status: "ok" }),
@@ -195,6 +217,9 @@ function story(scen) {
   );
   return { ev, st, online: true };
 }
+
+// what GitHub returns for a tree artifact at a commit: fetched on demand, never shipped
+const GITHUB = { "a90c11d": "# Refund idempotency\n\n1. New table `refund_keys(key, account_id, response)`.\n2. Read `Idempotency-Key`; replay the stored response.\n3. Tests: retry storm, body mismatch.\n\n**Risks**: legacy rows have null request_id.", "c41e7b0": "# Refund idempotency\n\n1. Reuse `refunds.request_id`; make it NOT NULL (backfill in 10k batches).\n2. Unique index `(account_id, request_id)`.\n3. Same body → 200 with the original; different body → 409.\n4. Tests: retry storm, body mismatch, legacy null rows." };
 
 // ─── state ───
 const q = new URLSearchParams(location.search);
@@ -343,6 +368,36 @@ function pTranscript(p) {
   return `${pr ? `<details><summary>system prompt</summary><pre>${esc(pr.system)}</pre></details><details open><summary>user prompt</summary><pre>${esc(pr.user)}</pre></details>` : ""}
     <div class="mute" style="font-size:12px;margin-top:8px">harness output</div><pre>${esc(out) || "…"}</pre>`;
 }
+function artifactsOf(p) {
+  return p.events.filter(e => e.kind === "artifact_written").map(a => {
+    if (a.where === "handoff") return { ...a, name: a.path.split("/").pop(), body: a.content, at: "shipped with the session" };
+    const c = events().find(e => e.kind === "committed" && e.seq > a.seq && e.paths.includes(a.path));
+    return { ...a, name: a.path.split("/").pop(), sha: c && c.sha,
+             body: c ? GITHUB[c.sha] : null, at: c ? `on GitHub at ${c.sha}` : "written, not committed yet" };
+  });
+}
+function pArtifacts(p) {
+  const as = artifactsOf(p);
+  if (!as.length) return `<div class="mute">This phase declared no artifacts.</div>`;
+  return as.map(a => `<div style="margin:8px 0"><div>📄 <b class="mono">${esc(a.path)}</b> <span class="tag ${a.where === "tree" ? "run" : ""}">${a.where === "tree" ? "in the repo" : "handoff"}</span>
+      <span class="mute" style="font-size:12px">${a.bytes} B · ${a.at}</span> ${a.sha ? `<a href="#">view on GitHub ↗</a>` : ""}</div>
+      ${a.body ? `<div class="md">${md(a.body)}</div>` : `<div class="gap">Not readable yet: the cockpit reads repo artifacts from GitHub at a commit, and this one has not been committed.</div>`}</div>`).join("");
+}
+function md(t) {   // just enough markdown to judge the page
+  return esc(t).split("\n").map(l => l.startsWith("# ") ? `<h4>${l.slice(2)}</h4>` : l.startsWith("## ") ? `<h5>${l.slice(3)}</h5>`
+    : /^(- |\d+\. )/.test(l) ? `<div style="padding-left:14px">${l}</div>` : l ? `<p style="margin:4px 0">${l}</p>` : "")
+    .join("").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
+}
+// the journal exactly as the next agent would read it: rebuilt from phase_ended, journal_noted and decision_recorded
+function journal() {
+  const rows = [], held = {};   // a note is filed under its phase, which closes after the note arrives
+  for (const e of events()) {
+    if (e.kind === "phase_ended") rows.push(`<div><span class="mono mute">${fmt(e.ts)}</span> <b>${e.phase}</b> ${e.status}</div>`, ...(held[e.phase] || [])), delete held[e.phase];
+    if (e.kind === "journal_noted") (held[e.phase] ||= []).push(`<div style="padding-left:18px">📝 note by ${e.by}: ${esc(e.note)}</div>`);
+    if (e.kind === "decision_recorded" && e.notes) rows.push(`<div style="padding-left:18px">💬 remark by ${e.by} at the ${e.phase}: "${esc(e.notes)}"</div>`);
+  }
+  return rows.join("");
+}
 function pMeta(p) {
   return p.pkind === "agent" ? `<span class="mono">${p.harness} · ${p.model}</span>` : p.pkind === "human" ? "a person" : "code";
 }
@@ -403,13 +458,13 @@ function B() {
       <div class="mute">${pMeta(p)} · ${esc(p.description)}</div>${p.error ? `<p class="tag bad">${esc(p.error)}</p>` : ""}
       ${phaseTabs(p, tab, k => `setTab('${k}')`)}</div></div>`;
 }
-const TABS = { overview: "Overview", checks: "Gates & commands", transcript: "Transcript", cost: "Cost", events: "Events" };
+const TABS = { overview: "Overview", artifacts: "Artifacts", checks: "Gates & commands", transcript: "Transcript", cost: "Cost", events: "Events" };
 function phaseTabs(p, cur, onclick) {
-  const tabs = Object.keys(TABS).filter(k => !(k === "transcript" && p.pkind !== "agent") && !(k === "cost" && p.pkind !== "agent") && !(k === "overview" && p.pkind === "code"));
+  const tabs = Object.keys(TABS).filter(k => !(k === "transcript" && p.pkind !== "agent") && !(k === "cost" && p.pkind !== "agent") && !(k === "overview" && p.pkind === "code") && !(k === "artifacts" && !artifactsOf(p).length));
   if (!tabs.includes(cur)) cur = tabs[0];
   const body = {
     overview: p.pkind === "code" ? pChecks(p) : `${pDecisions(p)}${pJournal(p)}<h4>Outputs</h4>${pEnvelopes(p)}`,
-    checks: pChecks(p), transcript: pTranscript(p), cost: pUsage(p),
+    artifacts: pArtifacts(p), checks: pChecks(p), transcript: pTranscript(p), cost: pUsage(p),
     events: `<pre>${p.events.map(e => `${fmt(e.ts)}  #${e.seq}  ${e.kind}`).join("\n")}</pre>`,
   }[cur];
   return `<div class="tabs">${tabs.map(k => `<button class="${k === cur ? "on" : ""}" onclick="${onclick(k)}">${TABS[k]}${k === "transcript" && !transcripts ? " (off)" : ""}</button>`).join("")}</div>${body}`;
@@ -446,19 +501,27 @@ function C(tabbed = false) {
         : `<div class="beat ${e.verdict === "approve" ? "ok" : "bad"}"><h3>${e.by} ${e.verdict === "approve" ? "approved" : "rejected"}</h3>
             <div class="t">${fmt(e.ts)}</div>${e.notes ? `<div class="note">"${esc(e.notes)}"</div>` : ""}</div>`]);
     }
+    if (p.pkind === "code" && p.phase === "commit") {
+      const c = p.events.find(e => e.kind === "committed");
+      what = c ? `committed <span class="mono">${c.sha}</span> to <span class="mono">${c.branch}</span>${c.pushed ? " and pushed" : ""}` : "";
+    }
+    const chips = artifactsOf(p).map(a => `<a href="#" class="tag" style="text-decoration:none" onclick="${tabbed ? `openArt(${p.id})` : ""};return false">📄 ${esc(a.name)}</a>`).join(" ");
+    if (chips) what += `<div style="margin-top:4px">${chips}</div>`;
     const notes = pJournal(p);
     return [[S.ev.find(e => e.ts === p.start && e.kind === "phase_started").seq, `<div class="beat ${cls}"><h3>${p.phase}${p.attempt ? `, again` : ""}</h3>
       <div class="t">${fmt(p.start)}${d ? ` · ${d}` : ""} · ${pMeta(p)}</div>
       <div>${what}</div>${notes ? `<div style="margin-top:4px">${notes}</div>` : ""}
       ${tabbed
         ? `<div class="more"><a href="#" onclick="togglePh(${p.id});return false">${openPh.has(p.id) ? "▾" : "▸"} everything about this phase</a>
-            ${openPh.has(p.id) ? `<div class="B" style="display:block;min-height:0">${phaseTabs(p, tabOf[p.id] || (p.pkind === "code" ? "checks" : "overview"), k => `tabPh(${p.id},'${k}')`)}</div>` : ""}</div>`
+            ${openPh.has(p.id) ? `<div class="B" style="display:block;min-height:0">${phaseTabs(p, tabOf[p.id] || (artifactsOf(p).length ? "artifacts" : p.pkind === "code" ? "checks" : "overview"), k => `tabPh(${p.id},'${k}')`)}</div>` : ""}</div>`
         : `<details><summary>everything about this phase</summary>
         ${pEnvelopes(p)}${pChecks(p)}${pUsage(p)}${pTranscript(p)}</details>`}</div>`]];
   }).sort((a, b) => a[0] - b[0]).map(b => b[1]).join("");
   return `<div class="C">
     <div class="now"><div class="mute" style="font-size:12px;text-transform:uppercase;letter-spacing:.05em">now</div><div class="big">${headline}</div>
-      <div class="mute" style="font-size:13px">Started by schurik labelling issue #142 · $${s.cost.toFixed(2)} so far</div></div>
+      <div class="mute" style="font-size:13px">Started by schurik labelling issue #142 · $${s.cost.toFixed(2)} so far ·
+        <a href="#" onclick="showJournal=!showJournal;render();return false">${showJournal ? "hide" : "show"} the journal</a> <span class="mute">(what the next agent reads)</span></div>
+      ${showJournal ? `<div style="margin-top:10px;font-size:13px;border-top:1px solid var(--line);padding-top:8px">${journal()}</div>` : ""}</div>
     ${beats}
     ${s.status === "running" ? `<div class="beat run"><h3 class="mute">…live, updating as events arrive</h3></div>` : ""}
   </div>`;
@@ -467,6 +530,8 @@ function C(tabbed = false) {
 // ─── wiring ───
 function pick(id) { sel = sel === id && variant === "A" ? null : id; render(); }
 function setTab(t) { tab = t; render(); }
+let showJournal = false;
+function openArt(id) { openPh.add(id); tabOf[id] = "artifacts"; render(); }
 function togglePh(id) { openPh.has(id) ? openPh.delete(id) : openPh.add(id); render(); }
 function tabPh(id, k) { tabOf[id] = k; render(); }
 const D = () => C(true);
