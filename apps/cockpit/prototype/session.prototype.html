@@ -3,29 +3,18 @@
   PROTOTYPE, throwaway. It answers one question for the wayfinder ticket
   "The session view: what the cockpit shows for one run" (#33).
 
-  It shows one session's page, built only from domain events, switchable via
-  ?variant=A|B|C|D (or ← / →):
-    A  Waterfall: the legacy visualizer's shape (lanes over time, phase panel).
-    B  Stepper: the phases as an outline, with tabs for one phase.
-    C  Story: a readable account in time order, grouped into chapters.
-    D  Story + tabs: C as the page, with B's tabs inside each phase. This is the chosen shape.
+  This is the chosen shape, variant D ("story + tabs"), polished:
+    - a sidebar with the session's facts, and an outline or the journal
+    - the story in chapters (one per workflow), each opening with what was asked
+    - agent phases as cards, code steps as compact rows, gates as their own cards
+    - "details" on a phase opens tabs: artifacts, overview, checks, tools, transcript, cost, events
 
-  The data is shaped after a real, complete session (issue → pr-review ×2, 24 phases).
-  Its text is invented.
+  The data is shaped after a real, complete session (issue → pr-review ×2); the text is invented.
+  It is built only from domain events, the #27 catalogue plus this ticket's additions:
+  workflow_started/finished, artifact_written, committed, tool_called, session_resumed,
+  phase_replayed, and phase_started.task/prompt_digest.
 
-  The catalogue this assumes: the one from ticket #27, plus the additions this ticket decided:
-    workflow_started / workflow_finished  a session passes through several workflows (chapters)
-    artifact_written                      handoff files (content inline) and repo files (reference)
-    committed                             the sha that makes a repo file readable on GitHub
-    tool_called                           core; the name, ok and ms only, never arguments or results
-    session_resumed / phase_replayed      resume is folded, not shown as re-run
-    phase_started.task / .prompt_digest   which instructions, without shipping the prompt
-    decision_recorded.by = "policy"       automatic, never shown as a person's verdict
-
-  The floating bar also switches:
-    ?s=live|gate|failed|ci|done  the session's situation
-    ?t=0|1                       transcripts opted in (prompt_rendered, harness_output)
-
+  The dev bar switches ?s=live|gate|failed|ci|done and ?t=0|1 (transcripts opted in).
   Data is fake and in memory. Commands print what they WOULD send.
   To open it: `open apps/cockpit/prototype/session.prototype.html`
 -->
@@ -34,93 +23,171 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Session prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f6f6f4; --panel:#fff; --ink:#1c1c1a; --mute:#6b6b66; --line:#e2e1dc;
-          --accent:#2f5bd3; --ok:#1f8a4c; --bad:#b83a2e; --warn:#a86b00; --code:#f1f0ec; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#151514; --panel:#1e1e1c; --ink:#ecebe6;
-          --mute:#9a9992; --line:#2f2f2c; --accent:#7d9bff; --ok:#4cc27d; --bad:#ff7b6b; --warn:#e0a53a; --code:#262623; } }
-  * { box-sizing:border-box } body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
-  a { color:var(--accent) }
-  .mute { color:var(--mute) } .mono { font-family:ui-monospace, monospace; font-size:12.5px }
-  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:12px; background:var(--code); color:var(--mute); white-space:nowrap }
-  .tag.ok { background:#1f8a4c22; color:var(--ok) } .tag.bad { background:#b83a2e22; color:var(--bad) }
-  .tag.warn { background:#a86b0022; color:var(--warn) } .tag.run { background:#2f5bd322; color:var(--accent) }
-  pre { background:var(--code); padding:10px 12px; border-radius:6px; overflow:auto; margin:6px 0; font-size:12.5px; white-space:pre-wrap }
-  button { font:inherit; padding:5px 11px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer }
-  button:disabled { opacity:.45; cursor:not-allowed } button.danger { color:var(--bad); border-color:var(--bad) }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--mute); vertical-align:middle }
-  .dot.on { background:var(--ok) } .dot.off { background:var(--bad) } .dot.pulse { animation:p 1.2s infinite }
-  @keyframes p { 50% { opacity:.3 } }
-  details { margin:6px 0 } summary { cursor:pointer; color:var(--mute); font-size:13px }
-  .gap { border:1px dashed var(--warn); color:var(--warn); border-radius:6px; padding:8px 10px; font-size:12.5px; margin:8px 0 }
-  .md { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 14px; font-size:13px }
-  .md h4 { margin:4px 0 6px; font-size:14px } .md h5 { margin:8px 0 2px; font-size:13px } .md code { background:var(--code); padding:0 3px; border-radius:3px }
-  .md blockquote { margin:4px 0; padding-left:10px; border-left:3px solid var(--line); color:var(--mute) }
-  .md .req { border:1px solid var(--ok); border-radius:6px; padding:4px 10px; margin:6px 0 }
+  :root {
+    --bg:#0b0d10; --surface:#12151a; --surface-2:#181c22; --surface-3:#1f242c; --border:#252b34; --border-2:#303743;
+    --text:#e7e9ee; --text-2:#aab1bd; --muted:#747d8c;
+    --accent:#7aa2ff; --accent-bg:#7aa2ff1a; --green:#3fb970; --green-bg:#3fb9701a; --red:#f2645a; --red-bg:#f2645a1a;
+    --amber:#e3a33b; --amber-bg:#e3a33b1a; --violet:#b69cff; --violet-bg:#b69cff1a;
+    --radius:10px; --mono:"JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing:border-box }
+  html, body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 Inter, system-ui, sans-serif; -webkit-font-smoothing:antialiased }
+  a { color:var(--accent); text-decoration:none } a:hover { text-decoration:underline }
+  code, .mono { font-family:var(--mono); font-size:12.5px }
+  button { font:inherit; color:inherit; cursor:pointer }
+  ::selection { background:#7aa2ff44 }
 
-  #head { background:var(--panel); border-bottom:1px solid var(--line); padding:12px 20px }
-  #head .crumbs { font-size:12.5px; color:var(--mute) }
-  #head .row { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; margin-top:4px }
-  #head h1 { font-size:18px; margin:0 }
-  #head .cmds { margin-left:auto; display:flex; gap:8px; align-items:center }
-  #head .why { font-size:12px; color:var(--mute); max-width:340px; text-align:right }
-  #out { position:fixed; right:16px; bottom:64px; max-width:440px; background:var(--ink); color:var(--bg); padding:10px 14px; border-radius:8px; font-size:12.5px; display:none; white-space:pre-wrap; z-index:10 }
-  #switch { position:fixed; left:50%; bottom:14px; transform:translateX(-50%); display:flex; gap:10px; align-items:center;
-            background:#111; color:#fff; padding:6px 12px; border-radius:20px; box-shadow:0 4px 16px #0005; font-size:13px; z-index:9; white-space:nowrap }
-  #switch button, #switch select { background:transparent; color:#fff; border:none; padding:2px 6px; font:inherit }
-  #switch select option { color:#000 } #switch label { display:flex; gap:4px; align-items:center }
+  /* ── top bar ── */
+  .top { position:sticky; top:0; z-index:5; background:#0b0d10e6; backdrop-filter:blur(8px); border-bottom:1px solid var(--border) }
+  .top-in { max-width:1320px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; gap:16px }
+  .crumbs { font-size:12.5px; color:var(--muted) } .crumbs b { color:var(--text-2); font-weight:500 }
+  .top h1 { font-size:17px; font-weight:600; margin:2px 0 0; letter-spacing:-.01em }
+  .top .grow { flex:1; min-width:0 }
+  .actions { display:flex; align-items:center; gap:12px }
+  .actions .why { font-size:12px; color:var(--muted); max-width:300px; text-align:right }
+  .btn { border:1px solid var(--border-2); background:var(--surface-2); padding:7px 14px; border-radius:8px; font-weight:500 }
+  .btn:hover { background:var(--surface-3) } .btn:disabled { opacity:.4; cursor:not-allowed }
+  .btn.primary { background:var(--accent); color:#0b0d10; border-color:transparent } .btn.danger { color:var(--red); border-color:#f2645a55 }
 
-  /* A: waterfall */
-  .A { display:grid; grid-template-columns:1fr 420px; min-height:calc(100vh - 90px) } .A.closed { grid-template-columns:1fr }
-  .A .wf { padding:16px 20px 90px; overflow:auto }
-  .A .axis { display:flex; justify-content:space-between; font-size:11px; color:var(--mute); margin-left:130px; border-bottom:1px solid var(--line) }
-  .A .lane { display:flex; align-items:center; min-height:38px; border-bottom:1px solid var(--line) }
-  .A .lane .who { width:130px; font-size:12.5px; flex:none } .A .lane .who small { display:block; color:var(--mute); font-size:11px }
-  .A .track { position:relative; flex:1; height:30px }
-  .A .blk { position:absolute; top:4px; height:22px; border-radius:4px; font-size:11px; padding:2px 5px; overflow:hidden; white-space:nowrap; cursor:pointer; background:#2f5bd333; border:1px solid var(--accent) }
-  .A .blk.ok { background:#1f8a4c26; border-color:var(--ok) } .A .blk.bad { background:#b83a2e26; border-color:var(--bad) }
-  .A .blk.wait { background:#a86b0026; border-color:var(--warn); border-style:dashed } .A .blk.sel { outline:2px solid var(--ink) }
-  .A .tick { position:absolute; bottom:1px; width:1px; height:6px; background:var(--mute) } .A .tick.bad { background:var(--bad); width:2px }
-  .A .panel { border-left:1px solid var(--line); background:var(--panel); padding:14px 18px 90px; overflow:auto; max-height:calc(100vh - 90px); position:sticky; top:0 }
-  /* B: stepper; its .tabs are reused by D */
-  .B { display:grid; grid-template-columns:300px 1fr; min-height:calc(100vh - 90px) }
-  .B .steps { background:var(--panel); border-right:1px solid var(--line); padding:12px 0 90px }
-  .B .chap { padding:10px 14px 2px; font-size:11.5px; color:var(--mute); text-transform:uppercase; letter-spacing:.05em }
-  .B .step { display:grid; grid-template-columns:22px 1fr auto; gap:6px; padding:6px 14px; cursor:pointer; align-items:start }
-  .B .step.sel { background:var(--code); box-shadow:inset 3px 0 var(--accent) }
-  .B .step .g { text-align:center } .B .step small { display:block; color:var(--mute); font-size:11.5px }
-  .B .body { padding:16px 26px 90px; overflow:auto }
-  .tabs { display:flex; flex-wrap:wrap; gap:2px; border-bottom:1px solid var(--line); margin:10px 0 12px }
-  .tabs button { border:none; border-bottom:2px solid transparent; border-radius:0; background:none; color:var(--mute) }
-  .tabs button.on { border-color:var(--accent); color:var(--ink) }
-  table { border-collapse:collapse; font-size:12.5px } td, th { padding:3px 10px 3px 0; text-align:left }
-  /* C, D: story */
-  .C { max-width:800px; margin:18px auto 100px; padding:0 16px }
-  .C .now { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin-bottom:18px }
-  .C .now .big { font-size:18px; margin:2px 0 6px }
-  .C .chapter { display:flex; align-items:baseline; gap:10px; margin:26px 0 10px; padding-bottom:4px; border-bottom:2px solid var(--line) }
-  .C .chapter h2 { font-size:16px; margin:0 } .C .chapter span { font-size:12.5px; color:var(--mute) }
-  .C .asked { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:6px; padding:8px 12px; margin:0 0 14px 8px }
-  .C .beat { position:relative; padding:0 0 16px 26px; border-left:2px solid var(--line); margin-left:8px }
-  .C .beat::before { content:""; position:absolute; left:-7px; top:3px; width:12px; height:12px; border-radius:50%; background:var(--panel); border:2px solid var(--mute) }
-  .C .beat.ok::before { border-color:var(--ok) } .C .beat.bad::before { border-color:var(--bad) } .C .beat.run::before { border-color:var(--accent); animation:p 1.2s infinite }
-  .C .beat.quiet::before { width:8px; height:8px; left:-5px; top:6px } .C .beat.quiet { color:var(--mute); font-size:13px; padding-bottom:10px }
-  .C .beat.human .card { border-left:3px solid var(--warn); background:var(--panel); padding:8px 12px; border-radius:6px }
-  .C .beat h3 { font-size:14.5px; margin:0 0 3px } .C .beat .t { font-size:11.5px; color:var(--mute) }
-  .C .note { font-style:italic; color:var(--mute) }
-  .D .more { font-size:13px; margin-top:4px } .D .more > a { color:var(--mute); text-decoration:none } .D .tabs button { font-size:12.5px; padding:4px 10px }
-  @media (max-width: 860px) { .A, .B { grid-template-columns:1fr } .A .panel { position:static; max-height:none } #head .cmds { margin-left:0 } }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:500; white-space:nowrap }
+  .pill.ok { background:var(--green-bg); color:var(--green) } .pill.bad { background:var(--red-bg); color:var(--red) }
+  .pill.warn { background:var(--amber-bg); color:var(--amber) } .pill.run { background:var(--accent-bg); color:var(--accent) }
+  .pill.neutral { background:var(--surface-3); color:var(--text-2) }
+  .dot { width:7px; height:7px; border-radius:50%; background:currentColor; display:inline-block }
+  .pulse { animation:pulse 1.4s infinite } @keyframes pulse { 50% { opacity:.25 } }
+
+  /* ── layout ── */
+  .layout { max-width:1320px; margin:0 auto; padding:24px; display:grid; grid-template-columns:290px minmax(0,1fr); gap:28px; align-items:start }
+  aside { position:sticky; top:88px; display:flex; flex-direction:column; gap:16px; max-height:calc(100vh - 110px); overflow:auto; padding-bottom:40px }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius) }
+  .facts { padding:6px 0 }
+  .fact { display:grid; grid-template-columns:86px 1fr; gap:8px; padding:6px 16px; font-size:13px }
+  .fact dt { color:var(--muted) } .fact dd { margin:0; color:var(--text-2); overflow:hidden; text-overflow:ellipsis }
+  .fact dd b { color:var(--text); font-weight:500 }
+  .seg { display:flex; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:3px }
+  .seg button { flex:1; border:none; background:none; padding:6px; border-radius:6px; color:var(--muted); font-size:13px; font-weight:500 }
+  .seg button.on { background:var(--surface-3); color:var(--text) }
+  .outline { padding:8px 6px }
+  .outline .oc { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); padding:10px 10px 4px }
+  .outline a { display:flex; align-items:center; gap:8px; padding:4px 10px; border-radius:6px; color:var(--text-2); font-size:13px }
+  .outline a:hover { background:var(--surface-2); text-decoration:none } .outline a .d { margin-left:auto; color:var(--muted); font-size:12px }
+  .outline a.sub { color:var(--muted); font-size:12.5px }
+  .journal { padding:14px 16px; font-size:12.5px; color:var(--text-2) }
+  .journal .jc { color:var(--text); font-weight:600; margin:10px 0 4px } .journal .jc:first-child { margin-top:0 }
+  .journal .jr { display:flex; gap:8px; padding:2px 0 } .journal .jr .mono { color:var(--muted) }
+  .journal .jn { padding:3px 0 3px 18px; color:var(--text-2) }
+  .journal .hint { color:var(--muted); font-size:12px; border-top:1px solid var(--border); margin-top:12px; padding-top:10px }
+
+  /* ── now banner ── */
+  .now { padding:18px 20px; display:flex; gap:16px; align-items:center; margin-bottom:8px; border-left:3px solid var(--muted) }
+  .now.ok { border-left-color:var(--green) } .now.bad { border-left-color:var(--red) } .now.warn { border-left-color:var(--amber) } .now.run { border-left-color:var(--accent) }
+  .now .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted) }
+  .now .big { font-size:16px; font-weight:500; margin-top:2px } .now .grow { flex:1 }
+  .stats { display:flex; gap:22px } .stat .v { font-size:16px; font-weight:600 } .stat .k { font-size:11.5px; color:var(--muted) }
+
+  /* ── chapters ── */
+  .chapter { margin-top:34px }
+  .ch-head { display:flex; align-items:baseline; gap:12px; margin:0 0 14px }
+  .ch-no { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted) }
+  .ch-head h2 { margin:0; font-size:18px; font-weight:600; letter-spacing:-.01em }
+  .ch-head .sub { color:var(--muted); font-size:13px } .ch-head .grow { flex:1 } .ch-head .cost { color:var(--text-2); font-size:13px }
+  .asked { padding:14px 16px; border-left:3px solid var(--accent); margin-bottom:18px }
+  .asked .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); display:flex; gap:10px; align-items:center }
+  .asked .lbl .mono { color:var(--muted); text-transform:none; letter-spacing:0 }
+  .asked .toggle { margin-left:auto; border:none; background:none; color:var(--text-2); font-size:12.5px }
+
+  /* ── timeline ── */
+  .tl { position:relative; margin-left:6px }
+  .tl::before { content:""; position:absolute; left:52px; top:6px; bottom:6px; width:1px; background:var(--border) }
+  .row { display:grid; grid-template-columns:44px 18px minmax(0,1fr); gap:0 12px; align-items:start; position:relative; margin-bottom:10px }
+  .row .tm { font-family:var(--mono); font-size:11.5px; color:var(--muted); text-align:right; padding-top:14px }
+  .row .node { width:13px; height:13px; border-radius:50%; margin:15px 0 0 2.5px; background:var(--bg); border:2px solid var(--muted); z-index:1 }
+  .row.ok .node { border-color:var(--green) } .row.failed .node { border-color:var(--red); background:var(--red) }
+  .row.running .node { border-color:var(--accent); background:var(--accent); animation:pulse 1.4s infinite }
+  .row.waiting .node { border-color:var(--amber); background:var(--amber) }
+  .row.compact .tm { padding-top:6px } .row.compact .node { width:9px; height:9px; margin:9px 0 0 4.5px; border-width:2px }
+  .row.compact { margin-bottom:4px }
+
+  .ph { padding:12px 16px }
+  .ph.sel { border-color:var(--border-2) }
+  .ph-head { display:flex; align-items:center; gap:10px; cursor:pointer }
+  .ph-name { font-weight:600; font-size:14.5px }
+  .kind { font-size:12px; color:var(--muted) } .kind .mono { color:var(--text-2); font-size:11.5px }
+  .ph-head .grow { flex:1 }
+  .meta { display:flex; gap:14px; font-size:12.5px; color:var(--muted); white-space:nowrap }
+  .chev { color:var(--muted); transition:transform .15s; font-size:12px } .open .chev { transform:rotate(90deg) }
+  .ph-sum { color:var(--text-2); margin-top:6px; font-size:13.5px } .ph-sum b { color:var(--text); font-weight:500 }
+  .files { color:var(--muted); font-family:var(--mono); font-size:11.5px; margin-top:4px }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:3px 9px; font-size:12px; color:var(--text-2) }
+  .chip:hover { border-color:var(--border-2); color:var(--text); text-decoration:none } .chip .k { color:var(--muted); font-size:11px }
+  .note { display:flex; gap:8px; margin-top:8px; padding:7px 10px; border-radius:6px; font-size:13px; background:var(--violet-bg); color:var(--text-2) }
+  .note .t { color:var(--violet); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding-top:2px; white-space:nowrap }
+  .fold { margin-top:8px; font-size:12px; color:var(--muted) }
+
+  .step { display:flex; align-items:center; gap:10px; padding:4px 2px; font-size:13px; color:var(--text-2); min-height:26px }
+  .step .n { color:var(--text); font-weight:500 } .step .grow { flex:1 } .step .d { color:var(--muted); font-size:12px }
+  .step .ok { color:var(--green) } .step .bad { color:var(--red) }
+  .step a.more { color:var(--muted); font-size:12px }
+  .step-fail { margin:4px 0 6px }
+
+  .gate { padding:12px 16px; border-left:3px solid var(--amber) }
+  .gate.ok { border-left-color:var(--green) } .gate.bad { border-left-color:var(--red) }
+  .gate h3 { margin:0; font-size:14px; font-weight:600; display:flex; gap:10px; align-items:center }
+  .gate .ln { font-size:13px; color:var(--text-2); margin-top:6px } .gate .ln .mono { color:var(--text) }
+  .remark { margin-top:8px; padding:7px 10px; border-radius:6px; background:var(--amber-bg); color:var(--text); font-size:13px }
+  .remark .t { color:var(--amber); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin-right:6px }
+  .divider { display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--muted); padding:4px 0 }
+  .divider b { color:var(--text-2); font-weight:500 }
+
+  /* ── details (tabs) ── */
+  .detail { margin-top:12px; border-top:1px solid var(--border); padding-top:12px }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:12px }
+  .tabs button { border:1px solid transparent; background:none; padding:5px 11px; border-radius:6px; color:var(--muted); font-size:12.5px; font-weight:500 }
+  .tabs button:hover { color:var(--text-2) } .tabs button.on { background:var(--surface-3); color:var(--text); border-color:var(--border-2) }
+  .tabs .off { color:var(--muted); font-weight:400 }
+  .panel { font-size:13px; color:var(--text-2) } .panel h4 { color:var(--text); font-size:12px; text-transform:uppercase; letter-spacing:.06em; margin:14px 0 6px }
+  .panel h4:first-child { margin-top:0 }
+  pre { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin:6px 0; overflow:auto; font:12px/1.55 var(--mono); color:var(--text-2); white-space:pre-wrap }
+  table { border-collapse:collapse; width:100% } th, td { text-align:left; padding:6px 10px 6px 0; border-bottom:1px solid var(--border); font-size:12.5px } th { color:var(--muted); font-weight:500 }
+  .art { border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:10px }
+  .art-h { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; background:var(--surface-2); border-bottom:1px solid var(--border); font-size:12.5px }
+  .art-h .grow { flex:1 } .art-h .k { color:var(--muted) }
+  .art-n { padding:6px 12px; font-size:12px; color:var(--amber); background:var(--amber-bg) }
+  .md { padding:10px 16px; color:var(--text-2); font-size:13.5px; line-height:1.6 }
+  .md h4 { color:var(--text); font-size:15px; margin:4px 0 8px; text-transform:none; letter-spacing:0 } .md h5 { color:var(--text); font-size:13.5px; margin:12px 0 4px }
+  .md p { margin:4px 0 } .md li { margin:2px 0 } .md ul { margin:4px 0; padding-left:20px }
+  .md code { background:var(--surface-3); padding:1px 5px; border-radius:4px; color:var(--text) }
+  .md blockquote { margin:6px 0; padding:2px 12px; border-left:3px solid var(--border-2); color:var(--text-2) }
+  .md .req { border:1px solid #3fb97055; background:var(--green-bg); border-radius:8px; padding:6px 14px 8px; margin:10px 0 }
+  .md .req .lbl { color:var(--green); font-size:11px; text-transform:uppercase; letter-spacing:.07em; font-weight:600 }
+  .kv { display:grid; grid-template-columns:140px 1fr; gap:4px 12px }
+  .kv dt { color:var(--muted) } .kv dd { margin:0 }
+  .empty { color:var(--muted) }
+  .off-box { border:1px dashed var(--border-2); border-radius:8px; padding:10px 12px; color:var(--muted); font-size:12.5px; margin-top:8px }
+  .bars { display:flex; flex-direction:column; gap:4px } .bar { display:grid; grid-template-columns:56px 1fr 30px; gap:8px; align-items:center; font-size:12px }
+  .bar i { height:6px; border-radius:3px; background:var(--accent); display:block }
+
+  /* ── dev bar ── */
+  #dev { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); display:flex; gap:12px; align-items:center; z-index:20;
+         background:#000; border:1px solid var(--border-2); color:var(--text-2); padding:6px 14px; border-radius:999px; font-size:12.5px; box-shadow:0 8px 30px #000a }
+  #dev b { color:var(--text); font-weight:500 } #dev select { background:transparent; color:var(--text); border:none; font:inherit }
+  #dev select option { color:#000 } #dev label { display:flex; gap:6px; align-items:center }
+  #toast { position:fixed; right:20px; bottom:70px; max-width:420px; background:var(--surface-3); border:1px solid var(--border-2); padding:10px 14px; border-radius:8px; font-size:12.5px; display:none; white-space:pre-wrap; z-index:30 }
+
+  @media (max-width: 960px) { .layout { grid-template-columns:1fr } aside { position:static; max-height:none } .meta .hide-sm { display:none } .top-in { flex-wrap:wrap } }
 </style>
 </head>
 <body>
-<div id="head"></div>
-<main id="app"></main>
-<div id="out"></div>
-<div id="switch">
-  <button id="prev">←</button><span id="label"></span><button id="next">→</button>
-  <select id="scen"><option value="live">live</option><option value="gate">at a gate</option><option value="failed">failed</option><option value="ci">failed in CI</option><option value="done">done</option></select>
-  <label><input type="checkbox" id="tr"> transcripts</label>
-</div>
+<header class="top"><div class="top-in" id="top"></div></header>
+<div class="layout"><aside id="side"></aside><main id="main"></main></div>
+<div id="toast"></div>
+<div id="dev"><b>prototype</b>
+  <select id="scen"><option value="live">live</option><option value="gate">waiting at a gate</option><option value="failed">failed</option><option value="ci">failed in CI</option><option value="done">done</option></select>
+  <label><input type="checkbox" id="tr"> transcripts opted in</label></div>
 
 <script>
 // ─────────────────────────── the only input: domain events ───────────────────────────
@@ -279,36 +346,20 @@ function story(scen) {
   return { ev, st, online: true };
 }
 
-// ─────────────────────────── projections: what every variant reads ───────────────────────────
-const q = new URLSearchParams(location.search);
-const VARIANTS = { A: "Waterfall", B: "Stepper", C: "Story", D: "Story + tabs" };
-let variant = VARIANTS[q.get("variant")] ? q.get("variant") : "D";
-let scen = q.get("s") || "done";
-let transcripts = q.get("t") === "1";
-let sel = null, tab = "overview", showJournal = false, S, liveTimer;
-const openPh = new Set(), tabOf = {};
 
-function load() {
-  S = story(scen);
-  clearInterval(liveTimer);
-  if (S.live) {
-    let n = 0;
-    liveTimer = setInterval(() => {
-      const m = 184.1 + (++n) * 0.05;
-      S.ev.push(n % 4 ? E(m, "tool_called", { phase: "implement", tool: TOOLS[n % 4], ok: true, ms: 300 + n * 40 })
-        : E(m, "usage", { phase: "implement", owner: "builder", input: 30000, output: 900, cache_read: 20000, cost: 0.05, context: [60000 + n * 2000, 200000] }));
-      if (transcripts) S.ev.push(E(m, "harness_output", { phase: "implement", owner: "builder", chunk: `→ ${TOOLS[n % 4]} lib/prompts.ts` }));
-      render();
-    }, 2000);
-  }
-  render();
-}
+// ─────────────────────────── projections ───────────────────────────
+const q = new URLSearchParams(location.search);
+let scen = q.get("s") || "done", transcripts = q.get("t") === "1", sideTab = "outline", S, liveTimer;
+const openPh = new Set(), tabOf = {}, openAsk = new Set();
 const events = () => S.ev.filter(e => transcripts || !TRANSCRIPT.has(e.kind));
 const fmt = ts => new Date(ts).toISOString().slice(11, 16);
 const mins = m => m < 1 ? `${Math.max(1, Math.round(m * 60))}s` : m < 60 ? `${Math.round(m)}m` : `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`;
-const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const dur = p => p.end ? mins((Date.parse(p.end) - Date.parse(p.start)) / 60000) : "";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const nowTs = () => S.ev[S.ev.length - 1].ts;
-const who = by => by === "policy" ? "policy (automatic)" : by;
+const kb = b => b < 1024 ? `${b} B` : `${(b / 1024).toFixed(1)} KB`;
+const cost = p => p.events.filter(e => e.kind === "usage").reduce((a, e) => a + e.cost, 0);
+const shortModel = m => m.replace("claude-", "");
 
 // phase instances, each tagged with its chapter; replays fold into the phase they replay
 function phases() {
@@ -339,41 +390,10 @@ function summary() {
            cost: usage.reduce((a, e) => a + e.cost, 0), tokens: usage.reduce((a, e) => a + e.input + e.output, 0) };
 }
 const chapterName = c => c.workflow === "pr-review" ? `pr-review, round ${c.round}` : c.workflow;
-const CHIP = { running: "run", waiting: "warn", done: "ok", failed: "bad" };
-const GLYPH = { ok: "✓", failed: "✕", running: "●", waiting: "⏸" };
 
-// ─────────────────────────── shared header ───────────────────────────
-function head() {
-  const s = summary(), st = S.st, w = s.waiting && s.waiting.waiting_for;
-  const live = st.kind === "ci" ? `<span class="tag">CI station, takes no commands</span>`
-    : `<span class="dot ${S.online ? "on" : "off"}"></span> ${esc(st.name)} <span class="mute">· owner ${st.owner} · ${S.online ? "online, seen 2s ago" : "offline, seen 3h ago"}</span>`;
-  const attended = s.status === "running" && S.online;
-  let cmd = "", why = "";
-  if (s.status === "running") { cmd = `<button class="danger" ${attended ? "" : "disabled"} onclick="send('kill')">Kill</button>`; why = "session attended: its shipper polled 2s ago"; }
-  else if (s.status === "failed") { const ok = st.kind !== "ci" && S.online; cmd = `<button ${ok ? "" : "disabled"} onclick="send('resume')">Resume</button>`; why = st.kind === "ci" ? "ran in CI: re-trigger from the forge" : "resumes on schurik@mbp, which holds the worktree"; }
-  else if (s.status === "waiting") { cmd = `<button onclick="send('answer')">Answer in inbox →</button>`; why = S.online ? "" : `the answer lands on issue #${ISSUE} now; the session resumes when schurik@mbp is back online`; }
-  const prLink = events().some(e => e.kind === "command_finished" && e.tail.includes("/pull/")) ? `<a href="#">PR #${PR} ↗</a>` : "";
-  document.getElementById("head").innerHTML = `
-    <div class="crumbs">${REPO} › sessions › <span class="mono">${ADW}</span></div>
-    <div class="row"><h1>${esc(TITLE)}</h1>
-      <span class="tag ${CHIP[s.status]}">${s.status === "waiting" ? `waiting · ${w.gate} gate, round ${w.round}` : s.status}${s.status === "running" ? ` <span class="dot on pulse"></span>` : ""}</span>
-      <div class="cmds"><span class="why">${why}</span>${cmd}</div></div>
-    <div class="row mute" style="font-size:12.5px">
-      <span>now in <b>${chapterName(s.chapter)}</b></span><a href="#">issue #${ISSUE} ↗</a>${prLink}<span>base ${s.start.base}</span>
-      <span>${fmt(s.start.ts)} · ${mins(s.rt)}</span><span>$${s.cost.toFixed(2)} · ${(s.tokens / 1e6).toFixed(1)}M tok</span><span>${live}</span></div>`;
-}
-function send(verb) {
-  const msg = { kill: `WOULD queue {verb:kill, session:${ADW}, by:schurik, station:st_7f3a, ttl:5m}.`,
-    resume: `WOULD queue {verb:resume, session:${ADW}, by:schurik, station:st_7f3a}.`,
-    answer: "WOULD open the inbox's answer view for this gate. The inbox owns answering." }[verb];
-  const o = document.getElementById("out"); o.textContent = msg; o.style.display = "block";
-  clearTimeout(send.t); send.t = setTimeout(() => o.style.display = "none", 4500);
-}
-
-// ─────────────────────────── pieces of phase detail ───────────────────────────
 function md(t) {
   return esc(t).replace(/\[\[REQ\]\]([\s\S]*?)\[\[\/REQ\]\]/, (_, b) => `§REQ${b}§/REQ`).split("\n").map(l =>
-    l === "§REQ" ? `<div class="req"><div class="tag ok">agreed requirements</div>` : l === "§/REQ" ? `</div>`
+    l === "§REQ" ? `<div class="req"><div class="lbl">Requirements agreed with a person</div>` : l === "§/REQ" ? `</div>`
     : l.startsWith("# ") ? `<h4>${l.slice(2)}</h4>` : l.startsWith("## ") ? `<h5>${l.slice(3)}</h5>` : l.startsWith("&gt; ") ? `<blockquote>${l.slice(5)}</blockquote>`
     : /^(- |\d+\. )/.test(l) ? `<div style="padding-left:14px">${l}</div>` : l ? `<p style="margin:4px 0">${l}</p>` : "").join("")
     .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
@@ -388,220 +408,249 @@ function artifactsOf(p) {
              body: first ? GITHUB[first.sha + ":" + a.path] : null, at: first ? `on GitHub at ${first.sha}` : "written, not committed yet" };
   });
 }
-function pArtifacts(p) {
-  const as = artifactsOf(p);
-  if (!as.length) return `<div class="mute">This phase declared no artifacts.</div>`;
-  return as.map(a => `<div style="margin:8px 0">
-      <div>📄 <b class="mono">${esc(a.path)}</b> <span class="tag ${a.where === "tree" ? "run" : ""}">${a.where === "tree" ? "in the repo" : a.role === "request" ? "request" : "handoff"}</span>
-        <span class="mute" style="font-size:12px">${(a.bytes / 1024).toFixed(1)} KB · ${a.at}${a.same_as_handoff ? ` · the handoff copy <span class="mono">${a.same_as_handoff}</span> is identical, not shipped` : ""}</span>
-        ${a.sha ? `<a href="#">view on GitHub ↗</a>` : ""}</div>
-      ${a.later ? `<div class="mute" style="font-size:12px">changed later: this is the version at ${a.sha}; the file was edited again by ${a.later}. <a href="#">compare ↗</a></div>` : ""}
-      ${a.body ? `<div class="md">${md(a.body)}</div>` : `<div class="gap">Not readable yet: repo files are read from GitHub at a commit, and this one has not been committed.</div>`}</div>`).join("");
-}
-function pEnvelopes(p) {
-  return p.events.filter(e => e.kind.startsWith("envelope_")).map(e => e.kind === "envelope_accepted"
-    ? `<div><span class="tag ok">accepted</span> <b>${e.type}</b> <span class="mute">attempt ${e.attempt}</span><pre>${esc(JSON.stringify(e.payload, null, 2))}</pre></div>`
-    : `<div><span class="tag bad">rejected</span> <b>${e.type}</b> <span class="mute">attempt ${e.attempt}: ${esc(e.reason)}, re-prompted as a correction</span></div>`).join("") || `<div class="mute">No envelope.</div>`;
-}
-function pChecks(p) {
-  const c = p.events.filter(e => e.kind === "command_finished").map(e =>
-    `<details ${e.exit ? "open" : ""}><summary><span class="tag ${e.exit ? "bad" : "ok"}">exit ${e.exit}</span> <span class="mono">${esc(e.argv.join(" "))}</span> · ${e.ms < 1000 ? e.ms + "ms" : (e.ms / 1000).toFixed(1) + "s"}</summary><pre>${esc(e.tail)}</pre></details>`);
-  const g = p.events.filter(e => e.kind === "gate_result").map(e =>
-    `<div><span class="tag ${e.ok ? "ok" : "bad"}">${e.ok ? "pass" : "fail"}</span> gate <b>${e.gate}</b> <span class="mute">attempt ${e.attempt}</span> ${e.checks.map(c => `· ${c.item}${c.note ? ": " + esc(c.note) : ""}`).join(" ")}</div>`);
-  const k = p.events.filter(e => e.kind === "committed").map(e => `<div>⎇ committed <span class="mono">${e.sha}</span> to <span class="mono">${e.branch}</span>${e.pushed ? ", pushed" : ""}: ${esc(e.message)}</div>`);
-  return [...g, ...c, ...k].join("") || `<div class="mute">No gates, commands or commits.</div>`;
-}
-function pTools(p) {
-  const t = p.events.filter(e => e.kind === "tool_called");
-  if (!t.length) return `<div class="mute">No tool calls.</div>`;
-  const by = {}; t.forEach(e => by[e.tool] = (by[e.tool] || 0) + 1);
-  const failed = t.filter(e => !e.ok);
-  return `<div>${t.length} calls: ${Object.entries(by).map(([k, n]) => `${k} ${n}`).join(" · ")}${failed.length ? ` · <span style="color:var(--bad)">${failed.length} failed</span>` : ""}</div>
-    <pre>${t.map(e => `${fmt(e.ts)}  ${e.ok ? " " : "✕"} ${e.tool.padEnd(6)} ${e.ms}ms`).join("\n")}</pre>
-    <div class="mute" style="font-size:12px">What each call was given and returned is transcript material${transcripts ? ", shown on the Transcript tab" : ": off for this factory"}.</div>`;
-}
-function pUsage(p) {
-  const u = p.events.filter(e => e.kind === "usage");
-  if (!u.length) return `<div class="mute">No model usage.</div>`;
-  const s = k => u.reduce((a, e) => a + e[k], 0), last = u[u.length - 1];
-  return `<table><tr><th>input</th><th>output</th><th>cache read</th><th>cost</th><th>context</th></tr>
-    <tr><td>${s("input").toLocaleString()}</td><td>${s("output").toLocaleString()}</td><td>${s("cache_read").toLocaleString()}</td><td>$${s("cost").toFixed(2)}</td><td>${Math.round(last.context[0] / 1000)}k / ${last.context[1] / 1000}k</td></tr></table>`;
-}
-function pJournal(p) {
-  return p.events.filter(e => e.kind === "journal_noted").map(e => `<div>⚑ <b>${e.by}</b> filed a ${e.type}: ${esc(e.note)}</div>`).join("");
-}
-function pDecisions(p) {
-  return p.events.filter(e => e.kind === "suspended" || e.kind === "decision_recorded").map(e => e.kind === "suspended"
-    ? `<div><span class="tag warn">asked</span> ${e.waiting_for.gate} gate, round ${e.waiting_for.round}, on issue #${e.waiting_for.issue_number} · subject at <span class="mono">${e.head_sha}</span> <a href="#">↗</a></div>`
-    : e.by === "policy" ? `<div><span class="tag">⚙ auto</span> ${e.gate} gate approved by policy</div>`
-    : `<div><span class="tag ${e.verdict === "approve" ? "ok" : "bad"}">${e.verdict}</span> ${e.gate} gate, round ${e.round}, by <b>${e.by}</b> via ${e.channel}${e.notes ? `: ✎ "${esc(e.notes)}"` : ""}</div>`).join("");
-}
-function pTranscript(p) {
-  const task = `<div style="font-size:12.5px">Instructions: <a href="#" class="mono">${p.task}</a> at <span class="mono">${BASE}</span> ↗ · the rendered prompt's digest <span class="mono">${p.prompt_digest}</span>, and the journal as of this phase (above).</div>`;
-  if (!transcripts) return `${task}<div class="gap">Transcripts are off for this factory: the rendered prompt and the harness output were not shipped. Tool calls are still on the Tools tab, without arguments or results.</div>`;
-  const pr = p.events.find(e => e.kind === "prompt_rendered"), out = p.events.filter(e => e.kind === "harness_output").map(e => e.chunk).join("\n");
-  return `${task}${pr ? `<details><summary>system prompt</summary><pre>${esc(pr.system)}</pre></details><details open><summary>user prompt</summary><pre>${esc(pr.user)}</pre></details>` : `<div class="mute" style="font-size:12px">(prompt_rendered not in this fake data)</div>`}
-    <div class="mute" style="font-size:12px;margin-top:8px">harness output</div><pre>${esc(out) || "…"}</pre>`;
-}
-const pMeta = p => p.pkind === "agent" ? `<span class="mono">${p.harness} · ${p.model}</span>` : p.pkind === "human" ? "a person decides" : `code · ${p.owner}`;
 
-const TABS = { overview: "Overview", artifacts: "Artifacts", checks: "Gates, commands & commits", tools: "Tools", transcript: "Transcript", cost: "Cost", events: "Events" };
-function phaseTabs(p, cur, onclick) {
-  const has = { overview: p.pkind !== "code", artifacts: artifactsOf(p).length > 0, checks: p.pkind !== "agent" || p.events.some(e => e.kind === "gate_result"),
-                tools: p.pkind === "agent", transcript: p.pkind === "agent", cost: p.pkind === "agent", events: true };
-  const tabs = Object.keys(TABS).filter(k => has[k]);
-  if (!tabs.includes(cur)) cur = tabs[0];
-  const body = { overview: `${pDecisions(p)}${pJournal(p)}<h4>Envelope</h4>${pEnvelopes(p)}`, artifacts: pArtifacts(p), checks: pChecks(p), tools: pTools(p),
-    transcript: pTranscript(p), cost: pUsage(p), events: `<pre>${p.events.map(e => `${fmt(e.ts)}  #${e.seq}  ${e.kind}`).join("\n")}</pre>` }[cur];
-  return `<div class="tabs">${tabs.map(k => `<button class="${k === cur ? "on" : ""}" onclick="${onclick(k)}">${TABS[k]}${k === "transcript" && !transcripts ? " (off)" : ""}</button>`).join("")}</div>${body}`;
+function load() {
+  S = story(scen);
+  clearInterval(liveTimer);
+  if (S.live) {
+    let n = 0;
+    liveTimer = setInterval(() => {
+      const m = 184.1 + (++n) * 0.05;
+      S.ev.push(n % 4 ? E(m, "tool_called", { phase: "implement", tool: TOOLS[n % 4], ok: true, ms: 300 + n * 40 })
+        : E(m, "usage", { phase: "implement", owner: "builder", input: 30000, output: 900, cache_read: 20000, cost: 0.05, context: [60000 + n * 2000, 200000] }));
+      if (transcripts) S.ev.push(E(m, "harness_output", { phase: "implement", owner: "builder", chunk: `→ ${TOOLS[n % 4]} lib/prompts.ts` }));
+      render();
+    }, 2000);
+  }
+  render();
 }
-function journal() {   // exactly what the next agent reads: rebuilt from events, notes filed under their phase
+
+// ─────────────────────────── top bar ───────────────────────────
+const STATUS = { running: ["run", "Running"], waiting: ["warn", "Waiting"], done: ["ok", "Done"], failed: ["bad", "Failed"] };
+function topBar(s) {
+  const st = S.st, [cls, label] = STATUS[s.status];
+  let act = "", why = "";
+  if (s.status === "running") { act = `<button class="btn danger" ${S.online ? "" : "disabled"} onclick="send('kill')">Kill session</button>`; why = "attended · its shipper polled 2s ago"; }
+  if (s.status === "failed") { const ok = st.kind !== "ci" && S.online; act = `<button class="btn" ${ok ? "" : "disabled"} onclick="send('resume')">Resume</button>`; why = st.kind === "ci" ? "ran in CI · re-trigger it from the forge" : "resumes on schurik@mbp, which holds the worktree"; }
+  if (s.status === "waiting") { act = `<button class="btn primary" onclick="send('answer')">Answer in inbox →</button>`; why = S.online ? "" : "the answer lands on the issue now · resumes when schurik@mbp is back"; }
+  if (s.status === "done") act = `<a class="btn" href="#">Open PR #${PR} ↗</a>`;
+  return `<div class="grow"><div class="crumbs">${REPO} <span>/</span> sessions <span>/</span> <b class="mono">${ADW}</b></div>
+      <h1>${esc(TITLE)}</h1></div>
+    <span class="pill ${cls}"><span class="dot ${s.status === "running" ? "pulse" : ""}"></span>${label}${s.status === "waiting" ? ` · ${s.waiting.waiting_for.gate} gate` : ""}</span>
+    <div class="actions"><span class="why">${why}</span>${act}</div>`;
+}
+
+// ─────────────────────────── sidebar ───────────────────────────
+function sideBar(s, ps) {
+  const st = S.st;
+  const station = st.kind === "ci" ? `<b>${esc(st.name)}</b><br><span class="mute">no owner · takes no commands</span>`
+    : `<span style="color:${S.online ? "var(--green)" : "var(--red)"}">●</span> <b>${S.online ? "online" : "offline"}</b> · ${S.online ? "2s" : "3h"} ago<br><span class="mono" style="font-size:11.5px">${esc(st.name)}</span>`;
+  const facts = [["Chapter", `<b>${chapterName(s.chapter)}</b>`], ["Station", station], ["Started", `${fmt(s.start.ts)} · ${mins(s.rt)}`],
+    ["Cost", `<b>$${s.cost.toFixed(2)}</b> · ${(s.tokens / 1e6).toFixed(1)}M tokens`], ["Branch", `<span class="mono">asf/${ADW}</span>`],
+    ["Base", `<span class="mono">${BASE}</span>`], ["Links", `<a href="#">issue #${ISSUE}</a>${events().some(e => e.kind === "command_finished" && e.tail.includes("/pull/")) ? ` · <a href="#">PR #${PR}</a>` : ""}`]];
+  let outline = "", chap = null, ci = 0;
+  for (const p of ps) {
+    if (p.chapter !== chap) { chap = p.chapter; ci++; outline += `<div class="oc">${ci} · ${chapterName(chap)}</div>`; }
+    if (artifactsOf(p).some(a => a.role === "request")) continue;
+    const g = { ok: ["✓", "var(--green)"], failed: ["✕", "var(--red)"], running: ["●", "var(--accent)"], waiting: ["◐", "var(--amber)"] }[p.status];
+    outline += `<a href="#ph-${p.id}" class="${p.pkind === "code" ? "sub" : ""}" onclick="jump(${p.id});return false"><span style="color:${g[1]};width:12px">${g[0]}</span>${p.phase}<span class="d">${dur(p)}</span></a>`;
+  }
+  return `<div class="card facts">${facts.map(([k, v]) => `<div class="fact"><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</div>
+    <div class="seg"><button class="${sideTab === "outline" ? "on" : ""}" onclick="setSide('outline')">Outline</button><button class="${sideTab === "journal" ? "on" : ""}" onclick="setSide('journal')">Journal</button></div>
+    ${sideTab === "outline" ? `<div class="card outline">${outline}</div>` : `<div class="card journal">${journal()}<div class="hint">Exactly what the next agent reads. ⚑ is a report an agent filed; ✎ is an instruction a person gave at a gate.</div></div>`}`;
+}
+function journal() {
   const rows = [], held = {};
   for (const e of events()) {
-    if (e.kind === "workflow_started") rows.push(`<div style="margin-top:6px"><b>— ${chapterName(e)} —</b></div>`);
-    if (e.kind === "phase_ended") rows.push(`<div><span class="mono mute">${fmt(e.ts)}</span> <b>${e.phase}</b> ${e.status}</div>`, ...(held[e.phase] || [])), delete held[e.phase];
-    if (e.kind === "journal_noted") (held[e.phase] ||= []).push(`<div style="padding-left:18px">⚑ ${e.type} by ${e.by}: ${esc(e.note)}</div>`);
-    if (e.kind === "decision_recorded" && e.notes && e.by !== "policy") rows.push(`<div style="padding-left:18px">✎ ${e.by} at the ${e.gate} gate: "${esc(e.notes)}"</div>`);
+    if (e.kind === "workflow_started") rows.push(`<div class="jc">${chapterName(e)}</div>`);
+    if (e.kind === "phase_ended") rows.push(`<div class="jr"><span class="mono">${fmt(e.ts)}</span><span>${e.phase}</span><span style="margin-left:auto;color:${e.status === "ok" ? "var(--green)" : "var(--red)"}">${e.status}</span></div>`, ...(held[e.phase] || [])), delete held[e.phase];
+    if (e.kind === "journal_noted") (held[e.phase] ||= []).push(`<div class="jn"><span style="color:var(--violet)">⚑</span> ${esc(e.note)}</div>`);
+    if (e.kind === "decision_recorded" && e.notes && e.by !== "policy") rows.push(`<div class="jn"><span style="color:var(--amber)">✎</span> ${esc(e.notes)}</div>`);
   }
   return rows.join("");
 }
 
-// ─────────────────────────── A: waterfall ───────────────────────────
-function A() {
-  const ps = phases(), s = summary();
-  const t0 = Date.parse(s.start.ts), t1 = Date.parse(s.fin ? s.fin.ts : nowTs()) + 60000, span = t1 - t0;
-  const x = ts => ((Date.parse(ts) - t0) / span) * 100;
-  const lanes = [...new Set(ps.map(p => p.pkind === "code" ? "code" : p.owner))];
-  const rows = lanes.map(o => {
-    const mine = ps.filter(p => (p.pkind === "code" ? "code" : p.owner) === o), any = mine[0];
-    return `<div class="lane"><div class="who">${o}${any.pkind === "agent" ? `<small>${any.model}</small>` : ""}</div><div class="track">${mine.map(p => {
-      const end = p.end || nowTs(), w = Math.max(x(end) - x(p.start), 0.8);
-      const ticks = p.events.filter(e => ["tool_called", "envelope_rejected", "gate_result", "command_finished"].includes(e.kind))
-        .map(e => `<span class="tick ${e.ok === false || e.exit || e.kind === "envelope_rejected" ? "bad" : ""}" style="left:${((x(e.ts) - x(p.start)) / w) * 100}%"></span>`).join("");
-      return `<div class="blk ${{ ok: "ok", failed: "bad", waiting: "wait" }[p.status] || ""} ${sel === p.id ? "sel" : ""}" style="left:${x(p.start)}%;width:${w}%" onclick="pick(${p.id})" title="${p.phase}">${GLYPH[p.status]} ${p.phase}${ticks}</div>`;
-    }).join("")}</div></div>`;
-  }).join("");
-  const p = ps.find(p => p.id === sel);
-  return `<div class="A ${p ? "" : "closed"}"><div class="wf"><div class="axis"><span>${fmt(s.start.ts)}</span><span>${fmt(new Date(t1).toISOString())}</span></div>${rows}
-      <p class="mute" style="font-size:12.5px">Ticks are tool calls (now a core event), gates and commands. Three chapters and an hour-long gate wait share one axis.</p></div>
-    ${p ? `<div class="panel"><div style="display:flex;justify-content:space-between"><b>${GLYPH[p.status]} ${p.phase}</b><button onclick="pick(null)">×</button></div>
-      <div class="mute" style="font-size:12.5px">${pMeta(p)} · ${chapterName(p.chapter)}</div><p>${esc(p.description)}</p>${phaseTabs(p, tab, k => `setTab('${k}')`)}</div>` : ""}</div>`;
+// ─────────────────────────── main: now + chapters ───────────────────────────
+function mainCol(s, ps) {
+  const last = ps[ps.length - 1], [cls] = STATUS[s.status];
+  const big = s.status === "waiting" ? `Waiting on a person: the <b>${s.waiting.waiting_for.gate} gate</b>, round ${s.waiting.waiting_for.round}, asked on issue #${ISSUE}`
+    : s.status === "running" ? `<b>${last.owner}</b> is working on <b>${last.phase}</b> in ${chapterName(s.chapter)}`
+    : s.status === "failed" ? `Failed in <b>${last.phase}</b>: ${esc(last.error)}`
+    : `All work landed in PR <a href="#">#${PR}</a> over ${events().filter(e => e.kind === "workflow_started").length} chapters`;
+  const agents = ps.filter(p => p.pkind === "agent").length, tools = events().filter(e => e.kind === "tool_called").length;
+  let html = `<div class="card now ${cls}"><div class="grow"><div class="lbl">Now</div><div class="big">${big}</div></div>
+    <div class="stats"><div class="stat"><div class="v">$${s.cost.toFixed(2)}</div><div class="k">cost</div></div>
+      <div class="stat"><div class="v">${agents}</div><div class="k">agent phases</div></div><div class="stat"><div class="v">${tools}</div><div class="k">tool calls</div></div></div></div>`;
+  const chapters = events().filter(e => e.kind === "workflow_started");
+  chapters.forEach((c, i) => {
+    const mine = ps.filter(p => p.chapter === c), chCost = mine.reduce((a, p) => a + cost(p), 0);
+    const req = mine.flatMap(artifactsOf).find(a => a.role === "request");
+    const started = c.trigger === "pr" ? `started by ${c.by}'s review on PR #${c.work.n}` : `started by ${c.by} labelling issue #${c.work.n}`;
+    html += `<section class="chapter"><div class="ch-head"><span class="ch-no">Chapter ${i + 1}</span><h2>${chapterName(c)}</h2><span class="sub">${started} · ${fmt(c.ts)}</span><span class="grow"></span><span class="cost">$${chCost.toFixed(2)}</span></div>`;
+    if (req) html += `<div class="card asked"><div class="lbl">Asked <span class="mono">${req.name} · ${kb(req.bytes)}</span>
+        <button class="toggle" onclick="toggleAsk(${i})">${openAsk.has(i) ? "Hide" : "Show"}</button></div>
+        ${openAsk.has(i) ? `<div class="md" style="padding:10px 0 0">${md(req.body)}</div>` : `<div style="color:var(--text-2);margin-top:6px">${esc(firstLine(req.body))}</div>`}</div>`;
+    html += `<div class="tl">${timeline(c, mine, s)}</div></section>`;
+  });
+  if (s.status === "running") html += `<div class="divider" style="margin:6px 0 0 70px"><span class="dot pulse" style="color:var(--accent)"></span> live · updating as events arrive</div>`;
+  return html;
+}
+// the one line that says what was asked: a reviewer's own words, or the issue's problem statement
+const firstLine = t => { const ls = t.split("\n"), q = ls.filter(l => l.startsWith("> ")), i = ls.indexOf("## Problem");
+  return (i >= 0 ? ls.slice(i + 1).find(l => l.trim()) : q.length > 1 ? `“${q[q.length - 1].slice(2)}”` : q[0] || "").replace(/^> /, ""); };
+
+function timeline(c, mine, s) {
+  const items = [];
+  for (const e of events()) if (e.kind === "session_resumed") {
+    const inCh = mine.length && e.seq > mine[0].seq && e.seq < (mine[mine.length - 1].seq + 1e6) && mine.some(p => p.seq < e.seq) && mine.some(p => p.seq > e.seq);
+    if (inCh) items.push([e.seq, `<div class="row compact"><div class="tm">${fmt(e.ts)}</div><div class="node"></div><div class="divider">▶ <b>Resumed</b> by the ${e.by} · ${events().filter(r => r.kind === "phase_replayed").map(r => r.phase).join(" and ")} replayed from their recorded envelopes, not rerun</div></div>`]);
+  }
+  for (const p of mine) {
+    if (artifactsOf(p).some(a => a.role === "request")) continue;
+    if (p.pkind === "human") { items.push(...gate(p, s)); continue; }
+    items.push([p.seq, p.pkind === "agent" ? agentCard(p) : codeStep(p)]);
+  }
+  return items.sort((a, b) => a[0] - b[0]).map(i => i[1]).join("");
 }
 
-// ─────────────────────────── B: stepper ───────────────────────────
-function B() {
-  const ps = phases();
-  if (sel === null || !ps.find(p => p.id === sel)) sel = (ps.find(p => ["running", "waiting", "failed"].includes(p.status)) || ps[ps.length - 1]).id;
-  const p = ps.find(p => p.id === sel);
-  let chap = null;
-  const steps = ps.map(x => {
-    const head = x.chapter !== chap ? (chap = x.chapter, `<div class="chap">${chapterName(chap)}</div>`) : "";
-    const u = x.events.filter(e => e.kind === "usage").reduce((a, e) => a + e.cost, 0);
-    return `${head}<div class="step ${x.id === sel ? "sel" : ""}" onclick="pick(${x.id})"><span class="g">${GLYPH[x.status]}</span>
-      <div>${x.phase}<small>${x.pkind === "agent" ? x.owner : x.pkind === "human" ? "a person decides" : "code"}${u ? ` · $${u.toFixed(2)}` : ""}${x.replayed ? " · replayed" : ""}</small></div><small>${x.end ? mins((Date.parse(x.end) - Date.parse(x.start)) / 60000) : "…"}</small></div>`;
-  }).join("");
-  return `<div class="B"><div class="steps">${steps}</div><div class="body"><h2 style="margin:0">${GLYPH[p.status]} ${p.phase}</h2>
-    <div class="mute">${pMeta(p)} · ${esc(p.description)}</div>${p.error ? `<p class="tag bad">${esc(p.error)}</p>` : ""}${phaseTabs(p, tab, k => `setTab('${k}')`)}</div></div>`;
+function agentCard(p) {
+  const acc = p.events.find(e => e.kind === "envelope_accepted"), rej = p.events.filter(e => e.kind === "envelope_rejected");
+  const nTools = p.events.filter(e => e.kind === "tool_called").length, open = openPh.has(p.id), arts = artifactsOf(p);
+  const sum = acc ? `<b>${acc.type}</b>${acc.payload.summary ? ` · ${esc(acc.payload.summary)}` : ""}${rej.length ? ` <span class="pill neutral" style="margin-left:4px">${rej.length} correction</span>` : ""}`
+    : `<span style="color:var(--accent)">working…</span>`;
+  const notes = p.events.filter(e => e.kind === "journal_noted").map(e => `<div class="note"><span class="t">${e.type}</span><span>${esc(e.note)}</span></div>`).join("");
+  return `<div class="row ${p.status}" id="ph-${p.id}"><div class="tm">${fmt(p.start)}</div><div class="node"></div>
+    <div class="card ph ${open ? "open sel" : ""}">
+      <div class="ph-head" onclick="togglePh(${p.id})"><span class="ph-name">${p.phase}</span>
+        <span class="kind">${p.owner} · <span class="mono">${shortModel(p.model)}</span></span>
+        ${p.replayed ? `<span class="pill neutral">replayed on resume</span>` : ""}<span class="grow"></span>
+        <span class="meta"><span class="hide-sm">${nTools} tools</span><span>${dur(p) || "…"}</span><span>$${cost(p).toFixed(2)}</span></span><span class="chev">▶</span></div>
+      <div class="ph-sum">${sum}</div>
+      ${acc && acc.payload.changed_files ? `<div class="files">${acc.payload.changed_files.length} files · ${acc.payload.changed_files.join(" · ")}</div>` : ""}
+      ${arts.length ? `<div class="chips">${arts.map(a => `<a class="chip" href="#" onclick="openArt(${p.id});return false">📄 ${esc(a.name)} <span class="k">${a.where === "tree" ? "repo" : "handoff"}</span></a>`).join("")}</div>` : ""}
+      ${notes}
+      ${open ? `<div class="detail">${tabs(p)}</div>` : ""}
+    </div></div>`;
 }
 
-// ─────────────────────────── C and D: the story, in chapters ───────────────────────────
-function C(tabbed = false) {
-  const ps = phases(), s = summary(), w = s.waiting && s.waiting.waiting_for, last = ps[ps.length - 1];
-  const headline = s.status === "waiting" ? `Waiting on a person: <b>${w.gate} gate, round ${w.round}</b>, asked on issue #${w.issue_number}.`
-    : s.status === "running" ? `Running: <b>${last.owner}</b> is on <b>${last.phase}</b> in ${chapterName(s.chapter)}.`
-    : s.status === "failed" ? `Failed in <b>${last.phase}</b> (${chapterName(s.chapter)}): ${esc(last.error)}.`
-    : `Done: all work went into one PR, <a href="#">#${PR}</a>, over ${events().filter(e => e.kind === "workflow_started").length} chapters.`;
-  const items = [];   // [seq, html], sorted into time order at the end
-  for (const e of events()) {
-    if (e.kind === "workflow_started") items.push([e.seq, `<div class="chapter"><h2>${chapterName(e)}</h2><span>${e.trigger === "pr" ? `started by ${e.by}'s review on PR #${e.work.n}` : `started by ${e.by} labelling issue #${e.work.n}`} · ${fmt(e.ts)}</span></div>`]);
-    if (e.kind === "session_resumed") {
-      const rep = events().filter(r => r.kind === "phase_replayed").map(r => r.phase);
-      items.push([e.seq, `<div class="beat quiet"><b>▶ resumed</b> by the ${e.by} · ${fmt(e.ts)} · ${rep.join(" and ")} replayed from their recorded envelopes, not rerun</div>`]);
-    }
-  }
-  for (const p of ps) {
-    const arts = artifactsOf(p), req = arts.find(a => a.role === "request");
-    if (req) {   // the phase that reads the request becomes the chapter's "asked" block
-      items.push([p.seq, `<div class="asked"><div class="mute" style="font-size:12px">ASKED · ${req.name} · ${(req.bytes / 1024).toFixed(1)} KB</div>
-        <details ${p.chapter.workflow === "pr-review" ? "open" : ""}><summary>${p.chapter.workflow === "pr-review" ? "the reviewers' threads" : "the issue as reported, and the requirements agreed on it"}</summary><div class="md">${md(req.body)}</div></details></div>`]);
-      continue;
-    }
-    if (p.pkind === "human") {
-      for (const e of p.events) {
-        if (e.kind === "committed") items.push([e.seq, `<div class="beat quiet">⎇ committed the subject as <span class="mono">${e.sha}</span> and pushed it, so the gate can be judged on GitHub</div>`]);
-        if (e.kind === "suspended") items.push([e.seq, `<div class="beat human ${s.waiting && s.waiting.seq === e.seq ? "run" : ""}"><div class="card"><h3>⏸ Asked: ${e.waiting_for.gate} gate, round ${e.waiting_for.round}</h3>
-          <div class="t">${fmt(e.ts)} · on issue #${e.waiting_for.issue_number} · <a href="#">the plan at ${e.head_sha} ↗</a></div></div></div>`]);
-        if (e.kind === "decision_recorded") items.push([e.seq, `<div class="beat ${e.verdict === "approve" ? "ok" : "bad"}"><h3>${e.by} ${e.verdict === "approve" ? "approved" : "rejected"}</h3>
-          <div class="t">${fmt(e.ts)} · via ${e.channel}</div>${e.notes ? `<div class="note">✎ "${esc(e.notes)}"</div>` : ""}</div>`]);
-      }
-      continue;
-    }
-    const d = p.end ? mins((Date.parse(p.end) - Date.parse(p.start)) / 60000) : "";
-    const cls = p.status === "running" ? "run" : p.status === "ok" ? "ok" : p.status === "failed" ? "bad" : "";
-    let what = "";
-    if (p.pkind === "agent") {
-      const acc = p.events.find(e => e.kind === "envelope_accepted"), rej = p.events.filter(e => e.kind === "envelope_rejected");
-      const n = p.events.filter(e => e.kind === "tool_called").length;
-      what = acc ? `${p.owner} reported <b>${acc.type}</b>${rej.length ? ` after ${rej.length} correction (${rej.map(r => esc(r.reason)).join("; ")})` : ""}${acc.payload.summary ? `: ${esc(acc.payload.summary)}` : ""}`
-                 : `${p.owner} is working`;
-      what += ` <span class="mute" style="font-size:12.5px">· ${n} tool calls</span>`;
-      if (acc && acc.payload.changed_files) what += `<div class="mute mono" style="font-size:12px">changed ${acc.payload.changed_files.join(", ")}</div>`;
-      if (!acc && transcripts) what += `<pre>${esc(p.events.filter(e => e.kind === "harness_output").slice(-3).map(e => e.chunk).join("\n"))}</pre>`;
-    } else {
-      const c = p.events.filter(e => e.kind === "command_finished"), k = p.events.find(e => e.kind === "committed");
-      what = c.map(e => `<span class="tag ${e.exit ? "bad" : "ok"}">${e.exit ? "✕" : "✓"}</span> <span class="mono">${esc(e.argv.join(" "))}</span>`).join(" ");
-      const bad = c.filter(e => e.exit); if (bad.length) what += `<pre>${esc(bad[bad.length - 1].tail)}</pre>`;
-      if (k) what += `⎇ committed <span class="mono">${k.sha}</span>${k.pushed ? " and pushed" : ""}: ${esc(k.message)}`;
-      if (p.phase === "changes") what = `diffed the run against ${BASE}: <a href="#">compare ${BASE}…a1b2c3d on GitHub ↗</a>`;
-    }
-    const chips = arts.map(a => `<a href="#" class="tag" style="text-decoration:none" onclick="${tabbed ? `openArt(${p.id})` : ""};return false">📄 ${esc(a.name)}</a>`).join(" ");
-    const auto = p.events.filter(e => e.kind === "decision_recorded" && e.by === "policy").map(e => `<div class="mute" style="font-size:13px">⚙ ${e.gate} gate approved by policy (automatic, nobody was asked)</div>`).join("");
-    const notes = pJournal(p);
-    items.push([p.seq, `<div class="beat ${cls}"><h3>${p.phase}${p.replayed ? ` <span class="tag">replayed on resume</span>` : ""}</h3>
-      <div class="t">${fmt(p.start)}${d ? ` · ${d}` : ""} · ${pMeta(p)}</div><div>${what}</div>${chips ? `<div style="margin-top:4px">${chips}</div>` : ""}${notes ? `<div style="margin-top:4px">${notes}</div>` : ""}${auto}
-      ${tabbed ? `<div class="more"><a href="#" onclick="togglePh(${p.id});return false">${openPh.has(p.id) ? "▾" : "▸"} everything about this phase</a>
-          ${openPh.has(p.id) ? phaseTabs(p, tabOf[p.id] || (arts.length ? "artifacts" : p.pkind === "code" ? "checks" : "overview"), k => `tabPh(${p.id},'${k}')`) : ""}</div>`
-        : `<details><summary>everything about this phase</summary>${pArtifacts(p)}${pEnvelopes(p)}${pChecks(p)}${pTools(p)}${pUsage(p)}</details>`}</div>`]);
-  }
-  items.sort((a, b) => a[0] - b[0]);
-  return `<div class="C ${tabbed ? "D" : ""}">
-    <div class="now"><div class="mute" style="font-size:12px;text-transform:uppercase;letter-spacing:.05em">now</div><div class="big">${headline}</div>
-      <div class="mute" style="font-size:13px">$${s.cost.toFixed(2)} so far · <a href="#" onclick="showJournal=!showJournal;render();return false">${showJournal ? "hide" : "show"} the journal</a> (what the next agent reads)</div>
-      ${showJournal ? `<div style="margin-top:10px;font-size:13px;border-top:1px solid var(--line);padding-top:8px">${journal()}</div>` : ""}</div>
-    ${items.map(i => i[1]).join("")}
-    ${s.status === "running" ? `<div class="beat run"><h3 class="mute">…live, updating as events arrive</h3></div>` : ""}</div>`;
+function codeStep(p) {
+  const c = p.events.filter(e => e.kind === "command_finished"), k = p.events.find(e => e.kind === "committed");
+  const auto = p.events.find(e => e.kind === "decision_recorded" && e.by === "policy");
+  const bad = c.filter(e => e.exit), open = openPh.has(p.id);
+  let what = c.map(e => `<span class="${e.exit ? "bad" : "ok"}">${e.exit ? "✕" : "✓"}</span> <span class="mono">${esc(e.argv.join(" "))}</span>`).join(" ");
+  if (k) what = `<span class="mono" style="color:var(--text)">${k.sha}</span> ${esc(k.message)}`;
+  if (p.phase === "changes") what = `diff against <span class="mono">${BASE}</span> · <a href="#">compare on GitHub ↗</a>`;
+  return `<div class="row compact ${p.status}" id="ph-${p.id}"><div class="tm">${fmt(p.start)}</div><div class="node"></div><div>
+    <div class="step"><span class="n">${p.phase}</span><span>${what}</span><span class="grow"></span><span class="d">${dur(p)}</span><a class="more" href="#" onclick="togglePh(${p.id});return false">${open ? "hide" : "details"}</a></div>
+    ${auto ? `<div class="step" style="padding-left:0"><span class="pill neutral">⚙ ${auto.gate} gate approved by policy · automatic, nobody was asked</span></div>` : ""}
+    ${bad.length ? `<pre class="step-fail">${esc(bad[bad.length - 1].tail)}</pre><div class="step"><span class="pill bad">${esc(p.error || "failed")}</span></div>` : ""}
+    ${open ? `<div class="card" style="padding:12px 14px;margin:4px 0 8px">${tabs(p)}</div>` : ""}</div></div>`;
 }
-const D = () => C(true);
+
+function gate(p, s) {
+  const out = [], sus = p.events.filter(e => e.kind === "suspended");
+  for (const e of sus) {
+    const dec = p.events.find(d => d.kind === "decision_recorded" && d.round === e.waiting_for.round && d.seq > e.seq);
+    const commit = p.events.filter(c => c.kind === "committed" && c.seq < e.seq).pop();
+    const waiting = s.waiting && s.waiting.seq === e.seq, cls = dec ? (dec.verdict === "approve" ? "ok" : "bad") : "";
+    out.push([p.seq, `<div class="row ${waiting ? "waiting" : dec ? "ok" : ""}" id="ph-${p.id}"><div class="tm">${fmt(e.ts)}</div><div class="node"></div>
+      <div class="card gate ${cls}"><h3>◐ ${e.waiting_for.gate[0].toUpperCase() + e.waiting_for.gate.slice(1)} gate · round ${e.waiting_for.round}
+          ${dec ? `<span class="pill ${dec.verdict === "approve" ? "ok" : "bad"}">${dec.verdict === "approve" ? "approved" : "rejected"} by ${dec.by}</span>` : `<span class="pill warn">waiting</span>`}</h3>
+        <div class="ln">Asked on issue #${e.waiting_for.issue_number} · subject <a href="#" class="mono">${e.head_sha}</a>${commit ? `, committed and pushed before asking` : ""}</div>
+        ${dec ? `<div class="ln">Answered ${fmt(dec.ts)} via ${dec.channel} · waited ${mins((Date.parse(dec.ts) - Date.parse(e.ts)) / 60000)}</div>${dec.notes ? `<div class="remark"><span class="t">✎ instruction</span>${esc(dec.notes)}</div>` : ""}`
+              : `<div class="ln" style="margin-top:10px"><button class="btn primary" onclick="send('answer')">Answer in inbox →</button></div>`}
+      </div></div>`]);
+  }
+  return out;
+}
+
+// ─────────────────────────── tabs ───────────────────────────
+const TABS = { artifacts: "Artifacts", overview: "Overview", checks: "Checks", tools: "Tools", transcript: "Transcript", cost: "Cost", events: "Events" };
+function tabs(p) {
+  const arts = artifactsOf(p);
+  const has = { artifacts: arts.length > 0, overview: p.pkind === "agent", checks: p.pkind !== "agent" || p.events.some(e => e.kind === "gate_result"),
+                tools: p.pkind === "agent", transcript: p.pkind === "agent", cost: p.pkind === "agent", events: true };
+  const list = Object.keys(TABS).filter(k => has[k]);
+  let cur = tabOf[p.id]; if (!list.includes(cur)) cur = list[0];
+  const body = { artifacts: tArtifacts(arts), overview: tOverview(p), checks: tChecks(p), tools: tTools(p), transcript: tTranscript(p), cost: tCost(p),
+    events: `<pre>${p.events.map(e => `#${String(e.seq).padEnd(4)} ${fmt(e.ts)}  ${e.kind}`).join("\n")}</pre>` }[cur];
+  return `<div class="tabs">${list.map(k => `<button class="${k === cur ? "on" : ""}" onclick="tabPh(${p.id},'${k}')">${TABS[k]}${k === "transcript" && !transcripts ? ` <span class="off">· off</span>` : ""}</button>`).join("")}</div><div class="panel">${body}</div>`;
+}
+function tArtifacts(arts) {
+  return arts.map(a => `<div class="art"><div class="art-h"><span>📄</span><span class="mono" style="color:var(--text)">${esc(a.path)}</span>
+      <span class="pill ${a.where === "tree" ? "run" : "neutral"}">${a.where === "tree" ? "in the repo" : "handoff"}</span><span class="grow"></span>
+      <span class="k">${kb(a.bytes)} · ${a.at}</span>${a.sha ? `<a href="#">GitHub ↗</a>` : ""}</div>
+    ${a.same_as_handoff ? `<div class="art-n" style="color:var(--muted);background:none;border-bottom:1px solid var(--border)">The handoff copy <span class="mono">${a.same_as_handoff}</span> is byte-identical, so it is not shipped twice.</div>` : ""}
+    ${a.later ? `<div class="art-n">Changed later: this is the version at ${a.sha}; ${a.later} edited it again. <a href="#">Compare ↗</a></div>` : ""}
+    ${a.body ? `<div class="md">${md(a.body)}</div>` : `<div class="md empty">Not committed yet: repo files are read from GitHub at a commit.</div>`}</div>`).join("");
+}
+function tOverview(p) {
+  const acc = p.events.find(e => e.kind === "envelope_accepted"), rej = p.events.filter(e => e.kind === "envelope_rejected");
+  return `<dl class="kv"><dt>Description</dt><dd>${esc(p.description)}</dd><dt>Harness</dt><dd class="mono">${p.harness} · ${p.model}</dd>
+      <dt>Instructions</dt><dd><a href="#" class="mono">${p.task}</a> at <span class="mono">${BASE}</span></dd></dl>
+    ${rej.map(r => `<h4>Rejected envelope · attempt ${r.attempt}</h4><div>${esc(r.reason)} <span class="empty">→ re-prompted the same session as a correction</span></div>`).join("")}
+    <h4>Envelope · ${acc ? acc.type : "none yet"}</h4>${acc ? `<pre>${esc(JSON.stringify(acc.payload, null, 2))}</pre>` : `<div class="empty">The agent has not reported yet.</div>`}`;
+}
+function tChecks(p) {
+  const out = [];
+  for (const e of p.events) {
+    if (e.kind === "gate_result") out.push(`<div style="margin:4px 0"><span class="pill ${e.ok ? "ok" : "bad"}">${e.ok ? "pass" : "fail"}</span> gate <b style="color:var(--text)">${e.gate}</b> · attempt ${e.attempt}${e.checks.map(c => c.note ? ` · ${esc(c.item)}: ${esc(c.note)}` : "").join("")}</div>`);
+    if (e.kind === "command_finished") out.push(`<h4><span class="mono" style="text-transform:none;letter-spacing:0">$ ${esc(e.argv.join(" "))}</span> · exit ${e.exit} · ${e.ms < 1000 ? e.ms + "ms" : (e.ms / 1000).toFixed(1) + "s"}</h4><pre>${esc(e.tail)}</pre>`);
+    if (e.kind === "committed") out.push(`<div style="margin:4px 0">⎇ <span class="mono" style="color:var(--text)">${e.sha}</span> on <span class="mono">${e.branch}</span>${e.pushed ? " · pushed" : ""} · ${esc(e.message)}</div>`);
+  }
+  return out.join("") || `<div class="empty">Nothing ran here.</div>`;
+}
+function tTools(p) {
+  const t = p.events.filter(e => e.kind === "tool_called");
+  if (!t.length) return `<div class="empty">No tool calls yet.</div>`;
+  const by = {}; t.forEach(e => by[e.tool] = (by[e.tool] || 0) + 1);
+  const max = Math.max(...Object.values(by)), failed = t.filter(e => !e.ok);
+  return `<div class="bars">${Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div class="bar"><span class="mono">${k}</span><i style="width:${n / max * 100}%"></i><span>${n}</span></div>`).join("")}</div>
+    ${failed.length ? `<h4>Failed calls</h4>${failed.map(e => `<div class="mono">${fmt(e.ts)} ✕ ${e.tool} · ${e.ms}ms</div>`).join("")}` : ""}
+    <div class="off-box">Tool calls are a core event: the name, whether it worked, and how long it took. What a call was given and returned is transcript material${transcripts ? ", on the Transcript tab" : ", and this factory has not opted in"}.</div>`;
+}
+function tTranscript(p) {
+  if (!transcripts) return `<div>The instructions are <a href="#" class="mono">${p.task}</a> at <span class="mono">${BASE}</span>, plus the journal as of this phase. The rendered prompt's digest is <span class="mono">${p.prompt_digest}</span>.</div>
+    <div class="off-box">Transcripts are off for this factory: the rendered prompt and the harness output were not shipped. <span class="mono">cockpit.transcripts: true</span> in <span class="mono">factory.yaml</span> turns them on.</div>`;
+  const out = p.events.filter(e => e.kind === "harness_output").map(e => e.chunk).join("\n");
+  return `<h4>Harness output</h4><pre>${esc(out) || "(nothing in this fake data yet)"}</pre>`;
+}
+function tCost(p) {
+  const u = p.events.filter(e => e.kind === "usage");
+  if (!u.length) return `<div class="empty">No usage reported yet.</div>`;
+  const s = k => u.reduce((a, e) => a + e[k], 0), last = u[u.length - 1], pct = Math.round(last.context[0] / last.context[1] * 100);
+  return `<table><tr><th>Input</th><th>Output</th><th>Cache read</th><th>Cost</th></tr>
+    <tr><td>${s("input").toLocaleString()}</td><td>${s("output").toLocaleString()}</td><td>${s("cache_read").toLocaleString()}</td><td style="color:var(--text)">$${s("cost").toFixed(2)}</td></tr></table>
+    <h4>Context window</h4><div class="bar" style="grid-template-columns:1fr 110px"><i style="width:${pct}%"></i><span>${Math.round(last.context[0] / 1000)}k / ${last.context[1] / 1000}k · ${pct}%</span></div>`;
+}
 
 // ─────────────────────────── wiring ───────────────────────────
-function pick(id) { sel = sel === id && variant === "A" ? null : id; render(); }
-function setTab(t) { tab = t; render(); }
-function togglePh(id) { openPh.has(id) ? openPh.delete(id) : openPh.add(id); render(); }
-function tabPh(id, k) { tabOf[id] = k; render(); }
-function openArt(id) { openPh.add(id); tabOf[id] = "artifacts"; render(); }
 function render() {
-  head();
-  document.getElementById("app").innerHTML = { A, B, C, D }[variant]();
-  document.getElementById("label").textContent = `${variant} (${VARIANTS[variant]})`;
+  const s = summary(), ps = phases();
+  document.getElementById("top").innerHTML = topBar(s);
+  document.getElementById("side").innerHTML = sideBar(s, ps);
+  document.getElementById("main").innerHTML = mainCol(s, ps);
   document.getElementById("scen").value = scen;
   document.getElementById("tr").checked = transcripts;
 }
-function go(v) {
-  variant = v;
-  const u = new URL(location); u.searchParams.set("variant", v); u.searchParams.set("s", scen); u.searchParams.set("t", transcripts ? "1" : "0");
-  history.replaceState(null, "", u); render();
+function send(verb) {
+  const msg = { kill: `WOULD queue {verb: kill, session: ${ADW}, by: schurik, station: st_7f3a, ttl: 5m}`,
+    resume: `WOULD queue {verb: resume, session: ${ADW}, by: schurik, station: st_7f3a}`,
+    answer: "WOULD open this gate's answer view in the inbox. The inbox owns answering." }[verb];
+  const t = document.getElementById("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(send.t); send.t = setTimeout(() => t.style.display = "none", 4000);
 }
-const keys = Object.keys(VARIANTS);
-document.getElementById("prev").onclick = () => go(keys[(keys.indexOf(variant) + keys.length - 1) % keys.length]);
-document.getElementById("next").onclick = () => go(keys[(keys.indexOf(variant) + 1) % keys.length]);
-document.getElementById("scen").onchange = e => { scen = e.target.value; sel = null; openPh.clear(); load(); go(variant); };
-document.getElementById("tr").onchange = e => { transcripts = e.target.checked; load(); go(variant); };
-addEventListener("keydown", e => {
-  if (e.target.closest("input, textarea, select, [contenteditable]")) return;
-  if (e.key === "ArrowLeft") document.getElementById("prev").click();
-  if (e.key === "ArrowRight") document.getElementById("next").click();
-});
-load(); go(variant);
+function togglePh(id) { openPh.has(id) ? openPh.delete(id) : openPh.add(id); render(); }
+function tabPh(id, k) { tabOf[id] = k; render(); }
+function openArt(id) { openPh.add(id); tabOf[id] = "artifacts"; render(); }
+function toggleAsk(i) { openAsk.has(i) ? openAsk.delete(i) : openAsk.add(i); render(); }
+function setSide(t) { sideTab = t; render(); }
+function jump(id) { const p = phases().find(x => x.id === id); if (p && p.pkind !== "human") openPh.add(id); render();
+  const el = document.getElementById("ph-" + id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 100, behavior: "smooth" }); }
+function sync() { const u = new URL(location); u.searchParams.set("s", scen); u.searchParams.set("t", transcripts ? "1" : "0"); u.searchParams.delete("variant"); history.replaceState(null, "", u); }
+document.getElementById("scen").onchange = e => { scen = e.target.value; openPh.clear(); sync(); load(); };
+document.getElementById("tr").onchange = e => { transcripts = e.target.checked; sync(); load(); };
+sync(); load();
 </script>
 </body>
 </html>
