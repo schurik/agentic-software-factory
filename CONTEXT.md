@@ -27,8 +27,16 @@ _Avoid_: control tower, dashboard, hub, factory manager, visualizer
 **Station**:
 One checkout of a repository — on a machine or in a CI job — that runs its factory's sessions and
 ships them to a cockpit. A factory is known to a cockpit through its repository; its sessions reach
-the cockpit through its stations.
+the cockpit through its stations. A station on a machine belongs to one person, its **owner**, and
+is **online** while its long-lived loop keeps asking the cockpit for commands; a CI station lives for
+one job, has no owner and takes no commands.
 _Avoid_: agent, runner, node, host
+
+**Claim**:
+One station's exclusive right, granted by a shared cockpit, to start a session for one work item.
+It is what keeps two stations' watchers from both starting the same issue; without a shared cockpit
+there is no claim, only the rule of one watcher per repository.
+_Avoid_: lock, lease, assignment
 
 **Inbox**:
 The cross-repo list, in a cockpit, of every gate currently waiting on the person looking at it.
