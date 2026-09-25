@@ -1,0 +1,483 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. It answers one question for the wayfinder ticket
+  "The session view: what the cockpit shows for one run" (#33).
+
+  It shows three variants of one session's page, built only from the #27 domain-event catalogue,
+  switchable via ?variant=A|B|C (or ← / →).
+    A  Waterfall: the legacy visualizer's shape (lanes over time, phase panel), rebuilt on events.
+    B  Stepper: the workflow's phases as an outline, with tabs for one phase.
+    C  Story: a readable account of what happened, with gates as the headline.
+
+  The floating bar also switches:
+    ?s=live|gate|failed|ci|done  the session's situation (drives status, liveness, commands)
+    ?t=0|1                       whether the factory opted in to transcript events
+                                 (prompt_rendered, harness_output)
+
+  Data is fake and in memory. Commands print what they WOULD send; nothing is sent.
+  To open it: `open apps/cockpit/prototype/session.prototype.html`
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session prototype</title>
+<style>
+  :root { --bg:#f6f6f4; --panel:#fff; --ink:#1c1c1a; --mute:#6b6b66; --line:#e2e1dc;
+          --accent:#2f5bd3; --ok:#1f8a4c; --bad:#b83a2e; --warn:#a86b00; --code:#f1f0ec; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151514; --panel:#1e1e1c; --ink:#ecebe6;
+          --mute:#9a9992; --line:#2f2f2c; --accent:#7d9bff; --ok:#4cc27d; --bad:#ff7b6b; --warn:#e0a53a; --code:#262623; } }
+  * { box-sizing:border-box } body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  a { color:var(--accent) }
+  .mute { color:var(--mute) } .mono { font-family:ui-monospace, monospace; font-size:12.5px }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:12px; background:var(--code); color:var(--mute); white-space:nowrap }
+  .tag.ok { background:#1f8a4c22; color:var(--ok) } .tag.bad { background:#b83a2e22; color:var(--bad) }
+  .tag.warn { background:#a86b0022; color:var(--warn) } .tag.run { background:#2f5bd322; color:var(--accent) }
+  pre { background:var(--code); padding:10px 12px; border-radius:6px; overflow:auto; margin:6px 0; font-size:12.5px; white-space:pre-wrap }
+  button { font:inherit; padding:5px 11px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer }
+  button:disabled { opacity:.45; cursor:not-allowed }
+  button.danger { color:var(--bad); border-color:var(--bad) }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--mute); vertical-align:middle }
+  .dot.on { background:var(--ok) } .dot.off { background:var(--bad) } .dot.pulse { animation:p 1.2s infinite }
+  @keyframes p { 50% { opacity:.3 } }
+  details { margin:6px 0 } summary { cursor:pointer; color:var(--mute); font-size:13px }
+  .gap { border:1px dashed var(--warn); color:var(--warn); border-radius:6px; padding:8px 10px; font-size:12.5px; margin:8px 0 }
+
+  /* shared header: the same chrome in every variant, so only the body is judged */
+  #head { background:var(--panel); border-bottom:1px solid var(--line); padding:12px 20px }
+  #head .crumbs { font-size:12.5px; color:var(--mute) }
+  #head .row { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; margin-top:4px }
+  #head h1 { font-size:18px; margin:0 }
+  #head .cmds { margin-left:auto; display:flex; gap:8px; align-items:center }
+  #head .why { font-size:12px; color:var(--mute); max-width:340px; text-align:right }
+
+  #out { position:fixed; right:16px; bottom:64px; max-width:440px; background:var(--ink); color:var(--bg); padding:10px 14px; border-radius:8px; font-size:12.5px; display:none; white-space:pre-wrap; z-index:10 }
+  #switch { position:fixed; left:50%; bottom:14px; transform:translateX(-50%); display:flex; gap:10px; align-items:center;
+            background:#111; color:#fff; padding:6px 12px; border-radius:20px; box-shadow:0 4px 16px #0005; font-size:13px; z-index:9; white-space:nowrap }
+  #switch button, #switch select { background:transparent; color:#fff; border:none; padding:2px 6px; font:inherit }
+  #switch select option { color:#000 } #switch label { display:flex; gap:4px; align-items:center }
+
+  /* A: waterfall */
+  .A { display:grid; grid-template-columns:1fr 420px; min-height:calc(100vh - 90px) }
+  .A.closed { grid-template-columns:1fr }
+  .A .wf { padding:16px 20px 90px; overflow:auto }
+  .A .axis { display:flex; justify-content:space-between; font-size:11px; color:var(--mute); margin-left:130px; border-bottom:1px solid var(--line) }
+  .A .lane { display:flex; align-items:center; min-height:38px; border-bottom:1px solid var(--line) }
+  .A .lane .who { width:130px; font-size:12.5px; flex:none } .A .lane .who small { display:block; color:var(--mute); font-size:11px }
+  .A .track { position:relative; flex:1; height:30px }
+  .A .blk { position:absolute; top:4px; height:22px; border-radius:4px; font-size:11px; padding:2px 5px; overflow:hidden; white-space:nowrap; cursor:pointer;
+            background:#2f5bd333; border:1px solid var(--accent) }
+  .A .blk.ok { background:#1f8a4c26; border-color:var(--ok) } .A .blk.bad { background:#b83a2e26; border-color:var(--bad) }
+  .A .blk.wait { background:#a86b0026; border-color:var(--warn); border-style:dashed } .A .blk.sel { outline:2px solid var(--ink) }
+  .A .tick { position:absolute; bottom:1px; width:2px; height:6px; background:var(--mute) } .A .tick.bad { background:var(--bad) }
+  .A .panel { border-left:1px solid var(--line); background:var(--panel); padding:14px 18px 90px; overflow:auto; max-height:calc(100vh - 90px); position:sticky; top:0 }
+  .A .ev { display:grid; grid-template-columns:62px 130px 1fr; gap:6px; font-size:12px; padding:3px 0; border-bottom:1px solid var(--line); cursor:pointer }
+
+  /* B: stepper */
+  .B { display:grid; grid-template-columns:300px 1fr; min-height:calc(100vh - 90px) }
+  .B .steps { background:var(--panel); border-right:1px solid var(--line); padding:12px 0 90px }
+  .B .step { display:grid; grid-template-columns:22px 1fr auto; gap:6px; padding:8px 14px; cursor:pointer; align-items:start }
+  .B .step.sel { background:var(--code); box-shadow:inset 3px 0 var(--accent) }
+  .B .step .g { font-size:14px; text-align:center } .B .step small { display:block; color:var(--mute); font-size:11.5px }
+  .B .body { padding:16px 26px 90px; overflow:auto }
+  .B .tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin:10px 0 12px }
+  .B .tabs button { border:none; border-bottom:2px solid transparent; border-radius:0; background:none; color:var(--mute) }
+  .B .tabs button.on { border-color:var(--accent); color:var(--ink) }
+  .B table { border-collapse:collapse; font-size:12.5px } .B td, .B th { padding:3px 10px 3px 0; text-align:left }
+
+  /* C: story */
+  .C { max-width:780px; margin:18px auto 100px; padding:0 16px }
+  .C .now { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin-bottom:22px }
+  .C .now .big { font-size:18px; margin:2px 0 6px }
+  .C .beat { position:relative; padding:0 0 18px 26px; border-left:2px solid var(--line); margin-left:8px }
+  .C .beat::before { content:""; position:absolute; left:-7px; top:3px; width:12px; height:12px; border-radius:50%; background:var(--panel); border:2px solid var(--mute) }
+  .C .beat.ok::before { border-color:var(--ok) } .C .beat.bad::before { border-color:var(--bad) } .C .beat.run::before { border-color:var(--accent); animation:p 1.2s infinite }
+  .C .beat.human { } .C .beat.human .card { border-left:3px solid var(--warn); background:var(--panel); padding:8px 12px; border-radius:6px }
+  .C .beat h3 { font-size:14.5px; margin:0 0 3px } .C .beat .t { font-size:11.5px; color:var(--mute) }
+  .C .note { font-style:italic; color:var(--mute) } .C .cost { margin-top:18px; font-size:13px }
+
+  @media (max-width: 860px) { .A, .B { grid-template-columns:1fr } .A .panel { position:static; max-height:none } #head .cmds { margin-left:0 } }
+</style>
+</head>
+<body>
+<div id="head"></div>
+<main id="app"></main>
+<div id="out"></div>
+<div id="switch">
+  <button id="prev">←</button><span id="label"></span><button id="next">→</button>
+  <select id="scen"><option value="live">live</option><option value="gate">at a gate</option><option value="failed">failed</option><option value="ci">failed in CI</option><option value="done">done</option></select>
+  <label><input type="checkbox" id="tr"> transcripts</label>
+</div>
+
+<script>
+// ─── the only input: domain events, catalogue from "The cockpit's stack and deployment shape" (#27) ───
+const T0 = Date.parse("2026-09-25T13:00:00Z");
+const at = m => new Date(T0 + m * 60000).toISOString();
+let SEQ = 0;
+const E = (m, kind, data = {}) => ({ seq: ++SEQ, ts: at(m), kind, v: 1, ...data });
+const TRANSCRIPT = new Set(["prompt_rendered", "harness_output"]);   // opt-in kinds
+
+function story(scen) {
+  SEQ = 0;
+  const ci = scen === "ci";
+  const st = ci ? { id: "st_ci_9912", name: "CI · run 9912", kind: "ci", owner: null }
+                : { id: "st_7f3a", name: "alex@mbp:~/src/billing-api", kind: "local", owner: "alex" };
+  const ev = [
+    E(0, "session_started", { workflow: "issue", trigger: "issue", by: "schurik", request: "Refund endpoint double-charges on retry",
+      work: { kind: "issue", n: 142 }, base: "main@3e1f0a2", station: st }),
+    E(0.1, "phase_started", { phase: "plan", pkind: "agent", owner: "planner", model: "claude-sonnet-5", harness: "claude_code",
+      description: "Read the issue and the refunds module; write a plan the builder can follow." }),
+    E(0.1, "prompt_rendered", { phase: "plan", owner: "planner", system: "You are the planner. You write plans, never code…\n(412 lines)", user: "## Issue #142\nRefund endpoint double-charges on retry…\n\n## Report\n```json\n{\"plan_path\": …}\n```" }),
+    E(0.6, "harness_output", { phase: "plan", owner: "planner", chunk: "→ read src/refunds/handler.ts\n→ grep request_id\n→ read migrations/0042_refunds.sql" }),
+    E(3.2, "envelope_rejected", { phase: "plan", owner: "planner", type: "PlanEnvelope", attempt: 1, reason: "missing field: risks" }),
+    E(3.9, "envelope_accepted", { phase: "plan", owner: "planner", type: "PlanEnvelope", attempt: 2,
+      payload: { plan_path: "specs/refund-idempotency.md", risks: ["legacy rows have null request_id"] } }),
+    E(3.9, "journal_noted", { phase: "plan", by: "planner", note: "request_id is nullable today; the migration backfills it from created_at+amount" }),
+    E(4.0, "usage", { phase: "plan", owner: "planner", input: 48200, output: 3100, cache_read: 31000, cost: 0.31, context: [61000, 200000] }),
+    E(4.0, "phase_ended", { phase: "plan", status: "ok" }),
+    E(4.1, "phase_started", { phase: "plan-gate", pkind: "human", owner: "you", description: "A person approves the plan before anything is built." }),
+    E(4.1, "suspended", { phase: "plan-gate", waiting_for: { gate: "plan", round: 1, channel: "issue", issue_number: 142 }, base_commit: "3e1f0a2", head_sha: "a90c11d" }),
+    E(40, "decision_recorded", { phase: "plan-gate", round: 1, verdict: "reject", by: "schurik", notes: "Don't add a new table: refunds already has request_id." }),
+    E(40.2, "phase_started", { phase: "plan", pkind: "agent", owner: "planner", model: "claude-sonnet-5", harness: "claude_code", attempt: 2,
+      description: "Read the issue and the refunds module; write a plan the builder can follow." }),
+    E(42, "envelope_accepted", { phase: "plan", owner: "planner", type: "PlanEnvelope", attempt: 1, payload: { plan_path: "specs/refund-idempotency.md", risks: [] } }),
+    E(42, "usage", { phase: "plan", owner: "planner", input: 22000, output: 1400, cache_read: 40000, cost: 0.12, context: [74000, 200000] }),
+    E(42, "phase_ended", { phase: "plan", status: "ok" }),
+    E(42.1, "suspended", { phase: "plan-gate", waiting_for: { gate: "plan", round: 2, channel: "issue", issue_number: 142 }, base_commit: "3e1f0a2", head_sha: "c41e7b0" }),
+  ];
+  if (scen === "gate") return { ev, st, online: false };
+  ev.push(
+    E(55, "decision_recorded", { phase: "plan-gate", round: 2, verdict: "approve", by: "schurik", notes: "" }),
+    E(55, "phase_ended", { phase: "plan-gate", status: "ok" }),
+    E(55.2, "phase_started", { phase: "build", pkind: "agent", owner: "builder", model: "claude-opus-5-5", harness: "claude_code",
+      description: "Implement the approved plan on the work branch; tests first." }),
+    E(55.2, "process_started", { phase: "build", pid: 48211, argv: ["claude", "-p", "…"] }),
+    E(55.3, "prompt_rendered", { phase: "build", owner: "builder", system: "You are the builder…\n(530 lines)", user: "## Plan\n1. Reuse refunds.request_id…" }),
+    E(56, "harness_output", { phase: "build", owner: "builder", chunk: "→ edit migrations/0051_request_id_not_null.sql\n→ edit src/refunds/handler.ts\n→ bash: bun test refunds  (3 failed)" }),
+    E(58, "harness_output", { phase: "build", owner: "builder", chunk: "→ edit src/refunds/handler.ts\n→ bash: bun test refunds  (ok)" }),
+  );
+  if (scen === "live") return { ev, st, online: true, live: true };
+  ev.push(
+    E(61, "envelope_accepted", { phase: "build", owner: "builder", type: "BuildReport", attempt: 1, payload: { files_changed: 4, tests_added: 6 } }),
+    E(61, "usage", { phase: "build", owner: "builder", input: 181000, output: 12800, cache_read: 390000, cost: 1.42, context: [132000, 200000] }),
+    E(61, "process_ended", { phase: "build", pid: 48211, exit: 0 }),
+    E(61, "phase_ended", { phase: "build", status: "ok" }),
+    E(61.1, "phase_started", { phase: "quality", pkind: "code", owner: "code", description: "Run the repo's own checks: tests and lint." }),
+    E(61.6, "command_finished", { phase: "quality", argv: ["bun", "test"], exit: 0, ms: 28400, tail: "212 pass\n0 fail" }),
+    E(61.7, "command_finished", { phase: "quality", argv: ["ruff", "check", "."], exit: 1, ms: 900, tail: "src/refunds/handler.py:88:5: F841 local variable 'prior' is assigned to but never used\nFound 1 error." }),
+    E(61.7, "gate_result", { phase: "quality", gate: "lint", ok: false, attempt: 1, checks: [{ item: "ruff check", ok: false, note: "1 error" }] }),
+  );
+  if (scen === "failed" || ci) {
+    ev.push(
+      E(62, "phase_ended", { phase: "quality", status: "failed", error: "lint gate failed 3 times; corrections exhausted" }),
+      E(62, "session_finished", { accepted: false, status: "failed" }),
+    );
+    return { ev, st, online: !ci };
+  }
+  ev.push(
+    E(63, "command_finished", { phase: "quality", argv: ["ruff", "check", "."], exit: 0, ms: 850, tail: "All checks passed!" }),
+    E(63, "gate_result", { phase: "quality", gate: "lint", ok: true, attempt: 2, checks: [{ item: "ruff check", ok: true }] }),
+    E(63, "phase_ended", { phase: "quality", status: "ok" }),
+    E(63.1, "phase_started", { phase: "review", pkind: "agent", owner: "reviewer", model: "claude-sonnet-5", harness: "claude_code",
+      description: "Review the diff against the plan; declare anything worth keeping on the record." }),
+    E(66, "envelope_accepted", { phase: "review", owner: "reviewer", type: "ReviewReport", attempt: 1, payload: { verdict: "approve", findings: 0 } }),
+    E(66, "journal_noted", { phase: "review", by: "reviewer", note: "Backfill touches 1.2M rows; the migration batches in 10k chunks." }),
+    E(66, "usage", { phase: "review", owner: "reviewer", input: 64000, output: 2100, cache_read: 50000, cost: 0.29, context: [88000, 200000] }),
+    E(66, "phase_ended", { phase: "review", status: "ok" }),
+    E(66.1, "phase_started", { phase: "integrate", pkind: "code", owner: "code", description: "Open the pull request for the work branch." }),
+    E(66.4, "command_finished", { phase: "integrate", argv: ["gh", "pr", "create", "…"], exit: 0, ms: 2100, tail: "https://github.com/acme/billing-api/pull/412" }),
+    E(66.4, "phase_ended", { phase: "integrate", status: "ok" }),
+    E(66.4, "session_finished", { accepted: true, status: "done", pr: 412 }),
+  );
+  return { ev, st, online: true };
+}
+
+// ─── state ───
+const q = new URLSearchParams(location.search);
+const VARIANTS = { A: "Waterfall", B: "Stepper", C: "Story" };
+let variant = VARIANTS[q.get("variant")] ? q.get("variant") : "A";
+let scen = q.get("s") || "live";
+let transcripts = q.get("t") === "1";
+let sel = null;              // selected phase instance (A, B)
+let tab = "overview";        // B
+let S, liveTimer;
+
+function load() {
+  S = story(scen);
+  clearInterval(liveTimer);
+  if (S.live) {                               // a live session: events keep arriving, views update
+    let n = 0;
+    liveTimer = setInterval(() => {
+      const m = 58 + (++n) * 0.5;
+      S.ev.push(n % 3 ? E(m, "harness_output", { phase: "build", owner: "builder", chunk: `→ edit src/refunds/test_${n}.ts` })
+                      : E(m, "usage", { phase: "build", owner: "builder", input: 9000, output: 700, cache_read: 20000, cost: 0.07, context: [100000 + n * 3000, 200000] }));
+      render();
+    }, 2000);
+  }
+  render();
+}
+
+// events the cockpit HAS: transcript kinds only when the factory opted in
+const events = () => S.ev.filter(e => transcripts || !TRANSCRIPT.has(e.kind));
+const fmt = ts => new Date(ts).toISOString().slice(11, 16);
+const mins = m => m < 1 ? `${Math.round(m * 60)}s` : m < 60 ? `${Math.round(m)}m` : `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`;
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const nowTs = () => S.ev[S.ev.length - 1].ts;
+
+// fold events into phase instances: the projection every variant reads
+function phases() {
+  const out = []; const open = {};
+  for (const e of events()) {
+    if (e.kind === "phase_started") { const p = { id: out.length, ...e, start: e.ts, events: [], status: "running" }; out.push(p); open[e.phase] = p; }
+    const p = e.phase && open[e.phase];
+    if (!p) continue;
+    if (e.kind !== "phase_started") p.events.push(e);
+    if (e.kind === "phase_ended") { p.end = e.ts; p.status = e.status; p.error = e.error; }
+    if (e.kind === "suspended") p.status = "waiting";
+    if (e.kind === "decision_recorded") { p.end = e.ts; p.status = e.verdict === "approve" ? "ok" : "rejected"; }
+    if (e.kind === "suspended" && p.status === "waiting") { p.end = undefined; }
+  }
+  // a gate instance that was rejected then re-asked: split rounds into their own instances for display
+  return out;
+}
+function summary() {
+  const ev = events();
+  const start = ev[0], fin = ev.find(e => e.kind === "session_finished");
+  const lastSusp = [...ev].reverse().find(e => e.kind === "suspended");
+  const lastDec = [...ev].reverse().find(e => e.kind === "decision_recorded");
+  const waiting = lastSusp && (!lastDec || lastDec.seq < lastSusp.seq) && !fin;
+  const cost = ev.filter(e => e.kind === "usage").reduce((a, e) => a + e.cost, 0);
+  const tokens = ev.filter(e => e.kind === "usage").reduce((a, e) => a + e.input + e.output, 0);
+  const status = fin ? fin.status : waiting ? "waiting" : "running";
+  const rt = (Date.parse(fin ? fin.ts : nowTs()) - Date.parse(start.ts)) / 60000;
+  return { start, fin, waiting: waiting && lastSusp, status, cost, tokens, rt };
+}
+const CHIP = { running: "run", waiting: "warn", done: "ok", failed: "bad" };
+const GLYPH = { ok: "✓", failed: "✕", rejected: "↺", running: "●", waiting: "⏸" };
+
+// ─── shared header: identity, liveness, commands ───
+function head() {
+  const s = summary(), st = S.st, w = s.waiting && s.waiting.waiting_for;
+  const live = st.kind === "ci" ? `<span class="tag">CI station, takes no commands</span>`
+    : `<span class="dot ${S.online ? "on" : "off"}"></span> ${esc(st.name)} <span class="mute">· owner ${st.owner} · ${S.online ? "online, seen 2s ago" : "offline, seen 3h ago"}</span>`;
+  const attended = s.status === "running" && S.online;
+  const cmd = [];
+  let why = "";
+  if (s.status === "running") {
+    cmd.push(`<button class="danger" ${attended ? "" : "disabled"} onclick="send('kill')">Kill</button>`);
+    why = attended ? "session attended: its shipper polled 2s ago" : "session unattended: kill would queue";
+  } else if (s.status === "failed") {
+    const ok = st.kind !== "ci" && S.online;
+    cmd.push(`<button ${ok ? "" : "disabled"} onclick="send('resume')">Resume</button>`);
+    why = st.kind === "ci" ? "ran in CI: re-trigger from the forge" : "resumes on alex@mbp, which holds the worktree";
+  } else if (s.status === "waiting") {
+    cmd.push(`<button onclick="send('answer')">Answer in inbox →</button>`);
+    why = S.online ? "" : "answer lands on issue #142 now; the session resumes when alex@mbp is back online";
+  } else if (s.fin && s.fin.pr) {
+    cmd.push(`<a href="#" onclick="send('pr');return false">PR #${s.fin.pr} ↗</a>`);
+  }
+  document.getElementById("head").innerHTML = `
+    <div class="crumbs">acme/billing-api › sessions › <span class="mono">a41c9e02</span></div>
+    <div class="row">
+      <h1>${esc(s.start.request)}</h1>
+      <span class="tag ${CHIP[s.status]}">${s.status === "waiting" ? `waiting · ${w.gate} gate, round ${w.round}` : s.status}${s.status === "running" ? ` <span class="dot on pulse"></span>` : ""}</span>
+      <div class="cmds"><span class="why">${why}</span>${cmd.join("")}</div>
+    </div>
+    <div class="row mute" style="font-size:12.5px">
+      <span>workflow <b>issue</b></span><a href="#">issue #142 ↗</a><span>by schurik</span><span>base ${s.start.base}</span>
+      <span>${fmt(s.start.ts)} · ${mins(s.rt)}</span><span>$${s.cost.toFixed(2)} · ${(s.tokens / 1000).toFixed(0)}k tok</span>
+      <span>${live}</span>
+    </div>`;
+}
+function send(verb) {
+  const msg = {
+    kill: "WOULD queue command {verb:kill, session:a41c9e02, by:schurik, station:st_7f3a, ttl:5m}.\nThe run's shipper picks it up within ~3s.",
+    resume: "WOULD queue command {verb:resume, session:a41c9e02, by:schurik, station:st_7f3a}.",
+    answer: "WOULD open the inbox's answer view for this gate (the inbox owns answering).",
+    pr: "WOULD open acme/billing-api#412 on GitHub.",
+  }[verb];
+  const o = document.getElementById("out"); o.textContent = msg; o.style.display = "block";
+  clearTimeout(send.t); send.t = setTimeout(() => o.style.display = "none", 4500);
+}
+
+// ─── reusable pieces of phase detail (each variant arranges them differently) ───
+function pEnvelopes(p) {
+  return p.events.filter(e => e.kind.startsWith("envelope_")).map(e => e.kind === "envelope_accepted"
+    ? `<div><span class="tag ok">accepted</span> <b>${e.type}</b> <span class="mute">attempt ${e.attempt}</span><pre>${esc(JSON.stringify(e.payload, null, 2))}</pre></div>`
+    : `<div><span class="tag bad">rejected</span> <b>${e.type}</b> <span class="mute">attempt ${e.attempt}: ${esc(e.reason)}, re-prompted as a correction</span></div>`).join("") || `<div class="mute">No envelope.</div>`;
+}
+function pChecks(p) {
+  const cmds = p.events.filter(e => e.kind === "command_finished").map(e =>
+    `<details ${e.exit ? "open" : ""}><summary><span class="tag ${e.exit ? "bad" : "ok"}">exit ${e.exit}</span> <span class="mono">${esc(e.argv.join(" "))}</span> · ${(e.ms / 1000).toFixed(1)}s</summary><pre>${esc(e.tail)}</pre></details>`);
+  const gates = p.events.filter(e => e.kind === "gate_result").map(e =>
+    `<div><span class="tag ${e.ok ? "ok" : "bad"}">${e.ok ? "pass" : "fail"}</span> gate <b>${e.gate}</b> <span class="mute">attempt ${e.attempt}</span> ${e.checks.map(c => `· ${c.item}${c.note ? ": " + esc(c.note) : ""}`).join(" ")}</div>`);
+  return [...gates, ...cmds].join("") || `<div class="mute">No gates or commands.</div>`;
+}
+function pUsage(p) {
+  const u = p.events.filter(e => e.kind === "usage");
+  if (!u.length) return `<div class="mute">No model usage (not an agent phase).</div>`;
+  const s = k => u.reduce((a, e) => a + e[k], 0), last = u[u.length - 1];
+  return `<table><tr><th>input</th><th>output</th><th>cache read</th><th>cost</th><th>context</th></tr>
+    <tr><td>${s("input").toLocaleString()}</td><td>${s("output").toLocaleString()}</td><td>${s("cache_read").toLocaleString()}</td><td>$${s("cost").toFixed(2)}</td>
+    <td>${Math.round(last.context[0] / 1000)}k / ${last.context[1] / 1000}k</td></tr></table>`;
+}
+function pJournal(p) {
+  return p.events.filter(e => e.kind === "journal_noted").map(e => `<div>📝 <b>${e.by}</b> declared: ${esc(e.note)}</div>`).join("");
+}
+function pDecisions(p) {
+  return p.events.filter(e => e.kind === "suspended" || e.kind === "decision_recorded").map(e => e.kind === "suspended"
+    ? `<div><span class="tag warn">asked</span> round ${e.waiting_for.round} on issue #${e.waiting_for.issue_number} · subject at <span class="mono">${e.head_sha}</span> <a href="#">view on GitHub ↗</a></div>`
+    : `<div><span class="tag ${e.verdict === "approve" ? "ok" : "bad"}">${e.verdict}</span> round ${e.round} by <b>${e.by}</b> ${e.notes ? `: "${esc(e.notes)}"` : ""}</div>`).join("");
+}
+function pTranscript(p) {
+  if (p.pkind !== "agent") return `<div class="mute">Not an agent phase.</div>`;
+  if (!transcripts) return `<div class="gap">Transcripts are off for this factory. The prompt and the harness output were not shipped.
+    <br>The legacy visualizer showed compiled prompts from disk and every tool call. The cockpit shows neither unless <span class="mono">cockpit.transcripts: true</span>.</div>`;
+  const pr = p.events.find(e => e.kind === "prompt_rendered");
+  const out = p.events.filter(e => e.kind === "harness_output").map(e => e.chunk).join("\n");
+  return `${pr ? `<details><summary>system prompt</summary><pre>${esc(pr.system)}</pre></details><details open><summary>user prompt</summary><pre>${esc(pr.user)}</pre></details>` : ""}
+    <div class="mute" style="font-size:12px;margin-top:8px">harness output</div><pre>${esc(out) || "…"}</pre>`;
+}
+function pMeta(p) {
+  return p.pkind === "agent" ? `<span class="mono">${p.harness} · ${p.model}</span>` : p.pkind === "human" ? "a person" : "code";
+}
+
+// ─── A: waterfall (the visualizer's shape, on events) ───
+function A() {
+  const ps = phases(), s = summary();
+  const t0 = Date.parse(s.start.ts), t1 = Date.parse(s.fin ? s.fin.ts : nowTs()) + 60000, span = t1 - t0;
+  const x = ts => ((Date.parse(ts) - t0) / span) * 100;
+  const lanes = [...new Set(ps.map(p => p.owner))];
+  const laneLabel = o => ({ you: "people", code: "code" }[o] || o);
+  const rows = lanes.map(o => {
+    const any = ps.find(p => p.owner === o);
+    const ctx = [...events()].reverse().find(e => e.kind === "usage" && e.owner === o);
+    return `<div class="lane"><div class="who">${laneLabel(o)}${any.pkind === "agent" ? `<small>${any.model}</small>${ctx ? `<small>ctx ${Math.round(ctx.context[0] / 1000)}k/${ctx.context[1] / 1000}k</small>` : ""}` : ""}</div>
+      <div class="track">${ps.filter(p => p.owner === o).map(p => {
+        const end = p.end || nowTs(), w = Math.max(x(end) - x(p.start), 1.2);
+        const ticks = p.events.filter(e => ["envelope_rejected", "envelope_accepted", "gate_result", "command_finished", "harness_output"].includes(e.kind))
+          .map(e => `<span class="tick ${e.kind === "envelope_rejected" || e.ok === false || e.exit ? "bad" : ""}" style="left:${((x(e.ts) - x(p.start)) / w) * 100}%"></span>`).join("");
+        const cls = { ok: "ok", failed: "bad", rejected: "bad", waiting: "wait" }[p.status] || "";
+        return `<div class="blk ${cls} ${sel === p.id ? "sel" : ""}" style="left:${x(p.start)}%;width:${w}%" onclick="pick(${p.id})" title="${p.phase}">${GLYPH[p.status]} ${p.phase} · ${mins((Date.parse(end) - Date.parse(p.start)) / 60000)}${ticks}</div>`;
+      }).join("")}</div></div>`;
+  }).join("");
+  const p = ps.find(p => p.id === sel);
+  const panel = p ? `<div class="panel">
+      <div style="display:flex;justify-content:space-between"><b>${GLYPH[p.status]} ${p.phase}</b><button onclick="pick(null)">×</button></div>
+      <div class="mute" style="font-size:12.5px">${pMeta(p)} · ${p.attempt ? `attempt ${p.attempt}` : "attempt 1"}</div>
+      <p>${esc(p.description)}</p>${p.error ? `<div class="tag bad">${esc(p.error)}</div>` : ""}
+      ${pDecisions(p)}${pJournal(p)}
+      <details open><summary>outputs</summary>${pEnvelopes(p)}</details>
+      <details open><summary>gates and commands</summary>${pChecks(p)}</details>
+      <details><summary>cost</summary>${pUsage(p)}</details>
+      <details ${transcripts ? "" : "open"}><summary>prompt and transcript</summary>${pTranscript(p)}</details>
+      <details><summary>events (${p.events.length})</summary>${p.events.map(e => `<div class="ev"><span class="mono">${fmt(e.ts)}</span><span class="mono">${e.kind}</span><span class="mute">${esc(JSON.stringify(e).slice(0, 80))}</span></div>`).join("")}</details>
+    </div>` : "";
+  return `<div class="A ${p ? "" : "closed"}"><div class="wf">
+      <div class="axis"><span>${fmt(s.start.ts)}</span><span>${fmt(new Date(t0 + span / 2).toISOString())}</span><span>${fmt(new Date(t1).toISOString())}</span></div>
+      ${rows}
+      <p class="mute" style="font-size:12.5px">Click a block for its phase panel. Ticks are envelopes, gates and commands${transcripts ? ", and harness output" : ""}; red means rejected or failed.
+      ${transcripts ? "" : `<br>Without transcripts there are no tool-call ticks: the legacy waterfall's densest layer is gone.`}</p>
+    </div>${panel}</div>`;
+}
+
+// ─── B: stepper (the workflow as an outline, one phase in tabs) ───
+function B() {
+  const ps = phases();
+  if (sel === null || !ps.find(p => p.id === sel)) sel = (ps.find(p => p.status === "running" || p.status === "waiting" || p.status === "failed") || ps[ps.length - 1]).id;
+  const p = ps.find(p => p.id === sel);
+  const steps = ps.map(x => {
+    const d = x.end ? mins((Date.parse(x.end) - Date.parse(x.start)) / 60000) : "…";
+    const u = x.events.filter(e => e.kind === "usage").reduce((a, e) => a + e.cost, 0);
+    return `<div class="step ${x.id === sel ? "sel" : ""}" onclick="pick(${x.id})"><span class="g">${GLYPH[x.status]}</span>
+      <div>${x.phase}${x.attempt ? ` <span class="tag">attempt ${x.attempt}</span>` : ""}<small>${x.pkind === "agent" ? x.owner : x.pkind === "human" ? "a person decides" : "code"}${u ? ` · $${u.toFixed(2)}` : ""}</small></div><small>${d}</small></div>`;
+  }).join("");
+  const TABS = { overview: "Overview", checks: "Gates & commands", transcript: "Transcript", cost: "Cost", events: "Events" };
+  const body = {
+    overview: p.pkind === "code" ? pChecks(p) : `${pDecisions(p)}${pJournal(p)}<h4>Outputs</h4>${pEnvelopes(p)}`,
+    checks: pChecks(p), transcript: pTranscript(p), cost: pUsage(p),
+    events: `<pre>${p.events.map(e => `${fmt(e.ts)}  #${e.seq}  ${e.kind}`).join("\n")}</pre>`,
+  }[tab];
+  return `<div class="B"><div class="steps">${steps}
+      <div class="mute" style="font-size:12px;padding:10px 14px">Upcoming phases come from the self-description, not events: <span class="mono">${summary().fin ? "none" : "review → integrate"}</span></div></div>
+    <div class="body"><h2 style="margin:0">${GLYPH[p.status]} ${p.phase}</h2>
+      <div class="mute">${pMeta(p)} · ${esc(p.description)}</div>${p.error ? `<p class="tag bad">${esc(p.error)}</p>` : ""}
+      <div class="tabs">${Object.entries(TABS).map(([k, v]) => `<button class="${k === tab ? "on" : ""}" onclick="setTab('${k}')">${v}${k === "transcript" && !transcripts ? " (off)" : ""}</button>`).join("")}</div>
+      ${body}</div></div>`;
+}
+
+// ─── C: story (what happened, readable by someone arriving from an issue link) ───
+function C() {
+  const ps = phases(), s = summary();
+  const w = s.waiting && s.waiting.waiting_for;
+  const headline = s.status === "waiting" ? `Waiting on a person: <b>${w.gate} gate, round ${w.round}</b>, asked on issue #${w.issue_number} ${mins((Date.parse("2026-09-25T14:40:00Z") - Date.parse(s.waiting.ts)) / 60000)} ago.`
+    : s.status === "running" ? `Running: <b>${ps[ps.length - 1].owner}</b> is on <b>${ps[ps.length - 1].phase}</b>.`
+    : s.status === "failed" ? `Failed in <b>${ps[ps.length - 1].phase}</b>: ${esc(ps[ps.length - 1].error)}.`
+    : `Done: the run was accepted and opened <a href="#">PR #${s.fin.pr}</a>.`;
+  const beats = ps.flatMap(p => {
+    const d = p.end ? mins((Date.parse(p.end) - Date.parse(p.start)) / 60000) : "";
+    const cls = p.status === "running" ? "run" : p.status === "ok" ? "ok" : ["failed", "rejected"].includes(p.status) ? "bad" : "";
+    let what = "";
+    if (p.pkind === "agent") {
+      const acc = p.events.find(e => e.kind === "envelope_accepted"), rej = p.events.filter(e => e.kind === "envelope_rejected");
+      what = acc ? `${p.owner} reported <b>${acc.type}</b>${rej.length ? ` after ${rej.length} correction${rej.length > 1 ? "s" : ""} (${rej.map(r => esc(r.reason)).join("; ")})` : ""}.`
+                 : `${p.owner} is working${transcripts ? ":" : "."}`;
+      if (!acc && transcripts) what += `<pre>${esc(p.events.filter(e => e.kind === "harness_output").slice(-3).map(e => e.chunk).join("\n"))}</pre>`;
+    }
+    if (p.pkind === "code") {
+      const c = p.events.filter(e => e.kind === "command_finished");
+      what = c.map(e => `<span class="tag ${e.exit ? "bad" : "ok"}">${e.exit ? "✕" : "✓"}</span> <span class="mono">${esc(e.argv.join(" "))}</span>`).join(" ");
+      const bad = c.filter(e => e.exit);
+      if (bad.length) what += `<pre>${esc(bad[bad.length - 1].tail)}</pre>`;
+    }
+    if (p.pkind === "human") {
+      return p.events.filter(e => e.kind === "suspended" || e.kind === "decision_recorded").map(e => [e.seq, e.kind === "suspended"
+        ? `<div class="beat human ${s.waiting && s.waiting.seq === e.seq ? "run" : ""}"><div class="card"><h3>⏸ Asked: ${e.waiting_for.gate} gate, round ${e.waiting_for.round}</h3>
+            <div class="t">${fmt(e.ts)} · on issue #${e.waiting_for.issue_number} · <a href="#">the plan at ${e.head_sha} ↗</a></div></div></div>`
+        : `<div class="beat ${e.verdict === "approve" ? "ok" : "bad"}"><h3>${e.by} ${e.verdict === "approve" ? "approved" : "rejected"}</h3>
+            <div class="t">${fmt(e.ts)}</div>${e.notes ? `<div class="note">"${esc(e.notes)}"</div>` : ""}</div>`]);
+    }
+    const notes = pJournal(p);
+    return [[S.ev.find(e => e.ts === p.start && e.kind === "phase_started").seq, `<div class="beat ${cls}"><h3>${p.phase}${p.attempt ? `, again` : ""}</h3>
+      <div class="t">${fmt(p.start)}${d ? ` · ${d}` : ""} · ${pMeta(p)}</div>
+      <div>${what}</div>${notes ? `<div style="margin-top:4px">${notes}</div>` : ""}
+      <details><summary>everything about this phase</summary>
+        ${pEnvelopes(p)}${pChecks(p)}${pUsage(p)}${pTranscript(p)}</details></div>`]];
+  }).sort((a, b) => a[0] - b[0]).map(b => b[1]).join("");
+  return `<div class="C">
+    <div class="now"><div class="mute" style="font-size:12px;text-transform:uppercase;letter-spacing:.05em">now</div><div class="big">${headline}</div>
+      <div class="mute" style="font-size:13px">Started by schurik labelling issue #142 · $${s.cost.toFixed(2)} so far</div></div>
+    ${beats}
+    ${s.status === "running" ? `<div class="beat run"><h3 class="mute">…live, updating as events arrive</h3></div>` : ""}
+  </div>`;
+}
+
+// ─── wiring ───
+function pick(id) { sel = sel === id && variant === "A" ? null : id; render(); }
+function setTab(t) { tab = t; render(); }
+function render() {
+  head();
+  document.getElementById("app").innerHTML = { A, B, C }[variant]();
+  document.getElementById("label").textContent = `${variant} (${VARIANTS[variant]})`;
+  document.getElementById("scen").value = scen;
+  document.getElementById("tr").checked = transcripts;
+}
+function go(v) {
+  variant = v;
+  const u = new URL(location); u.searchParams.set("variant", v); u.searchParams.set("s", scen); u.searchParams.set("t", transcripts ? "1" : "0");
+  history.replaceState(null, "", u); render();
+}
+const keys = Object.keys(VARIANTS);
+document.getElementById("prev").onclick = () => go(keys[(keys.indexOf(variant) + keys.length - 1) % keys.length]);
+document.getElementById("next").onclick = () => go(keys[(keys.indexOf(variant) + 1) % keys.length]);
+document.getElementById("scen").onchange = e => { scen = e.target.value; sel = null; load(); go(variant); };
+document.getElementById("tr").onchange = e => { transcripts = e.target.checked; go(variant); };
+addEventListener("keydown", e => {
+  if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+  if (e.key === "ArrowLeft") document.getElementById("prev").click();
+  if (e.key === "ArrowRight") document.getElementById("next").click();
+});
+load(); go(variant);
+</script>
+</body>
+</html>
