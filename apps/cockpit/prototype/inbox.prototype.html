@@ -1,0 +1,220 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Answers one question for the wayfinder ticket
+  "The inbox: what a pending gate must show to be answerable from the cockpit" (#22).
+
+  Three variants of the cockpit inbox + one gate's answer view, switchable via
+  ?variant=A|B|C (or ← / →). Data is fake, in memory, shaped after run.json's
+  `waiting_for` (gate, round, kind, channel, issue_number, subject_digest, paths,
+  summary). Nothing is sent anywhere; a verdict only prints what WOULD happen.
+
+  Open it: `open apps/cockpit/prototype/inbox.prototype.html`
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inbox prototype</title>
+<style>
+  :root { --bg:#f6f6f4; --panel:#fff; --ink:#1c1c1a; --mute:#6b6b66; --line:#e2e1dc;
+          --accent:#2f5bd3; --ok:#1f8a4c; --bad:#b83a2e; --warn:#a86b00; --code:#f1f0ec; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151514; --panel:#1e1e1c; --ink:#ecebe6;
+          --mute:#9a9992; --line:#2f2f2c; --accent:#7d9bff; --ok:#4cc27d; --bad:#ff7b6b; --warn:#e0a53a; --code:#262623; } }
+  * { box-sizing:border-box } body { margin:0; font:14px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; gap:16px; align-items:center; padding:10px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header b { font-size:15px } header .me { margin-left:auto; color:var(--mute) }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:12px; background:var(--code); color:var(--mute) }
+  .tag.gate { background:#2f5bd322; color:var(--accent) } .tag.q { background:#a86b0022; color:var(--warn) }
+  .tag.stale { background:#b83a2e22; color:var(--bad) } .tag.ok { background:#1f8a4c22; color:var(--ok) }
+  .mute { color:var(--mute) } .mono { font-family:ui-monospace, monospace; font-size:12.5px }
+  pre { background:var(--code); padding:10px 12px; border-radius:6px; overflow:auto; margin:6px 0; font-size:12.5px }
+  button { font:inherit; padding:6px 12px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer }
+  button.approve { background:var(--ok); color:#fff; border-color:transparent }
+  button.reject { color:var(--bad); border-color:var(--bad) } button.abort { color:var(--mute) }
+  textarea { width:100%; font:inherit; padding:8px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); min-height:64px }
+  .deliver { font-size:12.5px; color:var(--mute); border-left:3px solid var(--line); padding:4px 10px; margin:8px 0 }
+  .deliver.blocked { border-color:var(--bad); color:var(--bad) }
+  .diff .add { color:var(--ok) } .diff .del { color:var(--bad) }
+  #out { position:fixed; right:16px; bottom:64px; max-width:420px; background:var(--ink); color:var(--bg); padding:10px 14px; border-radius:8px; font-size:12.5px; display:none; white-space:pre-wrap }
+  #switch { position:fixed; left:50%; bottom:14px; transform:translateX(-50%); display:flex; gap:10px; align-items:center;
+            background:#111; color:#fff; padding:6px 10px; border-radius:20px; box-shadow:0 4px 16px #0005; font-size:13px; z-index:9 }
+  #switch button { background:transparent; color:#fff; border:none; padding:2px 8px }
+
+  /* A — triage table */
+  .A table { width:100%; border-collapse:collapse; background:var(--panel) }
+  .A th, .A td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top }
+  .A th { font-size:12px; color:var(--mute); font-weight:500 }
+  .A tr.row { cursor:pointer } .A tr.row:hover { background:var(--code) }
+  .A td.exp { background:var(--bg); padding:14px 20px }
+  /* B — split pane */
+  .B { display:grid; grid-template-columns:340px 1fr; height:calc(100vh - 45px) }
+  .B .list { border-right:1px solid var(--line); overflow:auto; background:var(--panel) }
+  .B .item { padding:10px 14px; border-bottom:1px solid var(--line); cursor:pointer }
+  .B .item.sel { background:var(--code); box-shadow:inset 3px 0 var(--accent) }
+  .B .detail { overflow:auto; padding:18px 28px 90px }
+  .B .ctx { display:grid; grid-template-columns:1fr 280px; gap:24px }
+  .B aside { font-size:13px } .B aside h4 { margin:14px 0 4px; font-size:12px; color:var(--mute); text-transform:uppercase; letter-spacing:.04em }
+  /* C — focus deck */
+  .C { max-width:760px; margin:24px auto 90px; padding:0 16px }
+  .C .bar { display:flex; gap:6px; margin-bottom:14px } .C .pip { flex:1; height:4px; border-radius:2px; background:var(--line) }
+  .C .pip.on { background:var(--accent) } .C .pip.done { background:var(--ok) }
+  .C .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px 26px }
+  .C .ask { font-size:19px; margin:4px 0 12px } .C kbd { font:11px ui-monospace; border:1px solid var(--line); border-radius:4px; padding:0 4px }
+  .qa { margin:10px 0; padding:10px 12px; border:1px solid var(--line); border-radius:8px }
+  .qa .rec { font-size:13px; color:var(--mute) }
+  @media (max-width: 800px) { .B { grid-template-columns:1fr; height:auto } .B .ctx { grid-template-columns:1fr } }
+</style>
+</head>
+<body>
+<header><b>Cockpit</b><span class="mute">Inbox</span><span id="count" class="tag"></span><span class="me">signed in as <b>schurik</b></span></header>
+<main id="app"></main>
+<div id="out"></div>
+<div id="switch"><button id="prev">←</button><span id="label"></span><button id="next">→</button></div>
+
+<script>
+// ── fake data: one entry per suspended session, shaped after run.json + waiting_for ──
+const now = Date.parse("2026-09-25T14:00:00Z");
+const ago = iso => { const m = Math.round((now - Date.parse(iso)) / 60000);
+  return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m/60)}h` : `${Math.round(m/1440)}d`; };
+const INBOX = [
+  { adw:"a41c9e02", repo:"acme/billing-api", workflow:"issue", trigger:"issue", station:"ci · github-actions",
+    work:{ kind:"issue", n:142, title:"Refund endpoint double-charges on retry" },
+    w:{ gate:"plan", round:2, kind:"gate", channel:"issue", issue_number:142, since:"2026-09-25T13:12:00Z",
+        subject_digest:"9f2c…e1", digest_ok:true, paths:["specs/refund-idempotency.md"],
+        summary:"Add an Idempotency-Key header; dedupe in refunds table with a unique (key, account) index; 409 on replay with a different body." },
+    prior:[{ round:1, verdict:"reject", by:"schurik", notes:"Don't add a new table — the refunds table already has a request_id column." }],
+    journal:["plan · planner declared: request_id is nullable today; migration backfills from created_at+amount",
+             "quality · ruff check · pass"],
+    cost:"$0.84", subject:`## Refund idempotency\n\n1. Reuse refunds.request_id; make it NOT NULL (backfill).\n2. Unique index (account_id, request_id).\n3. On conflict: same body → 200 with original; different body → 409.\n4. Tests: retry storm, body mismatch, legacy null rows.` },
+  { adw:"7be20d13", repo:"acme/web", workflow:"ship", trigger:"engineer", station:"alex-mbp · ~/code/web",
+    work:{ kind:"pr", n:388, title:"Checkout: move address form to server actions" },
+    w:{ gate:"integrate", round:1, kind:"gate", channel:"pr", issue_number:0, since:"2026-09-25T11:40:00Z",
+        subject_digest:"04ab…77", digest_ok:true, paths:["app/checkout/address.tsx","app/checkout/actions.ts"],
+        summary:"2 files, +61 −48. Form posts to a server action; client-side validation kept as a hint only." },
+    prior:[], journal:["build · bun test · 212 pass","review · reviewer declared: no auth check on saveAddress — flagged, fixed"],
+    cost:"$2.10", diff:`--- a/app/checkout/actions.ts\n+++ b/app/checkout/actions.ts\n+'use server'\n+export async function saveAddress(fd: FormData) {\n+  const user = await requireUser()\n+  const addr = AddressSchema.parse(Object.fromEntries(fd))\n-  // TODO validate\n+  await db.address.upsert({ where:{ userId:user.id }, create:addr, update:addr })\n+}` },
+  { adw:"c03f5a88", repo:"acme/billing-api", workflow:"issue", trigger:"issue", station:"ci · github-actions",
+    work:{ kind:"issue", n:151, title:"Support partial refunds" },
+    w:{ gate:"plan", round:1, kind:"questions", channel:"issue", issue_number:151, since:"2026-09-24T09:05:00Z", asked_at:"2026-09-24T09:05:00Z",
+        subject_digest:"", digest_ok:true, paths:[], summary:"3 questions before planning" },
+    questions:[
+      { q:"Can one charge have several partial refunds, or at most one?", rec:"Several, as long as the sum ≤ the captured amount." },
+      { q:"Should a partial refund of a disputed charge be blocked?", rec:"Block it with 409 dispute_open." },
+      { q:"Expose partial refunds in the v1 API or only v2?", rec:"v2 only; v1 is frozen." } ],
+    prior:[], journal:[], cost:"$0.12" },
+  { adw:"e9d1b774", repo:"acme/infra", workflow:"sdlc", trigger:"engineer", station:"dana-thinkpad · ~/src/infra",
+    work:null,
+    w:{ gate:"plan", round:1, kind:"gate", channel:"terminal", issue_number:0, since:"2026-09-22T16:30:00Z",
+        subject_digest:"b7e0…3c", digest_ok:false, paths:["plans/rotate-kms-keys.md"],
+        summary:"Rotate KMS keys per environment with a 7-day dual-read window." },
+    prior:[], journal:["plan · planner declared: prod rotation needs a change ticket"], cost:"$0.40",
+    subject:`## Rotate KMS keys\n\n- staging first, then prod behind a change ticket\n- dual-read for 7 days, then retire old key` },
+];
+
+// What a verdict would physically do — forge first (decided on the map), else blocked.
+function delivery(e) {
+  const w = e.w;
+  if (!w.digest_ok) return { blocked:true, text:"The subject changed after this was asked (digest mismatch). An answer would be refused — the run has to re-ask." };
+  if (w.channel === "issue") return { text:`Posts a comment on issue #${w.issue_number} as you; the factory's answers watcher picks it up.` };
+  if (w.channel === "pr") return { text:`Posts a review comment on PR #${e.work.n} as you.` };
+  return { blocked:true, text:"No work item: this run answers at a terminal. The cockpit can't reach it through the forge — needs a direct channel (open ticket)." };
+}
+const kindTag = e => e.w.kind === "questions" ? `<span class="tag q">${e.questions.length} questions</span>` : `<span class="tag gate">${e.w.gate} gate</span>`;
+const roundTag = e => e.w.round > 1 ? ` <span class="tag">round ${e.w.round}</span>` : "";
+const staleTag = e => (now - Date.parse(e.w.since)) > 86400000 ? ` <span class="tag stale">waiting ${ago(e.w.since)}</span>` : "";
+const workLine = e => e.work ? `${e.work.kind === "pr" ? "PR" : "#"}${e.work.n} ${e.work.title}` : `<span class="mute">(no work item — started from a prompt)</span>`;
+
+function subjectBlock(e) {
+  if (e.w.kind === "questions") return e.questions.map((x,i) => `<div class="qa"><b>${i+1}. ${x.q}</b>
+     <div class="rec">recommended: ${x.rec}</div><textarea data-q="${i}" placeholder="leave empty to take the recommendation"></textarea></div>`).join("");
+  if (e.diff) return `<pre class="diff mono">${e.diff.split("\n").map(l => `<span class="${l[0]==='+'&&l[1]!=='+'?'add':l[0]==='-'&&l[1]!=='-'?'del':''}">${esc(l)}</span>`).join("\n")}</pre>`;
+  return `<pre class="mono">${esc(e.subject)}</pre>`;
+}
+function verdictBlock(e) {
+  const d = delivery(e), q = e.w.kind === "questions";
+  return `<div class="deliver ${d.blocked?'blocked':''}">${d.text}</div>
+    ${q ? "" : `<textarea id="notes-${e.adw}" placeholder="notes — required to reject: what should change"></textarea>`}
+    <div style="display:flex;gap:8px;margin-top:8px">
+      ${q ? `<button class="approve" onclick="act('${e.adw}','answer')" ${d.blocked?'disabled':''}>Send answers</button>
+             <button onclick="act('${e.adw}','approve')" ${d.blocked?'disabled':''}>Take all recommendations</button>`
+          : `<button class="approve" onclick="act('${e.adw}','approve')" ${d.blocked?'disabled':''}>Approve</button>
+             <button class="reject" onclick="act('${e.adw}','reject')" ${d.blocked?'disabled':''}>Reject…</button>`}
+      <button class="abort" onclick="act('${e.adw}','abort')" ${d.blocked?'disabled':''}>Abort run</button>
+    </div>`;
+}
+function priorBlock(e) { return e.prior.length ? e.prior.map(p => `<div class="mute">round ${p.round}: <b>${p.verdict}</b> by ${p.by} — “${p.notes}”</div>`).join("") : ""; }
+function esc(s) { return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+// ── A: triage table — scan everything, expand a row inline ──
+let openRow = null;
+function A() {
+  return `<div class="A"><table><tr><th>Repo</th><th>Asks</th><th>Work item</th><th>Workflow</th><th>Station</th><th>Waiting</th></tr>
+  ${INBOX.map(e => `<tr class="row" onclick="openRow=openRow==='${e.adw}'?null:'${e.adw}';render()">
+      <td><b>${e.repo}</b></td><td>${kindTag(e)}${roundTag(e)}</td><td>${workLine(e)}</td>
+      <td class="mono">${e.workflow}</td><td class="mute">${e.station}</td><td>${ago(e.w.since)}${staleTag(e)}</td></tr>
+    ${openRow===e.adw ? `<tr><td class="exp" colspan="6"><div>${e.w.summary}</div>${priorBlock(e)}${subjectBlock(e)}${verdictBlock(e)}</td></tr>` : ""}`).join("")}
+  </table></div>`;
+}
+// ── B: split pane — list left, full context + verdict right ──
+let sel = INBOX[0].adw;
+function B() {
+  const e = INBOX.find(x => x.adw === sel);
+  return `<div class="B"><div class="list">${INBOX.map(x => `<div class="item ${x.adw===sel?'sel':''}" onclick="sel='${x.adw}';render()">
+      <div style="display:flex;justify-content:space-between"><b>${x.repo}</b><span class="mute">${ago(x.w.since)}</span></div>
+      <div>${kindTag(x)}${roundTag(x)}${staleTag(x)}</div><div class="mute" style="font-size:13px">${x.w.summary}</div></div>`).join("")}</div>
+    <div class="detail"><div class="mute">${e.repo} · ${workLine(e)}</div>
+      <h2 style="margin:6px 0 2px">${e.w.kind==="questions"?"The planner has questions":`Approve the ${e.w.gate}?`}</h2>
+      <div class="mute" style="margin-bottom:12px">${e.w.summary}</div>
+      <div class="ctx"><div>${subjectBlock(e)}${verdictBlock(e)}</div>
+        <aside><h4>Earlier rounds</h4>${priorBlock(e)||'<span class="mute">none</span>'}
+          <h4>On the record</h4>${e.journal.length?e.journal.map(j=>`<div>· ${j}</div>`).join(""):'<span class="mute">nothing yet</span>'}
+          <h4>Session</h4><div class="mono">${e.adw} · ${e.workflow}</div><div>${e.station}</div><div>cost so far ${e.cost}</div>
+          <h4>Subject</h4>${e.w.paths.map(p=>`<div class="mono">${p}</div>`).join("")||'<span class="mute">—</span>'}
+            <div class="mono mute">digest ${e.w.subject_digest||"—"} ${e.w.digest_ok?'<span class="tag ok">current</span>':'<span class="tag stale">changed</span>'}</div>
+        </aside></div></div></div>`;
+}
+// ── C: focus deck — one decision at a time, keyboard-first ──
+let idx = 0; const done = new Set();
+function C() {
+  const e = INBOX[idx];
+  return `<div class="C"><div class="bar">${INBOX.map((x,i)=>`<div class="pip ${done.has(x.adw)?'done':i===idx?'on':''}"></div>`).join("")}</div>
+    <div class="card"><div class="mute">${idx+1} of ${INBOX.length} · ${e.repo} · ${e.workflow} · waiting ${ago(e.w.since)}</div>
+      <div class="ask">${e.w.kind==="questions"?`${e.questions.length} questions on <b>${e.work?e.work.title:""}</b>`:`<b>${e.w.gate}</b> for ${e.work?e.work.title:"a prompt run"}${roundTag(e)}`}</div>
+      ${priorBlock(e)}<p>${e.w.summary}</p>${subjectBlock(e)}${verdictBlock(e)}
+      <div class="mute" style="margin-top:12px;font-size:12px"><kbd>j</kbd>/<kbd>k</kbd> next/previous · <kbd>a</kbd> approve · <kbd>r</kbd> reject</div></div></div>`;
+}
+
+function act(adw, verdict) {
+  const e = INBOX.find(x => x.adw === adw), n = document.getElementById("notes-"+adw);
+  const notes = e.w.kind === "questions" ? [...document.querySelectorAll("textarea[data-q]")].map(t => t.value.trim()) : (n ? n.value.trim() : "");
+  if (verdict === "reject" && !notes) { show("A reject with no notes is an agent told to change nothing — write what should change."); return; }
+  done.add(adw);
+  show(`WOULD ${delivery(e).text.split(";")[0].toLowerCase()}\n\n` + JSON.stringify({ gate:e.w.gate, round:e.w.round, verdict, by:"schurik",
+       subject_digest:e.w.subject_digest, notes }, null, 2));
+  if (variant === "C" && idx < INBOX.length - 1) { idx++; render(); }
+}
+function show(t) { const o = document.getElementById("out"); o.textContent = t; o.style.display = "block"; clearTimeout(show.t); show.t = setTimeout(() => o.style.display = "none", 6000); }
+
+// ── switcher ──
+const VARIANTS = { A:"Triage table", B:"Split pane", C:"Focus deck" }, KEYS = Object.keys(VARIANTS);
+let variant = new URLSearchParams(location.search).get("variant") || "A";
+function go(d) { variant = KEYS[(KEYS.indexOf(variant) + d + KEYS.length) % KEYS.length];
+  history.replaceState(null, "", "?variant=" + variant); render(); }
+function render() {
+  document.getElementById("app").innerHTML = ({A, B, C})[variant]();
+  document.getElementById("label").textContent = `${variant} (${VARIANTS[variant]})`;
+  document.getElementById("count").textContent = `${INBOX.length - done.size} waiting on you`;
+}
+document.getElementById("prev").onclick = () => go(-1); document.getElementById("next").onclick = () => go(1);
+addEventListener("keydown", ev => {
+  if (ev.target.closest("input,textarea,[contenteditable]")) return;
+  if (ev.key === "ArrowLeft") go(-1); if (ev.key === "ArrowRight") go(1);
+  if (variant === "C") { if (ev.key === "j") { idx = Math.min(idx+1, INBOX.length-1); render(); }
+    if (ev.key === "k") { idx = Math.max(idx-1, 0); render(); }
+    if (ev.key === "a") act(INBOX[idx].adw, INBOX[idx].w.kind === "questions" ? "approve" : "approve");
+    if (ev.key === "r") document.getElementById("notes-" + INBOX[idx].adw)?.focus(); }
+});
+render();
+</script>
+</body>
+</html>
