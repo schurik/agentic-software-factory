@@ -64,3 +64,9 @@ _Avoid_: manifest, schema, config dump
 A typed, versioned fact about a session, emitted by the factory as it happens. It is the only thing a
 station ships; a cockpit builds every view it shows from domain events.
 _Avoid_: trace, log line, message, file sync
+
+**Transcript**:
+A session's opt-in record of the prompts its agents were given and the raw output their harness
+produced. It is the only part of a session a cockpit lets age out; everything else is kept until
+someone deliberately purges it.
+_Avoid_: log, raw output, trace
