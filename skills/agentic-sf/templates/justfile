@@ -112,14 +112,18 @@ abort ADW_ID *ARGS:
     {{asf}} abort {{ADW_ID}} "${@:2}"
 
 # ── the long-running parts ──────────────────────────────────────────────────
-# The issue watcher, the review watcher and the trace UI. Forgetting one is
+# The station loop, the local cockpit and the watchers. Forgetting one is
 # silent — a watcher that is not running looks exactly like one with nothing
 # to do — so `just up` starts all of them in one process and `just status`
 # says what is actually running.
 
-# start everything: both watchers + trace UI; ctrl-c stops it all
+# start everything: station loop, local cockpit (needs Docker), the watchers; ctrl-c stops it all
 up *ARGS:
     {{asf}} up "$@"
+
+# the station loop alone: ship every session to the cockpit, start no watcher
+station:
+    {{asf}} station
 
 # is anything actually running? watchers, their last poll, runs in flight
 status:
@@ -177,7 +181,8 @@ worktrees-remove ADW_ID *ARGS:
     {{asf}} worktrees remove {{ADW_ID}} "${@:2}"
 
 # ── the cockpit ─────────────────────────────────────────────────────────────
-# Runs ship their own events when ASF_COCKPIT_URL is set; this is the catch-up.
+# `just up` ships every session; runs ship their own when ASF_COCKPIT_URL is
+# set; this is the catch-up.
 
 # ship every session the cockpit has not acknowledged — a CI job's last step
 station-sync:
@@ -198,7 +203,7 @@ phases ADW_ID:
 tail ADW_ID:
     @sqlite3 {{db}} "select rowid, type, name, started_at from events where adw_id='{{ADW_ID}}' order by rowid desc limit 25;"
 
-# the trace UI only — the visualizer that ships with the skill, over the trace db
+# the legacy trace UI only — the visualizer that ships with the skill, over the trace db
 obs:
     {{asf}} up --only obs
 

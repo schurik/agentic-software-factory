@@ -197,8 +197,8 @@ def ensure_gitignore(root: Path, stamped: list) -> None:
 def ensure_env(root: Path, sample: Path, stamped: list, notes: list) -> bool:
     """Whether `.env` ends up carrying a usable ASF_SKILL.
 
-    False is not cosmetic: unset, `just up` and `just obs` start without the
-    trace UI and `just uninstall` cannot find the skill at all — so main()
+    False is not cosmetic: unset, `just obs` starts without the legacy trace
+    UI and `just uninstall` cannot find the skill at all — so main()
     says it loudly rather than leaving it to `doctor`.
     """
     env = root / ".env"
@@ -283,8 +283,8 @@ def main() -> int:
                   f"of these FAILS rather than passing.\n    write the real argv into "
                   f"asf/engine/quality.py")
     if not skill_in_env:
-        print(f"\n  ! NO .env, SO ASF_SKILL IS UNSET — `just up` and `just obs` will start "
-              f"the watchers\n    without the trace UI, and `just uninstall` cannot find "
+        print(f"\n  ! NO .env, SO ASF_SKILL IS UNSET — `just obs` will start without the "
+              f"legacy trace UI,\n    and `just uninstall` cannot find "
               f"the skill.\n    write it yourself:  echo 'ASF_SKILL={SKILL_ROOT}' >> .env")
     # `just labels --create` and not a label call from here: the labels a repo
     # needs come from its RESOLVED config, and this script never reads one — it

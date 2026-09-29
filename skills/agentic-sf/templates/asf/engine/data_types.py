@@ -1761,6 +1761,17 @@ class ShipAck(BaseModel):
     acked: int = 0
 
 
+class LocalCockpitRecord(BaseModel):
+    """`<data_dir>/cockpit.json`: the ingest token the machine's local cockpit
+    issued this factory. Kept because the cockpit stores only its digest and
+    shows it once; replaced when the cockpit refuses it (its volume was wiped)
+    or when the factory it was issued for is not this one any more."""
+
+    factory: str
+    token: str
+    issued_at: str = ""
+
+
 ShipOutcome = Literal["shipped", "unreachable", "unauthorized", "refused"]
 
 

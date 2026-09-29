@@ -14,7 +14,7 @@ So the checks live here, in one module, and they are asked in two places:
   * `everything(cfg)` — the full sweep, which is what `just doctor` prints.
     It includes the checks that are too slow, too situational or too noisy to
     put in front of every run: harness reachability, the forge CLI, the quality
-    blocks, the trace UI's port.
+    blocks, Docker and the local cockpit's images, the trace UI's port.
 
 Two rules for anything added here:
 
@@ -42,6 +42,7 @@ import socket
 import subprocess
 from pathlib import Path
 
+from . import cockpit as local_cockpit
 from . import git_helper, harnesses
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
@@ -363,8 +364,8 @@ def skill() -> list[Finding]:
     if not raw:
         return [Finding(
             check="ASF_SKILL", level="warn",
-            detail="unset — `just up` and `just obs` start without the trace UI, and "
-                   "re-installing or upgrading the factory cannot find the skill",
+            detail="unset — `just obs` and `just up --with obs` start without the legacy "
+                   "trace UI, and re-installing or upgrading the factory cannot find the skill",
             fix="re-run install.py from the target repo root; it writes the path "
                 "into .env. A repo cloned without its (gitignored) .env lands here")]
     root = Path(raw).expanduser()
@@ -406,9 +407,11 @@ def visualizer_dir() -> Path | None:
 
 
 def trace_ui() -> list[Finding]:
-    """Whether `just up` / `just obs` could start the trace UI over the trace db.
+    """Whether `just obs` / `up --with obs` could start the trace UI over the trace db.
 
-    Reachability first: `up` drops the UI and keeps going whenever the
+    The legacy view, started only on request since the cockpit replaced it,
+    and asked about until it is removed. Reachability first: `up` drops the UI
+    and keeps going whenever the
     visualizer cannot be found, and a green check that only means "bun is
     installed" points the operator away from the one thing that is wrong.
     """
@@ -417,11 +420,11 @@ def trace_ui() -> list[Finding]:
         raw = os.environ.get("ASF_SKILL", "").strip()
         return [Finding(
             check="trace UI", level="warn",
-            detail=("ASF_SKILL is unset, so `just up` and `just obs` start without the "
-                    "trace UI — the watchers run, the UI is silently skipped") if not raw
+            detail=("ASF_SKILL is unset, so `just obs` and `just up --with obs` start "
+                    "without the legacy trace UI — the rest runs, the UI is skipped") if not raw
                    else (f"no visualizer under {Path(raw).expanduser() / 'apps' / 'visualizer'} "
-                         f"— ASF_SKILL does not point at the skill directory, so `just up` "
-                         f"and `just obs` start without the trace UI"),
+                         f"— ASF_SKILL does not point at the skill directory, so `just obs` "
+                         f"and `just up --with obs` start without the legacy trace UI"),
             fix="re-run install.py from the target repo root, or set ASF_SKILL in .env to "
                 "the skill directory (the visualizer is its apps/visualizer)")]
     if not shutil.which("bun"):
@@ -435,6 +438,49 @@ def trace_ui() -> list[Finding]:
                    f"an api server orphaned by an older `just obs`",
             fix=f"lsof -ti :{API_PORT} | xargs kill")]
     return [Finding(check="trace UI", detail=f"{home}, bun present, :{API_PORT} free")]
+
+
+# ── the cockpit `asf up` starts ──────────────────────────────────────────────
+
+def cockpit() -> list[Finding]:
+    """Whether `asf up` can start the local cockpit, and which one it would run.
+
+    Asked only when no shared cockpit is configured: with ASF_COCKPIT_URL set,
+    nothing here needs Docker. Warn, never fatal — without Docker `up` still
+    runs every watcher, and a run never needed a cockpit at all. The images
+    are asked about so the first `up` is not a surprise: a missing one is
+    pulled then, and that is minutes on a slow line.
+    """
+    shared = local_cockpit.shared()
+    if shared:
+        return [Finding(check="cockpit",
+                        detail=f"shared: {shared} — `asf up` starts no local one")]
+    problem = local_cockpit.docker_problem()
+    if problem:
+        return [Finding(
+            check="cockpit", level="warn",
+            detail=f"{problem} — `asf up` runs the watchers without the local cockpit "
+                   f"{local_cockpit.version()}, and nothing is shipped",
+            fix="install Docker (Docker Desktop, or docker-ce with the compose plugin) and "
+                "start it — or set ASF_COCKPIT_URL (and ASF_COCKPIT_TOKEN) in .env to a "
+                "shared cockpit")]
+    findings: list[Finding] = []
+    asked = os.environ.get("ASF_COCKPIT_VERSION", "").strip()
+    running = local_cockpit.version()
+    if asked and asked.lstrip("v") != running:
+        findings.append(Finding(
+            check="cockpit", level="warn",
+            detail=f"ASF_COCKPIT_VERSION is {asked!r}, older than (or not) a version — this "
+                   f"stamp needs at least {local_cockpit.minimum()}, so `asf up` runs {running}",
+            fix="remove ASF_COCKPIT_VERSION from .env, or set it to a release at least "
+                "that new"))
+    missing = local_cockpit.missing_images(running)
+    findings.append(Finding(
+        check="cockpit",
+        detail=(f"local {running} at {local_cockpit.app_url()} — " +
+                (f"not pulled yet ({', '.join(missing)}); the first `asf up` pulls it"
+                 if missing else "its images are here"))))
+    return findings
 
 
 # ── composition ──────────────────────────────────────────────────────────────
@@ -462,4 +508,5 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamped_version(root) + skill() + trace_ui())
+            + forge(cfg) + labels(cfg, root) + stamped_version(root) + cockpit() + skill()
+            + trace_ui())

@@ -1,0 +1,75 @@
+name: Release
+
+# Cutting a release publishes the cockpit (ADR 0004): the images a team
+# deploys are the images `asf up` runs on a laptop, so they are built once,
+# here, and tagged with the release's version — the version a stamp's
+# `asf/cockpit/min-version` names as the oldest it ships to.
+#
+# A release is a semver tag, `vX.Y.Z`, on the commit whose
+# `.claude-plugin/plugin.json` names `X.Y.Z` (skills/agentic-sf/CHANGELOG.md).
+# The first step refuses any other tag, so an image is never published under a
+# version no release carries.
+#
+#   asf-cockpit          the app (apps/cockpit/Dockerfile), for amd64 and arm64
+#   asf-cockpit-backend  Convex's self-hosted backend at the revision the team
+#                        compose file pins, re-tagged rather than rebuilt: one
+#                        name and one version for the pair a cockpit is
+#
+# ghcr.io makes a new package private. After the first release, set both
+# packages public in the owner's package settings, or `asf up` cannot pull them
+# on a machine that is not logged in to ghcr.io.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    name: publish the cockpit images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag is the version plugin.json names
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r .version .claude-plugin/plugin.json)"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but .claude-plugin/plugin.json names $VERSION"
+            exit 1
+          fi
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "IMAGES=ghcr.io/$OWNER" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The app
+        run: |
+          set -euxo pipefail
+          docker buildx build apps/cockpit --platform linux/amd64,linux/arm64 --push \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --tag "$IMAGES/asf-cockpit:$VERSION"
+
+      # The pin lives in one place, apps/cockpit/docker-compose.yml, so a
+      # pull request that moves the team's backend moves the published one.
+      - name: The backend, at the revision the team compose pins
+        run: |
+          set -euxo pipefail
+          PIN="$(sed -n 's/.*convex-backend:${CONVEX_BACKEND_VERSION:-\([0-9a-f]*\)}.*/\1/p' \
+            apps/cockpit/docker-compose.yml | head -n 1)"
+          test -n "$PIN"
+          docker buildx imagetools create \
+            --tag "$IMAGES/asf-cockpit-backend:$VERSION" \
+            "ghcr.io/get-convex/convex-backend:$PIN"

@@ -385,3 +385,124 @@ class Shipper:
         if key not in self._said:
             self._said.add(key)
             print(f"station: {text}", file=sys.stderr, flush=True)
+
+
+# ── every session on the station: the long-lived loop ────────────────────────
+
+class Loop:
+    """`ship()` for every session under `sessions`, on a timer, until `stop()`.
+
+    What `asf up` and `asf station` run: the process that holds the station,
+    shipping every session on it, whichever process wrote it — a run a watcher
+    started, one somebody typed, one that died before its own shipper flushed.
+    Resending is harmless (the cockpit stores each seq once), so a session
+    whose own process is shipping it too costs a request, never a duplicate.
+
+    `cockpit` is asked every round, and None ships nothing: a local cockpit has
+    no token until its container is up and has issued one. A 401 asks
+    `refused` whether a fresh one is coming (a local cockpit whose database was
+    wiped issues another); if not, the loop stops shipping for the life of the
+    process, as a `Shipper` does. A cockpit that is down is retried with the
+    same doubling wait, and every one of those is said once through `say`.
+    """
+
+    def __init__(self, sessions: str | Path, cockpit: Callable[[], Cockpit | None],
+                 transport: Transport = post, interval: float = SHIP_INTERVAL,
+                 refused: Callable[[Cockpit], bool] = lambda _cockpit: False,
+                 say: Callable[[str], None] | None = None):
+        self.sessions = Path(sessions)
+        self.cockpit = cockpit
+        self.transport = transport
+        self.interval = interval
+        self.refused = refused
+        self._say_to = say or (lambda text: print(f"station: {text}", file=sys.stderr,
+                                                  flush=True))
+        self._stopping = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name="station-loop", daemon=True)
+        self._shipped_to: Cockpit | None = None
+        self._shipped_size: dict[str, int] = {}     # adw_id -> size when all of it was acked
+        self._wait = interval
+        self._gave_up = False
+        self._said: set[str] = set()
+
+    def start(self) -> Loop:
+        self._thread.start()
+        return self
+
+    def stop(self, budget: float = FLUSH_BUDGET) -> None:
+        self._stopping.set()
+        if self._thread.is_alive():
+            self._thread.join(budget)
+
+    def _loop(self) -> None:
+        while not self._stopping.wait(self._wait):
+            self._round()
+        self._round()
+
+    def _round(self) -> None:
+        if self._gave_up:
+            return
+        try:
+            cockpit = self.cockpit()
+        except Exception as error:     # noqa: BLE001 — a loop never takes `up` down
+            self._say("no cockpit", f"could not reach the cockpit to ship to: {error!r}")
+            return
+        if cockpit is None:
+            return
+        if cockpit != self._shipped_to:
+            self._shipped_to, self._shipped_size = cockpit, {}
+            self._say(f"to {cockpit.url}", f"shipping every session on this station to "
+                                           f"{cockpit.url}")
+        for directory in self._every_session():
+            if not self._ship(directory, cockpit):
+                return
+        self._wait = self.interval
+
+    def _every_session(self) -> list[Path]:
+        if not self.sessions.is_dir():
+            return []
+        return sorted(d for d in self.sessions.iterdir() if (d / events.EVENTS_FILE).is_file())
+
+    def _ship(self, directory: Path, cockpit: Cockpit) -> bool:
+        """One session; False when the rest of this round is pointless."""
+        try:
+            size = events.path(directory).stat().st_size
+        except OSError:
+            return True
+        if self._shipped_size.get(directory.name) == size:
+            return True
+        try:
+            result = ship(directory, cockpit, self.transport)
+        except Exception as error:     # noqa: BLE001
+            self._say(f"crashed {directory.name}", f"could not ship {directory.name}: "
+                                                   f"{error!r}")
+            self._shipped_size[directory.name] = size
+            return True
+        if result.outcome == "shipped":
+            if result.pending == 0:
+                self._shipped_size[directory.name] = size
+            return True
+        if result.outcome == "unauthorized":
+            if self.refused(cockpit):
+                self._shipped_to = None
+                return False
+            self._say("unauthorized", f"the cockpit refused ASF_COCKPIT_TOKEN ({result.error}); "
+                                      f"nothing more is shipped from this process")
+            self._gave_up = True
+            return False
+        if result.outcome == "refused":
+            # This session's batch, not the cockpit: the others still go, and
+            # this one is tried again when it grows.
+            self._say(f"refused {directory.name}", f"the cockpit refused {directory.name} "
+                                                   f"({result.error})")
+            self._shipped_size[directory.name] = size
+            return True
+        self._wait = min(RETRY_CEILING, max(self._wait * 2, self.interval))
+        self._say("unreachable", f"cockpit unreachable ({result.error}); every session is "
+                                 f"kept from its acknowledged seq and retried")
+        return False
+
+    def _say(self, key: str, text: str) -> None:
+        if key not in self._said:
+            self._said.add(key)
+            self._say_to(text)

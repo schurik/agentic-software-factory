@@ -140,7 +140,7 @@ pull requests comes back as a `pr-review` run that answers in the threads.
 ```bash
 just issue 42        # work a tracked issue
 just pr-review 17    # answer the review on a pull request
-just up              # both watchers + the trace UI, supervised; ctrl-c stops all
+just up              # the station loop, the local cockpit and both watchers; ctrl-c stops all
 just status          # is anything actually polling?
 ```
 
@@ -156,8 +156,13 @@ gate verdicts, token spend.
 just sessions        # recent runs
 just phases <id>     # the phase-by-phase record
 just tail <id>       # follow a live run
-just obs             # the trace UI (Vue + Vite on Bun, ships with the skill)
+just obs             # the legacy trace UI (Vue + Vite on Bun, ships with the skill)
 ```
+
+Every session also writes typed domain events, and a **cockpit** (`apps/cockpit`) builds its views
+from them. `just up` is the station loop: it ships every session on the checkout to the shared
+cockpit `ASF_COCKPIT_URL` names or, without one, starts a local cockpit from the same published
+images a team deploys (Docker; `http://localhost:3000`). The trace UI starts only when asked for.
 
 ## Install the skill
 

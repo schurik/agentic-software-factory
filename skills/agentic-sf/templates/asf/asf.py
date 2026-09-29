@@ -24,9 +24,11 @@ Usage:
     uv run asf/asf.py issues  once|loop|status [--interval 120]   a run per labelled issue
     uv run asf/asf.py answers once|loop|status [--interval 120]   resume what was answered
     uv run asf/asf.py prs     once|loop|status [--interval 120] [--pr 17]   answer review threads
-    uv run asf/asf.py up      [--only issues,answers,prs,obs] [--interval 120]   all of it
+    uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--with obs] [--interval 120]
+                                                 the station loop, the local cockpit, every watcher
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
+    uv run asf/asf.py station                    the station loop alone: ships, starts no watcher
     uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
 
 `--config asf/factory.yaml` is accepted before or after the subcommand. Run
@@ -167,7 +169,8 @@ def _watched_workflows(config: str, names, kind: str) -> None:
 
 
 def cmd_up(args) -> int:
-    return supervise.up(factory.load(args.config), args.config, args.interval, args.only)
+    return supervise.up(factory.load(args.config), args.config, args.interval, args.only,
+                        args.extra)
 
 
 def cmd_status(args) -> int:
@@ -175,7 +178,10 @@ def cmd_status(args) -> int:
 
 
 def cmd_station(args) -> int:
-    return station.sync(factory.load(args.config))
+    cfg = factory.load(args.config)
+    if args.action == "sync":
+        return station.sync(cfg)
+    return supervise.up(cfg, args.config, 0, "", "", watchers=False)
 
 
 def _config_on(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -259,10 +265,14 @@ def build_parser() -> argparse.ArgumentParser:
                              help="watch one pull request; loop exits when it is merged or closed")
         one.set_defaults(func={"issues": cmd_issues, "answers": cmd_answers,
                                "prs": cmd_prs}[kind])
-    up = _config_on(sub.add_parser("up", help="every watcher and the trace UI, in one process"))
+    up = _config_on(sub.add_parser("up", help="the station loop, the local cockpit and every "
+                                              "watcher, in one process"))
     up.add_argument("--interval", type=int, default=120, help="seconds between polls")
     up.add_argument("--only", default="",
-                    help="comma-separated subset of obs,issues,answers,prs")
+                    help="comma-separated subset of cockpit,issues,answers,prs,obs "
+                         "(the station loop always runs)")
+    up.add_argument("--with", dest="extra", default="",
+                    help="add to the default set: obs, the legacy trace UI")
     up.set_defaults(func=cmd_up)
     _config_on(sub.add_parser("status", help="what is watching, running, waiting, left behind")
                ).set_defaults(func=cmd_status)
@@ -272,13 +282,14 @@ def build_parser() -> argparse.ArgumentParser:
     trees.add_argument("--force", action="store_true",
                        help="also take worktrees holding uncommitted work")
     trees.set_defaults(func=cmd_worktrees)
-    # `sync` alone for now: the station loop, `register` and the command poll
-    # arrive with the tickets that need them (spec #40).
+    # `register` and the command poll arrive with the tickets that need them (spec #40).
     stations = _config_on(sub.add_parser("station", help="this checkout as a cockpit's station"))
-    stations.add_argument("action", choices=["sync"],
-                          help="sync: ship every session the cockpit has not acknowledged — "
-                               "a CI job's last step; fails only when the cockpit refuses the "
-                               "token")
+    stations.add_argument("action", nargs="?", choices=["sync"],
+                          help="none: the station loop — `asf up` without watchers, shipping "
+                               "every session (and starting the local cockpit when no shared "
+                               "one is configured). sync: ship every session the cockpit has "
+                               "not acknowledged, once — a CI job's last step; fails only when "
+                               "the cockpit refuses the token")
     stations.set_defaults(func=cmd_station)
     return parser
 

@@ -1,18 +1,27 @@
-"""`asf up` — the trace UI and both watchers in one foreground process; `asf status`.
+"""`asf up` — the station loop and its children in one foreground process; `asf status`.
 
-The factory's long-running parts are the trace UI, the issue watcher and the
-review watcher, and three commands in three terminals go wrong every week:
-you forget one, and a watcher that is not running looks exactly like a
-watcher with nothing to do. So this is a supervisor: one process that owns
-every child, prefixes their output, restarts what dies, and takes the whole
-tree down with it. NOT A DAEMON — the terminal it runs in is the handle.
+The process behind `asf up` IS THE STATION LOOP (CONTEXT.md: a station is
+online while its long-lived loop runs). It holds the checkout's station id
+and ships every session on the station to a cockpit (`station.Loop`),
+whichever process wrote it, and it supervises the children that make the
+factory's long-running parts: `cockpit`, `issues`, `answers` and `prs`. Three
+commands in three terminals go wrong every week — you forget one, and a
+watcher that is not running looks exactly like a watcher with nothing to do —
+so this is one process that owns every child, prefixes their output, restarts
+what dies, and takes the whole tree down with it. NOT A DAEMON — the terminal
+it runs in is the handle. `asf station` is the same loop without watchers.
 
-The trace UI ships with the skill (`apps/visualizer`), reached through the
-`ASF_SKILL` the installer wrote into `.env` (`preflight.visualizer_dir()`, so
-`doctor` answers from the same place). Absent, `up` runs without it and says
-so as a WARNING — a service that silently did not start looks exactly like a
-service with nothing to say; the watchers are the part that must not be
-forgotten.
+`cockpit` is the LOCAL cockpit (`engine/cockpit.py`): the team deployment's
+published images, started through the stamped compose file only when no
+shared cockpit is configured (ASF_COCKPIT_URL unset), and the station ships to
+it. Without Docker it is dropped with a WARNING and the watchers still run — a
+service that silently did not start looks exactly like a service with nothing
+to say, and the watchers are the part that must not be forgotten.
+
+`obs` is the legacy trace UI (`apps/visualizer` in the skill, reached through
+the `ASF_SKILL` the installer wrote into `.env`). It starts only when asked
+for (`--with obs`, or `--only …obs`): the cockpit replaces it, and it goes in
+the release after the cockpit is proven to cover it.
 
 `status` answers the other half: is anything running right now, and did it
 poll recently — from the watcher heartbeat FILES and a probe of each pid, so a
@@ -31,16 +40,20 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
-from . import artifacts, git_helper, preflight, worktree
-from .data_types import FactoryConfig
+from . import artifacts, git_helper, issues, preflight, station, worktree
+from . import cockpit as local_cockpit
+from .data_types import Cockpit, FactoryConfig
 from .utils import anchor
 
 RUNNER = "asf/asf.py"
 API_PORT = int(os.environ.get("PORT", "4600"))
 UI_PORT = 4601
-COLORS = {"obs": "\033[36m", "ui": "\033[35m", "issues": "\033[33m",
-          "answers": "\033[34m", "prs": "\033[32m"}
+WATCHERS = ("issues", "answers", "prs")
+SERVICES = ("cockpit", *WATCHERS, "obs")
+COLORS = {"station": "\033[1m", "cockpit": "\033[36m", "obs": "\033[36m", "ui": "\033[35m",
+          "issues": "\033[33m", "answers": "\033[34m", "prs": "\033[32m"}
 DIM, WARN, RESET = "\033[2m", "\033[33m", "\033[0m"
 
 
@@ -54,6 +67,7 @@ class Service:
     argv: list[str]
     cwd: Path
     env: dict[str, str] = field(default_factory=dict)
+    grace: float = 8.0              # SIGTERM to SIGKILL
     proc: subprocess.Popen | None = None
     restarts: int = 0
     started_at: float = 0.0
@@ -77,8 +91,9 @@ def _pump(service: Service, on_line) -> None:
         on_line(service.name, line.rstrip("\n"))
 
 
-def _stop(service: Service, grace: float = 8.0) -> None:
-    """SIGTERM the group (the watchers turn it into a `stopped` beat), then SIGKILL."""
+def _stop(service: Service) -> None:
+    """SIGTERM the group (the watchers turn it into a `stopped` beat, compose
+    stops its containers), then SIGKILL."""
     proc = service.proc
     if not proc or proc.poll() is not None:
         return
@@ -86,7 +101,7 @@ def _stop(service: Service, grace: float = 8.0) -> None:
         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         return
-    deadline = time.monotonic() + grace
+    deadline = time.monotonic() + service.grace
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             return
@@ -97,29 +112,50 @@ def _stop(service: Service, grace: float = 8.0) -> None:
         pass
 
 
-def wanted(cfg: FactoryConfig, only: str) -> set[str]:
+def _names(raw: str, flag: str) -> set[str]:
+    chosen = {part.strip() for part in raw.split(",") if part.strip()}
+    unknown = chosen - set(SERVICES)
+    if unknown:
+        raise SystemExit(f"{flag}: unknown service(s) {', '.join(sorted(unknown))} — "
+                         f"pick from {', '.join(SERVICES)}")
+    return chosen
+
+
+def wanted(cfg: FactoryConfig, only: str, extra: str, watchers: bool = True) -> set[str]:
+    """The children to start. `only` replaces the default set, `extra` adds to
+    it (`--with obs`); `watchers=False` is `asf station`, the loop alone."""
     if only:
-        chosen = {part.strip() for part in only.split(",") if part.strip()}
-        unknown = chosen - {"obs", "issues", "answers", "prs"}
-        if unknown:
-            raise SystemExit(f"--only: unknown service(s) {', '.join(sorted(unknown))} — "
-                             f"pick from obs, issues, answers, prs")
-        return chosen
-    want = {"obs", "issues", "answers", "prs"}
-    if not cfg.issues.enabled:
-        # Both tracker pollers go: one launches runs from the item, the other
-        # brings them back from it, and neither has anywhere to look without it.
-        print(paint(DIM, "  ~ issues.enabled is false — not starting the issue or "
-                         "answer watcher"))
-        want -= {"issues", "answers"}
-    if not cfg.pull_requests.enabled:
-        print(paint(DIM, "  ~ pull_requests.enabled is false — not starting the review watcher"))
-        want.discard("prs")
+        want = _names(only, "--only")
+    else:
+        want = ({"cockpit", *WATCHERS} if watchers else {"cockpit"}) | _names(extra, "--with")
+        if watchers and not cfg.issues.enabled:
+            # Both tracker pollers go: one launches runs from the item, the other
+            # brings them back from it, and neither has anywhere to look without it.
+            print(paint(DIM, "  ~ issues.enabled is false — not starting the issue or "
+                             "answer watcher"))
+            want -= {"issues", "answers"}
+        if watchers and not cfg.pull_requests.enabled:
+            print(paint(DIM, "  ~ pull_requests.enabled is false — not starting the review "
+                             "watcher"))
+            want.discard("prs")
+    if "cockpit" in want and local_cockpit.shared():
+        if only:
+            print(paint(DIM, "  ~ ASF_COCKPIT_URL names a shared cockpit — not starting a "
+                             "local one"))
+        want.discard("cockpit")
     return want
 
 
-def check(cfg: FactoryConfig, want: set[str]) -> list[str]:
-    """What would stop THESE services. Non-fatal findings drop the service."""
+def check(cfg: FactoryConfig, want: set[str]) -> None:
+    """What would stop THESE services: each finding drops its service from
+    `want` and says so, and everything else still starts."""
+    if "cockpit" in want:
+        problem = local_cockpit.docker_problem()
+        if problem:
+            print(paint(WARN, f"  ! no local cockpit: {problem} — the watchers run without "
+                              f"it, and nothing is shipped. `asf doctor` says more; "
+                              f"ASF_COCKPIT_URL names a shared cockpit instead"))
+            want.discard("cockpit")
     if "obs" in want:
         home = preflight.visualizer_dir()
         if home is None:
@@ -135,37 +171,66 @@ def check(cfg: FactoryConfig, want: set[str]) -> list[str]:
                               f"without the trace UI: `lsof -ti :{API_PORT} | xargs kill`"))
             want.discard("obs")
     forge = (cfg.issues.list_command or ["gh"])[0]
-    if want & {"issues", "answers", "prs"} and not shutil.which(forge):
+    if want & set(WATCHERS) and not shutil.which(forge):
         print(paint(WARN, f"  ! {forge!r} is not on PATH — the watchers can start, but every "
                           f"poll will fail to list anything"))
-    return ["nothing to start — see the messages above"] if not want else []
 
 
 def services(want: set[str], config_path: str, interval: int, main_root: Path,
              db: Path) -> list[Service]:
     found: list[Service] = []
+    if "cockpit" in want:
+        # compose stops its containers on SIGTERM, and a Convex backend takes
+        # its own stop_grace_period to go — more than a watcher's 8s.
+        found.append(Service("cockpit", local_cockpit.up_argv(), main_root,
+                             local_cockpit.compose_env(), grace=30.0))
+    for name in WATCHERS:
+        if name in want:
+            found.append(Service(name, [sys.executable, RUNNER, "--config", config_path, name,
+                                        "loop", "--interval", str(interval)],
+                                 main_root, {"PYTHONUNBUFFERED": "1"}))
     if "obs" in want:
         home = preflight.visualizer_dir()
         found.append(Service("obs", ["bun", "run", "server/index.ts"], home,
                              {"ASF_DB": str(db), "PORT": str(API_PORT)}))
         found.append(Service("ui", ["bunx", "vite"], home, {"PORT": str(API_PORT)}))
-    for name in ("issues", "answers", "prs"):
-        if name in want:
-            found.append(Service(name, [sys.executable, RUNNER, "--config", config_path, name,
-                                        "loop", "--interval", str(interval)],
-                                 main_root, {"PYTHONUNBUFFERED": "1"}))
     return found
 
 
-def up(cfg: FactoryConfig, config_path: str, interval: int, only: str) -> int:
+@dataclass
+class Destination:
+    """Where the station loop ships, as `station.Loop` asks for it."""
+    get: Callable[[], Cockpit | None]
+    refused: Callable[[Cockpit], bool]
+    said: str
+
+
+def destination(cfg: FactoryConfig, main_root: Path, want: set[str]) -> Destination | None:
+    """The shared cockpit, the local one this process starts, or None."""
+    shared = station.configured()
+    if shared is not None:
+        return Destination(lambda: shared, lambda _cockpit: False, f"shared: {shared.url}")
+    if local_cockpit.shared() or "cockpit" not in want:
+        return None
+    factory = issues.resolve_project(cfg.issues, main_root) or main_root.name
+    local = local_cockpit.Local(main_root, cfg.defaults.data_dir, factory)
+    return Destination(local.get, local.refused,
+                       f"{local_cockpit.app_url()}   (local, {local_cockpit.version()}; "
+                       f"the first start pulls its images)")
+
+
+def up(cfg: FactoryConfig, config_path: str, interval: int, only: str, extra: str = "",
+       watchers: bool = True) -> int:
     main_root = git_helper.main_root()
     db = anchor(main_root, cfg.observability.db)
-    print(f"asf up — {main_root}")
-    want = wanted(cfg, only)
-    problems = check(cfg, want)
-    if problems:
-        for problem in problems:
-            print(f"  ! {problem}", file=sys.stderr)
+    here = station.identify(main_root, cfg.defaults.data_dir)
+    print(f"asf {'up' if watchers else 'station'} — {main_root}")
+    want = wanted(cfg, only, extra, watchers)
+    check(cfg, want)
+    ships_to = destination(cfg, main_root, want)
+    if not want and ships_to is None:
+        print("  ! nothing to start and no cockpit to ship to — see the messages above",
+              file=sys.stderr)
         return 2
     if "obs" in want:
         if not db.exists():
@@ -185,13 +250,20 @@ def up(cfg: FactoryConfig, config_path: str, interval: int, only: str) -> int:
             print(f"{paint(COLORS.get(name, ''), name.rjust(width))} {paint(DIM, '│')} {line}",
                   flush=True)
 
+    loop = None
+    if ships_to is not None:
+        sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+        loop = station.Loop(sessions, ships_to.get, refused=ships_to.refused,
+                            say=lambda text: on_line("station", text)).start()
     started = services(want, config_path, interval, main_root, db)
     for service in started:
         _spawn(service, on_line)
     print()
+    print(f"  station    {here.name} ({here.kind}, {here.id})")
+    print(f"  cockpit    {ships_to.said if ships_to else 'none — nothing is shipped'}")
     if "obs" in want:
         print(f"  trace UI   http://localhost:{UI_PORT}   (api on :{API_PORT})")
-    for name in ("issues", "answers", "prs"):
+    for name in WATCHERS:
         if name in want:
             print(f"  {name:<9}  polling every {interval}s")
     print(f"\n{paint(DIM, '  ctrl-c stops all of it')}\n")
@@ -208,6 +280,8 @@ def up(cfg: FactoryConfig, config_path: str, interval: int, only: str) -> int:
     try:
         collapsed = _supervise(started, stopping, on_line)
     finally:
+        if loop is not None:
+            loop.stop()          # its last round, while the cockpit is still up
         for service in started:
             _stop(service)
         print(paint(DIM, "stopped"))
@@ -216,7 +290,9 @@ def up(cfg: FactoryConfig, config_path: str, interval: int, only: str) -> int:
 
 def _supervise(started: list[Service], stopping: threading.Event, on_line) -> bool:
     """Restart what dies; a crash loop (three restarts inside a minute) is
-    given up on and said, and the rest keeps running. True when nothing is left."""
+    given up on and said, and the rest keeps running. True when nothing is
+    left — never with no children at all, which is `asf station` shipping to a
+    shared cockpit: the loop is the whole job."""
     while not stopping.is_set():
         time.sleep(0.4)
         alive = False
@@ -239,7 +315,7 @@ def _supervise(started: list[Service], stopping: threading.Event, on_line) -> bo
                 return False
             _spawn(service, on_line)
             alive = True
-        if not alive:
+        if started and not alive:
             on_line("up", "every service has given up — nothing left to supervise")
             return True
     return False
@@ -284,7 +360,9 @@ def status(cfg: FactoryConfig) -> int:
     sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
     rows = artifacts.watcher_states(artifacts.watchers_dir(main_root, cfg.defaults.data_dir))
     print(f"repo:      {main_root}")
-    print(f"db:        {db}{'' if db.exists() else '  (no runs yet)'}\n")
+    print(f"db:        {db}{'' if db.exists() else '  (no runs yet)'}")
+    ships_to = local_cockpit.shared() or f"local — `asf up` starts it at {local_cockpit.app_url()}"
+    print(f"cockpit:   {ships_to}\n")
     print("watchers")
     for kind, enabled in (("issues", cfg.issues.enabled), ("prs", cfg.pull_requests.enabled)):
         row = rows.get(kind)
