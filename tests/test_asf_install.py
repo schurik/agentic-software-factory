@@ -7,7 +7,7 @@ import re
 import shutil
 from pathlib import Path
 
-from .asf_helpers import SKILL_ROOT, asf, git, install
+from .asf_helpers import SKILL_ROOT, asf, fake_roster, git, install
 
 STAMPED = ["asf/asf.py", "asf/factory.yaml", "asf/engine/session.py", "asf/engine/workflow.py",
            "asf/stages/plan/stage.py", "asf/stages/plan/task.md", "asf/stages/verify/fix.md",
@@ -169,7 +169,9 @@ def test_the_stamp_records_the_skill_version_and_only_force_rewrites_it(repo: Pa
 
 
 def test_doctor_names_the_stamp_s_version_and_a_missing_one_is_before_1_1(stamped: Path):
-    """No refusal either way: an old stamp keeps running as it did."""
+    """No refusal either way: an old stamp keeps running as it did. On the fake
+    harness, so a machine without the `claude` CLI is not what doctor refuses."""
+    fake_roster(stamped)
     line = next(line for line in asf(stamped, "doctor").stdout.splitlines()
                 if "skill version" in line)
     assert plugin_version() in line and "asf/.skill-version" in line

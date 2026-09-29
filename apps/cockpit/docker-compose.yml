@@ -1,0 +1,94 @@
+# The cockpit, self-hosted: the Convex backend, its dashboard and the app, on
+# SQLite and local disk (both inside the `data` volume). ADR 0002.
+#
+#   docker compose up --build
+#
+# app       http://127.0.0.1:${APP_PORT:-3000}
+# backend   http://127.0.0.1:${PORT:-3210}   (the site, where stations POST /ingest, is :${SITE_PROXY_PORT:-3211})
+# dashboard http://127.0.0.1:${DASHBOARD_PORT:-6791}   (log in with `docker compose exec backend ./generate_admin_key.sh`)
+#
+# Nothing to paste on first start: `keygen` derives the admin key from the
+# backend's own instance secret (in the `data` volume) and hands it to `app`
+# through the `keys` volume, and `app` deploys its functions with it.
+#
+# The Convex images are pinned to the upstream revision this was tested with
+# (upstream tags each build by its commit), so a deployment only moves when a
+# pull request here moves it; override with CONVEX_BACKEND_VERSION and
+# CONVEX_DASHBOARD_VERSION.
+#
+# The two Convex services are upstream's own compose file, trimmed to what a
+# cockpit sets; Postgres and S3 are still one environment variable away (see
+# get-convex/convex-backend self-hosted/README.md). The backend is FSL-1.1-Apache-2.0,
+# which permits self-hosting for a team's internal use — see README.md.
+services:
+  backend:
+    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_VERSION:-5c7cb5bc7db457290f1769f95f1d1340912f7fd7}
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${PORT:-3210}:3210"
+      - "${SITE_PROXY_PORT:-3211}:3211"
+    volumes:
+      - data:/convex/data
+    environment:
+      - CONVEX_CLOUD_ORIGIN=${CONVEX_CLOUD_ORIGIN:-http://127.0.0.1:${PORT:-3210}}
+      - CONVEX_SITE_ORIGIN=${CONVEX_SITE_ORIGIN:-http://127.0.0.1:${SITE_PROXY_PORT:-3211}}
+      - DISABLE_BEACON
+      - DISABLE_METRICS_ENDPOINT=${DISABLE_METRICS_ENDPOINT:-true}
+      - DO_NOT_REQUIRE_SSL
+      - INSTANCE_NAME
+      - INSTANCE_SECRET
+      - POSTGRES_URL
+      - REDACT_LOGS_TO_CLIENT
+      - RUST_LOG=${RUST_LOG:-info}
+    healthcheck:
+      test: curl -f http://localhost:3210/version
+      interval: 5s
+      start_period: 10s
+
+  dashboard:
+    image: ghcr.io/get-convex/convex-dashboard:${CONVEX_DASHBOARD_VERSION:-5c7cb5bc7db457290f1769f95f1d1340912f7fd7}
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${DASHBOARD_PORT:-6791}:6791"
+    environment:
+      - NEXT_PUBLIC_DEPLOYMENT_URL=${NEXT_PUBLIC_DEPLOYMENT_URL:-http://127.0.0.1:${PORT:-3210}}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # One shot: the backend image's own key script, run once the backend has
+  # written its instance secret.
+  keygen:
+    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_VERSION:-5c7cb5bc7db457290f1769f95f1d1340912f7fd7}
+    entrypoint: ["/bin/bash", "-c", "./generate_admin_key.sh | tail -n 1 > /keys/admin_key"]
+    volumes:
+      - data:/convex/data
+      - keys:/keys
+    environment:
+      - INSTANCE_NAME
+      - INSTANCE_SECRET
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  app:
+    build: .
+    image: ${COCKPIT_IMAGE:-asf-cockpit:local}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - keys:/keys:ro
+    environment:
+      # Where the app's container deploys functions to, on the compose network…
+      - CONVEX_SELF_HOSTED_URL=http://backend:3210
+      # …and where a browser reaches the same backend.
+      - CONVEX_URL=${CONVEX_CLOUD_ORIGIN:-http://127.0.0.1:${PORT:-3210}}
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+
+volumes:
+  data:
+  keys:
