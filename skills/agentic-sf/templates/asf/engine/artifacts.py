@@ -44,7 +44,7 @@ import json
 from pathlib import Path
 
 from .data_types import RecordedPhase, RunState, WaitingFor
-from .utils import ensure_dir, write_atomic
+from .utils import ensure_dir, sweep_temps, write_atomic
 
 RUN_FILE = "run.json"
 ENVELOPES_DIR = "envelopes"
@@ -82,6 +82,10 @@ def start_run(session_dir: Path, state: RunState) -> RunState:
     would running this again mean", and the newest process is the one that was
     working when the session stopped.
     """
+    # Taking the session is also when the last process's debris is swept: a run
+    # killed mid-rewrite leaves a hidden temp file beside the file it was
+    # replacing, and nothing else ever looks for it.
+    sweep_temps(session_dir)
     previous = read_run(session_dir)
     if previous:
         state.workflows = previous.workflows + [

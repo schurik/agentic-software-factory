@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,6 +54,13 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
+# `.<name>.<8 hex>.tmp` — the one shape `write_atomic` names its temp files, so a
+# sweep can tell its own leftovers from anything else that happens to end in .tmp.
+TEMP_SUFFIX = ".tmp"
+_TEMP_NAME = re.compile(r"^\..+\.[0-9a-f]{8}" + re.escape(TEMP_SUFFIX) + "$")
+STALE_TEMP_SECONDS = 60
+
+
 def write_atomic(path: str | Path, text: str) -> Path:
     """Replace `path` with `text` so no reader ever sees anything but a whole file.
 
@@ -70,7 +79,7 @@ def write_atomic(path: str | Path, text: str) -> Path:
     append is already the write that needs no coordination.
     """
     target = Path(path)
-    temp = target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp")
+    temp = target.with_name(f".{target.name}.{secrets.token_hex(4)}{TEMP_SUFFIX}")
     try:
         with open(temp, "x") as stream:
             stream.write(text)
@@ -79,6 +88,33 @@ def write_atomic(path: str | Path, text: str) -> Path:
         temp.unlink(missing_ok=True)
         raise
     return target
+
+
+def sweep_temps(directory: str | Path, older_than: float = STALE_TEMP_SECONDS) -> list[Path]:
+    """Remove the temp files a killed `write_atomic` left behind. Never raises.
+
+    The `except` above cleans up after anything Python sees; a SIGKILL or an
+    OOM kill between the temp file and the `os.replace` is the one thing it
+    cannot, and the hidden `.run.json.1a2b3c4d.tmp` then sits in the session
+    directory for good. Only `write_atomic`'s own names are touched, and only
+    once they are older than any write takes: a temp that young may belong to a
+    writer that is still alive, in this process or another.
+    """
+    root = Path(directory)
+    if not root.is_dir():
+        return []
+    cutoff = time.time() - older_than
+    removed: list[Path] = []
+    for path in root.rglob(f".*{TEMP_SUFFIX}"):
+        if not _TEMP_NAME.match(path.name):
+            continue
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed.append(path)
+        except OSError:
+            continue
+    return removed
 
 
 def anchor(root: str | Path, path: str | Path) -> Path:
