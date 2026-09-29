@@ -66,6 +66,28 @@ jobs:
       # runs with no arguments.
       - run: ruff check .
 
+  # The cockpit (apps/cockpit) is the other end of the domain-event wire. Its
+  # vitest suite runs Convex functions in-process with convex-test — no backend,
+  # no socket — and ingests every fixture in tests/golden/events, so a fixture
+  # the factory adds without a cockpit reader for it turns this job red.
+  cockpit:
+    name: cockpit (typecheck, lint, vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/cockpit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/cockpit/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
   smoke:
     name: install into a scratch repo
     runs-on: ubuntu-latest

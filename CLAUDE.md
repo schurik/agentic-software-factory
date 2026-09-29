@@ -54,6 +54,12 @@ uv run /path/to/agentic-software-factory/skills/agentic-sf/scripts/uninstall.py 
 The visualizer (`skills/agentic-sf/apps/visualizer`, Vue + Vite on Bun) has its own scripts:
 `bun run typecheck`, `bun run lint` (oxlint), `bun run build`. CI does not run them.
 
+The cockpit (`apps/cockpit`, Next.js on self-hosted Convex, outside the skill per ADR 0001) is run
+with npm: `npm run typecheck`, `npm run lint`, `npm test` (vitest + `convex-test`, no backend
+needed), and CI runs all three. Its tests ingest every fixture under `tests/golden/events/`, so a
+new event kind or version needs a reader in `apps/cockpit/convex/model/session.ts` in the same PR.
+`docker compose up --build` in that directory brings up the backend, dashboard and app.
+
 ## The factory
 
 A workflow is a **directory** (`asf/workflows/<name>/workflow.yaml` + optional `tasks/*.md` +

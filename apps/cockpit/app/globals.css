@@ -1,0 +1,84 @@
+:root {
+  --bg: #fbfbfa;
+  --fg: #1d1d1b;
+  --muted: #6b6b66;
+  --line: #e4e3df;
+  --accent: #2f5bd3;
+  --ok: #1d7a46;
+  --wait: #a86500;
+  --bad: #b3261e;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --fg: #ecebe7;
+    --muted: #9d9c96;
+    --line: #2d2d2a;
+    --accent: #8aa8ff;
+    --ok: #5cc98b;
+    --wait: #e0a64a;
+    --bad: #f08b83;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+a { color: var(--accent); }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+h1 { font-size: 1.4rem; margin: 0 0 0.25rem; }
+h2 { font-size: 1.05rem; margin: 2rem 0 0.5rem; }
+
+.bar {
+  display: flex;
+  gap: 1.5rem;
+  align-items: baseline;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.bar .brand { font-weight: 700; color: var(--fg); text-decoration: none; }
+.bar nav a { color: var(--muted); text-decoration: none; }
+
+main { padding: 1.25rem 1rem; max-width: 72rem; margin: 0 auto; }
+
+.muted { color: var(--muted); }
+.error { color: var(--bad); }
+.notice { border: 1px solid var(--line); border-left: 3px solid var(--wait); padding: 0.6rem 0.8rem; }
+
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.table th { font-weight: 600; color: var(--muted); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table tr.generic td { color: var(--muted); }
+.table pre { margin: 0.25rem 0 0; white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 720px) { .table { display: block; overflow-x: auto; } }
+
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 1rem 0 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+
+.phases { padding-left: 1.25rem; }
+.phases li { margin-bottom: 0.5rem; }
+
+.status {
+  display: inline-block;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  vertical-align: middle;
+}
+.status-running { color: var(--accent); }
+.status-waiting { color: var(--wait); }
+.status-success { color: var(--ok); }
+.status-fail { color: var(--bad); }
