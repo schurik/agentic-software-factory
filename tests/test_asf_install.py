@@ -110,7 +110,7 @@ REPO_ROOT = SKILL_ROOT.parent.parent
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 
 
-def skill_version() -> str:
+def plugin_version() -> str:
     return json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]
 
 
@@ -120,7 +120,7 @@ def test_every_version_this_repo_carries_is_plugin_json_s():
     through `npx skills add` reads, because that copies the skill directory
     and nothing above it. A mirror nobody bumped is a factory stamped with
     the wrong release, so a stale one is named here, not discovered there."""
-    version = skill_version()
+    version = plugin_version()
     assert SEMVER.match(version), f"plugin.json version {version!r} is not X.Y.Z"
     marketplace = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text())
     mirrors = {
@@ -144,35 +144,55 @@ def test_the_changelog_names_upgrade_steps_for_every_release():
         assert re.match(r"^(Unreleased|\d+\.\d+\.\d+( — \d{4}-\d{2}-\d{2})?)$", heading), \
             f"changelog heading {heading!r} is not `Unreleased` or `X.Y.Z — YYYY-MM-DD`"
         assert "\n### Upgrade\n" in entry, f"changelog entry {heading!r} names no upgrade steps"
-    assert any(h.split(" ")[0] == skill_version() for h in headings), \
-        f"the changelog has no entry for {skill_version()}, the version plugin.json names"
+    assert any(h.split(" ")[0] == plugin_version() for h in headings), \
+        f"the changelog has no entry for {plugin_version()}, the version plugin.json names"
 
 
 def test_the_stamp_records_the_skill_version_and_only_force_rewrites_it(repo: Path):
     stamp = repo / "asf" / ".skill-version"
     first = install(repo, "--harness", "claude_code")
-    assert stamp.read_text() == f"{skill_version()}\n"
-    assert f"skill version {skill_version()}" in first.stdout
+    assert stamp.read_text() == f"{plugin_version()}\n"
+    assert f"skill version {plugin_version()}" in first.stdout
+
+    again = install(repo, "--harness", "claude_code")
+    assert f"skill version {plugin_version()}" in again.stdout and "already there" in again.stdout
 
     stamp.write_text("1.0.0-old\n")                           # an older stamp's record
     again = install(repo, "--harness", "claude_code")
     assert stamp.read_text() == "1.0.0-old\n"                 # skipped, like any file
     assert "asf/.skill-version says 1.0.0-old" in again.stdout
-    assert f"this skill is {skill_version()}" in again.stdout and "CHANGELOG.md" in again.stdout
+    assert f"this skill is {plugin_version()}" in again.stdout and "CHANGELOG.md" in again.stdout
 
     forced = install(repo, "--harness", "claude_code", "--force")
     assert forced.returncode == 0
-    assert stamp.read_text() == f"{skill_version()}\n"
+    assert stamp.read_text() == f"{plugin_version()}\n"
 
 
 def test_doctor_names_the_stamp_s_version_and_a_missing_one_is_before_1_1(stamped: Path):
     """No refusal either way: an old stamp keeps running as it did."""
     line = next(line for line in asf(stamped, "doctor").stdout.splitlines()
                 if "skill version" in line)
-    assert skill_version() in line and "asf/.skill-version" in line
+    assert plugin_version() in line and "asf/.skill-version" in line
 
     (stamped / "asf" / ".skill-version").unlink()
     result = asf(stamped, "doctor")
     assert result.returncode == 0, result.stdout + result.stderr
     line = next(line for line in result.stdout.splitlines() if "skill version" in line)
     assert "before 1.1" in line
+
+
+def test_a_re_run_over_a_factory_stamped_before_the_record_does_not_invent_one(repo: Path):
+    """A re-run without --force keeps every file that exists, so what it
+    leaves is still the old release's code. Writing today's version beside
+    it would claim otherwise, and erase the "before 1.1" an upgrade routes on."""
+    stamp = repo / "asf" / ".skill-version"
+    install(repo, "--harness", "claude_code")
+    stamp.unlink()                                            # as every stamp before 1.1
+
+    again = install(repo, "--harness", "claude_code")
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert not stamp.exists()
+    assert "before 1.1" in again.stdout and "CHANGELOG.md" in again.stdout
+
+    install(repo, "--harness", "claude_code", "--force")      # refreshed: now it is true
+    assert stamp.read_text() == f"{plugin_version()}\n"

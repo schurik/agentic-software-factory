@@ -11,8 +11,9 @@ Usage:
 Stamps `asf/` — the engine, the stage vocabulary, the starter agents and
 workflows, the runner, and `.skill-version`, the release they came from — plus
 a factory.yaml assembled for the chosen harness, that harness's `.env.sample`,
-the justfile, and the .gitignore entries. Existing files are skipped unless --force. ONE FILE IS NEVER OVERWRITTEN even then: factory.yaml
-is the operator's; under --force a changed render lands beside it as `.new`.
+the justfile, and the .gitignore entries. Existing files are skipped unless
+--force. ONE FILE IS NEVER OVERWRITTEN even then: factory.yaml is the
+operator's; under --force a changed render lands beside it as `.new`.
 
 Stdlib only: this runs under `uv run` with no dependencies.
 """
@@ -91,19 +92,43 @@ def skill_version() -> str:
     return (TEMPLATES / VERSION_FILE).read_text().strip()
 
 
+def stamped_before_the_record(root: Path) -> bool:
+    """A factory is here, and it records no version: stamped before 1.1."""
+    return (root / "asf" / "asf.py").is_file() and not (root / VERSION_FILE).exists()
+
+
+def keep_unrecorded(root: Path, stamped: list) -> None:
+    """Undo the one file a plain re-run must not add to a pre-1.1 factory.
+
+    Without --force every file that exists is kept, so what stays is still
+    the old release's code; a record written beside it would claim today's,
+    and erase the "before 1.1" that doctor and an upgrade go by. Only a run
+    that refreshed the files — --force — may say which release they are."""
+    record = root / VERSION_FILE
+    if str(record) in stamped:
+        record.unlink()
+        stamped.remove(str(record))
+
+
 def version_note(root: Path, stamped: list) -> str:
     """What the stamp records, and — when this run left an older record in
-    place — that it is older. A re-run without --force stamps the files a
-    release added and keeps every one that exists, the record included, so
-    the record still says which release the rest of `asf/` came from."""
+    place, or none — that it is older. A re-run without --force stamps the
+    files a release added and keeps every one that exists, the record
+    included, so the record still says which release the rest of `asf/`
+    came from."""
     version = skill_version()
-    if str(root / VERSION_FILE) in stamped:
+    record = root / VERSION_FILE
+    changelog = f"    the upgrade steps are in {SKILL_ROOT / 'CHANGELOG.md'}"
+    if str(record) in stamped:
         return f"skill version {version}  ({VERSION_FILE})"
-    recorded = (root / VERSION_FILE).read_text().strip()
+    if not record.exists():
+        return (f"this factory was stamped before 1.1 and records no version, and this "
+                f"skill is {version} — left that way:\n    the files already here were not "
+                f"refreshed (--force refreshes them, and records the version).\n{changelog}")
+    recorded = record.read_text().strip()
     if recorded == version:
         return f"skill version {version}  ({VERSION_FILE}, already there)"
-    return (f"{VERSION_FILE} says {recorded}, and this skill is {version} — kept.\n"
-            f"    the upgrade steps between them are in {SKILL_ROOT / 'CHANGELOG.md'}")
+    return f"{VERSION_FILE} says {recorded}, and this skill is {version} — kept.\n{changelog}"
 
 
 def render_config(harness: str) -> str:
@@ -214,7 +239,10 @@ def main() -> int:
     root = Path.cwd()
     stamped, skipped, notes, config_notes = [], [], [], []
 
+    unrecorded = stamped_before_the_record(root)
     stamp(TEMPLATES / "asf", root / "asf", args.force, stamped, skipped)
+    if unrecorded and not args.force:
+        keep_unrecorded(root, stamped)
     write_config(harness, root / "asf" / "factory.yaml", args.force, stamped, skipped,
                  config_notes)
     stamp(HARNESSES / harness / "env.sample", root / ".env.sample", args.force, stamped, skipped)

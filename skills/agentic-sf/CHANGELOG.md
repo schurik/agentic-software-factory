@@ -12,11 +12,12 @@ renamed to the version and dated.
 
 The installer stamps that version into the target repo as `asf/.skill-version`: skipped by a
 re-run like every stamped file, overwritten by `--force`, never edited by hand. A factory without
-one was stamped before 1.1, and `asf doctor` says so.
+one was stamped before 1.1, and `asf doctor` says so; a re-run without `--force` leaves it without
+one, because the files it keeps are still the old release's.
 
-Every entry has the same shape: `## X.Y.Z — YYYY-MM-DD` (or `## Unreleased`), what changed, and an
-`### Upgrade` section naming the steps from the release before — `none` when there are none, never
-omitted.
+Every entry has the same shape: `## X.Y.Z — YYYY-MM-DD`, the date its tag was cut (or
+`## Unreleased`), what changed, and an `### Upgrade` section naming the steps from the release
+before — `None` when there are none, never omitted.
 
 ## Unreleased
 
@@ -26,14 +27,18 @@ omitted.
 
 ### Upgrade
 
-None required: a factory without `asf/.skill-version` runs exactly as it did. To record the
-version, re-run `install.py --harness <harness>` from the target repo root without `--force` — it
-stamps the files that are missing, this one included, and leaves every file that exists alone.
+None required: a factory without `asf/.skill-version` runs exactly as it did, and `asf doctor`
+names it `before 1.1`. A plain re-run of `install.py` does not change that — it keeps every file
+that exists, so they are still the old release's. The version is recorded by the run that refreshes
+them: commit, then `install.py --harness <harness> --force` from the target repo root, and put back
+any agent prose or task you had edited (`asf/factory.yaml` is never overwritten; a fresh render
+lands beside it as `.new`).
 
 ## 1.0.0
 
-The version `plugin.json` named before there were releases. It was never tagged; every factory
-stamped from it has no `asf/.skill-version`, and counts as before 1.1.
+The version `plugin.json` named before there were releases. It was never tagged, so it has no
+date. A factory stamped before `asf/.skill-version` existed records nothing, and counts as before
+1.1.
 
 ### Upgrade
 

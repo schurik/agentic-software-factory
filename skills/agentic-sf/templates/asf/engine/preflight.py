@@ -338,7 +338,7 @@ def labels(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
 
 # ── the skill, and the UI that ships with it ─────────────────────────────────
 
-def stamp(main_root: Path) -> list[Finding]:
+def stamped_version(main_root: Path) -> list[Finding]:
     """Which release of the skill stamped this factory, from the record the
     installer wrote. Never a refusal: a factory stamped before the record
     existed runs exactly as it did, and saying which release it came from is
@@ -462,4 +462,4 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamp(root) + skill() + trace_ui())
+            + forge(cfg) + labels(cfg, root) + stamped_version(root) + skill() + trace_ui())
