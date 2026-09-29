@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import artifacts, git_helper, hitl, inputs, issues, journal, preflight, worktree
+from . import artifacts, git_helper, hitl, inputs, issues, journal, preflight, station, worktree
 from . import labels as labels_module
 from .data_types import FactoryConfig, Reply
 from .utils import engineer_name
@@ -125,6 +125,9 @@ def decide(cfg: FactoryConfig, config_path: str, verdict: str, adw_id: str, note
     except RuntimeError as error:
         print(f"{adw_id}: {error}")
         return 1
+    # The decision is an event, and a cockpit's inbox closes the gate on it —
+    # so this process ships it too, until a relaunched run takes the session.
+    shipper = station.start(session_dir)
     print(f"{adw_id}: {decision.verdict} recorded at "
           f"{hitl.decision_path(session_dir, decision.gate, decision.round)}")
     state = artifacts.read_run(session_dir)
@@ -134,6 +137,8 @@ def decide(cfg: FactoryConfig, config_path: str, verdict: str, adw_id: str, note
     if no_resume:
         print(f"  not relaunched (--no-resume): `asf resume {adw_id}` when ready")
         return 0
+    if shipper is not None:
+        shipper.stop()             # the relaunched run ships the session from here on
     code = relaunch(cfg, config_path, adw_id)
     after = artifacts.read_run(session_dir)
     if code == hitl.EXIT_WAITING and after is not None and after.waiting_for is not None:

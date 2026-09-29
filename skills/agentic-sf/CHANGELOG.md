@@ -24,6 +24,15 @@ before — `None` when there are none, never omitted.
 - Releases are semver tags, and `plugin.json` is the one version source.
 - `install.py` stamps `asf/.skill-version`; `asf doctor` prints it, or `before 1.1` when a factory
   has none. `uninstall.py` removes it with the rest of `asf/`.
+- A checkout is a **station**: a random id kept in `asf/data/station.json` (gitignored with the rest
+  of `asf/data/`), a name that defaults to `<login>@<host>:<dir>` (`ASF_STATION_NAME` overrides it)
+  and a kind, `ci` under a CI job and `local` otherwise. Every `session_started` names the station.
+- With `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` set, a run (and `approve`, `reject`, `answer`,
+  `abort`) ships its session's events to that cockpit from a background thread, from the last seq the
+  cockpit acknowledged (kept in the session's `shipped.json`). A cockpit that is down loses nothing,
+  and a run never waits on one beyond a bounded flush as it exits. `asf station sync` (`just
+  station-sync`) ships every session a cockpit has not acknowledged, and fails only on a refused
+  token. Without `ASF_COCKPIT_URL`, nothing is shipped.
 
 ### Upgrade
 
@@ -33,6 +42,11 @@ that exists, so they are still the old release's. The version is recorded by the
 them: commit, then `install.py --harness <harness> --force` from the target repo root, and put back
 any agent prose or task you had edited (`asf/factory.yaml` is never overwritten; a fresh render
 lands beside it as `.new`).
+
+To ship to a cockpit, the same `--force` re-stamp brings the engine and the `station-sync` recipe;
+then add `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` to `.env` by hand, because the installer never
+rewrites an existing `.env` (a re-stamped `.env.sample` names both). A CI job that ships ends with
+`uv run asf/asf.py station sync`, with both set from the job's secrets.
 
 ## 1.0.0
 
