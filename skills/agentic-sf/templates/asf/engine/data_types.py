@@ -1713,6 +1713,62 @@ class AgentResult(BaseModel):
 PiResult = AgentResult              # transitional alias; prefer AgentResult
 
 
+# ── Stations (engine/station.py) ─────────────────────────────────────────────
+
+StationKind = Literal["local", "ci"]
+
+
+class StationRecord(BaseModel):
+    """`<data_dir>/station.json`: the one fact about a station that must not
+    change between processes. Everything else about it is worked out afresh."""
+
+    id: str
+    created_at: str = ""
+
+
+class Station(BaseModel):
+    """One checkout, as a cockpit tells it apart from every other one."""
+
+    id: str
+    name: str                       # `<login>@<host>:<dir>`, or ASF_STATION_NAME
+    kind: StationKind = "local"
+
+
+class Cockpit(BaseModel):
+    """Where a station ships, from ASF_COCKPIT_URL and ASF_COCKPIT_TOKEN."""
+
+    url: str                        # the backend's site origin, e.g. http://127.0.0.1:3211
+    token: str = ""                 # a factory-scoped ingest token; empty is refused as 401
+
+
+class ShipAck(BaseModel):
+    """`<session_dir>/shipped.json`: how far one cockpit has acknowledged this
+    session. Keyed by the cockpit, so pointing a station at another one ships
+    every session to it from the top instead of from someone else's offset."""
+
+    cockpit: str
+    acked: int = 0
+
+
+ShipOutcome = Literal["shipped", "unreachable", "unauthorized", "refused"]
+
+
+class ShipResult(BaseModel):
+    """What one attempt to ship a session did — evidence, never a claim.
+
+    `unreachable` loses nothing: the offset stays where the cockpit last put
+    it, and the next attempt starts there. `unauthorized` is the one outcome a
+    person has to fix. `refused` is a batch the cockpit will not take as sent.
+    """
+
+    adw_id: str
+    outcome: ShipOutcome = "shipped"
+    sent: int = 0                   # events on the wire, resends included
+    acked: int = 0                  # the cockpit's answer, or the offset kept
+    pending: int = 0                # events on disk past `acked`
+    error: str = ""
+
+
 # ── Domain events (engine/events.py) ─────────────────────────────────────────
 #
 # The wire a station ships and a cockpit builds every view from: one typed,
@@ -1755,9 +1811,10 @@ class SessionStarted(DomainEvent):
     """A process took this session — a new one, a join, a resume or an answer.
 
     Carries what the new `run.json` is built from, plus what only the trace db
-    used to know: the base the work branch was cut from. Fields a station does
-    not know yet (`triggered_by`, the station itself, the skill version) are
-    empty until the ticket that teaches the factory each of them.
+    used to know: the base the work branch was cut from, and the station the
+    process runs on (`engine/station.py`). Fields the factory does not know yet
+    (`triggered_by`, the skill version) are empty until the ticket that teaches
+    it each of them.
     """
 
     KIND: ClassVar[str] = "session_started"

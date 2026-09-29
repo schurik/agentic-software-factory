@@ -64,7 +64,7 @@ asf/
   workflows/<name>/       workflow.yaml (input, agents, stages), optional tasks/<key>.md, optional agents/<x>.md
   stages/<name>/          stage.py (the contract) + its default task files
   engine/                 the machinery: session, worktree, gates, permissions, hitl, tracer, …
-  data/                   runtime: sessions/<adw_id>/ — never edit
+  data/                   runtime: sessions/<adw_id>/, station.json (this checkout's id) — never edit
 ```
 
 Every run works in its own worktree on branch `asf/<adw_id>`; the checkout is
@@ -131,6 +131,7 @@ acting, not after.
 | pick a failed run back up | `just resume <id>` — replays recorded agent phases, re-runs what code owns |
 | a run is waiting at a gate / "why is this run waiting?" | `just pending`, `just show <id>`, then `just approve <id> [-m]`, `just reject <id> -m "..."` or `just abort <id>`. Never approve on the engineer's behalf |
 | a run is waiting on QUESTIONS (`kind: questions` in `just show`) | `just answer <id> -m "..."` supplies what is missing; `just approve <id>` takes every recommendation as it stands. There is nothing to `reject` — the agent asked, it did not claim. The questions are also a comment on the work item, and an answer there does the same thing. Never answer on the engineer's behalf |
+| ship runs to a cockpit / "why isn't my run in the cockpit?" | set `ASF_COCKPIT_URL` (the backend's site origin, e.g. `http://127.0.0.1:3211`) and `ASF_COCKPIT_TOKEN` (the factory's ingest token) in `.env`; from then on every run and every `approve`/`reject`/`answer`/`abort` ships its session's events from a background thread, and never waits on the cockpit. `just station-sync` sends whatever a cockpit has not acknowledged — every session, from its acknowledged seq — and is a CI job's last step; it fails only when the cockpit refuses the token. A cockpit that was down loses nothing: sync again. Unset, nothing ships and runs are exactly as before. `ASF_STATION_NAME` renames this checkout from `<login>@<host>:<dir>` |
 | watch a run | `just sessions`, `just phases <id>`, `just tail <id>`; `just obs` boots the trace UI (`apps/visualizer` in the skill, needs bun) |
 
 ## Hard rules

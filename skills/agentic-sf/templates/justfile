@@ -176,6 +176,13 @@ worktrees-prune *ARGS:
 worktrees-remove ADW_ID *ARGS:
     {{asf}} worktrees remove {{ADW_ID}} "${@:2}"
 
+# ── the cockpit ─────────────────────────────────────────────────────────────
+# Runs ship their own events when ASF_COCKPIT_URL is set; this is the catch-up.
+
+# ship every session the cockpit has not acknowledged — a CI job's last step
+station-sync:
+    {{asf}} station sync
+
 # ── watch it ────────────────────────────────────────────────────────────────
 # Reads on the trace db never block a run.
 

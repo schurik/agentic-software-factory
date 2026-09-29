@@ -153,6 +153,10 @@ IN_PLACE_ALLOWED = {
     ("engine/harnesses/fake.py", "_apply"),
     # An flock target. It holds no content; the handle is the lock.
     ("engine/watch.py", "claim"),
+    # A private temp file, hard-linked into place whole. `write_atomic`'s
+    # `os.replace` would overwrite a racing process's station id; a link fails
+    # instead, and the loser reads the winner's.
+    ("engine/station.py", "_station_record"),
 }
 
 # Openers whose first argument is the file and whose mode comes second;

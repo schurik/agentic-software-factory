@@ -27,6 +27,7 @@ Usage:
     uv run asf/asf.py up      [--only issues,answers,prs,obs] [--interval 120]   all of it
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
+    uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
 
 `--config asf/factory.yaml` is accepted before or after the subcommand. Run
 from the repository root — every path in factory.yaml is relative to it.
@@ -42,7 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from engine import factory, operate, supervise, utils, watch, workflow  # noqa: E402
+from engine import factory, operate, station, supervise, utils, watch, workflow  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
 
@@ -173,6 +174,10 @@ def cmd_status(args) -> int:
     return supervise.status(factory.load(args.config))
 
 
+def cmd_station(args) -> int:
+    return station.sync(factory.load(args.config))
+
+
 def _config_on(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """`--config` after the subcommand too. SUPPRESS, never a default, on the
     subcommand's copy: argparse copies a subcommand's namespace over the outer
@@ -267,6 +272,13 @@ def build_parser() -> argparse.ArgumentParser:
     trees.add_argument("--force", action="store_true",
                        help="also take worktrees holding uncommitted work")
     trees.set_defaults(func=cmd_worktrees)
+    # `sync` alone for now: the station loop, `register` and the command poll
+    # arrive with the tickets that need them (spec #40).
+    one = _config_on(sub.add_parser("station", help="this checkout as a cockpit's station"))
+    one.add_argument("action", choices=["sync"],
+                     help="sync: ship every session the cockpit has not acknowledged — "
+                          "a CI job's last step; fails only when the cockpit refuses the token")
+    one.set_defaults(func=cmd_station)
     return parser
 
 

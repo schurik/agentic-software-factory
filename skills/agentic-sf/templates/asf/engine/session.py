@@ -33,7 +33,7 @@ import signal
 import sys
 from pathlib import Path
 
-from . import artifacts, git_helper, preflight, worktree
+from . import artifacts, git_helper, preflight, station, worktree
 from .data_types import FactoryConfig, RunSpec, SessionSpec, SessionStarted, WorktreeRequest
 from .hitl import HitlPolicy
 from .runner import Run
@@ -111,14 +111,19 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     # this workflow again without a db, without unquoting, and without the 500
     # character clip the process row applies. artifacts.py says why files win.
     # The `session_started` event it is built from is also the first line a
-    # cockpit reads, which is why the base the branch was cut from rides on it.
+    # cockpit reads, which is why the base the branch was cut from — and the
+    # station it ran on — ride on it.
     command = [Path(sys.argv[0]).name, *sys.argv[1:]]
+    here = station.identify(main_root, cfg.defaults.data_dir)
     artifacts.start_run(run.session_dir, SessionStarted(
         adw_id=adw_id, workflow=workflow, command=command, pid=os.getpid(),
         engineer=run.engineer, started_at=now_iso(), repo_root=str(workspace.repo_root),
         branch=workspace.branch, base_ref=workspace.base_ref,
         base_commit=workspace.base_commit, trigger=run.trigger, issue_url=run.issue_url,
-        pr_url=run.pr_url, request=spec.request))
+        pr_url=run.pr_url, request=spec.request, station_id=here.id, station_name=here.name))
+    # And from here every event this process appends is on its way to the
+    # cockpit, when there is one — from a thread, so nothing below waits on it.
+    station.start(run.session_dir, adw_id)
     # This process is the run. Record it before any phase opens, so a run that
     # hangs in its first agent call is still killable by adw_id.
     tracer.process_start(adw_id, "adw", "", os.getpid(), " ".join(command))

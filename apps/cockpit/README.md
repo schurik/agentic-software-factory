@@ -62,6 +62,30 @@ Content-Type: application/json
   batch. Neither says anything about the events. A payload is stored as the JSON text it arrived as,
   so no key a factory writes can make an event unstorable.
 
+## Ship from a station
+
+A stamped factory ships on its own once its `.env` (or a CI job's environment) names the cockpit:
+
+```bash
+ASF_COCKPIT_URL=http://127.0.0.1:3211      # the site origin, not :3210
+ASF_COCKPIT_TOKEN=asf_ingest_…
+```
+
+Every `asf run` then ships its session from a background thread as it goes, and `asf station sync`
+sends whatever the cockpit has not acknowledged, for every session in the checkout. That is a CI
+job's last step, and the way to catch up after the cockpit was down. The station keeps the
+acknowledged `seq` per session and resends from there, so nothing is lost while the cockpit is
+away. The factory's half is `engine/station.py` in the skill's templates.
+
+A manual smoke test, with the stack up and a token issued:
+
+```bash
+cd /path/to/a/stamped/repo                 # fake harness: see tests/asf_helpers.fake_roster
+echo "ASF_COCKPIT_URL=http://127.0.0.1:3211" >> .env
+echo "ASF_COCKPIT_TOKEN=asf_ingest_…" >> .env
+uv run asf/asf.py run quick "add a health check"   # appears on :3000 within seconds
+```
+
 ## Develop
 
 ```bash
