@@ -35,6 +35,7 @@ from .data_types import (EventRecord, PullRequestContext, PullRequestOutput,
                          PullRequestRef, PullRequestResult, PullRequestsConfig,
                          PullRequestUpdate, ReviewComment, ReviewThread)
 from .issues import _aim, _run, resolve_project
+from .utils import write_atomic
 
 THREADS_FILENAME = "pr_review.md"
 
@@ -215,7 +216,7 @@ def attach(run, config: PullRequestsConfig,
     open_threads = actionable(config, context)
 
     body_path = run.context_handoff_dir / THREADS_FILENAME
-    body_path.write_text(_threads_document(context, open_threads))
+    write_atomic(body_path, _threads_document(context, open_threads))
     context.threads_path = str(body_path)
 
     run.tracer.event(EventRecord(
