@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 
 from . import artifacts, git_helper, preflight, worktree
-from .data_types import RunSpec, RunState, FactoryConfig, WorktreeRequest
+from .data_types import FactoryConfig, RunSpec, SessionSpec, SessionStarted, WorktreeRequest
 from .hitl import HitlPolicy
 from .runner import Run
 from .tracer import Tracer
@@ -56,22 +56,23 @@ def _finalize_when_killed(run: Run) -> None:
     """
     def handler(signum, _frame):
         run.tracer.session_finish(run.adw_id, ok=False)   # also closes process rows
-        artifacts.finish_run(run.session_dir, "fail")     # and the session's own record
+        artifacts.finish_run(run.session_dir, "fail",     # and the session's own record
+                             reason=f"stopped by signal {signum}")
         raise SystemExit(128 + signum)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, handler)
 
 
-def ensure(cfg: FactoryConfig, adw_id: str | None = None, resume: bool = False,
-           hitl: str = "", name: str | None = None) -> Run:
+def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     """Pin or create the session and return the Run.
 
-    `name` is what the trace and the UI call this workflow. The runner passes
-    the workflow's name; without one the script's own name is used, which is
-    what a hand-written script wants.
+    `spec.name` is what the trace and the UI call this workflow. The runner
+    passes the workflow's name; without one the script's own name is used,
+    which is what a hand-written script wants.
     """
-    workflow = name or Path(sys.argv[0]).stem
+    adw_id, resume, hitl = spec.adw_id, spec.resume, spec.hitl
+    workflow = spec.name or Path(sys.argv[0]).stem
     if resume and not adw_id:
         raise SystemExit("--resume needs --adw-id: there is nothing to resume without "
                          "the session that recorded it. `just sessions` lists them.")
@@ -92,7 +93,7 @@ def ensure(cfg: FactoryConfig, adw_id: str | None = None, resume: bool = False,
     workspace = worktree.ensure(WorktreeRequest(main_root=main_root, adw_id=adw_id,
                                                 config=cfg.worktree))
     tracer = Tracer(anchor(main_root, cfg.observability.db),
-                    anchor(main_root, f"{cfg.defaults.data_dir}/sessions/{adw_id}/events.jsonl"))
+                    anchor(main_root, f"{cfg.defaults.data_dir}/sessions/{adw_id}"))
     run = Run(RunSpec(cfg=cfg, adw_id=adw_id, engineer=engineer_name(),
                       workspace=workspace, resume=resume, hitl=hitl), tracer)
     tracer.session_start(adw_id, run.engineer, adw_name=workflow)
@@ -105,23 +106,23 @@ def ensure(cfg: FactoryConfig, adw_id: str | None = None, resume: bool = False,
     if recorded:
         run.adopt_provenance(recorded.trigger, recorded.issue_url, recorded.pr_url)
     tracer.session_workspace(adw_id, workspace)
-    # This process is the run. Record it before any phase opens, so a run that
-    # hangs in its first agent call is still killable by adw_id.
-    tracer.process_start(adw_id, "adw", "", os.getpid(),
-                         " ".join([Path(sys.argv[0]).name, *sys.argv[1:]]))
-    artifacts.record_process(run.session_dir, "adw", "", os.getpid(),
-                             " ".join([Path(sys.argv[0]).name, *sys.argv[1:]]))
     # The same fact in the session's OWN directory, and the only place it is
     # written whole: `command` is the argv as a list, so `just resume` can launch
     # this workflow again without a db, without unquoting, and without the 500
     # character clip the process row applies. artifacts.py says why files win.
-    artifacts.start_run(run.session_dir, RunState(
-        adw_id=adw_id, workflows=[workflow],
-        command=[Path(sys.argv[0]).name, *sys.argv[1:]],
-        pid=os.getpid(), engineer=run.engineer, status="running",
-        started_at=now_iso(), repo_root=str(workspace.repo_root),
-        branch=workspace.branch, trigger=run.trigger,
-        issue_url=run.issue_url, pr_url=run.pr_url))
+    # The `session_started` event it is built from is also the first line a
+    # cockpit reads, which is why the base the branch was cut from rides on it.
+    command = [Path(sys.argv[0]).name, *sys.argv[1:]]
+    artifacts.start_run(run.session_dir, SessionStarted(
+        adw_id=adw_id, workflow=workflow, command=command, pid=os.getpid(),
+        engineer=run.engineer, started_at=now_iso(), repo_root=str(workspace.repo_root),
+        branch=workspace.branch, base_ref=workspace.base_ref,
+        base_commit=workspace.base_commit, trigger=run.trigger, issue_url=run.issue_url,
+        pr_url=run.pr_url, request=spec.request))
+    # This process is the run. Record it before any phase opens, so a run that
+    # hangs in its first agent call is still killable by adw_id.
+    tracer.process_start(adw_id, "adw", "", os.getpid(), " ".join(command))
+    artifacts.record_process(run.session_dir, "adw", "", os.getpid(), " ".join(command))
     _finalize_when_killed(run)
     run.console.session_started(adw_id, run.engineer)
     run.console.note(_workspace_line(workspace))

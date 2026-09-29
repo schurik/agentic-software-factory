@@ -1,0 +1,25 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "envelope_accepted",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_03_plan",
+    "seq": 3,
+    "phase": "plan",
+    "agent": "planner",
+    "purpose": "turns a request into a plan",
+    "output_type": "PlanOutput",
+    "attempt": 1,
+    "envelope": {
+      "status": "success",
+      "summary": "planned the health check",
+      "artifacts": [
+        "docs/asf/spec/plan.md"
+      ],
+      "notes_for_next_agent": "probe is /health",
+      "for_the_record": [],
+      "commit_message": "docs: plan"
+    }
+  }
+}

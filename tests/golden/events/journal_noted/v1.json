@@ -1,0 +1,24 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "journal_noted",
+  "v": 1,
+  "payload": {
+    "entry": {
+      "seq": 4,
+      "at": "2026-09-29T11:59:50.000+00:00",
+      "kind": "note",
+      "phase": "implement",
+      "by": "builder",
+      "status": "",
+      "summary": "",
+      "note": {
+        "kind": "deviation",
+        "what": "used httpx",
+        "instead_of": "requests",
+        "because": "requests is not on the index"
+      },
+      "remark": null
+    }
+  }
+}

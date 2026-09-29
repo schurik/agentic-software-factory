@@ -93,6 +93,14 @@ bug already shipped once.
    drop it. An agent DECLARES a note; code files it. A remark and a note differ in authority
    (instruction vs report), which is the preamble's job, not a second module's.
 9. Functions over four parameters take one concrete type instead (`AgentCall`, `PhaseParams`).
+10. **A change to an event kind or the self-description bumps its version and adds a fixture.**
+   A session's `events.jsonl` is typed domain events (`engine/events.py`, payloads in
+   `data_types.py` under "Domain events"), and it is a contract with a cockpit this repo does not
+   run. Any change to a payload bumps that kind's `VERSION` and adds
+   `tests/golden/events/<kind>/v<N>.json` beside the old fixture, which is never edited — the
+   cockpit reads every version ever written. An event is appended by the function that writes the
+   file it describes, and `tests/projection.py` must still rebuild `run.json`, the decisions, the
+   envelopes and the journal from the events alone.
 
 ## Working in here
 

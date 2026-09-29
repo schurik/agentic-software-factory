@@ -47,8 +47,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import artifacts, issues, journal
-from .data_types import (Decision, EnvelopeBase, EventRecord, Gate, HitlConfig, IssueRef,
+from . import artifacts, events, issues, journal
+from .data_types import (Decision, DecisionRecorded, EnvelopeBase, EventRecord, Gate,
+                         HitlConfig, IssueRef,
                          IssueUpdate, Phase, PhaseParams, Remark, Reply, Subject,
                          WaitingFor)
 from .utils import now_iso, write_atomic
@@ -81,11 +82,21 @@ def decision_path(session_dir: Path, gate: str, round: int) -> Path:
     return artifacts.decisions_dir(session_dir) / f"{gate}_{round}.json"
 
 
-def record(session_dir: Path, decision: Decision) -> Path:
-    """Write one decision. Keyed by gate and round; a later write replaces."""
+def record(session_dir: Path, decision: Decision, consumed: bool = False) -> Path:
+    """Write one decision. Keyed by gate and round; a later write replaces.
+
+    `consumed` is the run ACTING on it, which is also when the session stops
+    waiting — one call, so the file, the wait and the `decision_recorded` event
+    a cockpit reads cannot disagree about whether the gate is still open.
+    Written from inside a run and from outside one (`asf answer`, a watcher),
+    which is why the event goes straight to the session's log.
+    """
     path = decision_path(session_dir, decision.gate, decision.round)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(path, decision.model_dump_json(indent=2))
+    if consumed:
+        artifacts.clear_waiting(session_dir)
+    events.emit(session_dir, DecisionRecorded(decision=decision, consumed=consumed))
     return path
 
 
@@ -333,7 +344,7 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
     # The blocked-and-polling path. `run.hitl.ask` is None without a TTY; a
     # test injects a scripted answerer the same way a keypress would answer.
     if run.hitl.ask is not None:
-        artifacts.update_run(run.session_dir, waiting_for=waiting)   # `just pending` sees it
+        artifacts.open_gate(run.session_dir, waiting)               # `just pending` sees it
         answer = _attended(run, waiting)
         if answer is not None:
             return _consume(run, phase, answer, subject.kind)
@@ -409,10 +420,9 @@ def _consume(run, phase: Phase, decision: Decision, kind: str = "gate") -> Decis
         decision.decided_at = now_iso()
     if not decision.consumed_at:
         decision.consumed_at = now_iso()
-    record(run.session_dir, decision)
+    record(run.session_dir, decision, consumed=True)
     _remember(run, phase, decision, kind)
-    artifacts.clear_waiting(run.session_dir)
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="decision", name=decision.gate,
                                  payload=decision.model_dump()))
     run.console.decided(decision)
@@ -669,7 +679,7 @@ def _pass_by_policy(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
                         channel="auto", subject_digest=digest(paths), decided_at=stamp,
                         consumed_at=stamp)
     record(run.session_dir, decision)
-    run.tracer.event(EventRecord(adw_id=run.adw_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id,
                                  phase_id=run.phases[-1].phase_id if run.phases else "",
                                  type="decision", name=gate.name,
                                  payload=decision.model_dump()))

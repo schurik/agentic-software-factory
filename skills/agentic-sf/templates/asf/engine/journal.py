@@ -49,8 +49,10 @@ walked, and its entries must land on their old rows rather than beside them.
 
 Two files and one of them is derived: `<session_dir>/journal.json` holds the
 entries, and `<context_handoff_dir>/journal.md` is that same list rendered,
-rewritten whole on every write so it cannot drift from what it shows. The trace
-db mirrors the same phases and decisions, and nothing here reads it.
+rewritten whole on every write so it cannot drift from what it shows. Every
+entry filed is also a `journal_noted` domain event, which is how a cockpit shows
+the journal exactly as the next agent reads it. The trace db mirrors the same
+phases and decisions, and nothing here reads it.
 """
 
 from __future__ import annotations
@@ -59,7 +61,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from .data_types import EnvelopeBase, JournalEntry, Note, Remark
+from . import events
+from .data_types import EnvelopeBase, JournalEntry, JournalNoted, Note, Remark
 from .utils import now_iso, write_atomic
 
 RECORD = "journal.json"      # the entries
@@ -152,6 +155,7 @@ def file(session_dir: str | Path, entry: JournalEntry,
         entries.append(entry)
     entries.sort(key=lambda e: (e.seq, e.rank))
     _write(session_dir, entries, handoff_dir)
+    events.emit(session_dir, JournalNoted(entry=entry))
 
 
 def record_phase(run, phase, envelope: Optional[EnvelopeBase] = None,

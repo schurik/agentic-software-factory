@@ -1,0 +1,14 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "command_result",
+  "v": 1,
+  "payload": {
+    "command_id": "cmd_01j9x",
+    "verb": "kill",
+    "adw_id": "5c0075aa",
+    "by": "schurik",
+    "ok": true,
+    "detail": "stopped 2 processes"
+  }
+}

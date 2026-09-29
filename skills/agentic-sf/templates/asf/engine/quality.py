@@ -43,8 +43,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .data_types import (EventRecord, QualityCheckResult, QualityCheckSpec, QualityResult,
-                         VerifyOutput)
+from .data_types import (RAW_TAIL_CHARS, CommandFinished, EventRecord, QualityCheckResult,
+                         QualityCheckSpec, QualityResult, VerifyOutput)
 from .utils import now_iso, operator_env, write_atomic
 
 # How much of a failing command's output rides back inside the envelope. Enough
@@ -169,7 +169,12 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
         f"\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}\n"
     )
     passed = returncode == 0
-    run.tracer.event(EventRecord(
+    # The log above stays on this machine; the event is what travels, and its
+    # tail is where a red suite says why.
+    run.tracer.event(CommandFinished(
+        phase_id=phase.phase_id, name=spec.name, argv=list(spec.argv), exit_code=returncode,
+        duration_seconds=round(duration, 3), output_tail=(stdout + stderr)[-RAW_TAIL_CHARS:]))
+    run.tracer.mirror(EventRecord(
         adw_id=run.adw_id,
         phase_id=phase.phase_id,
         type="tool_call",

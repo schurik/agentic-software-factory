@@ -1,7 +1,11 @@
 """Tracer: every event lands in JSONL and SQLite AS IT HAPPENS.
 
-Files are the raw record; asf.db is the queryable mirror the UI polls.
-No push transport — the flow is always: agents -> sqlite -> web ui.
+Two halves, and only one of them is staying. `Tracer.event` takes a typed
+domain event and appends it to the session's `events.jsonl` through
+`engine/events.py` — the record a station ships to a cockpit. Everything else
+here is the SQLite MIRROR the legacy visualizer polls: `mirror()` for its event
+rows, and the session/phase/process/agent rows beside them. That half is
+written exactly as before and is removed in 1.2, once the cockpit covers it.
 WAL mode so the UI can read while ADW processes write.
 
 THE FACTORY ONLY WRITES HERE. Nothing in it reads this db back — not a run,
@@ -26,7 +30,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .data_types import AgentConfig, EventRecord, GateReport, Phase, Workspace
+from . import events
+from .data_types import AgentConfig, DomainEvent, EventRecord, GateReport, Phase, Workspace
 from .utils import ensure_dir, new_id, now_iso
 
 SCHEMA = """
@@ -218,11 +223,10 @@ def watcher_beat(db_path: str | Path, kind: str, status: str, *,
 
 
 class Tracer:
-    def __init__(self, db_path: str | Path, events_jsonl: str | Path):
+    def __init__(self, db_path: str | Path, session_dir: str | Path):
         ensure_dir(Path(db_path).parent)
         self.db_path = str(db_path)
-        self.events_jsonl = Path(events_jsonl)
-        ensure_dir(self.events_jsonl.parent)
+        self.session_dir = ensure_dir(Path(session_dir))
         self.conn = sqlite3.connect(self.db_path, isolation_level=None)
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
@@ -238,12 +242,14 @@ class Tracer:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
     # ── events ──────────────────────────────────────────────────────────────
-    def event(self, record: EventRecord) -> str:
+    def event(self, event: DomainEvent) -> int:
+        """A typed domain event, onto the session's `events.jsonl`. Returns its seq."""
+        return events.emit(self.session_dir, event)
+
+    def mirror(self, record: EventRecord) -> str:
+        """One row of the db's `events` table, for the legacy visualizer only."""
         event_id = f"evt_{new_id(12)}"
         ts = now_iso()
-        line = {"event_id": event_id, "ts": ts, **record.model_dump()}
-        with self.events_jsonl.open("a") as f:
-            f.write(json.dumps(line) + "\n")
         self.conn.execute(
             "INSERT INTO events (event_id, adw_id, phase_id, parent_id, type, name,"
             " payload_json, tokens, started_at, ended_at) VALUES (?,?,?,?,?,?,?,?,?,?)",

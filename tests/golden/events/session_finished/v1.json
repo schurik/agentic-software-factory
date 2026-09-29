@@ -1,0 +1,11 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "session_finished",
+  "v": 1,
+  "payload": {
+    "status": "fail",
+    "ended_at": "2026-09-29T12:00:00.000+00:00",
+    "reason": "the run's acceptance criterion was not met"
+  }
+}

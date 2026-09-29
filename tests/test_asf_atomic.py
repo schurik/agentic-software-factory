@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from engine import artifacts, utils
-from engine.data_types import RunState
+from engine.data_types import RunState, SessionStarted
 from engine.utils import sweep_temps, write_atomic
 
 from .conftest import TEMPLATES
@@ -136,15 +136,18 @@ def test_taking_a_session_sweeps_what_a_killed_write_left(tmp_path: Path):
     leftover.write_text('{"adw_id": "swe')
     _age(leftover)
 
-    artifacts.start_run(session_dir, RunState(adw_id="swept"))
+    artifacts.start_run(session_dir, SessionStarted(adw_id="swept", workflow="sdlc"))
     assert not leftover.exists()
     assert artifacts.read_run(session_dir).adw_id == "swept"
 
 
 # ── no in-place rewrite remains ──────────────────────────────────────────────
 
-# The only writes allowed to stay in place, and why. Neither is a session file.
+# The only writes allowed to stay in place, and why. None rewrites a session file.
 IN_PLACE_ALLOWED = {
+    # `events.jsonl`, opened "a+b": every write lands at the end (append mode),
+    # and the "+" is only so the handle holding the flock can read the last seq.
+    ("engine/events.py", "emit"),
     # The fake harness playing an AGENT: it edits the run's worktree, which is
     # exactly what an agent's own tools do, and what permissions.py then diffs.
     ("engine/harnesses/fake.py", "_apply"),

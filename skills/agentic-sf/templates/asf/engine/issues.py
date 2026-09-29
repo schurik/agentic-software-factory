@@ -201,7 +201,7 @@ def fetch(run, config: IssuesConfig, ref: IssueRef) -> IssueContext:
         body_path=str(body_path),
         carries_requirements=refined,
     )
-    run.tracer.event(EventRecord(
+    run.tracer.mirror(EventRecord(
         adw_id=run.adw_id, phase_id=run.phases[-1].phase_id if run.phases else "",
         type="tool_call", name="issue:fetch",
         payload={"command": " ".join(config.fetch_command[:3]), "project": project,

@@ -19,10 +19,11 @@ import os
 import time
 from contextlib import contextmanager
 
-from . import agents, artifacts, hitl, journal, limits, replay, worktree
+from . import agents, artifacts, git_helper, hitl, journal, limits, replay, worktree
 from .console import Console
-from .data_types import (AgentCall, Decision, EnvelopeBase, EventRecord, Gate, Phase,
-                         PhaseParams, RunSpec, Subject)
+from .data_types import (AgentCall, AgentResult, Decision, EnvelopeBase, EventRecord, Gate,
+                         Phase, PhaseEnded, PhaseParams, PhaseStarted, ProvenanceRecorded,
+                         RunSpec, SessionSuspended, Subject, UsageRecorded)
 from .utils import anchor, ensure_dir, now_iso, write_atomic
 
 
@@ -38,7 +39,7 @@ class PhaseHandle:
         self.said = ""
 
     def log(self, **payload) -> None:
-        self.run.tracer.event(EventRecord(adw_id=self.run.adw_id,
+        self.run.tracer.mirror(EventRecord(adw_id=self.run.adw_id,
                                           phase_id=self.phase.phase_id,
                                           type="log", name=self.phase.params.name,
                                           payload=payload))
@@ -198,14 +199,16 @@ class Run:
         self.issue_number = context.number
         self.issue_url = context.url
         self.tracer.session_issue(self.adw_id, context.url)
-        artifacts.update_run(self.session_dir, trigger="issue", issue_url=context.url,
-                             issue_number=context.number, issue_project=context.project)
-        # `request` is otherwise only written by an ENGINEER phase (see
-        # PhaseHandle.log), and an issue-triggered chain has none — so without
-        # this every such run reads as blank in `just sessions` and on its card
-        # in the UI. The title is what the request field is for: the one line
-        # that says what this run was about.
-        self.tracer.session_request(self.adw_id, f"#{context.number} {context.title}")
+        # `request` is otherwise only known from the prompt (see
+        # `session_started` and PhaseHandle.log), and an issue-triggered chain
+        # has none — so without this every such run reads as blank in `just
+        # sessions` and on its card in the UI. The title is what the request
+        # field is for: the one line that says what this run was about.
+        request = f"#{context.number} {context.title}"
+        artifacts.record_provenance(self.session_dir, ProvenanceRecorded(
+            request=request, trigger="issue", issue_url=context.url,
+            issue_number=context.number, issue_project=context.project))
+        self.tracer.session_request(self.adw_id, request)
 
     def record_pull_request(self, context) -> None:
         """Bind this run to the pull request whose review feedback caused it.
@@ -227,20 +230,25 @@ class Run:
             self.tracer.session_trigger(self.adw_id, self.trigger)
         self.pr_url = context.url or self.pr_url
         self.tracer.session_pr(self.adw_id, context.url)
-        artifacts.update_run(self.session_dir, trigger=self.trigger, pr_url=context.url)
+        artifacts.record_provenance(self.session_dir, ProvenanceRecorded(
+            trigger=self.trigger, pr_url=context.url))
 
     # ── usage (run totals mirror what the tracer accumulates in sqlite) ─────
-    def add_usage(self, tokens: int, cost: float) -> None:
-        self.tokens += tokens
-        self.cost += cost
-        self.tracer.session_add_usage(self.adw_id, tokens, cost)
+    def add_usage(self, phase: Phase, agent, result: AgentResult) -> None:
+        """Bank one agent turn's spend — `agent` is the AgentConfig that paid it."""
+        self.tokens += result.tokens
+        self.cost += result.cost
+        self.tracer.session_add_usage(self.adw_id, result.tokens, result.cost)
         # ...and into the session's own record, because the budget has to be
         # readable by the next process without the db. Absolute totals, not an
         # increment: this process knows what came before it, so nothing has to
         # read-modify-write a number two runs could race on.
-        artifacts.update_run(self.session_dir,
-                             total_tokens=self._prior_tokens + self.tokens,
-                             total_cost=self._prior_cost + self.cost)
+        artifacts.record_usage(self.session_dir, UsageRecorded(
+            phase_id=phase.phase_id, agent=agent.name, model=agent.model,
+            tokens=result.tokens, cost=result.cost, usage=result.usage,
+            context_tokens=result.context_tokens, context_window=result.context_window,
+            session_tokens=self._prior_tokens + self.tokens,
+            session_cost=self._prior_cost + self.cost))
 
     def overrun(self) -> str:
         """Why this session may spend no more, or "" while it still may.
@@ -252,6 +260,13 @@ class Run:
         """
         return limits.overrun(self._prior_tokens + self.tokens,
                               self._prior_cost + self.cost, self.cfg.budget)
+
+    def _head(self) -> str:
+        """The work branch's commit right now, or "" when git cannot say."""
+        try:
+            return git_helper.rev(self.repo_root, "HEAD")
+        except (RuntimeError, OSError):   # a record of a wait is never worth failing it
+            return ""
 
     # ── the phase primitive ─────────────────────────────────────────────────
     def _identity(self, params: PhaseParams) -> tuple[int, str]:
@@ -282,8 +297,11 @@ class Run:
         phase = Phase(phase_id=phase_id, adw_id=self.adw_id, seq=seq, params=params,
                       status="running", started_at=now_iso())
         self.phases.append(phase)
+        self.tracer.event(PhaseStarted(phase_id=phase_id, seq=seq, name=params.name,
+                                       kind=params.kind, owner=params.owner,
+                                       description=params.description))
         self.tracer.phase_upsert(phase)
-        self.tracer.event(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
+        self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                       type="phase_start", name=params.name,
                                       payload={"kind": params.kind, "owner": params.owner,
                                                "description": params.description}))
@@ -298,14 +316,19 @@ class Run:
             # by name. The worktree is kept — its uncommitted work is the subject.
             phase.status = "waiting"
             phase.ended_at = now_iso()
-            self.tracer.event(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
+            self.tracer.event(PhaseEnded(phase_id=phase_id, name=params.name, status="waiting",
+                                         attempt=phase.attempt, gate=stop.waiting.gate,
+                                         round=stop.waiting.round))
+            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="phase_end", name=params.name,
                                           payload={"status": "waiting",
                                                    "gate": stop.waiting.gate,
                                                    "round": stop.waiting.round}))
             self.tracer.phase_upsert(phase)
             self.tracer.session_waiting(self.adw_id, stop.waiting.gate)
-            artifacts.suspend_run(self.session_dir, stop.waiting)
+            artifacts.suspend_run(self.session_dir, SessionSuspended(
+                waiting_for=stop.waiting, base_commit=self.workspace.base_commit,
+                head_sha=self._head()))
             self.console.phase_ended(phase, time.monotonic() - clock)
             self.console.waiting(stop.waiting, hitl.how_to_answer(self, stop.waiting.gate,
                                                     stop.waiting.kind))
@@ -314,15 +337,18 @@ class Run:
             phase.status = "fail"                      # success must be earned
             phase.error = str(error)[:1000]
             phase.ended_at = now_iso()
-            self.tracer.event(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
+            self.tracer.event(PhaseEnded(phase_id=phase_id, name=params.name, status="fail",
+                                         attempt=phase.attempt, error=phase.error))
+            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="error", name=params.name,
                                           payload={"error": phase.error}))
-            self.tracer.event(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
+            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="phase_end", name=params.name,
                                           payload={"status": "fail"}))
             self.tracer.phase_upsert(phase)
             self.tracer.session_finish(self.adw_id, ok=False)
-            artifacts.finish_run(self.session_dir, "fail")
+            artifacts.finish_run(self.session_dir, "fail",
+                                 reason=f"{params.name} failed: {phase.error}")
             self.console.phase_ended(phase, time.monotonic() - clock)
             self.console.session_finished(False, self.tokens, self.cost,
                                           self.cfg.observability.db)
@@ -330,7 +356,9 @@ class Run:
         else:
             phase.status = "success"
             phase.ended_at = now_iso()
-            self.tracer.event(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
+            self.tracer.event(PhaseEnded(phase_id=phase_id, name=params.name,
+                                         status="success", attempt=phase.attempt))
+            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="phase_end", name=params.name,
                                           payload={"status": "success"}))
             self.tracer.phase_upsert(phase)
@@ -382,9 +410,10 @@ class Run:
         """
         phases_ok = bool(self.phases) and all(p.status == "success" for p in self.phases)
         ok = phases_ok and accepted
+        note = ""
         if phases_ok and not accepted:
             note = reason or "the run's acceptance criterion was not met"
-            self.tracer.event(EventRecord(
+            self.tracer.mirror(EventRecord(
                 adw_id=self.adw_id,
                 phase_id=self.phases[-1].phase_id if self.phases else "",
                 type="error", name="not_accepted", payload={"reason": note}))
@@ -392,7 +421,7 @@ class Run:
         self.tracer.session_finish(self.adw_id, ok=ok)
         # The session's own record says the same thing, and it is the one a
         # resume reads: `just resume` must not need the trace db to exist.
-        artifacts.finish_run(self.session_dir, "success" if ok else "fail")
+        artifacts.finish_run(self.session_dir, "success" if ok else "fail", reason=note)
         # An accepted run's worktree is a redundant copy of a branch that is
         # kept, so it goes; a failed or killed one is the evidence, so it stays.
         # `release` also keeps anything with uncommitted work in it, whatever
