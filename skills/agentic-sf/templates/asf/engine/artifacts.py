@@ -44,7 +44,7 @@ import json
 from pathlib import Path
 
 from .data_types import RecordedPhase, RunState, WaitingFor
-from .utils import ensure_dir
+from .utils import ensure_dir, write_atomic
 
 RUN_FILE = "run.json"
 ENVELOPES_DIR = "envelopes"
@@ -70,7 +70,7 @@ def read_run(session_dir: Path) -> RunState | None:
 
 def write_run(session_dir: Path, state: RunState) -> None:
     ensure_dir(Path(session_dir))
-    run_path(session_dir).write_text(state.model_dump_json(indent=2))
+    write_atomic(run_path(session_dir), state.model_dump_json(indent=2))
 
 
 def start_run(session_dir: Path, state: RunState) -> RunState:
@@ -194,7 +194,7 @@ def waiting_sessions(sessions_dir: Path) -> dict[str, WaitingFor]:
 def write_envelope(session_dir: Path, record: RecordedPhase) -> None:
     """One agent phase's envelope, keyed by the phase that produced it."""
     directory = ensure_dir(Path(session_dir) / ENVELOPES_DIR)
-    (directory / f"{record.phase_id}.json").write_text(record.model_dump_json(indent=2))
+    write_atomic(directory / f"{record.phase_id}.json", record.model_dump_json(indent=2))
 
 
 def recorded_phases(session_dir: Path) -> list[RecordedPhase]:
@@ -413,7 +413,7 @@ def watcher_beat(directory: Path, kind: str, fields: dict) -> None:
                 previous = {}
         row = {**previous, **fields, "kind": kind}
         row["started_at"] = previous.get("started_at") or fields.get("started_at", "")
-        path.write_text(json.dumps(row, indent=2))
+        write_atomic(path, json.dumps(row, indent=2))
     except OSError:
         pass
 

@@ -52,6 +52,35 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
+def write_atomic(path: str | Path, text: str) -> Path:
+    """Replace `path` with `text` so no reader ever sees anything but a whole file.
+
+    A session directory is read by processes that did not write it — `asf
+    status`, a watcher deciding whether a run is alive, a station's shipper —
+    and `write_text` truncates first and writes after: a reader landing in
+    between gets half a `run.json`, or an empty one. So the text goes to a
+    sibling temp file and `os.replace` swaps it in, which POSIX makes atomic
+    within one directory. A reader sees the old file or the new one.
+
+    The temp name is hidden and ends in `.tmp`, so no `*.json` glob picks it up,
+    and it is opened `"x"` rather than through `mkstemp`, so the file keeps the
+    umask-derived mode an in-place write gave it. The promise is to concurrent
+    readers, not to a power cut: nothing is fsynced. Append-only logs
+    (`events.jsonl`, `processes.jsonl`) do not come through here — a one-line
+    append is already the write that needs no coordination.
+    """
+    target = Path(path)
+    temp = target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        with open(temp, "x") as stream:
+            stream.write(text)
+        os.replace(temp, target)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    return target
+
+
 def anchor(root: str | Path, path: str | Path) -> Path:
     """Resolve `path` against `root` unless it is already absolute.
 

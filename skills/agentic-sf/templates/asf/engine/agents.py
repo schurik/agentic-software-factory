@@ -22,7 +22,7 @@ from .data_types import (AgentCall, AgentConfig, AgentRequest, AgentResult,
                          AgentSession, EnvelopeBase, EventRecord, GateCheck,
                          GateReport, Phase, RecordedPhase, FactoryConfig,
                          UsageBreakdown)
-from .utils import anchor
+from .utils import anchor, write_atomic
 
 JSON_FIX_ATTEMPTS = 2      # continue-with-correction attempts for malformed JSON
 
@@ -587,7 +587,7 @@ def _persist_envelope(run, phase: Phase, agent_name: str, call: AgentCall,
     record = {"agent_name": agent_name, "purpose": resolve(run.cfg, agent_name).purpose,
               "output_type": call.output_type.__name__, "attempt": attempt,
               **envelope.model_dump()}
-    (run.session_dir / agent_name / "envelope.json").write_text(json.dumps(record, indent=2))
+    write_atomic(run.session_dir / agent_name / "envelope.json", json.dumps(record, indent=2))
     # And once more keyed by the PHASE. The file above is last-wins per agent —
     # right for "what did the builder last say", useless for a resume, where a
     # builder that built, fixed and revised has to answer three phases. This one

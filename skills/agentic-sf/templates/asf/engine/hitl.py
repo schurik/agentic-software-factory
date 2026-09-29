@@ -51,7 +51,7 @@ from . import artifacts, issues, journal
 from .data_types import (Decision, EnvelopeBase, EventRecord, Gate, HitlConfig, IssueRef,
                          IssueUpdate, Phase, PhaseParams, Remark, Reply, Subject,
                          WaitingFor)
-from .utils import now_iso
+from .utils import now_iso, write_atomic
 
 EXIT_WAITING = 75          # EX_TEMPFAIL: "try again later", which is exactly it
 POLL_SECONDS = 2.0         # attended: how long one look at the keyboard waits
@@ -85,7 +85,7 @@ def record(session_dir: Path, decision: Decision) -> Path:
     """Write one decision. Keyed by gate and round; a later write replaces."""
     path = decision_path(session_dir, decision.gate, decision.round)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(decision.model_dump_json(indent=2))
+    write_atomic(path, decision.model_dump_json(indent=2))
     return path
 
 

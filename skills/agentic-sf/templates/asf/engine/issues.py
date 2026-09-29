@@ -37,7 +37,7 @@ from pathlib import Path
 from . import git_helper
 from .data_types import (EventRecord, IssueComment, IssueContext, IssueOutput, IssueRef,
                          IssueResult, IssuesConfig, IssueUpdate, PullRequestsConfig, Question)
-from .utils import operator_env
+from .utils import operator_env, write_atomic
 
 BODY_FILENAME = "issue.md"
 ANSWERS_FILENAME = "answers.md"
@@ -175,7 +175,8 @@ def fetch(run, config: IssuesConfig, ref: IssueRef) -> IssueContext:
 
     # The body is written, not carried. Everything downstream reads the file.
     body_path = run.context_handoff_dir / BODY_FILENAME
-    body_path.write_text(
+    write_atomic(
+        body_path,
         f"# {title}\n\n"
         f"<!-- issue #{payload.get('number', ref.number)}"
         f"{f' in {project}' if project else ''} -->\n"
@@ -510,7 +511,7 @@ def write_answers(path: Path, answers: list[IssueComment],
         # suspended, and this file is only written once something came back.
         lines += ["Nobody wrote anything." if agreed else "Nobody answered.", ""]
     text = "\n".join(lines)
-    path.write_text(text)
+    write_atomic(path, text)
     return text
 
 

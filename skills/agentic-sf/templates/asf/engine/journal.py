@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Optional
 
 from .data_types import EnvelopeBase, JournalEntry, Note, Remark
-from .utils import now_iso
+from .utils import now_iso, write_atomic
 
 RECORD = "journal.json"      # the entries
 RENDERED = "journal.md"      # the same entries, as the file a person opens
@@ -124,13 +124,13 @@ def _write(session_dir: str | Path, entries: list[JournalEntry],
            handoff_dir: Optional[Path] = None) -> None:
     record = path(session_dir)
     record.parent.mkdir(parents=True, exist_ok=True)
-    record.write_text(json.dumps([e.model_dump() for e in entries], indent=2))
+    write_atomic(record, json.dumps([e.model_dump() for e in entries], indent=2))
     if handoff_dir is not None:
         # The same content, as the file a person opens. Rewritten whole every
         # time rather than appended to, so it can never disagree with the
         # entries it is a view of.
         handoff_dir.mkdir(parents=True, exist_ok=True)
-        (handoff_dir / RENDERED).write_text(render(entries) or f"{PREAMBLE}\n(nothing yet)\n")
+        write_atomic(handoff_dir / RENDERED, render(entries) or f"{PREAMBLE}\n(nothing yet)\n")
 
 
 def file(session_dir: str | Path, entry: JournalEntry,

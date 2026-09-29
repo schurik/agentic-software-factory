@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import frontmatter
+from .utils import write_atomic
 
 
 def render(template_path: str | Path, variables: dict[str, str]) -> str:
@@ -22,5 +23,5 @@ def save(directory: str | Path, name: str, content: str) -> Path:
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / name
-    path.write_text(content)
+    write_atomic(path, content)
     return path

@@ -45,7 +45,7 @@ from typing import Callable
 
 from .data_types import (EventRecord, QualityCheckResult, QualityCheckSpec, QualityResult,
                          VerifyOutput)
-from .utils import now_iso, operator_env
+from .utils import now_iso, operator_env, write_atomic
 
 # How much of a failing command's output rides back inside the envelope. Enough
 # for a builder to act on without opening the artifact; bounded so a runaway
@@ -163,7 +163,8 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
             stderr = str(error)
 
     duration = time.monotonic() - clock
-    output_artifact.write_text(
+    write_atomic(
+        output_artifact,
         f"$ {command}\nexit: {returncode}\nduration_seconds: {duration:.3f}\n"
         f"\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}\n"
     )
