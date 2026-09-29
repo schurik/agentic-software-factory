@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, Type
+from typing import Any, Callable, ClassVar, Literal, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -1348,6 +1348,16 @@ class RunSpec(BaseModel):
     hitl: str = ""                  # the --hitl flag, or "" for the config's say
 
 
+class SessionSpec(BaseModel):
+    """What `session.ensure` is asked for: which session, and how it was opened."""
+
+    adw_id: Optional[str] = None    # None mints a fresh id
+    resume: bool = False
+    hitl: str = ""
+    name: Optional[str] = None      # the workflow's name; None = the script's own
+    request: str = ""               # the prompt, on a prompt run — `session_started` carries it
+
+
 # ── Integration (landing a run's branch) ─────────────────────────────────────
 
 class IntegrationRequest(BaseModel):
@@ -1701,3 +1711,295 @@ class AgentResult(BaseModel):
 
 
 PiResult = AgentResult              # transitional alias; prefer AgentResult
+
+
+# ── Domain events (engine/events.py) ─────────────────────────────────────────
+#
+# The wire a station ships and a cockpit builds every view from: one typed,
+# versioned fact per line of a session's `events.jsonl`, as
+# `{seq, ts, kind, v, payload}`. The classes below are the payloads; `KIND` is
+# the name on the wire and `VERSION` is that kind's own version.
+#
+# VERSIONING IS PER KIND, and every change to a payload — a field added,
+# removed, renamed or retyped — bumps that kind's VERSION and adds a fixture
+# under `tests/golden/events/<kind>/v<N>.json` beside the old one. The old one
+# stays: a cockpit reads every version a factory ever wrote, and the fixture is
+# how its half of the suite knows what that was. The factory half fails until
+# the fixture for the current version matches what the writer produces.
+#
+# Most payloads are written beside the file they describe, by the function that
+# writes it — `run.json` in `artifacts`, a decision in `hitl.record`, a journal
+# entry in `journal.file` — so a session file cannot change without an event
+# saying so. `tests/projection.py` replays the events and rebuilds those files,
+# which is what keeps the two in step without the factory deriving its own state
+# from the log (ADR 0002: deferred, not rejected).
+
+class DomainEvent(BaseModel):
+    """Base of every event payload. Subclasses set `KIND` and `VERSION`."""
+
+    KIND: ClassVar[str] = ""
+    VERSION: ClassVar[int] = 1
+
+
+class EventLine(BaseModel):
+    """One line of `events.jsonl`, before its payload is read as a kind."""
+
+    seq: int                        # per session, from 1, no gaps
+    ts: str
+    kind: str
+    v: int
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionStarted(DomainEvent):
+    """A process took this session — a new one, a join, a resume or an answer.
+
+    Carries what the new `run.json` is built from, plus what only the trace db
+    used to know: the base the work branch was cut from. Fields a station does
+    not know yet (`triggered_by`, the station itself, the skill version) are
+    empty until the ticket that teaches the factory each of them.
+    """
+
+    KIND: ClassVar[str] = "session_started"
+
+    adw_id: str
+    workflow: str
+    command: list[str] = Field(default_factory=list)     # argv of this process
+    pid: int = 0
+    engineer: str = ""
+    started_at: str = ""
+    repo_root: str = ""
+    branch: str = ""
+    base_ref: str = ""
+    base_commit: str = ""
+    trigger: str = "engineer"
+    triggered_by: str = ""
+    issue_url: str = ""
+    pr_url: str = ""
+    request: str = ""               # the prompt, on a prompt run
+    station_id: str = ""
+    station_name: str = ""
+    skill_version: str = ""
+
+
+class ProvenanceRecorded(DomainEvent):
+    """The session learned what asked for it: a request, an issue, a pull request.
+
+    Empty fields say nothing — provenance is learned, never unlearned, which is
+    the rule `artifacts.record_provenance` applies to `run.json`. `request` is
+    the one line the trace db used to be the only home of: the prompt of an
+    engineer's run, `#42 title` of an issue run.
+    """
+
+    KIND: ClassVar[str] = "provenance_recorded"
+
+    request: str = ""
+    trigger: str = ""
+    issue_url: str = ""
+    issue_number: int = 0
+    issue_project: str = ""
+    pr_url: str = ""
+
+
+class PhaseStarted(DomainEvent):
+    KIND: ClassVar[str] = "phase_started"
+
+    phase_id: str
+    seq: int
+    name: str
+    kind: PhaseKind
+    owner: str = ""
+    description: str = ""
+
+
+class PhaseEnded(DomainEvent):
+    """A phase closed. `waiting` names the gate and round it stopped at."""
+
+    KIND: ClassVar[str] = "phase_ended"
+
+    phase_id: str
+    name: str
+    status: PhaseStatus
+    attempt: int = 0
+    error: str = ""
+    gate: str = ""
+    round: int = 0
+
+
+class EnvelopeAccepted(DomainEvent):
+    """An agent phase's envelope, parsed, through its gates and its write boundary.
+
+    Rebuilds both envelope files: `envelopes/<phase_id>.json`, which a resume
+    replays, and `<agent>/envelope.json`, last-wins per agent. `attempt` 0 is a
+    resumed run replaying the recorded envelope rather than calling the agent.
+    """
+
+    KIND: ClassVar[str] = "envelope_accepted"
+
+    phase_id: str
+    seq: int
+    phase: str
+    agent: str
+    purpose: str = ""
+    output_type: str
+    attempt: int = 1
+    envelope: dict[str, Any] = Field(default_factory=dict)
+
+
+RAW_TAIL_CHARS = 32_000     # the end of an agent's unparseable answer, or a command's output
+
+
+class EnvelopeRejected(DomainEvent):
+    """An agent's answer did not parse as its declared type. The same session is
+    re-prompted; `raw` is the tail of what it said, which only the db held."""
+
+    KIND: ClassVar[str] = "envelope_rejected"
+
+    phase_id: str
+    agent: str
+    output_type: str
+    attempt: int
+    error: str = ""
+    raw: str = ""
+
+
+class GateResult(DomainEvent):
+    KIND: ClassVar[str] = "gate_result"
+
+    phase_id: str
+    gate: str
+    attempt: int
+    passed: bool
+    violations: list[str] = Field(default_factory=list)
+    checks: list[GateCheck] = Field(default_factory=list)
+
+
+class GateOpened(DomainEvent):
+    """A gate is asking a person at this run's own terminal, the process alive.
+
+    The attended half of a wait. If nobody answers in time it becomes a
+    `suspended`; if somebody does, a consumed `decision_recorded` ends it.
+    """
+
+    KIND: ClassVar[str] = "gate_opened"
+
+    waiting_for: WaitingFor
+
+
+class SessionSuspended(DomainEvent):
+    """The process ended at a gate; the session waits for a person.
+
+    `base_commit` and `head_sha` pin what was being asked about, so a reader
+    can show the subject at exactly that commit rather than the branch tip.
+    """
+
+    KIND: ClassVar[str] = "suspended"
+
+    waiting_for: WaitingFor
+    base_commit: str = ""
+    head_sha: str = ""
+
+
+class DecisionRecorded(DomainEvent):
+    """A decision file was written. `consumed` is the run acting on it, which is
+    also the moment the session stops waiting."""
+
+    KIND: ClassVar[str] = "decision_recorded"
+
+    decision: Decision
+    consumed: bool = False
+
+
+class JournalNoted(DomainEvent):
+    """One journal entry filed — added, or replacing the one with its key."""
+
+    KIND: ClassVar[str] = "journal_noted"
+
+    entry: JournalEntry
+
+
+class UsageRecorded(DomainEvent):
+    """One agent turn's spend, and the session's totals after it.
+
+    The totals are absolute for the reason `Run.add_usage` writes them so:
+    summing floats in a different order than the writer did is how a projection
+    ends up a cent-billionth away from the file it rebuilds. The context pair is
+    the window's occupancy after this turn — the per-agent number only the db
+    used to keep.
+    """
+
+    KIND: ClassVar[str] = "usage"
+
+    phase_id: str = ""
+    agent: str
+    model: str = ""
+    tokens: int = 0
+    cost: float = 0.0
+    usage: UsageBreakdown = Field(default_factory=UsageBreakdown)
+    context_tokens: int = 0
+    context_window: int = 0
+    session_tokens: int = 0
+    session_cost: float = 0.0
+
+
+class ProcessStarted(DomainEvent):
+    KIND: ClassVar[str] = "process_started"
+
+    kind: Literal["adw", "agent"]   # the workflow process, or a coding-agent child
+    name: str = ""
+    pid: int
+    command: str = ""
+
+
+class ProcessEnded(DomainEvent):
+    KIND: ClassVar[str] = "process_ended"
+
+    pid: int
+
+
+class CommandFinished(DomainEvent):
+    """A known invocation a code phase ran — a quality block — and how it went.
+
+    `output_tail` replaces shipping the command log: the end of stdout and
+    stderr together, capped, because the end is where a failure says why.
+    """
+
+    KIND: ClassVar[str] = "command_finished"
+
+    phase_id: str
+    name: str
+    argv: list[str] = Field(default_factory=list)
+    exit_code: int
+    duration_seconds: float = 0.0
+    output_tail: str = ""
+
+
+class CommandResult(DomainEvent):
+    """What a station did with a command from a cockpit — the cockpit's only
+    source for "done". Nothing emits it until stations take commands."""
+
+    KIND: ClassVar[str] = "command_result"
+
+    command_id: str
+    verb: str
+    adw_id: str = ""
+    by: str = ""
+    ok: bool
+    detail: str = ""
+
+
+class SessionFinished(DomainEvent):
+    KIND: ClassVar[str] = "session_finished"
+
+    status: Literal["success", "fail"]
+    ended_at: str
+    reason: str = ""
+
+
+# Every kind the factory writes, by the name on the wire. One list, so a kind
+# cannot exist without the golden-corpus test asking for its fixture.
+EVENT_KINDS: dict[str, type[DomainEvent]] = {model.KIND: model for model in (
+    SessionStarted, ProvenanceRecorded, PhaseStarted, PhaseEnded, EnvelopeAccepted,
+    EnvelopeRejected, GateResult, GateOpened, SessionSuspended, DecisionRecorded,
+    JournalNoted, UsageRecorded, ProcessStarted, ProcessEnded, CommandFinished,
+    CommandResult, SessionFinished)}

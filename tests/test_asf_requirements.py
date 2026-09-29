@@ -871,7 +871,7 @@ class Fetching:
         self.main_root = tree
         self.context_handoff_dir = handoff
         self.phases: list = []
-        self.tracer = type("T", (), {"event": lambda *a, **k: None})()
+        self.tracer = type("T", (), {"mirror": lambda *a, **k: None})()
         self.adw_id = "abc123"
 
 

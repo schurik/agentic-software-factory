@@ -18,10 +18,10 @@ import yaml
 
 from . import (artifacts, git_helper, harnesses, journal, limits, permissions,
                preflight, prompts)
-from .data_types import (AgentCall, AgentConfig, AgentRequest, AgentResult,
-                         AgentSession, EnvelopeBase, EventRecord, GateCheck,
-                         GateReport, Phase, RecordedPhase, FactoryConfig,
-                         UsageBreakdown)
+from .data_types import (RAW_TAIL_CHARS, AgentCall, AgentConfig, AgentRequest, AgentResult,
+                         AgentSession, EnvelopeAccepted, EnvelopeBase, EnvelopeRejected,
+                         EventRecord, FactoryConfig, GateCheck, GateReport, GateResult, Phase,
+                         RecordedPhase, UsageBreakdown)
 from .utils import anchor, write_atomic
 
 JSON_FIX_ATTEMPTS = 2      # continue-with-correction attempts for malformed JSON
@@ -217,7 +217,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
 
     driver = harness_for(agent)
     session = _agent_session(run, agent, driver)
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="agent_start", name=agent.name,
                                  payload={"model": agent.model, "thinking": agent.thinking,
                                           "color": agent.color,
@@ -273,11 +273,11 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
             # did spend before failing the phase, or the next run in this
             # session inherits a ceiling that never saw the money go.
             if expiry.result:
-                run.add_usage(expiry.result.tokens, expiry.result.cost)
+                run.add_usage(phase, agent, expiry.result)
                 spent.merge(expiry.result.usage)
             _record_limit(run, phase, agent, "agent_timeout", str(expiry))
             raise
-        run.add_usage(result.tokens, result.cost)
+        run.add_usage(phase, agent, result)
         spent.merge(result.usage)
         latest = result
         # The session now EXISTS, and the next send in this phase must continue
@@ -323,14 +323,14 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     try:
         touched = permissions.enforce(run, phase, agent, tree_before)
     except permissions.PermissionBreach as breach:
-        run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+        run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                      type="error", name="permission_breach",
                                      payload={"agent": agent.name, "error": str(breach),
                                               "writes": agent.writes,
                                               "protected_files": run.cfg.defaults.protected_files}))
         raise
     if touched:
-        run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+        run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                      type="log", name="paths_touched",
                                      payload={"agent": agent.name, "paths": touched}))
 
@@ -350,11 +350,11 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                                  context_tokens=context.context_tokens,
                                  context_window=context.context_window)
     _remember(run, agent, session)
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="handoff", name=agent.name,
                                  payload={"artifacts": envelope.artifacts,
                                           "summary": envelope.summary}))
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="agent_end", name=agent.name,
                                  # Phase totals, not the last send's: a retried
                                  # phase paid for every attempt.
@@ -395,7 +395,7 @@ def _record_limit(run, phase: Phase, agent: AgentConfig, kind: str, reason: str)
     and "how often does a ceiling stop a run" answerable from the trace, the
     way `permission_breach` already is for the write boundary.
     """
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="error", name=kind,
                                  payload={"agent": agent.name, "reason": reason,
                                           "timeout_seconds": agent.timeout_seconds,
@@ -435,8 +435,11 @@ def _check_gates(run, phase: Phase, call: AgentCall, envelope: EnvelopeBase,
     for gate in call.gates:
         report = _as_report(gate(envelope, run))
         found = report.violations
+        run.tracer.event(GateResult(phase_id=phase.phase_id, gate=gate.__name__,
+                                    attempt=attempt, passed=not found, violations=found,
+                                    checks=report.checks))
         run.tracer.gate_row(phase, gate.__name__, report, attempt)
-        run.tracer.event(EventRecord(
+        run.tracer.mirror(EventRecord(
             adw_id=run.adw_id, phase_id=phase.phase_id,
             type="gate_fail" if found else "gate_pass", name=gate.__name__,
             payload={"attempt": attempt, "violations": found,
@@ -468,7 +471,7 @@ def _replay(run, phase: Phase, call: AgentCall, agent_name: str) -> Optional[Env
     if _check_gates(run, phase, call, envelope, attempt=0):
         run.console.note(f"replay rejected by its gates — running {agent_name} for real")
         return None
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="replay", name=agent_name,
                                  payload={"source_seq": record.seq,
                                           "source_phase": record.phase,
@@ -477,7 +480,7 @@ def _replay(run, phase: Phase, call: AgentCall, agent_name: str) -> Optional[Env
     run.console.replayed(phase.params.name, record.seq)
     _persist_envelope(run, phase, agent_name, call, envelope, attempt=0, valid=True)
     run.console.envelope_summary(envelope)
-    run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                  type="handoff", name=agent_name,
                                  payload={"artifacts": envelope.artifacts,
                                           "summary": envelope.summary}))
@@ -531,7 +534,7 @@ def _event_forwarder(run, phase: Phase, agent_name: str, driver):
         for record in tracker.observe(event):
             # The call's span rides the columns; duration_ms stays in the
             # payload as the coding agent's own authoritative number.
-            run.tracer.event(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
+            run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
                                          type="tool_call", name=record.pop("label"),
                                          started_at=record.pop("started_at", None),
                                          ended_at=record.pop("ended_at", None),
@@ -561,6 +564,10 @@ def _parse_with_retries(run, phase: Phase, call: AgentCall, result, send):
             payload = _extract_json(result.text)
             return call.output_type.model_validate(payload), attempt
         except Exception as error:
+            run.tracer.event(EnvelopeRejected(
+                phase_id=phase.phase_id, agent=phase.params.owner,
+                output_type=call.output_type.__name__, attempt=attempt,
+                error=str(error)[:1000], raw=result.text[-RAW_TAIL_CHARS:]))
             _persist_envelope(run, phase, phase.params.owner, call, None, attempt,
                               valid=False, raw=result.text)
             if attempt > JSON_FIX_ATTEMPTS:
@@ -584,7 +591,8 @@ def _persist_envelope(run, phase: Phase, agent_name: str, call: AgentCall,
                             payload_json, valid, attempt)
     if not envelope:
         return
-    record = {"agent_name": agent_name, "purpose": resolve(run.cfg, agent_name).purpose,
+    purpose = resolve(run.cfg, agent_name).purpose
+    record = {"agent_name": agent_name, "purpose": purpose,
               "output_type": call.output_type.__name__, "attempt": attempt,
               **envelope.model_dump()}
     write_atomic(run.session_dir / agent_name / "envelope.json", json.dumps(record, indent=2))
@@ -596,6 +604,11 @@ def _persist_envelope(run, phase: Phase, agent_name: str, call: AgentCall,
         phase_id=phase.phase_id, seq=phase.seq, phase=phase.params.name,
         agent=agent_name, output_type=call.output_type.__name__,
         payload_json=envelope.model_dump_json()))
+    # Both files above, as one event — everything either of them holds.
+    run.tracer.event(EnvelopeAccepted(
+        phase_id=phase.phase_id, seq=phase.seq, phase=phase.params.name, agent=agent_name,
+        purpose=purpose, output_type=call.output_type.__name__, attempt=attempt,
+        envelope=envelope.model_dump(mode="json")))
 
 
 def load_envelope(run, agent_name: str, output_type: type[EnvelopeBase]) -> EnvelopeBase:

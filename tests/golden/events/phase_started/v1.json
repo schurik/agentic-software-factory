@@ -1,0 +1,14 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "phase_started",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_03_plan",
+    "seq": 3,
+    "name": "plan",
+    "kind": "agent",
+    "owner": "planner",
+    "description": "Write the plan the builder will follow"
+  }
+}

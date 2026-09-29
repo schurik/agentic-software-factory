@@ -219,7 +219,7 @@ def attach(run, config: PullRequestsConfig,
     write_atomic(body_path, _threads_document(context, open_threads))
     context.threads_path = str(body_path)
 
-    run.tracer.event(EventRecord(
+    run.tracer.mirror(EventRecord(
         adw_id=run.adw_id, phase_id=run.phases[-1].phase_id if run.phases else "",
         type="tool_call", name="pr:fetch",
         payload={"project": context.project, "number": context.number,

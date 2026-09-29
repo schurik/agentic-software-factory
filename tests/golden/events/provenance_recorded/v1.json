@@ -1,0 +1,14 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "provenance_recorded",
+  "v": 1,
+  "payload": {
+    "request": "#42 health check broken",
+    "trigger": "issue",
+    "issue_url": "https://github.com/acme/widgets/issues/42",
+    "issue_number": 42,
+    "issue_project": "acme/widgets",
+    "pr_url": "https://github.com/acme/widgets/pull/9"
+  }
+}

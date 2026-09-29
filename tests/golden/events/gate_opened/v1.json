@@ -1,0 +1,25 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "gate_opened",
+  "v": 1,
+  "payload": {
+    "waiting_for": {
+      "gate": "plan",
+      "round": 2,
+      "kind": "gate",
+      "phase_id": "5c0075aa_05_approve_plan",
+      "phase_name": "approve_plan",
+      "since": "2026-09-29T11:59:00.000+00:00",
+      "channel": "issue",
+      "issue_number": 42,
+      "asked_at": "",
+      "subject_digest": "9f2c1e",
+      "paths": [
+        "/work/.asf-worktrees/5c0075aa/docs/asf/spec/plan.md"
+      ],
+      "summary": "planned the health check",
+      "notes": "kept the probe to 2s"
+    }
+  }
+}

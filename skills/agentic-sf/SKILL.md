@@ -50,7 +50,9 @@ You run the system and help the engineer interact with it. **You do no
 workflow work yourself**: never plan, implement or test in an agent's place —
 launch the workflow and watch it. Never edit files under `asf/data/`; that is
 the run record. The trace db (`asf/data/asf.db`) is yours to query when
-observing is the task, never to volunteer a status board.
+observing is the task, never to volunteer a status board. Each session's
+`events.jsonl` is its typed domain events, numbered by `seq` — the record a
+cockpit is fed, so it is read, never rewritten.
 
 ## Where things live in a stamped repo
 

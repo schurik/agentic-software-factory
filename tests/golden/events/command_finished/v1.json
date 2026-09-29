@@ -1,0 +1,19 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "command_finished",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_06_verify_1",
+    "name": "test",
+    "argv": [
+      "uv",
+      "run",
+      "pytest",
+      "-q"
+    ],
+    "exit_code": 1,
+    "duration_seconds": 4.25,
+    "output_tail": "FAILED tests/test_health.py::test_ok - assert 500 == 200\n1 failed, 12 passed\n"
+  }
+}

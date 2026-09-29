@@ -40,7 +40,7 @@ class Console:
     def _emit(self, markup: str, level: str = "info", renderable=None) -> None:
         text = Text.from_markup(markup)
         self._out.print(renderable if renderable is not None else text)
-        self.tracer.event(EventRecord(
+        self.tracer.mirror(EventRecord(
             adw_id=self.adw_id, phase_id=self.phase_id, type="log",
             name=self.phase_name or "console",
             payload={"message": text.plain, "level": level}))

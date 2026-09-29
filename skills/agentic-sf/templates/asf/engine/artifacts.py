@@ -27,6 +27,12 @@ Three artifacts are written here that the rest of the record could not supply:
 Both are small, both are rewritten rather than appended, and neither is read by
 anything but the factory itself.
 
+Every change to `run.json` and `processes.jsonl` made here also appends the
+domain event that says what changed (`engine/events.py`) — in the same
+function, so no caller can move the file without the event, and a station
+shipping the events ships the same story the files tell. `tests/projection.py`
+rebuilds `run.json` from those events alone.
+
 The same rule covers the two watchers, whose liveness is not a session at all:
 `watchers/<kind>.json` is what `just status` reads. The heartbeat is still
 written to the db as well, because the trace UI renders those badges — a WRITE
@@ -43,12 +49,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .data_types import RecordedPhase, RunState, WaitingFor
+from . import events
+from .data_types import (DomainEvent, GateOpened, ProcessEnded, ProcessStarted,
+                         ProvenanceRecorded, RecordedPhase, RunState, SessionFinished,
+                         SessionStarted, SessionSuspended, UsageRecorded, WaitingFor)
 from .utils import ensure_dir, sweep_temps, write_atomic
 
 RUN_FILE = "run.json"
 ENVELOPES_DIR = "envelopes"
-EVENTS_FILE = "events.jsonl"
+EVENTS_FILE = events.EVENTS_FILE
 
 
 # ── run.json ─────────────────────────────────────────────────────────────────
@@ -73,7 +82,7 @@ def write_run(session_dir: Path, state: RunState) -> None:
     write_atomic(run_path(session_dir), state.model_dump_json(indent=2))
 
 
-def start_run(session_dir: Path, state: RunState) -> RunState:
+def start_run(session_dir: Path, started: SessionStarted) -> RunState:
     """Record that a process has taken this session, keeping what came before.
 
     A joined session is worked by more than one ADW, and `workflows` is the list
@@ -81,11 +90,20 @@ def start_run(session_dir: Path, state: RunState) -> RunState:
     command and the pid are the NEWEST process's, because they answer "what
     would running this again mean", and the newest process is the one that was
     working when the session stopped.
+
+    The `session_started` event is the input and is appended beside the write,
+    so what a cockpit receives and what `run.json` says cannot come apart.
     """
     # Taking the session is also when the last process's debris is swept: a run
     # killed mid-rewrite leaves a hidden temp file beside the file it was
     # replacing, and nothing else ever looks for it.
     sweep_temps(session_dir)
+    state = RunState(adw_id=started.adw_id, workflows=[started.workflow],
+                     command=started.command, pid=started.pid, engineer=started.engineer,
+                     status="running", started_at=started.started_at,
+                     repo_root=started.repo_root, branch=started.branch,
+                     trigger=started.trigger, issue_url=started.issue_url,
+                     pr_url=started.pr_url)
     previous = read_run(session_dir)
     if previous:
         state.workflows = previous.workflows + [
@@ -107,10 +125,11 @@ def start_run(session_dir: Path, state: RunState) -> RunState:
         state.total_tokens = previous.total_tokens
         state.total_cost = previous.total_cost
     write_run(session_dir, state)
+    events.emit(session_dir, started)
     return state
 
 
-def finish_run(session_dir: Path, status: str) -> None:
+def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
     """Close the session's record. Never raises: a run must not die reporting.
 
     Called from `run.finish()`, from a failed phase, and from the SIGTERM
@@ -123,15 +142,23 @@ def finish_run(session_dir: Path, status: str) -> None:
         return
     state.status = status
     state.ended_at = now_iso()
+    # Nothing this run started is still its to stop — closed first, so the
+    # session's last event is the one that says it ended.
+    end_all_processes(session_dir)
     try:
         write_run(session_dir, state)
+        events.emit(session_dir, SessionFinished(status=status, ended_at=state.ended_at,
+                                                 reason=reason))
     except OSError:
         pass
-    end_all_processes(session_dir)   # nothing this run started is still its to stop
 
 
-def update_run(session_dir: Path, **fields) -> None:
-    """Patch the recorded state in place (provenance, a pull request url)."""
+def _patch(session_dir: Path, event: DomainEvent, **fields) -> None:
+    """Set the truthy `fields` on the recorded state and append `event`. Never raises.
+
+    Truthy only, because each caller is a session LEARNING something: an empty
+    value is "nothing new", never "forget what you knew".
+    """
     state = read_run(session_dir)
     if state is None:
         return
@@ -140,8 +167,23 @@ def update_run(session_dir: Path, **fields) -> None:
             setattr(state, key, value)
     try:
         write_run(session_dir, state)
+        events.emit(session_dir, event)
     except OSError:
         pass
+
+
+def record_provenance(session_dir: Path, learned: ProvenanceRecorded) -> None:
+    """What asked for this session: an issue, a pull request, a request line."""
+    _patch(session_dir, learned, trigger=learned.trigger, issue_url=learned.issue_url,
+           issue_number=learned.issue_number, issue_project=learned.issue_project,
+           pr_url=learned.pr_url)
+
+
+def record_usage(session_dir: Path, usage: UsageRecorded) -> None:
+    """One agent turn's spend, and the session's totals after it — absolute, so
+    nothing has to read-modify-write a number two runs could race on."""
+    _patch(session_dir, usage, total_tokens=usage.session_tokens,
+           total_cost=usage.session_cost)
 
 
 # ── run.json: waiting on a human ─────────────────────────────────────────────
@@ -153,7 +195,7 @@ def decisions_dir(session_dir: Path) -> Path:
     return Path(session_dir) / DECISIONS_DIR
 
 
-def suspend_run(session_dir: Path, waiting: WaitingFor) -> None:
+def suspend_run(session_dir: Path, suspended: SessionSuspended) -> None:
     """Record that this session stopped for a human, and that nothing of it is alive.
 
     Not `finish_run`: `ended_at` stays empty, because a waiting run has not
@@ -166,17 +208,27 @@ def suspend_run(session_dir: Path, waiting: WaitingFor) -> None:
     if state is None:
         return
     state.status = "waiting"
-    state.waiting_for = waiting
+    state.waiting_for = suspended.waiting_for
     state.pid = 0
+    end_all_processes(session_dir)
     try:
         write_run(session_dir, state)
+        events.emit(session_dir, suspended)
     except OSError:
         pass
-    end_all_processes(session_dir)
+
+
+def open_gate(session_dir: Path, waiting: WaitingFor) -> None:
+    """A gate is asking at this run's own terminal — `just pending` sees it."""
+    _patch(session_dir, GateOpened(waiting_for=waiting), waiting_for=waiting)
 
 
 def clear_waiting(session_dir: Path) -> None:
-    """The decision was consumed; the session no longer waits on it."""
+    """The decision was consumed; the session no longer waits on it.
+
+    No event of its own: `hitl.record` is the one caller, and the consumed
+    `decision_recorded` it appends is what says so.
+    """
     state = read_run(session_dir)
     if state is None or state.waiting_for is None:
         return
@@ -289,11 +341,15 @@ def _phase_ids(session_dir: Path, adw_id: str) -> list[tuple[int, str]]:
 def _phase_outcomes(session_dir: Path, every: bool = False) -> dict[str, str]:
     """{phase_id: final status} from the session's own event log.
 
-    `events.jsonl` is the raw record the tracer appends as things happen — the
-    same lines the db mirrors. Read forwards, so a phase re-entered by a later
-    process in the session ends on its LATEST outcome. `every` widens it to
-    phases that only ever STARTED, which is what counting the phase numbers a
-    session has used needs — see `max_phase_seq`.
+    `events.jsonl` is the record the tracer appends as things happen. Read
+    forwards, so a phase re-entered by a later process in the session ends on
+    its LATEST outcome. `every` widens it to phases that only ever STARTED,
+    which is what counting the phase numbers a session has used needs — see
+    `max_phase_seq`.
+
+    Two line shapes, because a session outlives an upgrade: typed domain events
+    (`kind: phase_ended`, the id in the payload) and the lines an older factory
+    wrote (`type: phase_end`, the id beside it). A resumed run must count both.
     """
     path = session_dir / EVENTS_FILE
     if not path.is_file():
@@ -303,19 +359,24 @@ def _phase_outcomes(session_dir: Path, every: bool = False) -> dict[str, str]:
         with path.open() as stream:
             for line in stream:
                 line = line.strip()
-                wanted = ('"phase_' if every else '"phase_end"')
+                wanted = ('"phase_' if every else '"phase_end')
                 if not line or wanted not in line:
-                    continue   # cheap reject: most lines are logs and tool calls
+                    continue   # cheap reject: most lines are not about a phase closing
                 try:
                     event = json.loads(line)
                 except ValueError:
                     continue
-                if not event.get("phase_id"):
+                if not isinstance(event, dict):
                     continue
-                if event.get("type") == "phase_end":
-                    outcomes[event["phase_id"]] = (event.get("payload") or {}).get("status", "")
-                elif every and event.get("type") == "phase_start":
-                    outcomes.setdefault(event["phase_id"], "")
+                kind = event.get("kind") or event.get("type")
+                body = event.get("payload") or {}
+                phase_id = body.get("phase_id") if "kind" in event else event.get("phase_id")
+                if not phase_id:
+                    continue
+                if kind in ("phase_ended", "phase_end"):
+                    outcomes[phase_id] = body.get("status", "")
+                elif every and kind in ("phase_started", "phase_start"):
+                    outcomes.setdefault(phase_id, "")
     except OSError:
         return {}
     return outcomes
@@ -461,6 +522,8 @@ def record_process(session_dir: Path, kind: str, name: str, pid: int,
             stream.write(json.dumps({"event": "start", "kind": kind, "name": name,
                                      "pid": pid, "command": command[:500],
                                      "at": now_iso()}) + "\n")
+        events.emit(session_dir, ProcessStarted(kind=kind, name=name, pid=pid,
+                                                command=command[:500]))
     except OSError:
         pass
 
@@ -473,6 +536,7 @@ def end_process(session_dir: Path, pid: int) -> None:
         with path.open("a") as stream:
             stream.write(json.dumps({"event": "end", "pid": pid,
                                      "at": now_iso()}) + "\n")
+        events.emit(session_dir, ProcessEnded(pid=pid))
     except OSError:
         pass
 

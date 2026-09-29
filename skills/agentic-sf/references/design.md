@@ -176,7 +176,8 @@ top of it through a small seam:
   identity is the roster's file plus what a workflow appends.
 - `AgentCall.task` and `AgentCall.variables`: the user prompt per call, which
   is how a stage's task file reaches the agent.
-- `session.ensure(..., name=)`: the trace and `run.json` name the workflow.
+- `session.ensure(cfg, SessionSpec(name=, request=))`: the trace and `run.json` name the
+  workflow, and `session_started` carries the prompt.
 - `quality.run_blocks(run, names)`: a verify stage picks its blocks.
 - `agents.merge_defaults(raw)`: one merge over defaults, used by `engine.factory`.
 
@@ -184,7 +185,11 @@ And five modules of its own: `stage.py` (contract and registry), `tasks.py`
 (resolution and the report check), `factory.py` (roster from directories),
 `workflow.py` (load, validate, run), `inputs.py` (where a request comes from
 and where its outcome goes). The trace db is `asf/data/asf.db`; the
-visualizer under `apps/visualizer` reads it.
+visualizer under `apps/visualizer` reads it. Beside it, every session writes
+`events.jsonl`: typed, per-kind-versioned domain events (`events.py`), each
+appended by the function that writes the session file it describes — what a
+station ships to a cockpit, and what `tests/projection.py` rebuilds the
+session's files from.
 
 ## What this costs
 

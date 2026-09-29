@@ -1,0 +1,25 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "decision_recorded",
+  "v": 1,
+  "payload": {
+    "decision": {
+      "status": "success",
+      "summary": "reject by alex: more detail",
+      "artifacts": [],
+      "notes_for_next_agent": "more detail",
+      "for_the_record": [],
+      "gate": "plan",
+      "round": 1,
+      "verdict": "reject",
+      "notes": "more detail",
+      "by": "alex",
+      "channel": "cli",
+      "subject_digest": "9f2c1e",
+      "decided_at": "2026-09-29T11:59:30.000+00:00",
+      "consumed_at": "2026-09-29T11:59:40.000+00:00"
+    },
+    "consumed": true
+  }
+}

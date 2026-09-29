@@ -1,0 +1,15 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "phase_ended",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_05_approve_plan",
+    "name": "approve_plan",
+    "status": "waiting",
+    "attempt": 1,
+    "error": "",
+    "gate": "plan",
+    "round": 2
+  }
+}

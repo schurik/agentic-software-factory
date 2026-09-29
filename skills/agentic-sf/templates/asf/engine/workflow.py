@@ -34,7 +34,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import agents, factory, git_helper, inputs, session, tasks
-from .data_types import AgentConfig, BuildOutput, EnvelopeBase, PhaseParams, FactoryConfig
+from .data_types import (AgentConfig, BuildOutput, EnvelopeBase, FactoryConfig, PhaseParams,
+                         SessionSpec)
 from .stage import StageContext, StageModule, StageStop, Step, load_registry
 
 
@@ -275,7 +276,9 @@ def run(workflow: Workflow, request: str, adw_id: Optional[str] = None,
         # The pull request names its own session, and that is decided before
         # one exists: a refusal costs one forge call and leaves nothing behind.
         adw_id, context = inputs.locate_pr(cfg, number, adw_id)
-    run = session.ensure(cfg, adw_id, resume, hitl, name=workflow.name)
+    run = session.ensure(cfg, SessionSpec(
+        adw_id=adw_id, resume=resume, hitl=hitl, name=workflow.name,
+        request=request if workflow.input == "prompt" else ""))
 
     if workflow.input == "issue":
         opened = inputs.open_issue(run, cfg, number)

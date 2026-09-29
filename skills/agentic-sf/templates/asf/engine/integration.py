@@ -46,7 +46,7 @@ from __future__ import annotations
 import subprocess
 
 from . import artifacts, git_helper
-from .data_types import IntegrationRequest, IntegrationResult
+from .data_types import IntegrationRequest, IntegrationResult, ProvenanceRecorded
 from .utils import operator_env
 
 
@@ -347,7 +347,7 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
     # run.json to know which sessions became pull requests, and a db is not
     # something it may assume.
     if run.pr_url:
-        artifacts.update_run(run.session_dir, pr_url=run.pr_url)
+        artifacts.record_provenance(run.session_dir, ProvenanceRecorded(pr_url=run.pr_url))
     return result
 
 
