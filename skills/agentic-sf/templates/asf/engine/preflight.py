@@ -45,7 +45,7 @@ from pathlib import Path
 from . import git_helper, harnesses
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
-from .utils import anchor
+from .utils import anchor, write_atomic
 
 # The trace UI's two ports, mirrored from scripts/up.py — checked here so
 # `doctor` and `up` answer the same question the same way.
@@ -132,7 +132,7 @@ def runtime(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
         try:
             target.mkdir(parents=True, exist_ok=True)
             probe = target / ".asf-write-probe"
-            probe.write_text("")
+            write_atomic(probe, "")
             probe.unlink()
         except OSError as error:
             findings.append(Finding(

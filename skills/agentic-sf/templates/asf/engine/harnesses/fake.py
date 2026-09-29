@@ -58,6 +58,7 @@ from ..data_types import (AgentConfig, AgentRequest, AgentResult, Finding,
                           UsageBreakdown)
 from ..limits import AgentTimeout
 from ..tool_calls import ToolCallLedger
+from ..utils import write_atomic
 
 NAME = "fake"
 
@@ -211,7 +212,7 @@ def _take(request: AgentRequest, replies: list[Reply], strict: bool) -> Reply:
         index = int(path.read_text().strip())
     except (OSError, ValueError):
         index = 0
-    path.write_text(str(index + 1))
+    write_atomic(path, str(index + 1))
     if index < len(replies):
         return replies[index]
     if strict or not replies:

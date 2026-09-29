@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from . import git_helper
 from .data_types import BaseRef, ChangeCapture, ChangeSet, ChangesOutput
+from .utils import write_atomic
 
 DIFF_FILENAME = "changes.diff"
 
@@ -79,7 +80,8 @@ def capture(run, params: ChangeCapture) -> ChangeSet:
     untracked_block = ("\n".join(f"  {f}" for f in untracked) if untracked
                        else "  (none)")
     diff_path = run.context_handoff_dir / DIFF_FILENAME
-    diff_path.write_text(
+    write_atomic(
+        diff_path,
         f"# changes since {base.label} @ {git_helper.short_sha(tree, base.commit)}\n"
         f"# {base.reason}\n"
         f"# +{insertions} -{deletions} across {len(files)} tracked file(s)\n\n"

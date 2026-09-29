@@ -23,7 +23,7 @@ from . import agents, artifacts, hitl, journal, limits, replay, worktree
 from .console import Console
 from .data_types import (AgentCall, Decision, EnvelopeBase, EventRecord, Gate, Phase,
                          PhaseParams, RunSpec, Subject)
-from .utils import anchor, ensure_dir, now_iso
+from .utils import anchor, ensure_dir, now_iso, write_atomic
 
 
 class PhaseHandle:
@@ -155,13 +155,13 @@ class Run:
             return str(self._pins[key])
         value = produce()
         self._pins[key] = value
-        self._pins_path.write_text(json.dumps(self._pins, indent=2))
+        write_atomic(self._pins_path, json.dumps(self._pins, indent=2))
         return value
 
     # ── agent map (adw_id -> per-agent coding-agent session ids) ────────────
     def save_agent_map(self, agent: str, entry: dict) -> None:
         self.agent_map[agent] = entry
-        self._agent_map_path.write_text(json.dumps(self.agent_map, indent=2))
+        write_atomic(self._agent_map_path, json.dumps(self.agent_map, indent=2))
 
     # ── issue provenance (set by an issue phase, read by integration) ──────
     def adopt_provenance(self, trigger: str, issue_url: str, pr_url: str = "") -> None:

@@ -33,7 +33,7 @@ from pathlib import Path
 
 from . import artifacts, git_helper
 from .data_types import Workspace, WorktreeConfig, WorktreeInfo, WorktreeRequest
-from .utils import anchor, ensure_dir, now_iso
+from .utils import anchor, ensure_dir, now_iso, write_atomic
 
 META_SUFFIX = ".json"          # <worktrees_dir>/<adw_id>.json, beside the worktree
 ENDED = {"success", "fail"}    # session statuses that mean nothing is using the tree
@@ -147,7 +147,7 @@ def _read_meta(meta: Path) -> dict:
 
 
 def _write_meta(meta: Path, adw_id: str, workspace: Workspace) -> None:
-    meta.write_text(json.dumps({
+    write_atomic(meta, json.dumps({
         "adw_id": adw_id,
         "path": str(workspace.repo_root),
         "branch": workspace.branch,
