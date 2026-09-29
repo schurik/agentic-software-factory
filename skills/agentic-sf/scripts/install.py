@@ -9,10 +9,11 @@ Usage:
                                      [--no-detect-quality]
 
 Stamps `asf/` — the engine, the stage vocabulary, the starter agents and
-workflows, the runner — plus a factory.yaml assembled for the chosen harness,
-that harness's `.env.sample`, the justfile, and the .gitignore entries. Existing files are
-skipped unless --force. ONE FILE IS NEVER OVERWRITTEN even then: factory.yaml
-is the operator's; under --force a changed render lands beside it as `.new`.
+workflows, the runner, and `.skill-version`, the release they came from — plus
+a factory.yaml assembled for the chosen harness, that harness's `.env.sample`,
+the justfile, and the .gitignore entries. Existing files are skipped unless
+--force. ONE FILE IS NEVER OVERWRITTEN even then: factory.yaml is the
+operator's; under --force a changed render lands beside it as `.new`.
 
 Stdlib only: this runs under `uv run` with no dependencies.
 """
@@ -30,6 +31,14 @@ import _detect                                     # noqa: E402  (path set above
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = SKILL_ROOT / "templates"
 HARNESSES = TEMPLATES / "harnesses"
+
+# The release this skill is, as a stamp records it. It lives in the templates
+# so that `stamp()` copies it like any other file — skipped on a re-run,
+# overwritten by --force, deleted with `asf/` — and it is a MIRROR of
+# `.claude-plugin/plugin.json`, the version a release bumps, because
+# `npx skills add` copies this directory and nothing above it. A test pins the
+# two together; nobody edits the stamped copy.
+VERSION_FILE = Path("asf") / ".skill-version"
 
 GITIGNORE_ENTRIES = [
     "asf/data/",
@@ -77,6 +86,49 @@ def choose(requested: str | None) -> str:
         if answer.isdigit() and 1 <= int(answer) <= len(available):
             return available[int(answer) - 1]
         print(f"  not one of {' | '.join(available)} — try again, or Ctrl-C to abort")
+
+
+def skill_version() -> str:
+    return (TEMPLATES / VERSION_FILE).read_text().strip()
+
+
+def stamped_before_the_record(root: Path) -> bool:
+    """A factory is here, and it records no version: stamped before 1.1."""
+    return (root / "asf" / "asf.py").is_file() and not (root / VERSION_FILE).exists()
+
+
+def keep_unrecorded(root: Path, stamped: list) -> None:
+    """Undo the one file a plain re-run must not add to a pre-1.1 factory.
+
+    Without --force every file that exists is kept, so what stays is still
+    the old release's code; a record written beside it would claim today's,
+    and erase the "before 1.1" that doctor and an upgrade go by. Only a run
+    that refreshed the files — --force — may say which release they are."""
+    record = root / VERSION_FILE
+    if str(record) in stamped:
+        record.unlink()
+        stamped.remove(str(record))
+
+
+def version_note(root: Path, stamped: list) -> str:
+    """What the stamp records, and — when this run left an older record in
+    place, or none — that it is older. A re-run without --force stamps the
+    files a release added and keeps every one that exists, the record
+    included, so the record still says which release the rest of `asf/`
+    came from."""
+    version = skill_version()
+    record = root / VERSION_FILE
+    changelog = f"    the upgrade steps are in {SKILL_ROOT / 'CHANGELOG.md'}"
+    if str(record) in stamped:
+        return f"skill version {version}  ({VERSION_FILE})"
+    if not record.exists():
+        return (f"this factory was stamped before 1.1 and records no version, and this "
+                f"skill is {version} — left that way:\n    the files already here were not "
+                f"refreshed (--force refreshes them, and records the version).\n{changelog}")
+    recorded = record.read_text().strip()
+    if recorded == version:
+        return f"skill version {version}  ({VERSION_FILE}, already there)"
+    return f"{VERSION_FILE} says {recorded}, and this skill is {version} — kept.\n{changelog}"
 
 
 def render_config(harness: str) -> str:
@@ -187,7 +239,10 @@ def main() -> int:
     root = Path.cwd()
     stamped, skipped, notes, config_notes = [], [], [], []
 
+    unrecorded = stamped_before_the_record(root)
     stamp(TEMPLATES / "asf", root / "asf", args.force, stamped, skipped)
+    if unrecorded and not args.force:
+        keep_unrecorded(root, stamped)
     write_config(harness, root / "asf" / "factory.yaml", args.force, stamped, skipped,
                  config_notes)
     stamp(HARNESSES / harness / "env.sample", root / ".env.sample", args.force, stamped, skipped)
@@ -200,6 +255,7 @@ def main() -> int:
     detected = _detect.apply(quality_py, _detect.detect(root)) if detecting else []
 
     print(f"agentic-sf installed into {root} on the {harness} harness")
+    print(f"  {version_note(root, stamped)}")
     print(f"  stamped: {len(stamped)} file(s)")
     for s in stamped:
         print(f"    + {s}")

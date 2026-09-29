@@ -122,6 +122,12 @@ bug already shipped once.
   deliberate exception: the assembled config (`factory.yaml`) is never rewritten. A fresh render
   that differs lands beside it as `.new` and is named loudly, because the file the installer told
   the operator to own is the one `--force` must not eat.
+- **A release is a semver tag, `vX.Y.Z`, and `.claude-plugin/plugin.json` is its one version
+  source**, bumped in the PR that cuts it along with its mirrors — `marketplace.json` and
+  `templates/asf/.skill-version`, the file a stamp records the release in (a mirror because
+  `npx skills add` copies the skill directory and nothing above it) — and with
+  `skills/agentic-sf/CHANGELOG.md`'s `Unreleased` heading renamed and dated. A test pins the
+  mirrors to `plugin.json`, and every changelog entry names its `### Upgrade` steps.
 - **Runtime must stay gitignored.** CI fails the install if `asf/data/`, `.asf-worktrees/`, `.env`
   or `.pyc` files end up staged — a workflow's commit stage runs `git add -A` in the user's repo.
 - Scripts carry `#!/usr/bin/env -S uv run` + PEP-723 deps (`pydantic`, `python-dotenv`, `pyyaml`,
