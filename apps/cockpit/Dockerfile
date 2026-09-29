@@ -1,14 +1,15 @@
 # The cockpit app: the Next.js front end, plus the Convex functions it deploys
 # to the backend when it starts (docker/start.sh). The backend and dashboard
-# are Convex's own images; see docker-compose.yml.
-FROM node:24-slim AS build
+# are Convex's own images; see docker-compose.yml. Bun only, no Node: `bun run`
+# and `bun x` stand in for `node` when a package's bin asks for it.
+FROM oven/bun:1.4-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 COPY . .
-RUN npm run build && npm prune --omit=dev
+RUN bun run build && rm -rf node_modules && bun install --frozen-lockfile --production
 
-FROM node:24-slim
+FROM oven/bun:1.4-slim
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 COPY --from=build /app/package.json /app/tsconfig.json ./

@@ -6,4 +6,4 @@
 set -eu
 
 ./convex.sh deploy --yes --typecheck disable --codegen disable
-exec npx next start --hostname 0.0.0.0 --port 3000
+exec bun x next start --hostname 0.0.0.0 --port 3000

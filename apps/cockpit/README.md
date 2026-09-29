@@ -65,15 +65,16 @@ Content-Type: application/json
 ## Develop
 
 ```bash
-npm ci
+bun install
 docker compose up -d backend
 printf 'CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210\nCONVEX_SELF_HOSTED_ADMIN_KEY=%s\nCONVEX_URL=http://127.0.0.1:3210\n' \
   "$(docker compose exec -T backend ./generate_admin_key.sh | tail -n 1)" > .env.local
-npx convex dev                   # pushes convex/ on every save, regenerates convex/_generated
-npm run dev                      # the app on :3000
+bun x convex dev                 # pushes convex/ on every save, regenerates convex/_generated
+bun run dev                      # the app on :3000
 ```
 
-`npm run typecheck`, `npm run lint` and `npm test` are what CI runs. The tests are `convex-test`
+`bun run typecheck`, `bun run lint` and `bun run test` are what CI runs (`bun run test`, not
+`bun test`, which is Bun's own test runner rather than vitest). The tests are `convex-test`
 under vitest, and they need no backend: they ingest every fixture in the golden corpus
 (`../../tests/golden/events/`, which the factory's pytest suite writes against) and assert what the
 sessions list and the session page return. When the factory adds a kind or a version, its fixture
@@ -81,7 +82,7 @@ lands there, and this suite fails until `convex/model/session.ts` has a reader f
 rule from `CLAUDE.md`: the cockpit's reader ships in the same pull request.
 
 `convex/_generated/` is committed, so typecheck and tests run on a fresh clone. Regenerate it with
-`npx convex codegen` (or `npx convex dev`) after changing a function's signature.
+`bun x convex codegen` (or `bun x convex dev`) after changing a function's signature.
 
 ## Licence of what it runs on
 

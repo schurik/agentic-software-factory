@@ -9,4 +9,4 @@ if [ -z "${CONVEX_SELF_HOSTED_ADMIN_KEY:-}" ]; then
   export CONVEX_SELF_HOSTED_ADMIN_KEY
 fi
 
-exec npx convex "$@"
+exec bun x convex "$@"
