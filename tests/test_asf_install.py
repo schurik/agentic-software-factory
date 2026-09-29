@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 from pathlib import Path
 
@@ -100,3 +102,77 @@ def test_a_foreign_justfile_is_left_alone_and_ours_lands_beside_it(repo: Path):
     assert (repo / "justfile").read_text().startswith("# my own recipes")
     assert (repo / "asf.justfile").read_text().startswith("# agentic-sf recipes.")
     assert "just -f asf.justfile" in result.stdout
+
+
+# ── releases: one version, stamped into every factory ────────────────────────
+
+REPO_ROOT = SKILL_ROOT.parent.parent
+SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def skill_version() -> str:
+    return json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]
+
+
+def test_every_version_this_repo_carries_is_plugin_json_s():
+    """`plugin.json` is the one a release bumps. The rest are mirrors: the
+    marketplace entry, and the stamp template — which is what an install
+    through `npx skills add` reads, because that copies the skill directory
+    and nothing above it. A mirror nobody bumped is a factory stamped with
+    the wrong release, so a stale one is named here, not discovered there."""
+    version = skill_version()
+    assert SEMVER.match(version), f"plugin.json version {version!r} is not X.Y.Z"
+    marketplace = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text())
+    mirrors = {
+        "marketplace.json metadata.version": marketplace["metadata"]["version"],
+        **{f"marketplace.json plugins[{p['name']}].version": p["version"]
+           for p in marketplace["plugins"]},
+        "templates/asf/.skill-version": (SKILL_ROOT / "templates" / "asf" / ".skill-version")
+        .read_text().strip(),
+    }
+    stale = {where: value for where, value in mirrors.items() if value != version}
+    assert not stale, f"plugin.json says {version}; these say otherwise: {stale}"
+
+
+def test_the_changelog_names_upgrade_steps_for_every_release():
+    """It ships in the skill directory, so the agent doing an upgrade has it
+    whichever way the skill was installed."""
+    changelog = (SKILL_ROOT / "CHANGELOG.md").read_text()
+    entries = re.split(r"^## ", changelog, flags=re.MULTILINE)[1:]
+    headings = [entry.splitlines()[0] for entry in entries]
+    for heading, entry in zip(headings, entries):
+        assert re.match(r"^(Unreleased|\d+\.\d+\.\d+( — \d{4}-\d{2}-\d{2})?)$", heading), \
+            f"changelog heading {heading!r} is not `Unreleased` or `X.Y.Z — YYYY-MM-DD`"
+        assert "\n### Upgrade\n" in entry, f"changelog entry {heading!r} names no upgrade steps"
+    assert any(h.split(" ")[0] == skill_version() for h in headings), \
+        f"the changelog has no entry for {skill_version()}, the version plugin.json names"
+
+
+def test_the_stamp_records_the_skill_version_and_only_force_rewrites_it(repo: Path):
+    stamp = repo / "asf" / ".skill-version"
+    first = install(repo, "--harness", "claude_code")
+    assert stamp.read_text() == f"{skill_version()}\n"
+    assert f"skill version {skill_version()}" in first.stdout
+
+    stamp.write_text("1.0.0-old\n")                           # an older stamp's record
+    again = install(repo, "--harness", "claude_code")
+    assert stamp.read_text() == "1.0.0-old\n"                 # skipped, like any file
+    assert "asf/.skill-version says 1.0.0-old" in again.stdout
+    assert f"this skill is {skill_version()}" in again.stdout and "CHANGELOG.md" in again.stdout
+
+    forced = install(repo, "--harness", "claude_code", "--force")
+    assert forced.returncode == 0
+    assert stamp.read_text() == f"{skill_version()}\n"
+
+
+def test_doctor_names_the_stamp_s_version_and_a_missing_one_is_before_1_1(stamped: Path):
+    """No refusal either way: an old stamp keeps running as it did."""
+    line = next(line for line in asf(stamped, "doctor").stdout.splitlines()
+                if "skill version" in line)
+    assert skill_version() in line and "asf/.skill-version" in line
+
+    (stamped / "asf" / ".skill-version").unlink()
+    result = asf(stamped, "doctor")
+    assert result.returncode == 0, result.stdout + result.stderr
+    line = next(line for line in result.stdout.splitlines() if "skill version" in line)
+    assert "before 1.1" in line

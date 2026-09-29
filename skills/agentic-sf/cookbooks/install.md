@@ -77,6 +77,7 @@ commands you would rather write yourself.
 | `asf/stages/<name>/` | `templates/asf/stages/` | yes — the closed vocabulary: scout, plan, implement, verify, review, document, commit, integrate. Each is `stage.py` plus its default task files |
 | `asf/agents/<name>/agent.md` | `templates/asf/agents/` | yes — **the user-owned home for identity**: frontmatter for the engine, prose for the model |
 | `asf/workflows/<name>/` | `templates/asf/workflows/` | yes — `sdlc`, `quick`, `ship`, `issue`, `pr-review` |
+| `asf/.skill-version` | `templates/asf/.skill-version` | yes — the skill release that stamped it; `doctor` prints it. Never edit it: `--force` rewrites it, and a factory without one was stamped before 1.1 |
 | `.env.sample` | `templates/harnesses/<harness>/env.sample` | yes — only the keys that harness needs |
 | `.env` | copied from `.env.sample`, with `ASF_SKILL=` written in | **no** — gitignored, and the reason a clone needs `install.py` re-run |
 | `justfile`, or `asf.justfile` beside a foreign one | `templates/justfile` | yes — `just --list` is the menu |
@@ -96,8 +97,14 @@ repo stamps 0 files. It still asks which harness, because the answer decides
 what it would stamp into the gaps — give it the one the repo already runs, or
 pass `--harness`.
 
+The installer's first line names the skill version it stamped. When the repo
+already has an `asf/.skill-version` from an older release it says so and keeps
+it — the files that exist were not refreshed, so the record still describes
+them — and points at the skill's [`CHANGELOG.md`](../CHANGELOG.md), whose
+`### Upgrade` sections name the steps between the two.
+
 `--force` refreshes stamped code (`asf/engine/`, `asf/stages/`, the shipped
-workflows and agents) to the skill's current version. **It does not overwrite
+workflows and agents, `asf/.skill-version`) to the skill's current version. **It does not overwrite
 `asf/factory.yaml`**: a fresh render lands beside it as `asf/factory.yaml.new`
 and the installer prints `YOUR CONFIG WAS NOT TOUCHED`, leaving the diff to you.
 Everything else stamped *is* replaced, including agent prose you edited, so

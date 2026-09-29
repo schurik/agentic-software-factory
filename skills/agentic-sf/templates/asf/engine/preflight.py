@@ -338,6 +338,20 @@ def labels(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
 
 # ── the skill, and the UI that ships with it ─────────────────────────────────
 
+def stamp(main_root: Path) -> list[Finding]:
+    """Which release of the skill stamped this factory, from the record the
+    installer wrote. Never a refusal: a factory stamped before the record
+    existed runs exactly as it did, and saying which release it came from is
+    all this knows how to do honestly."""
+    record = main_root / "asf" / ".skill-version"
+    if not record.is_file():
+        return [Finding(check="skill version",
+                        detail="before 1.1 — this factory was stamped before "
+                               "asf/.skill-version was recorded")]
+    return [Finding(check="skill version",
+                    detail=f"{record.read_text().strip()}  (asf/.skill-version)")]
+
+
 def skill() -> list[Finding]:
     """Whether ASF_SKILL still points at the agentic-sf skill directory.
 
@@ -448,4 +462,4 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + skill() + trace_ui())
+            + forge(cfg) + labels(cfg, root) + stamp(root) + skill() + trace_ui())

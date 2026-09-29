@@ -30,6 +30,8 @@ def test_a_stamped_repo_is_emptied_and_the_repo_s_own_files_are_kept(repo: Path)
     dry = uninstall(repo, "--dry-run")
     assert dry.returncode == 0 and "nothing was deleted" in dry.stdout
     assert "workflows/mine/workflow.yaml" in dry.stdout      # your own work, named first
+    assert ".skill-version" not in dry.stdout                # the skill's, not yours
+    assert (repo / "asf" / ".skill-version").is_file()
     assert (repo / "asf").is_dir()
 
     asked = uninstall(repo)
