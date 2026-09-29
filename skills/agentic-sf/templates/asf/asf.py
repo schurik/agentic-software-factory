@@ -169,8 +169,8 @@ def _watched_workflows(config: str, names, kind: str) -> None:
 
 
 def cmd_up(args) -> int:
-    return supervise.up(factory.load(args.config), args.config, args.interval, args.only,
-                        args.extra)
+    return supervise.up(factory.load(args.config), args.config,
+                        supervise.Children(args.only, args.extra, True, args.interval))
 
 
 def cmd_status(args) -> int:
@@ -181,7 +181,7 @@ def cmd_station(args) -> int:
     cfg = factory.load(args.config)
     if args.action == "sync":
         return station.sync(cfg)
-    return supervise.up(cfg, args.config, 0, "", "", watchers=False)
+    return supervise.up(cfg, args.config, supervise.Children(watchers=False))
 
 
 def _config_on(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:

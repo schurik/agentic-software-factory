@@ -465,15 +465,29 @@ def cockpit() -> list[Finding]:
                 "start it — or set ASF_COCKPIT_URL (and ASF_COCKPIT_TOKEN) in .env to a "
                 "shared cockpit")]
     findings: list[Finding] = []
-    asked = os.environ.get("ASF_COCKPIT_VERSION", "").strip()
     running = local_cockpit.version()
-    if asked and asked.lstrip("v") != running:
+    pinned = local_cockpit.ignored_pin()
+    if pinned:
         findings.append(Finding(
             check="cockpit", level="warn",
-            detail=f"ASF_COCKPIT_VERSION is {asked!r}, older than (or not) a version — this "
-                   f"stamp needs at least {local_cockpit.minimum()}, so `asf up` runs {running}",
+            detail=f"ASF_COCKPIT_VERSION is {pinned!r}, which is not a release at least "
+                   f"{local_cockpit.minimum()} (this stamp's minimum) — `asf up` runs {running}",
             fix="remove ASF_COCKPIT_VERSION from .env, or set it to a release at least "
                 "that new"))
+    already = local_cockpit.running()
+    if already and local_cockpit.newer(already):
+        findings.append(Finding(
+            check="cockpit",
+            detail=f"local {already} is running on this machine — `asf up` joins it "
+                   f"rather than starting {running}"))
+        return findings
+    if already and already != running:
+        findings.append(Finding(
+            check="cockpit", level="warn",
+            detail=f"local {already} is running on this machine, older than {running} — "
+                   f"`asf up` here replaces it, for every factory that ships to it",
+            fix="nothing to do if that is what you want: the cockpit reads every older "
+                "factory's events, so upgrading it first is always safe"))
     missing = local_cockpit.missing_images(running)
     findings.append(Finding(
         check="cockpit",

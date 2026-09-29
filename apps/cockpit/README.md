@@ -93,15 +93,17 @@ repository, with no `ASF_COCKPIT_URL`, starts it through the stamped `asf/cockpi
 backend, `keygen` and the app, all bound to 127.0.0.1, as one compose project (`asf-cockpit`) shared
 by every factory on the machine. The station loop inside `asf up` gets an ingest token from it
 (`tokens:issue`, through `docker compose exec`), keeps it in the factory's gitignored
-`asf/data/cockpit.json`, and ships every session to it. The dashboard is left out.
+`asf/data/cockpit.json`, and ships every session to it. The Convex dashboard is left out.
 
 It runs **published images, not this directory**: a release (`.github/workflows/release.yml`, on a
 `vX.Y.Z` tag that matches `.claude-plugin/plugin.json`) builds `ghcr.io/<owner>/asf-cockpit` from
 this Dockerfile for amd64 and arm64, and re-tags the Convex backend this compose file pins as
 `ghcr.io/<owner>/asf-cockpit-backend`, both with the release's version. A stamp names the oldest
 cockpit it ships to in `asf/cockpit/min-version`, and `asf up` runs that version or a newer one that
-`ASF_COCKPIT_VERSION` names, never an older one (ADR 0004). ghcr.io makes a new package private, so
-set both public after the first release.
+`ASF_COCKPIT_VERSION` names, never an older one (ADR 0004). A second `asf up` joins a newer cockpit
+already running rather than downgrading it. A release refuses to publish when `min-version` names a
+cockpit newer than itself. ghcr.io makes a new package private, so set both public after the first
+release.
 
 ## Develop
 

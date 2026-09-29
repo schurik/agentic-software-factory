@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import re
 import shutil
+import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
 import yaml
 
 from engine import cockpit as local_cockpit
-from engine import events, factory, station, supervise
+from engine import events, factory, preflight, station, supervise
 from engine.data_types import EVENT_KINDS, Cockpit
 
 from .asf_helpers import asf, fake_roster
@@ -43,12 +46,17 @@ def a_session(root: Path, adw_id: str, count: int) -> Path:
 
 # ── the station loop ─────────────────────────────────────────────────────────
 
+def on_station(root: Path):
+    return lambda: station.every_session(root)
+
+
 def test_the_loop_ships_every_session_on_the_station_and_those_that_start_later(
         tmp_path: Path):
     sessions = tmp_path / "sessions"
     a_session(sessions, "0ld5e55n", 3)
     cockpit = FakeCockpit()
-    loop = station.Loop(sessions, lambda: COCKPIT, cockpit, interval=0.02).start()
+    loop = station.Loop(on_station(sessions), station.Destination(lambda: COCKPIT), cockpit,
+                        interval=0.02).start()
     try:
         assert eventually(lambda: cockpit.acked("0ld5e55n") == 3)
         later = a_session(sessions, "n3w5e55n", 1)
@@ -64,7 +72,8 @@ def test_nothing_ships_until_there_is_a_cockpit_and_then_everything_does(tmp_pat
     a_session(sessions, "a1b2c3d4", 2)
     cockpit = FakeCockpit()
     ready: list[Cockpit] = []
-    loop = station.Loop(sessions, lambda: ready[0] if ready else None, cockpit,
+    loop = station.Loop(on_station(sessions),
+                        station.Destination(lambda: ready[0] if ready else None), cockpit,
                         interval=0.02).start()
     try:
         assert not eventually(lambda: cockpit.batches, within=0.2)
@@ -84,8 +93,9 @@ def test_a_refused_token_is_swapped_for_a_fresh_one_when_one_is_coming(tmp_path:
         tokens.append("asf_ingest_fresh")
         return True
 
-    loop = station.Loop(sessions, lambda: Cockpit(url=COCKPIT.url, token=tokens[-1]), cockpit,
-                        interval=0.02, refused=reissue).start()
+    destination = station.Destination(lambda: Cockpit(url=COCKPIT.url, token=tokens[-1]),
+                                      refused=reissue)
+    loop = station.Loop(on_station(sessions), destination, cockpit, interval=0.02).start()
     try:
         assert eventually(lambda: cockpit.acked("a1b2c3d4") == 2)
     finally:
@@ -97,8 +107,10 @@ def test_a_refused_token_with_none_coming_stops_shipping_and_says_so_once(tmp_pa
     session = a_session(sessions, "a1b2c3d4", 2)
     cockpit = FakeCockpit(token="asf_ingest_other")
     said: list[str] = []
-    loop = station.Loop(sessions, lambda: COCKPIT, cockpit, interval=0.02,
-                        say=said.append).start()
+    loop = station.Loop(on_station(sessions), station.Destination(lambda: COCKPIT), cockpit,
+                        interval=0.02)
+    loop.say = said.append
+    loop.start()
     try:
         assert eventually(lambda: any("refused" in line for line in said))
         events.emit(session, EVENT_KINDS["process_ended"](pid=3))
@@ -114,7 +126,8 @@ def test_a_cockpit_that_is_down_gets_every_session_when_it_is_back(tmp_path: Pat
     a_session(sessions, "e5f6a7b8", 3)
     cockpit = FakeCockpit()
     cockpit.down = True
-    loop = station.Loop(sessions, lambda: COCKPIT, cockpit, interval=0.02).start()
+    loop = station.Loop(on_station(sessions), station.Destination(lambda: COCKPIT), cockpit,
+                        interval=0.02).start()
     try:
         assert not eventually(lambda: cockpit.stored, within=0.2)
         cockpit.down = False
@@ -169,19 +182,19 @@ def minting(*answers: tuple[int, str]):
 
 def test_the_local_cockpit_issues_this_factory_a_token_once_and_keeps_it(tmp_path: Path):
     run = minting((0, '"asf_ingest_0a1b"\n'))
-    local = local_cockpit.Local(tmp_path, "asf/data", "acme/widgets", run=run)
+    local = local_cockpit.Local(tmp_path / "asf/data", "acme/widgets", run=run)
 
     first = local.get()
 
     assert first == Cockpit(url="http://127.0.0.1:3211", token="asf_ingest_0a1b")
     assert "tokens:issue" in run.calls[0] and '{"factory": "acme/widgets"}' in run.calls[0]
-    again = local_cockpit.Local(tmp_path, "asf/data", "acme/widgets", run=minting())
+    again = local_cockpit.Local(tmp_path / "asf/data", "acme/widgets", run=minting())
     assert again.get() == first                                 # kept, not issued again
 
 
 def test_a_cockpit_still_starting_is_asked_again_later_not_every_round(tmp_path: Path):
     run = minting((1, "service \"app\" is not running"), (0, "asf_ingest_ff00\n"))
-    local = local_cockpit.Local(tmp_path, "asf/data", "acme/widgets", run=run, retry=0.05)
+    local = local_cockpit.Local(tmp_path / "asf/data", "acme/widgets", run=run, retry=0.05)
 
     assert local.get() is None
     assert local.get() is None and len(run.calls) == 1          # too soon to ask again
@@ -191,7 +204,7 @@ def test_a_cockpit_still_starting_is_asked_again_later_not_every_round(tmp_path:
 
 def test_a_token_the_local_cockpit_refuses_is_replaced_by_a_fresh_one(tmp_path: Path):
     run = minting((0, "asf_ingest_01d0\n"), (0, "asf_ingest_0e50\n"))
-    local = local_cockpit.Local(tmp_path, "asf/data", "acme/widgets", run=run, retry=0)
+    local = local_cockpit.Local(tmp_path / "asf/data", "acme/widgets", run=run, retry=0)
     refused = local.get()
 
     assert local.refused(refused) is True
@@ -211,7 +224,7 @@ def names(services) -> list[str]:
 
 
 def test_up_with_no_shared_cockpit_starts_the_local_one_beside_the_watchers(cfg, stamped):
-    want = supervise.wanted(cfg, only="", extra="")
+    want = supervise.wanted(cfg, supervise.Children())
 
     assert want == {"cockpit", "issues", "answers", "prs"}
     started = supervise.services(want, "asf/factory.yaml", 120, stamped, stamped / "db")
@@ -225,28 +238,28 @@ def test_up_with_no_shared_cockpit_starts_the_local_one_beside_the_watchers(cfg,
 def test_up_with_a_shared_cockpit_starts_no_cockpit_child(cfg, monkeypatch):
     monkeypatch.setenv("ASF_COCKPIT_URL", "https://cockpit.example.com:3211")
 
-    assert supervise.wanted(cfg, only="", extra="") == {"issues", "answers", "prs"}
-    assert supervise.wanted(cfg, only="cockpit,issues", extra="") == {"issues"}
+    assert supervise.wanted(cfg, supervise.Children()) == {"issues", "answers", "prs"}
+    assert supervise.wanted(cfg, supervise.Children(only="cockpit,issues")) == {"issues"}
 
 
 def test_the_legacy_trace_ui_starts_only_when_asked_for(cfg):
-    assert "obs" not in supervise.wanted(cfg, only="", extra="")
-    assert "obs" in supervise.wanted(cfg, only="", extra="obs")
-    assert supervise.wanted(cfg, only="issues,obs", extra="") == {"issues", "obs"}
+    assert "obs" not in supervise.wanted(cfg, supervise.Children())
+    assert "obs" in supervise.wanted(cfg, supervise.Children(extra="obs"))
+    assert supervise.wanted(cfg, supervise.Children(only="issues,obs")) == {"issues", "obs"}
     with pytest.raises(SystemExit):
-        supervise.wanted(cfg, only="", extra="ui")
+        supervise.wanted(cfg, supervise.Children(extra="ui"))
 
 
 def test_asf_station_is_the_same_loop_without_watchers(cfg, monkeypatch):
-    assert supervise.wanted(cfg, only="", extra="", watchers=False) == {"cockpit"}
+    assert supervise.wanted(cfg, supervise.Children(watchers=False)) == {"cockpit"}
     monkeypatch.setenv("ASF_COCKPIT_URL", "https://cockpit.example.com:3211")
-    assert supervise.wanted(cfg, only="", extra="", watchers=False) == set()
+    assert supervise.wanted(cfg, supervise.Children(watchers=False)) == set()
 
 
 def test_without_docker_up_warns_drops_the_cockpit_and_runs_the_watchers(
         cfg, monkeypatch, tmp_path, capsys):
     without_docker(monkeypatch, tmp_path)
-    want = supervise.wanted(cfg, only="", extra="")
+    want = supervise.wanted(cfg, supervise.Children())
 
     supervise.check(cfg, want)
 
@@ -299,6 +312,8 @@ def test_a_release_publishes_every_image_the_stamp_pulls_tagged_with_its_version
     steps = "\n".join(str(step.get("run", "")) + str(step.get("with", ""))
                       for job in release["jobs"].values() for step in job["steps"])
     assert ".claude-plugin/plugin.json" in steps               # the tag must be its version
+    # and a stamp never asks for a cockpit newer than the release it came with
+    assert "skills/agentic-sf/templates/asf/cockpit/min-version" in steps
     for name in local_cockpit.IMAGES:
         assert f'"$IMAGES/{name}:$VERSION"' in steps, name
 
@@ -312,3 +327,96 @@ def test_the_backend_a_release_publishes_is_the_one_the_team_compose_pins():
     team = (REPO_ROOT / "apps" / "cockpit" / "docker-compose.yml").read_text()
     assert "CONVEX_BACKEND_VERSION:-" in team
     assert "apps/cockpit/docker-compose.yml" in RELEASE.read_text()
+
+
+# ── one local cockpit per machine: joined, never downgraded ──────────────────
+
+def test_a_pin_the_minimum_overrides_is_named_as_ignored(monkeypatch):
+    assert local_cockpit.ignored_pin() == ""
+    monkeypatch.setenv("ASF_COCKPIT_VERSION", "0.0.1")
+    assert local_cockpit.ignored_pin() == "0.0.1"
+    monkeypatch.setenv("ASF_COCKPIT_VERSION", "latest")
+    assert local_cockpit.ignored_pin() == "latest"
+    monkeypatch.setenv("ASF_COCKPIT_VERSION", "v99.0.0")
+    assert local_cockpit.ignored_pin() == ""
+
+
+def test_the_running_local_cockpit_is_read_from_its_app_container():
+    asked = minting((0, "ghcr.io/schurik/asf-cockpit:1.4.2\n"))
+    assert local_cockpit.running(asked) == "1.4.2"
+    assert "com.docker.compose.project=asf-cockpit" in " ".join(asked.calls[0])
+    assert local_cockpit.running(minting((0, ""))) == ""
+    assert local_cockpit.running(minting((1, "Cannot connect to the Docker daemon"))) == ""
+
+
+@pytest.fixture
+def docker_here(monkeypatch):
+    """Docker's answers, at the boundary this module asks them through."""
+    monkeypatch.setattr(local_cockpit, "docker_problem", lambda: None)
+    running = {"version": ""}
+    monkeypatch.setattr(local_cockpit, "running", lambda *_: running["version"])
+    return running
+
+
+def test_up_joins_a_newer_local_cockpit_instead_of_starting_one(
+        cfg, stamped, docker_here, capsys):
+    docker_here["version"] = "99.0.0"
+    want = supervise.wanted(cfg, supervise.Children())
+
+    local = supervise.check(cfg, want)
+
+    assert local == "join" and "cockpit" not in want
+    assert "99.0.0" in capsys.readouterr().out
+    assert supervise.destination(cfg, stamped, local) is not None     # still ships to it
+
+
+def test_up_replaces_an_older_local_cockpit_and_owns_one_of_its_own_version(cfg, docker_here):
+    docker_here["version"] = "0.0.1"
+    want = supervise.wanted(cfg, supervise.Children())
+    assert supervise.check(cfg, want) == "start" and "cockpit" in want
+
+    docker_here["version"] = local_cockpit.version()       # left behind by a killed `up`
+    want = supervise.wanted(cfg, supervise.Children())
+    assert supervise.check(cfg, want) == "start" and "cockpit" in want
+
+
+def test_a_child_whose_place_was_taken_retires_instead_of_restarting(tmp_path: Path):
+    """Another `up` upgraded the shared cockpit under this one's `compose up`,
+    which exits. Restarting it at this stamp's version would downgrade it."""
+    lines: list[tuple[str, str]] = []
+    exits = supervise.Service("cockpit", [sys.executable, "-c", "pass"], tmp_path,
+                              retire_if=lambda: "joined the local cockpit 99.0.0")
+    stopping = threading.Event()
+    supervise._spawn(exits, lambda name, line: lines.append((name, line)))
+    supervisor = threading.Thread(
+        target=lambda: lines.append(("result", supervise._supervise(
+            [exits], stopping, lambda name, line: lines.append((name, line))))))
+    supervisor.start()
+    try:
+        assert eventually(lambda: exits.retired)
+        assert ("cockpit", "joined the local cockpit 99.0.0") in lines
+        time.sleep(0.6)
+        assert ("result", True) not in lines          # not "every service has given up"
+    finally:
+        stopping.set()
+        supervisor.join(5)
+    assert exits.restarts == 0
+
+
+def test_doctor_names_a_running_local_cockpit_and_what_up_will_do_with_it(
+        docker_here, monkeypatch):
+    monkeypatch.setattr(local_cockpit, "missing_images", lambda *_: [])
+    ours = local_cockpit.version()
+
+    docker_here["version"] = "99.0.0"
+    joined = " ".join(finding.line for finding in preflight.cockpit())
+    assert "99.0.0" in joined and "joins" in joined
+
+    docker_here["version"] = "0.0.1"
+    older = preflight.cockpit()
+    assert any(finding.level == "warn" and "0.0.1" in finding.detail and ours in finding.detail
+               for finding in older)
+
+    monkeypatch.setenv("ASF_COCKPIT_VERSION", "0.0.1")
+    assert any("ASF_COCKPIT_VERSION" in finding.detail and finding.level == "warn"
+               for finding in preflight.cockpit())

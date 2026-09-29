@@ -10,10 +10,13 @@
 # which is why neither has a default here: run by hand, set both.
 #
 # ONE PER MACHINE. The project name is fixed, so every factory on this machine
-# ships to the same cockpit, keeps its sessions in the same `data` volume, and
-# a second `asf up` joins the one already running. Every port is bound to
-# 127.0.0.1: a local cockpit has no sign-in, and nothing off this machine
-# should reach it.
+# ships to the same cockpit and keeps its sessions in the same `data` volume.
+# A second `asf up` whose stamp needs an older cockpit than the one running
+# joins it rather than downgrading it; one that needs a newer one replaces it
+# (the cockpit upgrades first). The `asf up` that started it owns it: ctrl-c
+# there stops it for every factory, and theirs keep every event until it is
+# back. Every port is bound to 127.0.0.1: a local cockpit has no sign-in, and
+# nothing off this machine should reach it.
 name: asf-cockpit
 
 services:

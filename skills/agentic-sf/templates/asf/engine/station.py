@@ -21,6 +21,8 @@ database was wiped says `acked: 0`, and the station starts again from 1.
 The factory never waits on the cockpit. `emit` is a file append and knows
 nothing of any of this; a `Shipper` thread in the process that owns a session
 does the sending, and its last flush on the way out is bounded (`FLUSH_BUDGET`).
+The station loop behind `asf up` is the same `Loop` over every session on the
+station.
 Without ASF_COCKPIT_URL there is no cockpit, no thread and no `shipped.json`:
 the run is the run it was before stations existed.
 """
@@ -37,6 +39,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -259,8 +262,7 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
     here = identify(main_root, cfg.defaults.data_dir)
     print(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}")
     root = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
-    sessions = sorted(d for d in root.iterdir()
-                      if (d / events.EVENTS_FILE).is_file()) if root.is_dir() else []
+    sessions = every_session(root)
     sent = 0
     for directory in sessions:
         shipped = ship(directory, cockpit, transport)
@@ -283,9 +285,16 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
     return 0
 
 
-# ── a live session: the shipper thread ───────────────────────────────────────
+# ── shipping on a timer: a live session, or every session on the station ─────
 
-def start(session_dir: str | Path, transport: Transport = post) -> Shipper | None:
+def every_session(root: Path) -> list[Path]:
+    """Every session directory under `root` that has events to ship."""
+    if not root.is_dir():
+        return []
+    return sorted(d for d in root.iterdir() if (d / events.EVENTS_FILE).is_file())
+
+
+def start(session_dir: str | Path, transport: Transport = post) -> Loop | None:
     """Ship this session from a background thread for as long as this process
     lives, flushing on the way out — or None, and nothing at all, when no
     cockpit is configured. Called by every process that owns a session."""
@@ -306,117 +315,51 @@ def flush(session_dir: str | Path, transport: Transport = post) -> None:
         Shipper(session_dir, cockpit, transport).start().stop()
 
 
-class Shipper:
-    """`ship()` on a timer, in a daemon thread, until `stop()`.
+@dataclass
+class Destination:
+    """Where a `Loop` ships. `get` is asked every round, and None ships nothing
+    — a local cockpit has no token until its container is up and has issued
+    one. `refused` is asked on a 401 whether a fresh token is coming (a local
+    cockpit whose volume was wiped issues another); `label` is how `up` names
+    it."""
 
-    Nothing the run does waits on it: events are appended to the file whether
-    or not this thread is alive, and the file is the buffer. It looks at the
-    file every `interval` seconds and only ships when the file grew; a cockpit
-    that is down is retried with a doubling wait up to `RETRY_CEILING`, and one
-    that refuses the token is given up on for the life of the process (a
-    token does not fix itself, and `asf station sync` catches up once it is).
-    Each of those is said once on stderr, never per attempt.
+    get: Callable[[], Cockpit | None]
+    refused: Callable[[Cockpit], bool] = lambda _cockpit: False
+    label: str = ""
 
-    `stop()` asks for one last round, for the events a run writes as it ends
-    (`session_finished`, `suspended`), and waits at most `budget` for it. A
-    cockpit that answers takes milliseconds; one that hangs is left behind —
+
+class Loop:
+    """`ship()` for every session `sessions` lists, on a timer, until `stop()`.
+
+    Two callers. A `Shipper` is one session's loop, in a daemon thread of the
+    process that owns that session. The station loop (`asf up`, `asf station`)
+    lists every session on the station, whichever process wrote it: one a
+    watcher started, one somebody typed, one whose process died before its own
+    shipper flushed. Resending is harmless (the cockpit stores each seq once),
+    so a session shipped by both costs a request, never a duplicate.
+
+    Nothing a session does waits on this: events are appended to the file
+    whether or not the thread is alive, and the file is the buffer. A session
+    is shipped only when its file grew. A cockpit that is down is retried with
+    a doubling wait up to `RETRY_CEILING`; one that refuses the token, with no
+    fresh one coming, is given up on for the life of the process (a token does
+    not fix itself, and `asf station sync` catches up once it is). Each of
+    those is said once through `say`, never per attempt.
+
+    `stop()` asks for one last round, for the events a session writes as it
+    ends (`session_finished`, `suspended`), and waits at most `budget` for it.
+    A cockpit that answers takes milliseconds; one that hangs is left behind —
     the thread is a daemon — and those events go with the next process or sync.
     """
 
-    def __init__(self, session_dir: str | Path, cockpit: Cockpit,
+    def __init__(self, sessions: Callable[[], list[Path]], destination: Destination,
                  transport: Transport = post, interval: float = SHIP_INTERVAL):
-        self.session_dir = Path(session_dir)
-        self.adw_id = self.session_dir.name
-        self.cockpit = cockpit
+        self.sessions = sessions
+        self.destination = destination
         self.transport = transport
         self.interval = interval
-        self._stopping = threading.Event()
-        self._thread = threading.Thread(target=self._loop, name=f"shipper-{self.adw_id}",
-                                        daemon=True)
-        self._shipped_size = -1        # the file's size when everything in it was acked
-        self._wait = interval
-        self._gave_up = False
-        self._said: set[str] = set()
-
-    def start(self) -> Shipper:
-        self._thread.start()
-        return self
-
-    def stop(self, budget: float = FLUSH_BUDGET) -> None:
-        self._stopping.set()
-        if self._thread.is_alive():
-            self._thread.join(budget)
-
-    def _loop(self) -> None:
-        while not self._stopping.wait(self._wait):
-            self._round()
-        self._round()
-
-    def _round(self) -> None:
-        if self._gave_up:
-            return
-        try:
-            size = events.path(self.session_dir).stat().st_size
-        except OSError:
-            return                     # nothing written yet
-        if size == self._shipped_size:
-            return
-        try:
-            result = ship(self.session_dir, self.cockpit, self.transport)
-        except Exception as error:     # noqa: BLE001 — a shipper never takes a run down
-            self._say("crashed", f"shipping stopped: {error!r}")
-            self._gave_up = True
-            return
-        if result.outcome == "shipped":
-            self._wait = self.interval
-            if result.pending == 0:
-                self._shipped_size = size
-            return
-        if result.outcome == "unauthorized":
-            self._say("unauthorized", f"the cockpit refused ASF_COCKPIT_TOKEN ({result.error}); "
-                                      f"not shipping {self.adw_id} again from this process")
-            self._gave_up = True
-            return
-        self._wait = min(RETRY_CEILING, max(self._wait * 2, self.interval))
-        self._say(result.outcome, f"cockpit {result.outcome} ({result.error}); {self.adw_id} is "
-                                  f"kept from seq {result.acked} and retried")
-
-    def _say(self, key: str, text: str) -> None:
-        if key not in self._said:
-            self._said.add(key)
-            print(f"station: {text}", file=sys.stderr, flush=True)
-
-
-# ── every session on the station: the long-lived loop ────────────────────────
-
-class Loop:
-    """`ship()` for every session under `sessions`, on a timer, until `stop()`.
-
-    What `asf up` and `asf station` run: the process that holds the station,
-    shipping every session on it, whichever process wrote it — a run a watcher
-    started, one somebody typed, one that died before its own shipper flushed.
-    Resending is harmless (the cockpit stores each seq once), so a session
-    whose own process is shipping it too costs a request, never a duplicate.
-
-    `cockpit` is asked every round, and None ships nothing: a local cockpit has
-    no token until its container is up and has issued one. A 401 asks
-    `refused` whether a fresh one is coming (a local cockpit whose database was
-    wiped issues another); if not, the loop stops shipping for the life of the
-    process, as a `Shipper` does. A cockpit that is down is retried with the
-    same doubling wait, and every one of those is said once through `say`.
-    """
-
-    def __init__(self, sessions: str | Path, cockpit: Callable[[], Cockpit | None],
-                 transport: Transport = post, interval: float = SHIP_INTERVAL,
-                 refused: Callable[[Cockpit], bool] = lambda _cockpit: False,
-                 say: Callable[[str], None] | None = None):
-        self.sessions = Path(sessions)
-        self.cockpit = cockpit
-        self.transport = transport
-        self.interval = interval
-        self.refused = refused
-        self._say_to = say or (lambda text: print(f"station: {text}", file=sys.stderr,
-                                                  flush=True))
+        self.say: Callable[[str], None] = lambda text: print(f"station: {text}",
+                                                             file=sys.stderr, flush=True)
         self._stopping = threading.Event()
         self._thread = threading.Thread(target=self._loop, name="station-loop", daemon=True)
         self._shipped_to: Cockpit | None = None
@@ -443,32 +386,25 @@ class Loop:
         if self._gave_up:
             return
         try:
-            cockpit = self.cockpit()
-        except Exception as error:     # noqa: BLE001 — a loop never takes `up` down
+            cockpit = self.destination.get()
+        except Exception as error:     # noqa: BLE001 — shipping never takes its host down
             self._say("no cockpit", f"could not reach the cockpit to ship to: {error!r}")
             return
         if cockpit is None:
             return
         if cockpit != self._shipped_to:
             self._shipped_to, self._shipped_size = cockpit, {}
-            self._say(f"to {cockpit.url}", f"shipping every session on this station to "
-                                           f"{cockpit.url}")
-        for directory in self._every_session():
+        for directory in self.sessions():
             if not self._ship(directory, cockpit):
                 return
         self._wait = self.interval
-
-    def _every_session(self) -> list[Path]:
-        if not self.sessions.is_dir():
-            return []
-        return sorted(d for d in self.sessions.iterdir() if (d / events.EVENTS_FILE).is_file())
 
     def _ship(self, directory: Path, cockpit: Cockpit) -> bool:
         """One session; False when the rest of this round is pointless."""
         try:
             size = events.path(directory).stat().st_size
         except OSError:
-            return True
+            return True                # nothing written yet
         if self._shipped_size.get(directory.name) == size:
             return True
         try:
@@ -483,7 +419,7 @@ class Loop:
                 self._shipped_size[directory.name] = size
             return True
         if result.outcome == "unauthorized":
-            if self.refused(cockpit):
+            if self.destination.refused(cockpit):
                 self._shipped_to = None
                 return False
             self._say("unauthorized", f"the cockpit refused ASF_COCKPIT_TOKEN ({result.error}); "
@@ -505,4 +441,14 @@ class Loop:
     def _say(self, key: str, text: str) -> None:
         if key not in self._said:
             self._said.add(key)
-            self._say_to(text)
+            self.say(text)
+
+
+class Shipper(Loop):
+    """One live session's loop, shipping to the configured cockpit."""
+
+    def __init__(self, session_dir: str | Path, cockpit: Cockpit,
+                 transport: Transport = post, interval: float = SHIP_INTERVAL):
+        directory = Path(session_dir)
+        super().__init__(lambda: [directory], Destination(lambda: cockpit), transport, interval)
+        self.adw_id = directory.name

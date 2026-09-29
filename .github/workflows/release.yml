@@ -42,6 +42,13 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME, but .claude-plugin/plugin.json names $VERSION"
             exit 1
           fi
+          # Between releases main may name a cockpit no tag has published yet;
+          # the release that cuts it must not ship a stamp asking for a newer one.
+          MINIMUM="$(tr -d '[:space:]' < skills/agentic-sf/templates/asf/cockpit/min-version)"
+          if [ "$(printf '%s\n%s\n' "$MINIMUM" "$VERSION" | sort -V | tail -n 1)" != "$VERSION" ]; then
+            echo "::error::asf/cockpit/min-version names $MINIMUM, newer than this release, $VERSION"
+            exit 1
+          fi
           OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "IMAGES=ghcr.io/$OWNER" >> "$GITHUB_ENV"

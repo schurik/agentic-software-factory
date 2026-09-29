@@ -41,14 +41,15 @@ before — `None` when there are none, never omitted.
   images a team deploys, run through the stamped `asf/cockpit/compose.yaml` on Docker at
   `http://localhost:3000`, one per machine. The station issues itself a token from it (kept in
   `asf/data/cockpit.json`) and ships to it. `asf/cockpit/min-version` names the oldest cockpit this
-  release ships to (1.1.0); `ASF_COCKPIT_VERSION` can name a newer one, never an older one. Without
+  release ships to (1.1.0); `ASF_COCKPIT_VERSION` can name a newer one, never an older one. An `up`
+  that finds a newer local cockpit already running joins it instead of downgrading it. Without
   Docker, `up` warns, drops the cockpit and runs the watchers.
 - `obs`, the legacy trace UI, starts only on request: `asf up --with obs`, `--only …,obs`, or
   `just obs`.
-- `asf doctor` checks for Docker and names the cockpit version `up` would run, and whether its
-  images are pulled yet. It no longer crashes on a machine without `gh`.
+- `asf doctor` checks for Docker and names the cockpit version `up` would run, whether its images
+  are pulled yet, and a local cockpit already running. It no longer crashes on a machine without `gh`.
 - Cutting a release publishes `ghcr.io/schurik/asf-cockpit` and `…/asf-cockpit-backend`, tagged with
-  the release's version.
+  the release's version, and refuses when `asf/cockpit/min-version` is newer than the release.
 
 ### Upgrade
 

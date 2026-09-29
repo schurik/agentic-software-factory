@@ -34,12 +34,13 @@ from pathlib import Path
 from typing import Callable
 
 from .data_types import Cockpit, LocalCockpitRecord
-from .utils import anchor, ensure_dir, now_iso, write_atomic
+from .utils import ensure_dir, now_iso, write_atomic
 
 HOME = Path(__file__).resolve().parent.parent / "cockpit"     # asf/cockpit, stamped
 COMPOSE = HOME / "compose.yaml"
 MIN_VERSION = HOME / "min-version"
 RECORD = "cockpit.json"
+PROJECT = "asf-cockpit"            # compose.yaml's `name:`
 
 # Where a release publishes the images (`.github/workflows/release.yml` in the
 # skill's repository); ASF_COCKPIT_REGISTRY points a fork at its own.
@@ -79,6 +80,21 @@ def version() -> str:
     return ".".join(str(part) for part in wanted)
 
 
+def ignored_pin() -> str:
+    """ASF_COCKPIT_VERSION as written, when `version()` does not honour it."""
+    asked = os.environ.get("ASF_COCKPIT_VERSION", "").strip()
+    return asked if asked and _semver(asked) != _semver(version()) else ""
+
+
+def newer(than: str) -> bool:
+    """Whether `than` is newer than `version()` — a cockpit this stamp joins
+    rather than replaces. The same version is started (compose attaches to
+    the containers already there), so an `up` whose predecessor was killed
+    owns its cockpit again."""
+    found = _semver(than)
+    return found is not None and found > _semver(version())
+
+
 def registry() -> str:
     return os.environ.get("ASF_COCKPIT_REGISTRY", "").strip().rstrip("/") or REGISTRY
 
@@ -105,6 +121,19 @@ def site_url() -> str:
 def shared() -> str:
     """The shared cockpit ASF_COCKPIT_URL names, or "" — and "" means local."""
     return os.environ.get("ASF_COCKPIT_URL", "").strip()
+
+
+# (argv) -> (exit code, output). Injected so tests never run docker.
+Run = Callable[[list[str]], "tuple[int, str]"]
+
+
+def _run(argv: list[str]) -> tuple[int, str]:
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=60,
+                              env={**os.environ, **compose_env()})
+    except (OSError, subprocess.SubprocessError) as error:
+        return 1, str(error)
+    return done.returncode, (done.stdout or "") + (done.stderr or "")
 
 
 # ── docker ───────────────────────────────────────────────────────────────────
@@ -138,6 +167,22 @@ def _quiet(argv: list[str]) -> int:
         return 1
 
 
+def running(run: Run | None = None) -> str:
+    """The version of the local cockpit already running on this machine, or "".
+
+    Read from the tag of its app container, which is what `compose up` was
+    given. Asked before starting one, because the cockpit is one per machine:
+    a second `asf up` joins a newer one rather than recreating it, so
+    an older stamp never downgrades a cockpit a newer one is using.
+    """
+    code, output = (run or _run)(["docker", "ps", "--format", "{{.Image}}",
+                                  "--filter", f"label=com.docker.compose.project={PROJECT}",
+                                  "--filter", "label=com.docker.compose.service=app"])
+    lines = output.strip().splitlines() if code == 0 else []
+    tag = lines[0].rpartition(":")[2] if lines else ""
+    return tag if _semver(tag) else ""
+
+
 def compose_env() -> dict[str, str]:
     return {"ASF_COCKPIT_REGISTRY": registry(), "ASF_COCKPIT_VERSION": version()}
 
@@ -156,32 +201,22 @@ def up_argv() -> list[str]:
 
 # ── the token the station ships with ─────────────────────────────────────────
 
-# (argv) -> (exit code, output). Injected so tests never run docker.
-Run = Callable[[list[str]], "tuple[int, str]"]
-
-
-def _run(argv: list[str]) -> tuple[int, str]:
-    try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=60,
-                              env={**os.environ, **compose_env()})
-    except (OSError, subprocess.SubprocessError) as error:
-        return 1, str(error)
-    return done.returncode, (done.stdout or "") + (done.stderr or "")
-
-
 class Local:
     """The local cockpit as the station loop asks for it: `get()` is the
     Cockpit to ship to, or None while it is still starting; `refused()` drops
-    a token it would not take and says a fresh one is coming."""
+    a token it would not take and says a fresh one is coming.
 
-    def __init__(self, main_root: str | Path, data_dir: str, factory: str,
-                 run: Run = _run, retry: float = MINT_RETRY):
-        self.path = anchor(main_root, data_dir) / RECORD
-        self.factory = factory
+    `data_dir` is where the token is kept; `repository` is what the cockpit
+    files this factory's sessions under (CONTEXT.md: a factory is known to a
+    cockpit through its repository) — the wire calls it `factory`."""
+
+    def __init__(self, data_dir: Path, repository: str, run: Run = _run,
+                 retry: float = MINT_RETRY):
+        self.path = data_dir / RECORD
+        self.repository = repository
         self.run = run
         self.retry = retry
         self._asked_at: float | None = None
-        self._said = ""
 
     def get(self) -> Cockpit | None:
         record = self._recorded()
@@ -196,17 +231,12 @@ class Local:
         self._asked_at = None
         return True
 
-    @property
-    def said(self) -> str:
-        """Why the last attempt to issue a token failed — for `up` to show."""
-        return self._said
-
     def _recorded(self) -> LocalCockpitRecord | None:
         try:
             record = LocalCockpitRecord.model_validate_json(self.path.read_text())
         except (OSError, ValueError):
             return None
-        return record if record.factory == self.factory else None
+        return record if record.repository == self.repository else None
 
     def _issue(self) -> LocalCockpitRecord | None:
         now = time.monotonic()
@@ -214,12 +244,11 @@ class Local:
             return None
         self._asked_at = now
         code, output = self.run(compose("exec", "-T", "app", "./convex.sh", "run",
-                                        "tokens:issue", json.dumps({"factory": self.factory})))
+                                        "tokens:issue", json.dumps({"factory": self.repository})))
         found = _TOKEN.search(output) if code == 0 else None
         if not found:
-            self._said = output.strip().splitlines()[-1] if output.strip() else f"exit {code}"
-            return None
-        record = LocalCockpitRecord(factory=self.factory, token=found.group(0),
+            return None                # still starting: asked again after `retry`
+        record = LocalCockpitRecord(repository=self.repository, token=found.group(0),
                                     issued_at=now_iso())
         ensure_dir(self.path.parent)
         write_atomic(self.path, record.model_dump_json(indent=2))

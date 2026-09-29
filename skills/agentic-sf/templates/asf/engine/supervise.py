@@ -44,7 +44,8 @@ from typing import Callable
 
 from . import artifacts, git_helper, issues, preflight, station, worktree
 from . import cockpit as local_cockpit
-from .data_types import Cockpit, FactoryConfig
+from .data_types import FactoryConfig
+from .station import Destination
 from .utils import anchor
 
 RUNNER = "asf/asf.py"
@@ -68,10 +69,15 @@ class Service:
     cwd: Path
     env: dict[str, str] = field(default_factory=dict)
     grace: float = 8.0              # SIGTERM to SIGKILL
+    # Asked before a restart: a reason not to (said, and the child is left
+    # retired), or "". The local cockpit's, when another `up` put a newer one
+    # in its place — restarting at this stamp's version would downgrade it.
+    retire_if: Callable[[], str] | None = None
     proc: subprocess.Popen | None = None
     restarts: int = 0
     started_at: float = 0.0
     give_up: bool = False
+    retired: bool = False
 
 
 def _spawn(service: Service, on_line) -> None:
@@ -121,13 +127,25 @@ def _names(raw: str, flag: str) -> set[str]:
     return chosen
 
 
-def wanted(cfg: FactoryConfig, only: str, extra: str, watchers: bool = True) -> set[str]:
-    """The children to start. `only` replaces the default set, `extra` adds to
-    it (`--with obs`); `watchers=False` is `asf station`, the loop alone."""
+@dataclass
+class Children:
+    """What `up` was asked to start. `only` replaces the default set, `extra`
+    adds to it (`--with obs`); `watchers=False` is `asf station`, the loop
+    alone; `interval` is the watchers' poll."""
+    only: str = ""
+    extra: str = ""
+    watchers: bool = True
+    interval: int = 120
+
+
+def wanted(cfg: FactoryConfig, children: Children) -> set[str]:
+    """The children to start, before asking the machine whether it can."""
+    only, watchers = children.only, children.watchers
     if only:
         want = _names(only, "--only")
     else:
-        want = ({"cockpit", *WATCHERS} if watchers else {"cockpit"}) | _names(extra, "--with")
+        want = ({"cockpit", *WATCHERS} if watchers else {"cockpit"}) | _names(children.extra,
+                                                                              "--with")
         if watchers and not cfg.issues.enabled:
             # Both tracker pollers go: one launches runs from the item, the other
             # brings them back from it, and neither has anywhere to look without it.
@@ -146,16 +164,30 @@ def wanted(cfg: FactoryConfig, only: str, extra: str, watchers: bool = True) -> 
     return want
 
 
-def check(cfg: FactoryConfig, want: set[str]) -> None:
+def check(cfg: FactoryConfig, want: set[str]) -> str | None:
     """What would stop THESE services: each finding drops its service from
-    `want` and says so, and everything else still starts."""
+    `want` and says so, and everything else still starts.
+
+    Returns what becomes of the local cockpit: "start" (this process runs
+    it), "join" (a newer one already runs on this machine, and this
+    process ships to it without owning it — so an older stamp never
+    downgrades it), or None (no local cockpit)."""
+    local = None
     if "cockpit" in want:
         problem = local_cockpit.docker_problem()
+        already = "" if problem else local_cockpit.running()
         if problem:
             print(paint(WARN, f"  ! no local cockpit: {problem} — the watchers run without "
                               f"it, and nothing is shipped. `asf doctor` says more; "
                               f"ASF_COCKPIT_URL names a shared cockpit instead"))
             want.discard("cockpit")
+        elif already and local_cockpit.newer(already):
+            print(paint(DIM, f"  ~ the local cockpit {already} already runs on this machine — "
+                             f"shipping to it; the `asf up` that started it owns it"))
+            want.discard("cockpit")
+            local = "join"
+        else:
+            local = "start"
     if "obs" in want:
         home = preflight.visualizer_dir()
         if home is None:
@@ -174,6 +206,7 @@ def check(cfg: FactoryConfig, want: set[str]) -> None:
     if want & set(WATCHERS) and not shutil.which(forge):
         print(paint(WARN, f"  ! {forge!r} is not on PATH — the watchers can start, but every "
                           f"poll will fail to list anything"))
+    return local
 
 
 def services(want: set[str], config_path: str, interval: int, main_root: Path,
@@ -183,7 +216,8 @@ def services(want: set[str], config_path: str, interval: int, main_root: Path,
         # compose stops its containers on SIGTERM, and a Convex backend takes
         # its own stop_grace_period to go — more than a watcher's 8s.
         found.append(Service("cockpit", local_cockpit.up_argv(), main_root,
-                             local_cockpit.compose_env(), grace=30.0))
+                             local_cockpit.compose_env(), grace=30.0,
+                             retire_if=_superseded))
     for name in WATCHERS:
         if name in want:
             found.append(Service(name, [sys.executable, RUNNER, "--config", config_path, name,
@@ -197,37 +231,37 @@ def services(want: set[str], config_path: str, interval: int, main_root: Path,
     return found
 
 
-@dataclass
-class Destination:
-    """Where the station loop ships, as `station.Loop` asks for it."""
-    get: Callable[[], Cockpit | None]
-    refused: Callable[[Cockpit], bool]
-    said: str
+def _superseded() -> str:
+    already = local_cockpit.running()
+    if already and local_cockpit.newer(already):
+        return (f"another `asf up` runs the local cockpit {already} now — shipping to it "
+                f"rather than restarting this one at {local_cockpit.version()}")
+    return ""
 
 
-def destination(cfg: FactoryConfig, main_root: Path, want: set[str]) -> Destination | None:
-    """The shared cockpit, the local one this process starts, or None."""
+def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Destination | None:
+    """The shared cockpit, the local one this process starts or joined, or None."""
     shared = station.configured()
     if shared is not None:
-        return Destination(lambda: shared, lambda _cockpit: False, f"shared: {shared.url}")
-    if local_cockpit.shared() or "cockpit" not in want:
+        return Destination(lambda: shared, label=f"shared: {shared.url}")
+    if local_cockpit.shared() or local is None:
         return None
-    factory = issues.resolve_project(cfg.issues, main_root) or main_root.name
-    local = local_cockpit.Local(main_root, cfg.defaults.data_dir, factory)
-    return Destination(local.get, local.refused,
-                       f"{local_cockpit.app_url()}   (local, {local_cockpit.version()}; "
-                       f"the first start pulls its images)")
+    repository = issues.resolve_project(cfg.issues, main_root) or main_root.name
+    cockpit = local_cockpit.Local(anchor(main_root, cfg.defaults.data_dir), repository)
+    started = ("joined, started by another `asf up`" if local == "join" else
+               f"{local_cockpit.version()}; the first start pulls its images")
+    return Destination(cockpit.get, cockpit.refused,
+                       f"{local_cockpit.app_url()}   (local, {started})")
 
 
-def up(cfg: FactoryConfig, config_path: str, interval: int, only: str, extra: str = "",
-       watchers: bool = True) -> int:
+def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     main_root = git_helper.main_root()
     db = anchor(main_root, cfg.observability.db)
     here = station.identify(main_root, cfg.defaults.data_dir)
-    print(f"asf {'up' if watchers else 'station'} — {main_root}")
-    want = wanted(cfg, only, extra, watchers)
-    check(cfg, want)
-    ships_to = destination(cfg, main_root, want)
+    interval = children.interval
+    print(f"asf {'up' if children.watchers else 'station'} — {main_root}")
+    want = wanted(cfg, children)
+    ships_to = destination(cfg, main_root, check(cfg, want))
     if not want and ships_to is None:
         print("  ! nothing to start and no cockpit to ship to — see the messages above",
               file=sys.stderr)
@@ -253,14 +287,15 @@ def up(cfg: FactoryConfig, config_path: str, interval: int, only: str, extra: st
     loop = None
     if ships_to is not None:
         sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
-        loop = station.Loop(sessions, ships_to.get, refused=ships_to.refused,
-                            say=lambda text: on_line("station", text)).start()
+        loop = station.Loop(lambda: station.every_session(sessions), ships_to)
+        loop.say = lambda text: on_line("station", text)
+        loop.start()
     started = services(want, config_path, interval, main_root, db)
     for service in started:
         _spawn(service, on_line)
     print()
     print(f"  station    {here.name} ({here.kind}, {here.id})")
-    print(f"  cockpit    {ships_to.said if ships_to else 'none — nothing is shipped'}")
+    print(f"  cockpit    {ships_to.label if ships_to else 'none — nothing is shipped'}")
     if "obs" in want:
         print(f"  trace UI   http://localhost:{UI_PORT}   (api on :{API_PORT})")
     for name in WATCHERS:
@@ -292,17 +327,23 @@ def _supervise(started: list[Service], stopping: threading.Event, on_line) -> bo
     """Restart what dies; a crash loop (three restarts inside a minute) is
     given up on and said, and the rest keeps running. True when nothing is
     left — never with no children at all, which is `asf station` shipping to a
-    shared cockpit: the loop is the whole job."""
+    shared cockpit (the loop is the whole job), nor with a child retired in
+    favour of a cockpit the loop now ships to."""
     while not stopping.is_set():
         time.sleep(0.4)
         alive = False
         for service in started:
-            if service.give_up:
+            if service.give_up or service.retired:
                 continue
             if service.proc and service.proc.poll() is None:
                 alive = True
                 continue
             code = service.proc.returncode if service.proc else -1
+            why = service.retire_if() if service.retire_if else ""
+            if why:
+                on_line(service.name, why)
+                service.retired = True
+                continue
             service.restarts = service.restarts + 1 if time.monotonic() - service.started_at < 60 else 0
             if service.restarts > 3:
                 on_line(service.name, f"exited ({code}) and keeps exiting — giving up on it; "
@@ -315,7 +356,7 @@ def _supervise(started: list[Service], stopping: threading.Event, on_line) -> bo
                 return False
             _spawn(service, on_line)
             alive = True
-        if started and not alive:
+        if started and not alive and not any(service.retired for service in started):
             on_line("up", "every service has given up — nothing left to supervise")
             return True
     return False
