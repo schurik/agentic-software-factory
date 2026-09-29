@@ -21,9 +21,9 @@ from contextlib import contextmanager
 
 from . import agents, artifacts, git_helper, hitl, journal, limits, replay, worktree
 from .console import Console
-from .data_types import (AgentCall, AgentResult, Decision, EnvelopeBase, EventRecord, Gate,
-                         Phase, PhaseEnded, PhaseParams, PhaseStarted, ProvenanceRecorded,
-                         RunSpec, SessionSuspended, Subject, UsageRecorded)
+from .data_types import (AgentCall, AgentConfig, AgentResult, Decision, EnvelopeBase,
+                         EventRecord, Gate, Phase, PhaseEnded, PhaseParams, PhaseStarted,
+                         ProvenanceRecorded, RunSpec, SessionSuspended, Subject, UsageRecorded)
 from .utils import anchor, ensure_dir, now_iso, write_atomic
 
 
@@ -234,8 +234,8 @@ class Run:
             trigger=self.trigger, pr_url=context.url))
 
     # ── usage (run totals mirror what the tracer accumulates in sqlite) ─────
-    def add_usage(self, phase: Phase, agent, result: AgentResult) -> None:
-        """Bank one agent turn's spend — `agent` is the AgentConfig that paid it."""
+    def add_usage(self, phase: Phase, agent: AgentConfig, result: AgentResult) -> None:
+        """Bank one agent turn's spend."""
         self.tokens += result.tokens
         self.cost += result.cost
         self.tracer.session_add_usage(self.adw_id, result.tokens, result.cost)

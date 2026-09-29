@@ -1945,7 +1945,7 @@ class UsageRecorded(DomainEvent):
 class ProcessStarted(DomainEvent):
     KIND: ClassVar[str] = "process_started"
 
-    kind: str                       # "adw" (the workflow process) | "agent"
+    kind: Literal["adw", "agent"]   # the workflow process, or a coding-agent child
     name: str = ""
     pid: int
     command: str = ""
@@ -1991,7 +1991,7 @@ class CommandResult(DomainEvent):
 class SessionFinished(DomainEvent):
     KIND: ClassVar[str] = "session_finished"
 
-    status: str                     # success | fail
+    status: Literal["success", "fail"]
     ended_at: str
     reason: str = ""
 

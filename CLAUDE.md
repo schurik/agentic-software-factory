@@ -98,9 +98,9 @@ bug already shipped once.
    `data_types.py` under "Domain events"), and it is a contract with a cockpit this repo does not
    run. Any change to a payload bumps that kind's `VERSION` and adds
    `tests/golden/events/<kind>/v<N>.json` beside the old fixture, which is never edited — the
-   cockpit reads every version ever written. An event is appended by the function that writes the
-   file it describes, and `tests/projection.py` must still rebuild `run.json`, the decisions, the
-   envelopes and the journal from the events alone.
+   cockpit reads every version ever written. An event that describes a session file is appended by
+   the function that writes that file, and `tests/projection.py` must still rebuild `run.json`, the
+   decisions, the envelopes and the journal from the events alone.
 
 ## Working in here
 
