@@ -46,6 +46,16 @@ def test_a_station_gets_an_id_once_and_keeps_it(tmp_path: Path):
     assert station.identify(tmp_path / "elsewhere", DATA_DIR).id != first.id
 
 
+def test_a_filesystem_without_hard_links_still_gets_a_station(tmp_path: Path, monkeypatch):
+    def refused(*_):
+        raise PermissionError("hard links are not supported here")
+    monkeypatch.setattr(station.os, "link", refused)
+
+    first = station.identify(tmp_path, DATA_DIR)
+
+    assert station.identify(tmp_path, DATA_DIR).id == first.id
+
+
 def test_a_station_s_name_is_login_at_host_colon_directory_unless_env_names_it(
         tmp_path: Path, monkeypatch):
     root = tmp_path / "widgets"
@@ -102,14 +112,14 @@ def test_a_session_ships_whole_and_a_second_ship_sends_nothing(stamped: Path):
     written = [line.seq for line in events.read(session)]
     cockpit = FakeCockpit()
 
-    shipped = station.ship(session, adw_id, COCKPIT, cockpit)
+    shipped = station.ship(session, COCKPIT, cockpit)
 
     assert shipped.outcome == "shipped" and shipped.acked == written[-1] and shipped.pending == 0
     assert sorted(cockpit.stored[adw_id]) == written
     assert cockpit.kinds(adw_id)[0] == "session_started"
     assert cockpit.kinds(adw_id)[-1] == "session_finished"
 
-    again = station.ship(session, adw_id, COCKPIT, cockpit)
+    again = station.ship(session, COCKPIT, cockpit)
     assert again.outcome == "shipped" and again.sent == 0 and len(cockpit.batches) == 1
 
 
@@ -126,16 +136,16 @@ def test_a_cockpit_that_is_down_loses_nothing_and_gets_it_all_from_the_acked_seq
         tmp_path: Path):
     session = a_session(tmp_path, 3)
     cockpit = FakeCockpit()
-    assert station.ship(session, "a1b2c3d4", COCKPIT, cockpit).acked == 3
+    assert station.ship(session, COCKPIT, cockpit).acked == 3
 
     cockpit.down = True
     events.emit(session, EVENT_KINDS["process_ended"](pid=4))
     events.emit(session, EVENT_KINDS["process_ended"](pid=5))
-    down = station.ship(session, "a1b2c3d4", COCKPIT, cockpit)
+    down = station.ship(session, COCKPIT, cockpit)
     assert down.outcome == "unreachable" and down.acked == 3 and down.pending == 2
 
     cockpit.down = False
-    back = station.ship(session, "a1b2c3d4", COCKPIT, cockpit)
+    back = station.ship(session, COCKPIT, cockpit)
     assert back.outcome == "shipped" and back.acked == 5 and back.pending == 0
     assert [event["seq"] for event in cockpit.batches[-1]["events"]] == [4, 5]
 
@@ -143,12 +153,12 @@ def test_a_cockpit_that_is_down_loses_nothing_and_gets_it_all_from_the_acked_seq
 def test_a_cockpit_that_forgot_a_session_is_sent_it_again_from_the_top(tmp_path: Path):
     session = a_session(tmp_path, 4)
     cockpit = FakeCockpit()
-    station.ship(session, "a1b2c3d4", COCKPIT, cockpit)
+    station.ship(session, COCKPIT, cockpit)
 
     cockpit.forget()
     events.emit(session, EVENT_KINDS["process_ended"](pid=5))
-    station.ship(session, "a1b2c3d4", COCKPIT, cockpit)     # 5 alone: it answers 0
-    station.ship(session, "a1b2c3d4", COCKPIT, cockpit)     # so 1..4 again
+    station.ship(session, COCKPIT, cockpit)     # 5 alone: it answers 0
+    station.ship(session, COCKPIT, cockpit)     # so 1..4 again
 
     assert cockpit.acked("a1b2c3d4") == 5
 
@@ -157,7 +167,7 @@ def test_a_long_backlog_goes_in_batches_the_cockpit_accepts(tmp_path: Path):
     session = a_session(tmp_path, 1200)
     cockpit = FakeCockpit()
 
-    shipped = station.ship(session, "a1b2c3d4", COCKPIT, cockpit)
+    shipped = station.ship(session, COCKPIT, cockpit)
 
     assert shipped.acked == 1200 and shipped.sent == 1200
     assert [len(batch["events"]) for batch in cockpit.batches] == [500, 500, 200]
@@ -165,18 +175,18 @@ def test_a_long_backlog_goes_in_batches_the_cockpit_accepts(tmp_path: Path):
 
 def test_another_cockpit_gets_every_session_from_the_top(tmp_path: Path):
     session = a_session(tmp_path, 2)
-    station.ship(session, "a1b2c3d4", COCKPIT, FakeCockpit())
+    station.ship(session, COCKPIT, FakeCockpit())
 
     elsewhere = FakeCockpit()
     other = Cockpit(url="http://other.test:3211", token="asf_ingest_test")
-    assert station.ship(session, "a1b2c3d4", other, elsewhere).sent == 2
+    assert station.ship(session, other, elsewhere).sent == 2
 
 
 def test_a_wrong_token_is_unauthorized_and_moves_nothing(tmp_path: Path):
     session = a_session(tmp_path, 2)
     wrong = Cockpit(url=COCKPIT.url, token="asf_ingest_wrong")
 
-    shipped = station.ship(session, "a1b2c3d4", wrong, FakeCockpit())
+    shipped = station.ship(session, wrong, FakeCockpit())
 
     assert shipped.outcome == "unauthorized" and shipped.acked == 0 and shipped.pending == 2
     assert "401" in shipped.error
@@ -233,7 +243,7 @@ def eventually(check, within: float = 5.0) -> bool:
 def test_a_live_session_reaches_the_cockpit_while_it_runs(tmp_path: Path):
     session = a_session(tmp_path, 1)
     cockpit = FakeCockpit()
-    shipper = station.Shipper(session, "a1b2c3d4", COCKPIT, cockpit, interval=0.02).start()
+    shipper = station.Shipper(session, COCKPIT, cockpit, interval=0.02).start()
     try:
         assert eventually(lambda: cockpit.acked("a1b2c3d4") == 1)
         events.emit(session, EVENT_KINDS["process_ended"](pid=2))
@@ -245,7 +255,7 @@ def test_a_live_session_reaches_the_cockpit_while_it_runs(tmp_path: Path):
 def test_the_last_events_of_a_run_go_out_with_its_final_flush(tmp_path: Path):
     session = a_session(tmp_path, 1)
     cockpit = FakeCockpit()
-    shipper = station.Shipper(session, "a1b2c3d4", COCKPIT, cockpit, interval=60).start()
+    shipper = station.Shipper(session, COCKPIT, cockpit, interval=60).start()
     events.emit(session, EVENT_KINDS["process_ended"](pid=2))
 
     shipper.stop()
@@ -258,7 +268,7 @@ def test_a_cockpit_that_is_down_never_delays_the_run_and_gets_it_all_when_it_is_
     session = a_session(tmp_path, 1)
     cockpit = FakeCockpit()
     cockpit.down = True
-    shipper = station.Shipper(session, "a1b2c3d4", COCKPIT, cockpit, interval=0.02).start()
+    shipper = station.Shipper(session, COCKPIT, cockpit, interval=0.02).start()
     try:
         began = time.monotonic()
         for pid in range(2, 52):
@@ -277,7 +287,7 @@ def test_a_cockpit_that_hangs_holds_the_end_of_a_run_no_longer_than_the_flush_bu
     session = a_session(tmp_path, 1)
     cockpit = FakeCockpit()
     cockpit.hold = threading.Event()                     # every request blocks
-    shipper = station.Shipper(session, "a1b2c3d4", COCKPIT, cockpit, interval=0.02).start()
+    shipper = station.Shipper(session, COCKPIT, cockpit, interval=0.02).start()
     try:
         events.emit(session, EVENT_KINDS["process_ended"](pid=2))
         began = time.monotonic()
@@ -290,5 +300,39 @@ def test_a_cockpit_that_hangs_holds_the_end_of_a_run_no_longer_than_the_flush_bu
 def test_with_no_cockpit_configured_nothing_ships_and_nothing_is_recorded(tmp_path: Path):
     session = a_session(tmp_path, 1)
 
-    assert station.start(session, "a1b2c3d4") is None
+    assert station.start(session) is None
     assert not (session / station.SHIPPED_FILE).exists()
+
+
+def test_a_request_that_cannot_even_be_sent_is_reported_never_raised(tmp_path: Path):
+    session = a_session(tmp_path, 1)
+
+    def unsendable(url: str, token: str, body: dict) -> tuple[int, dict]:
+        "Bearer ü".encode("latin-1", errors="strict").decode("ascii")   # what http.client does
+        return 200, {}
+
+    shipped = station.ship(session, COCKPIT, unsendable)
+
+    assert shipped.outcome == "refused" and shipped.acked == 0 and shipped.error
+
+
+def test_a_trailing_slash_in_the_url_is_the_same_cockpit(tmp_path: Path):
+    session = a_session(tmp_path, 2)
+    cockpit = FakeCockpit()
+    station.ship(session, Cockpit(url=COCKPIT.url + "/", token=COCKPIT.token), cockpit)
+
+    assert station.ship(session, COCKPIT, cockpit).sent == 0
+
+
+def test_a_process_that_only_touches_a_session_flushes_it_before_moving_on(
+        tmp_path: Path, monkeypatch):
+    session = a_session(tmp_path, 3)
+    cockpit = FakeCockpit()
+    station.flush(session, cockpit)                       # no cockpit configured: nothing
+    assert cockpit.batches == []
+
+    monkeypatch.setenv("ASF_COCKPIT_URL", COCKPIT.url)
+    monkeypatch.setenv("ASF_COCKPIT_TOKEN", COCKPIT.token)
+    station.flush(session, cockpit)
+
+    assert cockpit.acked("a1b2c3d4") == 3

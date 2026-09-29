@@ -77,6 +77,10 @@ def _station_record(path: Path) -> StationRecord:
     the second write would silently rename the station under the first. So the
     record is written whole to a temp file and hard-linked into place, which
     fails when the name is taken: the loser reads the winner's id instead.
+
+    A filesystem without hard links (some container and network mounts) gets
+    the plain atomic write instead, and with it the race — every run calls
+    this, cockpit or not, so it must never be the reason one cannot start.
     """
     try:
         return StationRecord.model_validate_json(path.read_text())
@@ -92,6 +96,8 @@ def _station_record(path: Path) -> StationRecord:
         os.link(temp, path)
     except FileExistsError:
         return StationRecord.model_validate_json(path.read_text())
+    except OSError:
+        write_atomic(path, fresh.model_dump_json(indent=2))
     finally:
         temp.unlink(missing_ok=True)
     return fresh
@@ -157,9 +163,11 @@ def _json(raw: bytes) -> dict:
 
 # ── shipping one session ─────────────────────────────────────────────────────
 
-def ship(session_dir: str | Path, adw_id: str, cockpit: Cockpit,
-         transport: Transport = post) -> ShipResult:
+def ship(session_dir: str | Path, cockpit: Cockpit, transport: Transport = post) -> ShipResult:
     """Send the session's events past the cockpit's acknowledged seq. Never raises.
+
+    The session is its directory, named by its adw_id (`<data_dir>/sessions/
+    <adw_id>`), which is also what the cockpit files it under.
 
     Batch after batch while the cockpit's `acked` keeps climbing; a batch that
     does not move it (a cockpit that lost what it had, and answers lower than
@@ -167,6 +175,7 @@ def ship(session_dir: str | Path, adw_id: str, cockpit: Cockpit,
     next attempt resends from there.
     """
     directory = Path(session_dir)
+    adw_id = directory.name
     acked = _acked(directory, cockpit)
     lines = events.read(directory)
     sent = 0
@@ -181,9 +190,11 @@ def ship(session_dir: str | Path, adw_id: str, cockpit: Cockpit,
             return result()
         body = {"session": adw_id, "events": [line.model_dump(mode="json") for line in batch]}
         try:
-            status, answer = transport(f"{_origin(cockpit)}/ingest", cockpit.token, body)
+            status, answer = transport(f"{cockpit.url}/ingest", cockpit.token, body)
         except OSError as error:
             return result(outcome="unreachable", error=str(error))
+        except ValueError as error:        # e.g. a token no HTTP header can carry
+            return result(outcome="refused", error=f"not sendable: {error}")
         if status == 401:
             return result(outcome="unauthorized", error=_said(answer, status))
         answered = answer.get("acked")
@@ -192,7 +203,7 @@ def ship(session_dir: str | Path, adw_id: str, cockpit: Cockpit,
         sent += len(batch)
         climbed = answered > acked
         acked = answered
-        _record(directory, ShipAck(cockpit=_origin(cockpit), acked=acked))
+        _record(directory, ShipAck(cockpit=cockpit.url, acked=acked))
         if not climbed:
             return result()
 
@@ -214,17 +225,13 @@ def _said(answer: dict, status: int) -> str:
     return f"HTTP {status}: {answer.get('error') or 'no reason given'}"
 
 
-def _origin(cockpit: Cockpit) -> str:
-    return cockpit.url.rstrip("/")
-
-
 def _acked(session_dir: Path, cockpit: Cockpit) -> int:
     """How far THIS cockpit has acknowledged the session; 0 for any other."""
     try:
         ack = ShipAck.model_validate_json((session_dir / SHIPPED_FILE).read_text())
     except (OSError, ValueError):
         return 0
-    return ack.acked if ack.cockpit == _origin(cockpit) else 0
+    return ack.acked if ack.cockpit == cockpit.url else 0
 
 
 def _record(session_dir: Path, ack: ShipAck) -> None:
@@ -239,7 +246,7 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
     A CI job's last step, and the catch-up for a session whose own process
     died before its shipper could flush. Exits non-zero ONLY on a 401: a
     cockpit that is down loses nothing (the next sync sends it), and a job that
-    fails because a dashboard was restarting teaches people to delete the
+    fails because the cockpit was restarting teaches people to delete the
     step. A token that is wrong stays wrong until a person fixes it, which is
     what a red job is for.
     """
@@ -250,13 +257,13 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
         return 0
     main_root = git_helper.main_root()
     here = identify(main_root, cfg.defaults.data_dir)
-    print(f"station {here.name} ({here.kind}, {here.id}) -> {_origin(cockpit)}")
+    print(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}")
     root = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
     sessions = sorted(d for d in root.iterdir()
                       if (d / events.EVENTS_FILE).is_file()) if root.is_dir() else []
     sent = 0
     for directory in sessions:
-        shipped = ship(directory, directory.name, cockpit, transport)
+        shipped = ship(directory, cockpit, transport)
         sent += shipped.sent
         if shipped.outcome == "shipped":
             if shipped.sent:
@@ -278,16 +285,25 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
 
 # ── a live session: the shipper thread ───────────────────────────────────────
 
-def start(session_dir: str | Path, adw_id: str, transport: Transport = post) -> Shipper | None:
+def start(session_dir: str | Path, transport: Transport = post) -> Shipper | None:
     """Ship this session from a background thread for as long as this process
     lives, flushing on the way out — or None, and nothing at all, when no
     cockpit is configured. Called by every process that owns a session."""
     cockpit = configured()
     if cockpit is None:
         return None
-    shipper = Shipper(session_dir, adw_id, cockpit, transport).start()
+    shipper = Shipper(session_dir, cockpit, transport).start()
     atexit.register(shipper.stop)
     return shipper
+
+
+def flush(session_dir: str | Path, transport: Transport = post) -> None:
+    """One bounded round, for a process that writes to a session it does not
+    run — a watcher aborting a run at its gate — and outlives the write by
+    hours, so an exit-time flush would come far too late."""
+    cockpit = configured()
+    if cockpit is not None:
+        Shipper(session_dir, cockpit, transport).start().stop()
 
 
 class Shipper:
@@ -307,15 +323,15 @@ class Shipper:
     the thread is a daemon — and those events go with the next process or sync.
     """
 
-    def __init__(self, session_dir: str | Path, adw_id: str, cockpit: Cockpit,
+    def __init__(self, session_dir: str | Path, cockpit: Cockpit,
                  transport: Transport = post, interval: float = SHIP_INTERVAL):
         self.session_dir = Path(session_dir)
-        self.adw_id = adw_id
+        self.adw_id = self.session_dir.name
         self.cockpit = cockpit
         self.transport = transport
         self.interval = interval
         self._stopping = threading.Event()
-        self._thread = threading.Thread(target=self._loop, name=f"shipper-{adw_id}",
+        self._thread = threading.Thread(target=self._loop, name=f"shipper-{self.adw_id}",
                                         daemon=True)
         self._shipped_size = -1        # the file's size when everything in it was acked
         self._wait = interval
@@ -346,7 +362,7 @@ class Shipper:
         if size == self._shipped_size:
             return
         try:
-            result = ship(self.session_dir, self.adw_id, self.cockpit, self.transport)
+            result = ship(self.session_dir, self.cockpit, self.transport)
         except Exception as error:     # noqa: BLE001 — a shipper never takes a run down
             self._say("crashed", f"shipping stopped: {error!r}")
             self._gave_up = True

@@ -123,7 +123,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
         pr_url=run.pr_url, request=spec.request, station_id=here.id, station_name=here.name))
     # And from here every event this process appends is on its way to the
     # cockpit, when there is one — from a thread, so nothing below waits on it.
-    station.start(run.session_dir, adw_id)
+    station.start(run.session_dir)
     # This process is the run. Record it before any phase opens, so a run that
     # hangs in its first agent call is still killable by adw_id.
     tracer.process_start(adw_id, "adw", "", os.getpid(), " ".join(command))

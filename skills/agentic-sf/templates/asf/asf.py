@@ -274,11 +274,12 @@ def build_parser() -> argparse.ArgumentParser:
     trees.set_defaults(func=cmd_worktrees)
     # `sync` alone for now: the station loop, `register` and the command poll
     # arrive with the tickets that need them (spec #40).
-    one = _config_on(sub.add_parser("station", help="this checkout as a cockpit's station"))
-    one.add_argument("action", choices=["sync"],
-                     help="sync: ship every session the cockpit has not acknowledged — "
-                          "a CI job's last step; fails only when the cockpit refuses the token")
-    one.set_defaults(func=cmd_station)
+    stations = _config_on(sub.add_parser("station", help="this checkout as a cockpit's station"))
+    stations.add_argument("action", choices=["sync"],
+                          help="sync: ship every session the cockpit has not acknowledged — "
+                               "a CI job's last step; fails only when the cockpit refuses the "
+                               "token")
+    stations.set_defaults(func=cmd_station)
     return parser
 
 

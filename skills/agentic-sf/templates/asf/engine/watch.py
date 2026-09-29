@@ -48,7 +48,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import artifacts, git_helper, hitl, issues, operate, pull_requests, worktree
+from . import artifacts, git_helper, hitl, issues, operate, pull_requests, station, worktree
 from .data_types import (Decision, IssueRef, IssueUpdate, PullRequestRef, PullRequestUpdate,
                          FactoryConfig, Reply)
 from .tracer import watcher_beat as db_beat
@@ -579,6 +579,7 @@ def _abort_if_waiting(session_dir: Path, number: int, state: str) -> None:
         channel="auto", subject_digest=waiting.subject_digest,
         notes=f"#{number} {state} while the run was waiting at this gate"))
     artifacts.finish_run(session_dir, "fail")
+    station.flush(session_dir)         # the gate closes in a cockpit's inbox now, not later
     print(f"    was waiting at gate {waiting.gate} — aborted and recorded")
 
 

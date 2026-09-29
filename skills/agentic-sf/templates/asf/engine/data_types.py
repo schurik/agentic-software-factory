@@ -1740,11 +1740,22 @@ class Cockpit(BaseModel):
     url: str                        # the backend's site origin, e.g. http://127.0.0.1:3211
     token: str = ""                 # a factory-scoped ingest token; empty is refused as 401
 
+    @field_validator("url")
+    @classmethod
+    def _origin(cls, value: str) -> str:
+        # One spelling per cockpit, because `ShipAck` is keyed by it: a trailing
+        # slash in `.env` must not ship every session again from the top.
+        return value.strip().rstrip("/")
+
 
 class ShipAck(BaseModel):
     """`<session_dir>/shipped.json`: how far one cockpit has acknowledged this
     session. Keyed by the cockpit, so pointing a station at another one ships
-    every session to it from the top instead of from someone else's offset."""
+    every session to it from the top instead of from someone else's offset.
+
+    The one session file no event describes, on purpose: it is the station's
+    delivery state, not a fact about the run, so `tests/projection.py` has
+    nothing to rebuild it from and a cockpit has nothing to learn from it."""
 
     cockpit: str
     acked: int = 0
@@ -1758,7 +1769,8 @@ class ShipResult(BaseModel):
 
     `unreachable` loses nothing: the offset stays where the cockpit last put
     it, and the next attempt starts there. `unauthorized` is the one outcome a
-    person has to fix. `refused` is a batch the cockpit will not take as sent.
+    person has to fix. `refused` is a batch the cockpit will not take as sent,
+    or one that could not be sent as given at all.
     """
 
     adw_id: str

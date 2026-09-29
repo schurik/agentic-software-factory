@@ -127,7 +127,7 @@ def decide(cfg: FactoryConfig, config_path: str, verdict: str, adw_id: str, note
         return 1
     # The decision is an event, and a cockpit's inbox closes the gate on it —
     # so this process ships it too, until a relaunched run takes the session.
-    shipper = station.start(session_dir, adw_id)
+    shipper = station.start(session_dir)
     print(f"{adw_id}: {decision.verdict} recorded at "
           f"{hitl.decision_path(session_dir, decision.gate, decision.round)}")
     state = artifacts.read_run(session_dir)
