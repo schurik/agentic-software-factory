@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
-import { view } from "./model/session";
+import { readSummary, view } from "./model/session";
 
 // No sign-in yet: every factory's sessions are visible to whoever reaches the
 // deployment. Forge identity, and the permission filter that comes with it,
@@ -11,7 +11,9 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const sessions = await ctx.db.query("sessions").withIndex("by_activity").order("desc").take(200);
-    return sessions.map(({ factory, session, acked, summary }) => ({ factory, session, acked, summary }));
+    return sessions.map(({ factory, session, acked, summary }) => ({
+      factory, session, acked, summary: readSummary(summary),
+    }));
   },
 });
 
@@ -28,9 +30,7 @@ export const get = query({
       .query("events")
       .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session))
       .collect();
-    const page = view(events.map(({ seq, ts, kind, v: version, payload }) => ({
-      seq, ts, kind, v: version, payload,
-    })));
+    const page = view(events, record.acked);
     return { factory, session, acked: record.acked, ...page };
   },
 });

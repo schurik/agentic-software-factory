@@ -11,13 +11,18 @@
 # backend's own instance secret (in the `data` volume) and hands it to `app`
 # through the `keys` volume, and `app` deploys its functions with it.
 #
+# The Convex images are pinned to the upstream revision this was tested with
+# (upstream tags each build by its commit), so a deployment only moves when a
+# pull request here moves it; override with CONVEX_BACKEND_VERSION and
+# CONVEX_DASHBOARD_VERSION.
+#
 # The two Convex services are upstream's own compose file, trimmed to what a
 # cockpit sets; Postgres and S3 are still one environment variable away (see
 # get-convex/convex-backend self-hosted/README.md). The backend is FSL-1.1-Apache-2.0,
 # which permits self-hosting for a team's internal use — see README.md.
 services:
   backend:
-    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_VERSION:-latest}
+    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_VERSION:-5c7cb5bc7db457290f1769f95f1d1340912f7fd7}
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
@@ -42,7 +47,7 @@ services:
       start_period: 10s
 
   dashboard:
-    image: ghcr.io/get-convex/convex-dashboard:${CONVEX_DASHBOARD_VERSION:-latest}
+    image: ghcr.io/get-convex/convex-dashboard:${CONVEX_DASHBOARD_VERSION:-5c7cb5bc7db457290f1769f95f1d1340912f7fd7}
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
@@ -56,7 +61,7 @@ services:
   # One shot: the backend image's own key script, run once the backend has
   # written its instance secret.
   keygen:
-    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_VERSION:-latest}
+    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_VERSION:-5c7cb5bc7db457290f1769f95f1d1340912f7fd7}
     entrypoint: ["/bin/bash", "-c", "./generate_admin_key.sh | tail -n 1 > /keys/admin_key"]
     volumes:
       - data:/convex/data

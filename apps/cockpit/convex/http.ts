@@ -2,7 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { digest } from "./model/digest";
-import { parseBatch } from "./model/wire";
+import { isRefusal, parseBatch } from "./model/wire";
 
 const http = httpRouter();
 
@@ -23,11 +23,12 @@ http.route({
       return reply(400, { error: "the body is not JSON" });
     }
     const batch = parseBatch(body);
-    if (typeof batch === "string") return reply(400, { error: batch });
+    if (isRefusal(batch)) return reply(batch.status, { error: batch.error });
 
     const result = await ctx.runMutation(internal.ingest.append, {
       digest: await digest(token),
-      ...batch,
+      session: batch.session,
+      events: batch.events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) })),
     });
     if (result === null) return reply(401, { error: "this ingest token is not one the cockpit issued" });
     return reply(200, result);

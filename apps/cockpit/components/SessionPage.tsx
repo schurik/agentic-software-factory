@@ -3,7 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Status } from "./Status";
-import { cost, when } from "./format";
+import { formatCost, formatTime, formatWaitingFor } from "./format";
 
 export function SessionPage({ factory, session }: { factory: string; session: string }) {
   const page = useQuery(api.sessions.get, { factory, session });
@@ -30,8 +30,8 @@ export function SessionPage({ factory, session }: { factory: string; session: st
 
       <dl className="facts">
         <dt>Waiting for</dt>
-        <dd>{summary.waitingFor ? `${summary.waitingFor.gate} · round ${summary.waitingFor.round} · on the ${summary.waitingFor.channel}` : "—"}</dd>
-        <dt>Station</dt><dd>{summary.stationName || "—"}</dd>
+        <dd>{formatWaitingFor(summary.waitingFor)}{summary.waitingFor ? ` · on the ${summary.waitingFor.channel}` : null}</dd>
+        <dt>Station</dt><dd>{summary.stationName || "—"}{summary.skillVersion ? ` · stamped at ${summary.skillVersion}` : null}</dd>
         <dt>Branch</dt><dd>{summary.branch ? <code>{summary.branch}</code> : "—"}{summary.baseRef ? <> from <code>{summary.baseRef}</code></> : null}</dd>
         <dt>Triggered</dt><dd>{summary.trigger || "—"}{summary.triggeredBy ? ` by ${summary.triggeredBy}` : ""}</dd>
         <dt>Links</dt>
@@ -41,9 +41,9 @@ export function SessionPage({ factory, session }: { factory: string; session: st
           {summary.prUrl ? <a href={summary.prUrl}>pull request</a> : null}
           {!summary.issueUrl && !summary.prUrl ? "—" : null}
         </dd>
-        <dt>Started</dt><dd>{when(summary.startedAt)}</dd>
-        <dt>Ended</dt><dd>{when(summary.endedAt)}</dd>
-        <dt>Spend</dt><dd>{cost(summary.totalCost)} · {summary.totalTokens.toLocaleString()} tokens</dd>
+        <dt>Started</dt><dd>{formatTime(summary.startedAt)}</dd>
+        <dt>Ended</dt><dd>{formatTime(summary.endedAt)}</dd>
+        <dt>Spend</dt><dd>{formatCost(summary.totalCost)} · {summary.totalTokens.toLocaleString()} tokens</dd>
         <dt>Received</dt><dd>up to seq {page.acked}</dd>
       </dl>
 
@@ -69,22 +69,30 @@ export function SessionPage({ factory, session }: { factory: string; session: st
         </thead>
         <tbody>
           {events.map((row) => (
-            <tr key={row.seq} className={row.unread ? "generic" : undefined}>
+            <tr key={row.seq} className={row.unreadBecause ? "generic" : undefined}>
               <td className="num">{row.seq}</td>
-              <td><code>{row.kind}</code>{row.v > 1 || row.unread ? <span className="muted"> v{row.v}</span> : null}</td>
+              <td><code>{row.kind}</code>{row.v > 1 || row.unreadBecause ? <span className="muted"> v{row.v}</span> : null}</td>
               <td>
-                {row.unread ? (
+                {row.unreadBecause ? (
                   <details>
-                    <summary>{row.unread} — shown as sent</summary>
-                    <pre>{JSON.stringify(row.payload, null, 2)}</pre>
+                    <summary>{row.unreadBecause} — shown as sent</summary>
+                    <pre>{pretty(row.raw)}</pre>
                   </details>
                 ) : row.detail}
               </td>
-              <td>{when(row.ts)}</td>
+              <td>{formatTime(row.ts)}</td>
             </tr>
           ))}
         </tbody>
       </table>
     </>
   );
+}
+
+function pretty(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
 }

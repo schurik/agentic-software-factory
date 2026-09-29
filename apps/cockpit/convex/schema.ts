@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { summaryValidator } from "./model/session";
+import { storedEventFields } from "./model/wire";
 
 export default defineSchema({
   // A factory-scoped, append-only credential: it can add events to its own
@@ -12,16 +12,13 @@ export default defineSchema({
   }).index("by_digest", ["digest"]),
 
   // One document per domain event, exactly as the station sent it. The payload
-  // is stored raw and never validated against a kind: a kind or version this
-  // cockpit cannot read is kept all the same, and read once the cockpit can.
+  // is kept as the JSON text it arrived as (model/wire.ts) and never validated
+  // against a kind: a kind or version this cockpit cannot read is kept all the
+  // same, and read once the cockpit can.
   events: defineTable({
     factory: v.string(),
     session: v.string(),
-    seq: v.number(),
-    ts: v.string(),
-    kind: v.string(),
-    v: v.number(),
-    payload: v.any(),
+    ...storedEventFields,
   }).index("by_session_seq", ["factory", "session", "seq"]),
 
   sessions: defineTable({
@@ -29,9 +26,13 @@ export default defineSchema({
     session: v.string(),
     // The highest seq with every seq below it stored — what a station resumes after.
     acked: v.number(),
-    // What the sessions list shows: the events up to `acked`, folded. Kept here
-    // so the list reads one document per session instead of every event.
-    summary: summaryValidator,
+    // What the sessions list shows: the events up to `acked`, folded (a
+    // `Summary`, model/session.ts). Kept here so the list reads one document
+    // per session instead of every event. Deliberately untyped in the schema:
+    // it is a cache of a fold, and a cockpit upgrade that adds a field to it
+    // must not make every stored session fail schema validation on deploy.
+    // Readers fill what an older fold never wrote (`readSummary`).
+    summary: v.any(),
     // When the cockpit last folded anything in, for ordering the list.
     activity: v.number(),
   })

@@ -58,7 +58,26 @@ describe("ingest", () => {
     expect(await again.json()).toEqual({ acked: 2 });
 
     const view = await t.query(api.sessions.get, { factory: "acme/widgets", session: "5c0075aa" });
-    expect(view?.events.map((row) => [row.seq, row.payload])).toEqual([[1, { n: 1 }], [2, { n: 2 }]]);
+    expect(view?.events.map((row) => [row.seq, JSON.parse(row.raw)])).toEqual([[1, { n: 1 }], [2, { n: 2 }]]);
+  });
+
+  it("stores a payload exactly as sent, whatever its keys", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const payload = { $schema: "x", "größe": 1, _private: { $ref: "#/a" } };
+    await ingest(t, token, { session: "5c0075aa", events: [{ ...line(1, "artifact_written"), payload }] });
+
+    const view = await t.query(api.sessions.get, { factory: "acme/widgets", session: "5c0075aa" });
+    expect(JSON.parse(view!.events[0].raw)).toEqual(payload);
+  });
+
+  it("refuses a batch too big to store in one go, so the station sends it in smaller ones", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const events = Array.from({ length: 501 }, (_, index) => line(index + 1));
+    const response = await ingest(t, token, { session: "5c0075aa", events });
+    expect(response.status).toBe(413);
+    expect(await t.query(api.sessions.list, {})).toEqual([]);
   });
 
   it("keeps each factory's sessions apart, by the token that sent them", async () => {

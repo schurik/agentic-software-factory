@@ -1,14 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
-import { advance, EMPTY_SUMMARY } from "./model/session";
-
-const wireEvent = v.object({
-  seq: v.number(),
-  ts: v.string(),
-  kind: v.string(),
-  v: v.number(),
-  payload: v.any(),
-});
+import { advance, readSummary } from "./model/session";
+import { storedEventFields } from "./model/wire";
 
 /**
  * Store a batch for the factory whose token digests to `digest`, and return the
@@ -19,7 +12,7 @@ const wireEvent = v.object({
  * station that lost the answer just sends the same batch again.
  */
 export const append = internalMutation({
-  args: { digest: v.string(), session: v.string(), events: v.array(wireEvent) },
+  args: { digest: v.string(), session: v.string(), events: v.array(v.object(storedEventFields)) },
   returns: v.union(v.null(), v.object({ acked: v.number() })),
   handler: async (ctx, { digest, session, events }) => {
     const token = await ctx.db
@@ -58,7 +51,7 @@ export const append = internalMutation({
       .withIndex("by_session_seq", (q) =>
         q.eq("factory", factory).eq("session", session).gt("seq", before).lte("seq", acked))
       .collect();
-    const summary = advance(record?.summary ?? EMPTY_SUMMARY, fresh);
+    const summary = advance(readSummary(record?.summary), fresh);
     const activity = Date.now();
     if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity });
     else await ctx.db.patch(record._id, { acked, summary, activity });

@@ -11,10 +11,10 @@ RUN npm run build && npm prune --omit=dev
 FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-COPY --from=build /app/package.json /app/next.config.ts /app/tsconfig.json ./
+COPY --from=build /app/package.json /app/tsconfig.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/convex ./convex
-COPY --from=build /app/docker/start.sh ./start.sh
+COPY --from=build /app/docker/start.sh /app/docker/convex.sh ./
 EXPOSE 3000
 CMD ["./start.sh"]

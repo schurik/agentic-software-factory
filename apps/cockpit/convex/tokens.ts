@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { digest } from "./model/digest";
+import { digest, hex } from "./model/digest";
 
 /**
  * Issue an ingest token for `factory` (its repository, e.g. `acme/widgets`) and
@@ -18,12 +18,13 @@ export const issue = internalAction({
   returns: v.string(),
   handler: async (ctx, { factory }) => {
     const bytes = crypto.getRandomValues(new Uint8Array(32));
-    const token = "asf_ingest_" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const token = "asf_ingest_" + hex(bytes);
     await ctx.runMutation(internal.tokens.store, { factory, digest: await digest(token) });
     return token;
   },
 });
 
+/** Keep the digest of a token `issue` just made. Never called with a token itself. */
 export const store = internalMutation({
   args: { factory: v.string(), digest: v.string() },
   returns: v.null(),

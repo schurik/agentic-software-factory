@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Status } from "./Status";
-import { cost, sessionHref, when } from "./format";
+import { formatCost, formatTime, formatWaitingFor, sessionHref } from "./format";
 
 export function SessionsList() {
   const sessions = useQuery(api.sessions.list, {});
@@ -40,10 +40,10 @@ export function SessionsList() {
               <td>{factory}</td>
               <td>{summary.workflows.join(" → ") || "—"}</td>
               <td><Status status={summary.status} /></td>
-              <td>{summary.waitingFor ? `${summary.waitingFor.gate} · round ${summary.waitingFor.round}` : "—"}</td>
+              <td>{formatWaitingFor(summary.waitingFor)}</td>
               <td>{summary.stationName || "—"}</td>
-              <td className="num">{cost(summary.totalCost)}</td>
-              <td>{when(summary.lastEventAt)}</td>
+              <td className="num">{formatCost(summary.totalCost)}</td>
+              <td>{formatTime(summary.lastEventAt)}</td>
             </tr>
           ))}
         </tbody>

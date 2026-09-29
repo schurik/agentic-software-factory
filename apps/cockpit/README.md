@@ -25,7 +25,7 @@ and append-only: it can add events to that factory's sessions and read nothing b
 once; only its SHA-256 is stored.
 
 ```bash
-docker compose exec app npx convex run tokens:issue '{"factory": "acme/widgets"}'
+docker compose exec app ./convex.sh run tokens:issue '{"factory": "acme/widgets"}'
 ```
 
 There is no sign-in yet: anyone who can reach the app or the backend sees every session. Until forge
@@ -52,12 +52,15 @@ Content-Type: application/json
   the token, never from the body.
 - `acked` is the highest `seq` with every `seq` below it stored: what the station resumes after. A
   batch with a gap is stored, and `acked` catches up when the gap is filled.
+- A batch holds at most 500 events and 4 MB of payload (one event at most 900 KB); a bigger one is
+  refused with `413` and nothing of it is stored. A station sends a backlog as several batches.
 - Resending is harmless. A `seq` already stored is skipped, never overwritten, because a `seq` means
   one line forever.
 - No event is refused for its kind or version. One this cockpit has no reader for (an unknown kind,
   or a `v` newer than it reads) is stored raw, shown as a generic row, and counted in the "upgrade
   the cockpit" banner. `401` is for a missing or unknown token, and `400` is for a body that is not a
-  batch. Neither says anything about the events.
+  batch. Neither says anything about the events. A payload is stored as the JSON text it arrived as,
+  so no key a factory writes can make an event unstorable.
 
 ## Develop
 

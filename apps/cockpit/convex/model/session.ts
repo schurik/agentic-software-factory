@@ -12,6 +12,7 @@
  * are the list of what must have a reader here.
  */
 import { v, type Infer } from "convex/values";
+import { isRecord, type StoredEvent } from "./wire";
 
 // ── the summary: what the sessions list shows, stored beside each session ────
 
@@ -68,19 +69,16 @@ export interface Phase {
   round: number;
 }
 
-export interface Event {
+export type Unread = "unknown kind" | "newer version";
+
+export interface Row {
   seq: number;
   ts: string;
   kind: string;
   v: number;
-  payload: Record<string, unknown>;
-}
-
-export type Unread = "unknown kind" | "newer version";
-
-export interface Row extends Event {
-  unread: Unread | null;   // why this is a generic row, or null when it was read
-  detail: string;          // one line saying what happened, "" when unread
+  unreadBecause: Unread | null;   // why this is a generic row, or null when it was read
+  detail: string;                 // one line saying what happened, "" when unread
+  raw: string;                    // the payload as the JSON text it arrived as
 }
 
 export interface SessionView {
@@ -89,19 +87,32 @@ export interface SessionView {
   events: Row[];
 }
 
-/** The whole page, folded from every stored event. */
-export function view(events: Event[]): SessionView {
+/**
+ * The whole page. Every stored event is a row, but only those up to `acked`
+ * are folded, exactly as the list's summary is: past a gap, a later event
+ * could be read before the one that explains it.
+ */
+export function view(events: StoredEvent[], acked: number): SessionView {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), phases: [] };
-  const rows = [...events].sort((a, b) => a.seq - b.seq).map((event) => apply(state, event));
+  const rows = [...events]
+    .sort((a, b) => a.seq - b.seq)
+    .map((event) => apply(state, event, event.seq <= acked));
   return { summary: state.summary, phases: state.phases, events: rows };
 }
 
 /** `summary` moved on by `events`, which follow the ones it was folded from. */
-export function advance(summary: Summary, events: Event[]): Summary {
+export function advance(summary: Summary, events: StoredEvent[]): Summary {
   const state: State = { summary: structuredClone(summary), phases: [] };
-  for (const event of events) apply(state, event);
+  for (const event of events) apply(state, event, true);
   return state.summary;
 }
+
+/** A stored summary, with anything a fold from an older cockpit never wrote filled in. */
+export function readSummary(stored: unknown): Summary {
+  return { ...EMPTY_SUMMARY, ...(isRecord(stored) ? stored : {}) } as Summary;
+}
+
+
 
 // ── readers ──────────────────────────────────────────────────────────────────
 
@@ -115,18 +126,21 @@ interface Reader {
   describe: (p: Payload) => string;
 }
 
-function apply(state: State, event: Event): Row {
-  const versions = READERS[event.kind];
-  const reader = versions?.[event.v];
+function apply(state: State, event: StoredEvent, fold: boolean): Row {
+  const { seq, ts, kind, v: version, payload: raw } = event;
+  const versions = READERS[kind];
+  const reader = versions?.[version];
   if (reader === undefined) {
-    state.summary.unread += 1;
-    const unread: Unread = versions === undefined ? "unknown kind" : "newer version";
-    return { ...event, unread, detail: "" };
+    if (fold) state.summary.unread += 1;
+    const unreadBecause: Unread = versions === undefined ? "unknown kind" : "newer version";
+    return { seq, ts, kind, v: version, unreadBecause, detail: "", raw };
   }
-  const p = new Payload(event.payload);
-  reader.fold?.(state, p);
-  state.summary.lastEventAt = event.ts;
-  return { ...event, unread: null, detail: reader.describe(p) };
+  const p = Payload.parse(raw);
+  if (fold) {
+    reader.fold?.(state, p);
+    state.summary.lastEventAt = ts;
+  }
+  return { seq, ts, kind, v: version, unreadBecause: null, detail: reader.describe(p), raw };
 }
 
 /**
@@ -137,6 +151,15 @@ function apply(state: State, event: Event): Row {
  */
 class Payload {
   constructor(private readonly raw: Record<string, unknown>) {}
+
+  static parse(text: string): Payload {
+    try {
+      const value: unknown = JSON.parse(text);
+      return new Payload(isRecord(value) ? value : {});
+    } catch {
+      return new Payload({});
+    }
+  }
 
   str(key: string): string {
     const value = this.raw[key];
@@ -154,9 +177,7 @@ class Payload {
 
   obj(key: string): Payload | null {
     const value = this.raw[key];
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? new Payload(value as Record<string, unknown>)
-      : null;
+    return isRecord(value) ? new Payload(value) : null;
   }
 }
 
@@ -166,6 +187,8 @@ function waitingFor(p: Payload | null): WaitingFor | null {
            channel: p.str("channel"), since: p.str("since") };
 }
 
+/** Set each field the event actually carries. An empty or zero value is "not
+ * known here", never "now empty" — the rule tests/projection.py's `_learn` has. */
 function learn(summary: Summary, fields: Partial<Summary>): void {
   for (const [key, value] of Object.entries(fields)) {
     if (value) (summary as Record<string, unknown>)[key] = value;

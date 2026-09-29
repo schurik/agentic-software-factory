@@ -10,6 +10,30 @@ async function ship(t: Cockpit, token: string, events: WireEvent[]) {
   return (await response.json()) as { acked: number };
 }
 
+// What each fixture reads as on the session page, written out by hand from the
+// fixture itself. A fixture the factory adds has no line here until the cockpit
+// says how it reads it, which is the point: the reader ships in the same PR.
+const DESCRIBED: Record<string, string> = {
+  "command_finished/v1.json": "test exited 1 after 4.25s",
+  "command_result/v1.json": "command kill by schurik: done — stopped 2 processes",
+  "decision_recorded/v1.json": "decision on plan round 1: reject by alex",
+  "envelope_accepted/v1.json": "planner's PlanOutput accepted: planned the health check",
+  "envelope_rejected/v1.json":
+    "planner's PlanOutput rejected (attempt 1): no JSON object found in the response",
+  "gate_opened/v1.json": "plan round 2 opened on the issue channel",
+  "gate_result/v1.json": "gate artifacts_exist failed (attempt 1)",
+  "journal_noted/v1.json": "journal: deviation — used httpx",
+  "phase_ended/v1.json": "approve_plan ended: waiting at plan round 2",
+  "phase_started/v1.json": "plan started · agent planner",
+  "process_ended/v1.json": "process 4250 ended",
+  "process_started/v1.json": "process 4250 started: claude_code planner sonnet",
+  "provenance_recorded/v1.json": "provenance: #42 health check broken",
+  "session_finished/v1.json": "session finished: fail — the run's acceptance criterion was not met",
+  "session_started/v1.json": "session started: ship on alex@mbp:widgets",
+  "suspended/v1.json": "suspended at plan round 2",
+  "usage/v1.json": "planner · sonnet: 1200 tokens, $0.0185",
+};
+
 describe("the golden corpus", () => {
   it("is where the cockpit expects it", () => {
     expect(Object.keys(corpus)).toContain("session_started/v1.json");
@@ -28,8 +52,8 @@ describe("the golden corpus", () => {
     const row = view!.events.at(-1)!;
     expect(row.kind).toBe(event.kind);
     expect(row.v).toBe(event.v);
-    expect(row.unread).toBeNull();
-    expect(row.detail).not.toBe("");
+    expect(row.unreadBecause).toBeNull();
+    expect(row.detail, `how does the cockpit read ${name}? add it to DESCRIBED`).toBe(DESCRIBED[name]);
     expect(view!.summary.unread).toBe(0);
   });
 });
@@ -116,8 +140,13 @@ describe("a session told by its events", () => {
     await ship(t, token, [fixture("session_started", 1), fixture("session_finished", 3)]);
     expect((await t.query(api.sessions.list, {}))[0].summary.status).toBe("running");
 
+    const page = await t.query(api.sessions.get, WHERE);
+    expect(page!.summary.status).toBe("running");
+    expect(page!.events.map((row) => row.seq)).toEqual([1, 3]);
+
     await ship(t, token, [fixture("phase_started", 2)]);
     expect((await t.query(api.sessions.list, {}))[0].summary.status).toBe("fail");
+    expect((await t.query(api.sessions.get, WHERE))!.summary.status).toBe("fail");
   });
 
   it("is unknown to the session page when nothing of it was shipped", async () => {
@@ -141,9 +170,9 @@ describe("an event this cockpit cannot read", () => {
     const view = await t.query(api.sessions.get, WHERE);
     expect(view!.events.slice(1)).toEqual([
       { seq: 2, ts: "2026-09-29T12:01:00.000+00:00", kind: "artifact_written", v: 1,
-        unread: "unknown kind", detail: "", payload: unknownKind.payload },
+        unreadBecause: "unknown kind", detail: "", raw: JSON.stringify(unknownKind.payload) },
       { seq: 3, ts: "2026-09-29T12:00:00.000+00:00", kind: "session_finished", v: 2,
-        unread: "newer version", detail: "", payload: newerVersion.payload },
+        unreadBecause: "newer version", detail: "", raw: JSON.stringify(newerVersion.payload) },
     ]);
     expect(view!.summary).toMatchObject({ status: "running", unread: 2 });
     expect((await t.query(api.sessions.list, {}))[0].summary).toEqual(view!.summary);
