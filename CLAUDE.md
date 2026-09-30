@@ -23,7 +23,8 @@ Consequences that shape every change here:
   editing both the Python and the SKILL.md routing/rules that describe it.
 
 `README.md` is the long-form explanation of the design. There is no `docs/` directory for prose
-on purpose (`docs/agents/` is agent configuration, not documentation — see `## Agent skills`):
+on purpose (`docs/agents/` is agent configuration, not documentation — see `## Agent skills` — and
+`docs/diagrams/` holds the pictures the READMEs show, each explained where it is shown):
 what the factory does is documented where an agent will actually read it — `SKILL.md`, the
 cookbooks, and `references/design.md` — and the rest is prose next to the code.
 

@@ -105,6 +105,28 @@ already running rather than downgrading it. A release refuses to publish when `m
 cockpit newer than itself. ghcr.io makes a new package private, so set both public after the first
 release.
 
+## How the pieces connect
+
+![A stamped repo as a station, the Docker project asf-cockpit with the Next.js app and the Convex backend, and the browser](../../docs/diagrams/local-cockpit-components.svg)
+
+On the left is a stamped repository, a **station**. The watchers, the station loop and the cockpit
+child live in the one `asf up` process; a session is its own `asf run` process, and it never talks
+to the cockpit: it appends to `events.jsonl`, and the loop sends what lies past the acknowledged
+`seq`. On the right is the compose project. The backend has two ports with two jobs: the **site**
+(`:3211`) is plain HTTP and takes only `POST /ingest` from stations; the **API** (`:3210`) is what
+the app deploys its functions to and what a browser holds a live connection to. The app serves the
+pages, and the session data goes from the backend straight to the browser.
+
+![The order of calls between the session directory, the station loop, the Next.js app, the backend and the browser](../../docs/diagrams/local-cockpit-data-flow.svg)
+
+Dashed arrows are replies. At start-up the app deploys its functions with the admin key `keygen`
+left in the `keys` volume, and the loop gets its ingest token by running `tokens:issue` inside the
+app container. For each event the loop posts the new lines, the backend stores each `seq` once and
+answers with the highest `seq` it holds without a gap, and the loop records that in the session's
+`shipped.json`. Against a shared cockpit (`ASF_COCKPIT_URL`) the right-hand side is the team's
+deployment: there is no cockpit child and no token step (`ASF_COCKPIT_TOKEN` is the token), every
+`asf run` also ships its own session, and the ingest request is the same.
+
 ## Develop
 
 ```bash

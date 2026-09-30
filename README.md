@@ -164,6 +164,13 @@ from them. `just up` is the station loop: it ships every session on the checkout
 cockpit `ASF_COCKPIT_URL` names or, without one, starts a local cockpit from the same published
 images a team deploys (Docker; `http://localhost:3000`). The trace UI starts only when asked for.
 
+![A stamped repo as a station, the Docker project asf-cockpit with the Next.js app and the Convex backend, and the browser](docs/diagrams/local-cockpit-components.svg)
+
+The watchers, the station loop and the cockpit child all live in the one `asf up` process; a session
+is its own `asf run`. The only data that crosses into the cockpit is the loop's `POST /ingest` to
+the backend's site on `:3211`. [`apps/cockpit/README.md`](apps/cockpit/README.md#how-the-pieces-connect)
+has the sequence: start-up, page load, and what happens for each event.
+
 ## Install the skill
 
 ```bash
