@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { Read } from "@/convex/artifacts";
-import type { Artifact, PhaseDetail } from "@/convex/model/phase";
-import { formatBytes, formatClock, formatCost, formatDuration, formatTime } from "../format";
+import { type Artifact, type PhaseDetail, READ_BYTES } from "@/convex/model/phase";
+import { formatBytes, formatClock, formatCost, formatDuration, formatTime, pretty } from "../format";
 
 /** Which session a phase is of, and the forge's web origin its links go to ("" when unknown). */
 export interface Where {
@@ -11,6 +11,9 @@ export interface Where {
   session: string;
   forge: string;
 }
+
+/** Read a repo artifact from the forge, by the seq of its `artifact_written` (`artifacts.read`). */
+export type ReadArtifact = (seq: number) => Promise<Read>;
 
 const TABS = {
   artifacts: "Artifacts", overview: "Overview", checks: "Checks", tools: "Tools",
@@ -42,7 +45,7 @@ export function PhaseTabs({ detail, where, initial, read }: {
   detail: PhaseDetail;
   where: Where;
   initial?: string;
-  read?: (seq: number) => Promise<Read>;
+  read?: ReadArtifact;
 }) {
   const tabs = tabsFor(detail);
   const [tab, setTab] = useState<Tab>(tabs.includes(initial as Tab) ? initial as Tab : tabs[0]);
@@ -71,11 +74,11 @@ export function PhaseTabs({ detail, where, initial, read }: {
 
 // ── Artifacts ────────────────────────────────────────────────────────────────
 
-function Artifacts({ detail, where, read }: { detail: PhaseDetail; where: Where; read?: (seq: number) => Promise<Read> }) {
+function Artifacts({ detail, where, read }: { detail: PhaseDetail; where: Where; read?: ReadArtifact }) {
   return <>{detail.artifacts.map((artifact) => <ArtifactCard key={artifact.seq} artifact={artifact} where={where} read={read} />)}</>;
 }
 
-function ArtifactCard({ artifact, where, read }: { artifact: Artifact; where: Where; read?: (seq: number) => Promise<Read> }) {
+function ArtifactCard({ artifact, where, read }: { artifact: Artifact; where: Where; read?: ReadArtifact }) {
   const repo = artifact.location === "repo";
   const { committed, changedLater, rewritten } = artifact;
   const whereNow = !repo ? "shipped with the session"
@@ -127,7 +130,7 @@ function HandoffFile({ artifact }: { artifact: Artifact }) {
 }
 
 /** A repo file, read from the forge as its tab is shown, and never kept. */
-function RepoArtifact({ artifact, read }: { artifact: Artifact; read?: (seq: number) => Promise<Read> }) {
+function RepoArtifact({ artifact, read }: { artifact: Artifact; read?: ReadArtifact }) {
   const [got, setGot] = useState<Read | null>(null);
   useEffect(() => {
     let current = true;
@@ -150,7 +153,7 @@ export function RepoFile({ artifact, got }: { artifact: Artifact; got: Read | nu
         <div className="art-n">Not byte for byte what this phase wrote: it was changed again before this commit.</div>
       ) : null}
       {got.truncated ? (
-        <div className="art-n">Cut at {formatBytes(256 * 1024)}: the file is {formatBytes(artifact.size)}, and this is its start.</div>
+        <div className="art-n">Cut at {formatBytes(READ_BYTES)}: the file is {formatBytes(artifact.size)}, and this is its start.</div>
       ) : null}
       {got.binary ? <p className="art-b muted">Not text: nothing to show.</p> : <pre className="art-b">{got.content}</pre>}
     </>
@@ -375,7 +378,12 @@ function Events({ detail }: { detail: PhaseDetail }) {
           <tr key={row.seq} className={row.unreadBecause ? "generic" : undefined}>
             <td className="num">{row.seq}</td>
             <td><code>{row.kind}</code>{row.v > 1 || row.unreadBecause ? <span className="muted"> v{row.v}</span> : null}</td>
-            <td>{row.unreadBecause ? <details><summary>{row.unreadBecause} — shown as sent</summary><pre>{row.raw}</pre></details> : row.detail}</td>
+            <td>
+              <details>
+                <summary>{row.unreadBecause ? `${row.unreadBecause} — shown as sent` : row.detail}</summary>
+                <pre>{pretty(row.raw)}</pre>
+              </details>
+            </td>
             <td>{formatClock(row.ts)}</td>
           </tr>
         ))}

@@ -13,6 +13,9 @@ import type { At } from "./story";
 
 // ── what the tabs get ────────────────────────────────────────────────────────
 
+/** The most of a repo file the cockpit shows: the cap the factory puts on a handoff file (`BODY_BYTES`). */
+export const READ_BYTES = 256 * 1024;
+
 export interface Artifact {
   seq: number;
   at: string;
@@ -188,7 +191,7 @@ export interface DetailState {
   status: string;
   error: string;
   envelope: Envelope | null;
-  commitsMade: CommitMade[];
+  commits: CommitMade[];               // this phase's own
   walks: Walk[];
   transcripts: boolean;             // whether the session shipped any transcript event
   artifacts: Artifact[];
@@ -199,16 +202,16 @@ export interface DetailState {
   usage: Turn[];
   // The whole session's, not just this phase's: where a repo file is on the
   // forge depends on what every phase after it wrote and committed.
-  names: Map<string, string>;
+  phaseNames: Map<string, string>;
   repoWrites: Written[];
-  commits: Commit[];
+  sessionCommits: Commit[];
 }
 
 export function beginDetail(phaseId: string): DetailState {
   return { phaseId, name: "", kind: "", owner: "", description: "", task: "", promptDigest: "", status: "",
-           error: "", envelope: null, commitsMade: [], walks: [], transcripts: false,
+           error: "", envelope: null, commits: [], walks: [], transcripts: false,
            artifacts: [], checks: [], rejections: [], commands: [], tools: [], usage: [],
-           names: new Map(), repoWrites: [], commits: [] };
+           phaseNames: new Map(), repoWrites: [], sessionCommits: [] };
 }
 
 type Detailer = (state: DetailState, p: Payload, at: At) => void;
@@ -237,7 +240,7 @@ function own(fold: Detailer): Detailer {
 }
 
 function phaseStarted(state: DetailState, p: Payload, { ts }: At): void {
-  if (p.str("name")) state.names.set(p.str("phase_id"), p.str("name"));
+  if (p.str("name")) state.phaseNames.set(p.str("phase_id"), p.str("name"));
   if (!mine(state, p)) return;
   // A replay announces the phase without a digest: it sent nothing, so it keeps the one the live run had.
   Object.assign(state, {
@@ -337,9 +340,9 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
   },
   committed: {
     1: (state, p, { seq }) => {
-      state.commits.push({ seq, sha: p.str("sha"), files: p.strs("files"), phaseId: p.str("phase_id") });
+      state.sessionCommits.push({ seq, sha: p.str("sha"), files: p.strs("files"), phaseId: p.str("phase_id") });
       if (mine(state, p)) {
-        state.commitsMade.push({ seq, sha: p.str("sha"), message: p.str("message"), files: p.strs("files"),
+        state.commits.push({ seq, sha: p.str("sha"), message: p.str("message"), files: p.strs("files"),
                                  filesTotal: p.num("files_total") });
       }
     },
@@ -355,13 +358,13 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
  */
 function locate(state: DetailState, artifact: Artifact): Artifact {
   if (artifact.location !== "repo") return artifact;
-  const name = (phaseId: string) => state.names.get(phaseId) ?? "";
-  const next = state.commits.find((commit) => commit.seq > artifact.seq);
+  const name = (phaseId: string) => state.phaseNames.get(phaseId) ?? "";
+  const next = state.sessionCommits.find((commit) => commit.seq > artifact.seq);
   const again = state.repoWrites.find((write) =>
     write.path === artifact.path && write.seq > artifact.seq && (next === undefined || write.seq < next.seq));
   if (again !== undefined) return { ...artifact, rewritten: { phase: name(again.phaseId), seq: again.seq } };
   if (next === undefined) return artifact;
-  const changed = state.commits.filter((commit) => commit.seq > next.seq && commit.files.includes(artifact.path)).at(-1);
+  const changed = state.sessionCommits.filter((commit) => commit.seq > next.seq && commit.files.includes(artifact.path)).at(-1);
   return {
     ...artifact,
     committed: { sha: next.sha, phase: name(next.phaseId) },
@@ -370,7 +373,7 @@ function locate(state: DetailState, artifact: Artifact): Artifact {
 }
 
 /** Whether a row is about this phase: an event naming it, or the wait it asked. */
-function names(row: Row, phaseId: string): boolean {
+function isAbout(row: Row, phaseId: string): boolean {
   const p = Payload.parse(row.raw);
   return p.str("phase_id") === phaseId || p.obj("waiting_for")?.str("phase_id") === phaseId;
 }
@@ -391,9 +394,9 @@ export function finishDetail(state: DetailState, rows: Row[]): PhaseDetail | nul
   return {
     phaseId: state.phaseId, name: state.name, kind: state.kind, owner: state.owner,
     description: state.description, task: state.task, promptDigest: state.promptDigest,
-    status: state.status, error: state.error, envelope: state.envelope, commits: state.commitsMade,
+    status: state.status, error: state.error, envelope: state.envelope, commits: state.commits,
     transcript: { on: state.transcripts, runs },
-    events: rows.filter((row) => names(row, state.phaseId)),
+    events: rows.filter((row) => isAbout(row, state.phaseId)),
     artifacts: state.artifacts.map((artifact) => locate(state, artifact)),
     checks: state.checks, rejections: state.rejections, commands: state.commands,
     tools: state.tools, usage: state.usage,

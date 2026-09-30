@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { SessionView as View } from "@/convex/model/session";
 import type { Item, Story } from "@/convex/model/story";
 import { Status } from "../Status";
-import { formatAgo, formatCost, formatDuration, formatTime } from "../format";
+import { formatAgo, formatCost, formatDuration, formatTime, pretty } from "../format";
 import { actionFor } from "./action";
 import { Chapter, chapterAnchor, phaseAnchor } from "./Chapter";
 import { channelWords, glyphOf, toneOf } from "./words";
@@ -195,12 +195,4 @@ function Events({ page }: { page: Page }) {
       </table>
     </details>
   );
-}
-
-function pretty(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }

@@ -78,26 +78,26 @@ export interface SessionView {
   events: Row[];
 }
 
-/**
- * The whole page. Every stored event is a row, but only those up to `acked`
- * are folded, exactly as the list's summary is: past a gap, a later event
- * could be read before the one that explains it.
- */
+/** The whole page: every stored event a row, and what those up to `acked` tell (`fold`). */
 export function view(events: StoredEvent[], acked: number): SessionView {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin(), detail: null };
-  const rows = [...events]
-    .sort((a, b) => a.seq - b.seq)
-    .map((event) => apply(state, event, event.seq <= acked));
+  const rows = fold(state, events, acked);
   return { summary: state.summary, story: finish(state.story!, state.summary), events: rows };
 }
 
 /** One phase of the page, opened into its tabs (phase.ts); null for a phase it never started. */
 export function phaseView(events: StoredEvent[], acked: number, phaseId: string): PhaseDetail | null {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: null, detail: beginDetail(phaseId) };
-  const rows = [...events]
-    .sort((a, b) => a.seq - b.seq)
-    .map((event) => apply(state, event, event.seq <= acked));
-  return finishDetail(state.detail!, rows);
+  return finishDetail(state.detail!, fold(state, events, acked));
+}
+
+/**
+ * Every stored event as a row, in seq order, folding into `state` only those
+ * up to `acked`: past a gap, a later event could be read before the one that
+ * explains it.
+ */
+function fold(state: State, events: StoredEvent[], acked: number): Row[] {
+  return [...events].sort((a, b) => a.seq - b.seq).map((event) => apply(state, event, event.seq <= acked));
 }
 
 /** `summary` moved on by `events`, which follow the ones it was folded from. */

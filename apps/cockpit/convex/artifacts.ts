@@ -14,12 +14,11 @@ import { internal } from "./_generated/api";
 import { action, internalQuery } from "./_generated/server";
 import { ForgeError, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
+import { hex } from "./model/digest";
 import { Payload } from "./model/payload";
+import { READ_BYTES } from "./model/phase";
 import { phaseView } from "./model/session";
 import { storedSession } from "./sessions";
-
-/** The most of a file the cockpit shows, as the factory caps a handoff file (`BODY_BYTES`). */
-export const READ_BYTES = 256 * 1024;
 
 export type Read =
   | { ok: true; sha: string; content: string; truncated: boolean; binary: boolean;
@@ -86,6 +85,5 @@ async function shown(bytes: Uint8Array): Promise<{ content: string; truncated: b
 }
 
 async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
 }

@@ -51,3 +51,12 @@ export function formatBytes(bytes: number): string {
   const [value, unit] = bytes < 1024 * 1024 ? [bytes / 1024, "KB"] : [bytes / (1024 * 1024), "MB"];
   return `${value.toFixed(1).replace(/\.0$/, "")} ${unit}`;
 }
+
+/** A payload as the JSON text it arrived as, indented to be read. */
+export function pretty(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}

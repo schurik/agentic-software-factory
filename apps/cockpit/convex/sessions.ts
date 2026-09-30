@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { StoredEvent } from "./model/wire";
-import { localHost, mode } from "./model/mode";
+import { forgeWeb } from "./forge/memory";
 import { phaseView, readSummary, view } from "./model/session";
 import { canRead, viewing } from "./viewer";
 
@@ -56,12 +56,6 @@ export const phase = query({
     return stored && phaseView(stored.events, stored.acked, phaseId);
   },
 });
-
-/** The web origin of the forge this cockpit reads, which a page's links go to: "" before it has one. */
-async function forgeWeb(ctx: QueryCtx): Promise<string> {
-  const host = mode() === "local" ? localHost() : (await ctx.db.query("forgeApps").first())?.host;
-  return host ? `https://${host}` : "";
-}
 
 /** A session's events and how far they were acknowledged, or null when the viewer may not see it. */
 export async function storedSession(ctx: QueryCtx, factory: string, session: string, signIn?: string):

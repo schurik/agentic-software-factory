@@ -5,7 +5,7 @@
  */
 import { v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "../_generated/server";
-import { localToken, mode } from "../model/mode";
+import { localHost, localToken, mode } from "../model/mode";
 import type { App } from "./app";
 
 const answerValidator = v.object({ key: v.string(), etag: v.string(), value: v.string() });
@@ -27,6 +27,12 @@ export async function registeredApp(ctx: QueryCtx): Promise<App | null> {
 export async function credentialed(ctx: QueryCtx): Promise<boolean> {
   if (mode() === "local") return localToken() !== "";
   return (await ctx.db.query("forgeApps").first()) !== null;
+}
+
+/** The web origin of the forge this cockpit reads — what a page's links go to — or "" before it has one. */
+export async function forgeWeb(ctx: QueryCtx): Promise<string> {
+  const host = mode() === "local" ? localHost() : (await ctx.db.query("forgeApps").first())?.host;
+  return host ? `https://${host}` : "";
 }
 
 export const app = internalQuery({

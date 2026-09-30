@@ -150,7 +150,9 @@ describe("the other tabs", () => {
     expect(shown(html)).toMatch(/Transcript · off/);
   });
 
-  it("Events: the phase's own events, each in a line", () => {
-    expect(tab("a9f259f0_02_scout", "events")).toContain("scout called read: failed after 0ms");
+  it("Events: the phase's own events, each in a line that opens to the raw event", () => {
+    const text = tab("a9f259f0_02_scout", "events");
+    expect(text).toContain("scout called read: failed after 0ms");
+    expect(text).toContain('"tool": "grep"');
   });
 });
