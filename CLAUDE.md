@@ -115,6 +115,15 @@ bug already shipped once.
    artifact travels inline up to `BODY_BYTES` and says when it was cut; a repo artifact travels as
    a path, read from the forge at the sha its `committed` names — which is why a stage commits
    through `run.commit`, never `git_helper.commit_all`.
+12. **A published branch is a copy until something integrates it, and only a copy is deleted.**
+   Under `worktree.publish: on_create` (`engine/publish.py`) a session's branch is on the remote
+   from its first moment so a cockpit can read a gate's subject at `head_sha`, and that copy is
+   deleted when the session is aborted or finishes without integrating — kept on failure, for
+   `resume`. What keeps a pull request's head from being deleted is `publish.integrated`:
+   `run.pr_url`, the upstream an integration's `push -u` set, or the commits being on the base
+   branch. So every push that only keeps the copy current (`publish.py`,
+   `integration.keep_published`) passes `set_upstream=False`, and nothing decides "not published"
+   from a missing remote-tracking ref — a narrowed clone has none.
 
 ## Working in here
 

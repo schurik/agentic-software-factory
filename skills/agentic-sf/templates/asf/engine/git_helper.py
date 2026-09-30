@@ -156,6 +156,11 @@ def merge_base(cwd: Pathish, ref: str, other: str = "HEAD") -> str:
     return _git(cwd, "merge-base", ref, other)
 
 
+def is_ancestor(cwd: Pathish, commit: str, ref: str) -> bool:
+    """Whether `ref` contains `commit`. A question: False when either is unknown."""
+    return _ask_git(cwd, "merge-base", "--is-ancestor", commit, ref).returncode == 0
+
+
 def first_subject(cwd: Pathish, base: str, ref: str = "HEAD") -> str:
     """Subject of the first commit unique to `ref` since it diverged from `base`.
 
@@ -286,9 +291,37 @@ def has_remote(cwd: Pathish, remote: str) -> bool:
 
 def push(cwd: Pathish, remote: str, branch: str,
          set_upstream: bool = True) -> subprocess.CompletedProcess:
-    """Push a branch. Returns the completed process — a rejected push is data."""
+    """Push a branch. Returns the completed process — a rejected push is data.
+
+    `branch` may be a refspec (`<sha>:refs/heads/<name>`), which is how a branch
+    is put on the remote before it exists here. `set_upstream` is more than a
+    convenience: a branch that tracks its remote counterpart is one somebody
+    PROPOSED (see `tracks`), so a push that only keeps a copy readable passes
+    False.
+    """
     args = ["push"] + (["-u"] if set_upstream else []) + [remote, branch]
     return _ask_git(cwd, *args)
+
+
+def tracks(cwd: Pathish, branch: str, remote: str) -> bool:
+    """Whether local `branch` tracks the branch of the same name on `remote`.
+
+    That is what `push -u` records, and it is read here as a fact about the
+    branch rather than a convenience: somebody — an integration, or a person —
+    pushed it there to stay. A branch cut from a remote-tracking ref tracks
+    THAT ref (`origin/main`), which is why the name is compared and not merely
+    whether an upstream is set. Never raises.
+    """
+    def setting(key: str) -> str:
+        return _ask_git(cwd, "config", "--get", f"branch.{branch}.{key}").stdout.strip()
+    return setting("remote") == remote and setting("merge") == f"refs/heads/{branch}"
+
+
+def delete_remote_branch(cwd: Pathish, remote: str, branch: str) -> subprocess.CompletedProcess:
+    """Delete `branch` on the remote; the local branch is not touched. Returns
+    the completed process — a refusal is data. Git drops the remote-tracking
+    ref with it, so `remote_tip` answers "" afterwards."""
+    return _ask_git(cwd, "push", remote, "--delete", branch)
 
 
 def remote_tip(cwd: Pathish, remote: str, branch: str) -> str:

@@ -43,7 +43,7 @@ import subprocess
 from pathlib import Path
 
 from . import cockpit as local_cockpit
-from . import git_helper, harnesses
+from . import factory, git_helper, harnesses, publish
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
 from .utils import anchor, write_atomic
@@ -103,6 +103,49 @@ def repo(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
                 if cfg.worktree.enabled else
                 f"worktree.enabled is false — runs work directly in {main_root}")))
     return findings
+
+
+# ── publishing: when a session's branch reaches the remote ───────────────────
+
+def publishing(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
+    """Which `worktree.publish` this factory runs under, and whether it can.
+
+    Said every time, because the default MOVES: the day a cockpit is configured
+    a repository that never set the key starts pushing every session's branch
+    as it is created, and the place to learn that is here rather than on the
+    forge. The one thing that can be wrong is `on_create` with no remote to
+    push to — a warning, not a refusal: the run is the run it always was, and
+    only the cockpit is poorer for it.
+    """
+    if not git_helper.is_repo(main_root) or not git_helper.ref_exists(main_root, "HEAD"):
+        return []                       # `repo` has said why nothing branches here
+    mode, why = publish.resolve(cfg, main_root)
+    remote = cfg.worktree.integration.remote
+    if mode == publish.ON_INTEGRATE:
+        return [Finding(
+            check="publish",
+            detail=f"on_integrate ({why}) — a session's branch stays on this machine "
+                   f"until an integrate stage pushes it, and a cockpit cannot show what "
+                   f"its gates ask about")] if cfg.worktree.enabled else []
+    unpublished = "nothing is published, and a cockpit cannot show what a gate asks about"
+    if not cfg.worktree.enabled:
+        return [Finding(
+            check="publish", level="warn",
+            detail=f"on_create ({why}), but worktree.enabled is false — a session has no "
+                   f"branch of its own, so {unpublished}",
+            fix="set `worktree.enabled: true` in asf/factory.yaml, or `worktree.publish: "
+                "on_integrate` to say that nothing is meant to be published")]
+    if not git_helper.has_remote(main_root, remote):
+        return [Finding(
+            check="publish", level="warn",
+            detail=f"on_create ({why}), but there is no remote named {remote!r} — "
+                   f"{unpublished}",
+            fix=f"git remote add {remote} <url>, or set `worktree.publish: on_integrate` "
+                f"in asf/factory.yaml")]
+    return [Finding(
+        check="publish",
+        detail=f"on_create ({why}) — a session's branch is pushed to {remote} when it is "
+               f"created and before every suspend, with the gate's subject committed")]
 
 
 # ── runtime: where the record is written ─────────────────────────────────────
@@ -510,7 +553,8 @@ def before_run(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     Returns the warnings, for the caller to surface once it has a console.
     """
     root = Path(main_root) if main_root else git_helper.main_root()
-    findings = repo(cfg, root) + runtime(cfg, root)   # ok findings are dropped below
+    findings = (repo(cfg, root) + publishing(cfg, root)
+                + runtime(cfg, root))                 # ok findings are dropped below
     fatal = [finding for finding in findings if finding.level == "fatal"]
     if fatal:
         raise SystemExit("preflight failed:\n" + "\n".join(
@@ -522,5 +566,5 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamped_version(root) + cockpit() + skill()
-            + trace_ui())
+            + forge(cfg) + labels(cfg, root) + stamped_version(root) + cockpit()
+            + publishing(cfg, root) + factory.retiring(cfg) + skill() + trace_ui())

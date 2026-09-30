@@ -19,7 +19,7 @@ import os
 import time
 from contextlib import contextmanager
 
-from . import agents, artifacts, git_helper, hitl, journal, limits, replay, worktree
+from . import agents, artifacts, git_helper, hitl, journal, limits, publish, replay, worktree
 from .console import Console
 from .data_types import (COMMIT_FILES, AgentCall, AgentConfig, AgentResult, Committed,
                          Decision, DomainEvent, EnvelopeBase, EventRecord, Gate, Phase, PhaseEnded,
@@ -293,6 +293,12 @@ class Run:
                 files_total=len(files)))
         return short
 
+    def _withdraw(self) -> None:
+        """Take this session's branch off the remote, and say so. See publish.py."""
+        said = publish.withdraw(self)
+        if said:
+            self.console.note(f"remote: {said}")
+
     def _head(self) -> str:
         """The work branch's commit right now, or "" when git cannot say."""
         try:
@@ -404,6 +410,10 @@ class Run:
             artifacts.finish_run(self.session_dir, "fail",
                                  reason=f"{params.name} failed: {phase.error}")
             self.console.phase_ended(phase, time.monotonic() - clock)
+            # A person ending the run is not a failure to come back to: its
+            # published branch goes. Any other failure keeps it, for `resume`.
+            if isinstance(error, hitl.Aborted):
+                self._withdraw()
             self.console.session_finished(False, self.tokens, self.cost,
                                           self.cfg.observability.db)
             raise
@@ -484,5 +494,9 @@ class Run:
             self.console.note(f"worktree: {worktree.release(self.workspace)}")
         elif self.workspace.enabled:
             self.console.note(f"worktree: kept {self.repo_root} on {self.workspace.branch}")
+        # A finished session that integrated nothing has no use for the copy of
+        # its branch a cockpit was reading; one that did not finish still does.
+        if ok:
+            self._withdraw()
         self.console.session_finished(ok, self.tokens, self.cost, self.cfg.observability.db)
         return 0 if ok else 1

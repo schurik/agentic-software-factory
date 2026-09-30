@@ -8,14 +8,16 @@ An ADW spends one call per gate and never sees the loop, the wait, or the file.
 THE WAIT IS A SUSPEND. `decide()` looks for a decision this session already
 recorded for the gate and round; finding none, it records what it is waiting
 for in `run.json`, exits the process with status 75, and leaves the worktree
-where it is. `just approve <adw_id>` writes the decision and re-launches the
-same workflow with `--resume`: replay answers every recorded agent phase from
-the record, the chain reaches the gate again, and this time the decision is
-there. A terminal prompt is a convenience over that — while a person is at THIS
-RUN's terminal the run asks in place and polls the same file, and `d` or
-`wait_seconds` turns the block into the suspend it would have been anyway. A
-watcher's terminal, inherited by the run it launched, is not that terminal;
-`attended()` says how the two are told apart.
+where it is — having first, on a published branch, committed the subject and
+pushed it (`engine/publish.py`), so a cockpit can show the person who answers
+exactly what is being asked. `just approve <adw_id>` writes the decision and
+re-launches the same workflow with `--resume`: replay answers every recorded
+agent phase from the record, the chain reaches the gate again, and this time
+the decision is there. A terminal prompt is a convenience over that — while a
+person is at THIS RUN's terminal the run asks in place and polls the same file,
+and `d` or `wait_seconds` turns the block into the suspend it would have been
+anyway. A watcher's terminal, inherited by the run it launched, is not that
+terminal; `attended()` says how the two are told apart.
 
 THE DECISION NAMES WHAT IT DECIDED. `subject_digest` hashes the artifact files
 at the moment the human was asked; a decision whose digest does not match the
@@ -48,6 +50,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import artifacts, events, issues, journal
+from . import publish as publishing       # `publish` here is asking the questions
 from .data_types import (Decision, DecisionRecorded, EnvelopeBase, EventRecord, Gate,
                          HitlConfig, IssueRef,
                          IssueUpdate, Phase, PhaseParams, Remark, Reply, Subject,
@@ -349,6 +352,12 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
         if answer is not None:
             return _consume(run, phase, answer, subject.kind)
 
+    # The process ends here, and what it leaves on the remote is what a cockpit
+    # shows the person who answers: the subject, committed, at a pushed commit.
+    publishing.before_suspend(run, phase, subject.commit_message or (
+        f"asf({run.adw_id}): what the {subject.gate} "
+        f"{'questions' if subject.kind == 'questions' else 'gate'} asked about, "
+        f"round {subject.round}"))
     _notify(run, waiting)
     raise Suspended(waiting)
 
@@ -580,9 +589,10 @@ def gated(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
             f"Hand the {gate.name} to the engineer and wait for a verdict")
         with run.phase(PhaseParams(name=name, kind="engineer", owner=run.engineer,
                                    description=description)) as ph:
-            decision = ph.decide(Subject(gate=gate.name, round=round,
-                                         summary=envelope.summary, paths=paths,
-                                         notes=envelope.notes_for_next_agent))
+            decision = ph.decide(Subject(
+                gate=gate.name, round=round, summary=envelope.summary, paths=paths,
+                notes=envelope.notes_for_next_agent,
+                commit_message=getattr(envelope, "commit_message", "")))
             if decision.verdict == "abort":
                 raise Aborted(f"aborted by {decision.by} at gate {gate.name}"
                               + (f": {decision.notes}" if decision.notes else ""))

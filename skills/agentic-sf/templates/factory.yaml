@@ -49,10 +49,29 @@ worktree:
   branch_prefix: "asf/"            # the run's branch is <prefix><adw_id>
   base_ref: ""                     # "" = whatever the main checkout has checked out
   keep_on_success: false
+  # WHEN a session's branch first reaches `integration.remote`. A cockpit shows
+  # what a gate asks about by reading it from the forge at the commit the run
+  # stopped on, so the branch has to be there before anyone is asked. Left
+  # unset, that decides it: with a cockpit configured (ASF_COCKPIT_URL, or the
+  # local one `asf up` starts) it is `on_create`, without one `on_integrate`.
+  #   on_create     pushed as the session starts — with the commit it is cut
+  #                 from, so commits your base branch has not pushed yet go with
+  #                 it — and again before every suspend, the gate's subject
+  #                 committed first. A push the remote refuses refuses the run.
+  #   on_integrate  nothing leaves this machine until an integrate stage pushes
+  #                 it, and a cockpit cannot show what that session's gates ask
+  #                 about.
+  # A branch published this way and never integrated is deleted from the remote
+  # when its session finishes or is aborted (the local branch stays). A failed
+  # session keeps it, so `resume` and the cockpit still find it. One with a
+  # pull request, or pushed with `-u`, or merged into its base, is never deleted.
+  # publish: on_create             # on_create | on_integrate
   integration:
     # pr by default: a machine proposes, a human moves the base branch. `merge`
-    # suits a solo repo where nobody reviews; `none` leaves every branch alone.
-    mode: pr                       # none | merge | pr
+    # suits a solo repo where nobody reviews. (`none` still loads, with a
+    # warning, and is refused from 1.2: a workflow that lands nothing leaves out
+    # its `integrate` stage, and `publish` above says when a branch is pushed.)
+    mode: pr                       # merge | pr
     merge_flags: ["--no-ff"]
     remote: origin
     open_pr: true                  # mode: pr — push AND open it; false = push only

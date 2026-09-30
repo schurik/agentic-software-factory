@@ -123,6 +123,17 @@ def shared() -> str:
     return os.environ.get("ASF_COCKPIT_URL", "").strip()
 
 
+def has_issued_token(data_dir: Path) -> bool:
+    """Whether the machine's local cockpit has issued this factory a token —
+    which is what "this factory ships to a local cockpit" comes down to: `asf
+    up` started one here, and the station has been sending to it (`Local`)."""
+    try:
+        LocalCockpitRecord.model_validate_json((data_dir / RECORD).read_text())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 # (argv) -> (exit code, output). Injected so tests never run docker.
 Run = Callable[[list[str]], "tuple[int, str]"]
 

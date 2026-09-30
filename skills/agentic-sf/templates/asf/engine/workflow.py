@@ -74,6 +74,9 @@ class Workflow:
     steps: list[Step]
     required_agents: list[str] = field(default_factory=list)
     input: ChapterInput = "prompt"         # prompt | issue | pr — see engine.inputs
+    # What loads today and will not in a later release, as each stage says it
+    # (`stage.warn`). `check` prints them; nothing here refuses a run over one.
+    warnings: list[str] = field(default_factory=list)
 
 
 def workflows_dir(config_path: str | Path) -> Path:
@@ -120,8 +123,11 @@ def load(name: str, config_path: str | Path = factory.DEFAULT_CONFIG) -> Workflo
         raise SystemExit(f"workflow {name!r} ({spec_path}) is not runnable:\n- "
                          + "\n- ".join(problems))
     required = sorted({a for step in steps for a in _agent_fields(step.opts)})
+    warnings = [f"{step.stage.name}: {warning}"
+                for step in steps for warning in step.stage.warn(step.opts)]
     return Workflow(name=name, description=spec.description.strip(), directory=directory,
-                    cfg=cfg, steps=steps, required_agents=required, input=spec.input)
+                    cfg=cfg, steps=steps, required_agents=required, input=spec.input,
+                    warnings=warnings)
 
 
 # ── agents ───────────────────────────────────────────────────────────────────

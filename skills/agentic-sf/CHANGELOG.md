@@ -69,6 +69,27 @@ before — `None` when there are none, never omitted.
 - A breach undoes what an agent STAGED, too. A new file it ran `git add` on leaves the index as
   well as the disk, and a staged edit or `git rm` of a tracked file is restored from `HEAD`; before,
   each was reported as rolled back and left for the next commit stage to land.
+- **`worktree.publish: on_create | on_integrate`** says when a session's branch first reaches the
+  remote. Unset, it is `on_create` once a cockpit is configured (`ASF_COCKPIT_URL`, or a local
+  cockpit that has issued this factory a token) and `on_integrate` without one — and always
+  `on_integrate` under `integration.mode: none`. `asf doctor` prints the value in force and why.
+- Under `on_create` the branch is pushed as the session starts, together with the commit it is cut
+  from (so commits the base branch has not pushed go with it, on the session's branch), and again
+  before every suspend — after committing what the gate asks about, in the producing agent's own
+  `commit_message`. `head_sha` in `suspended` is therefore a commit the remote has, with the
+  subject in its tree. A push the remote refuses refuses the run, before a branch or a worktree
+  exists; with no remote of that name the run starts and `doctor` warns.
+- A branch published that way and never integrated is **deleted from the remote** when its session
+  is aborted or finishes accepted; the local branch is kept. A failed session keeps its remote
+  branch, so `resume` works. A branch with a pull request, one an integration (or a person)
+  pushed with `-u`, or one whose commits were merged into its base branch is never deleted. A pull
+  request opened on the forge while its session was still working is not something the factory
+  can see: finishing or aborting that session deletes the branch under it.
+- `keep_published` no longer sets the branch's upstream: tracking the remote branch is how a
+  session records that it was proposed.
+- **`worktree.integration.mode: none` warns** wherever the config is loaded, and `asf doctor`
+  lists it; `integrate: {mode: none}` in a workflow warns in `asf check`. Both still work in this
+  release and are refused in 1.2. A stage may now declare `warn(opts)` for exactly this.
 
 ### Upgrade
 
@@ -93,6 +114,14 @@ chapters from its next run. Transcripts stay off: to send them, add `cockpit: {t
 to `asf/factory.yaml` by hand (the installer never rewrites that file; the `.new` beside it shows
 the block). A stage of your own that calls `git_helper.commit_all` still commits, but says nothing
 to a cockpit until it calls `run.commit(ph.phase, message)` instead.
+
+Once a cockpit is configured, a re-stamped factory pushes each session's branch as it is created. To
+keep branches on the machine until they are integrated, add `publish: on_integrate` under
+`worktree:` in `asf/factory.yaml` (the `.new` beside it shows the key); the cockpit then cannot
+show what those sessions' gates ask about. If `factory.yaml` says `integration: {mode:
+none}`, nothing changes yet, but every command warns: before 1.2, either remove the `integrate`
+stage from the workflows that should land nothing, or switch to `mode: pr` (with `open_pr: false`
+to push a branch and open nothing) and set `worktree.publish` to say when it is pushed.
 
 ## 1.0.0
 
