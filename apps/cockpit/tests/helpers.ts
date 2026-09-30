@@ -39,6 +39,24 @@ export const corpus: Record<string, WireEvent> = Object.fromEntries(
   ).map(([path, event]) => [path.split("/golden/events/")[1], event]),
 );
 
+/**
+ * The golden corpus's whole sessions (`tests/golden/sessions/<name>/`): real
+ * runs recorded off the fake harness, as their station shipped them, and the
+ * journal the factory rendered for the agent that would have come next. Like
+ * the fixtures, never edited once checked in.
+ */
+export const recorded: Record<string, { events: WireEvent[]; journal: string }> = (() => {
+  const streams = import.meta.glob("../../../tests/golden/sessions/*/events.jsonl",
+                                   { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+  const journals = import.meta.glob("../../../tests/golden/sessions/*/journal.md",
+                                    { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+  return Object.fromEntries(Object.entries(streams).map(([path, text]) => {
+    const name = path.split("/golden/sessions/")[1].split("/")[0];
+    const events = text.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line) as WireEvent);
+    return [name, { events, journal: journals[path.replace(/events\.jsonl$/, "journal.md")] }];
+  }));
+})();
+
 /** The fixture for `kind` at `version`, renumbered to sit at `seq` in a session. */
 export function fixture(kind: string, seq: number, version = 1): WireEvent {
   const event = corpus[`${kind}/v${version}.json`];

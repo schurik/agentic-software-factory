@@ -1,0 +1,329 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { api } from "../convex/_generated/api";
+import { toldVersions } from "../convex/model/story";
+import { cockpit, corpus, factory, fixture, ingest, recorded, type Cockpit, type WireEvent } from "./helpers";
+
+// The session page's story, told from the golden corpus's recorded session:
+// issue #42, planned, rejected and approved at the plan gate (each answer
+// resuming the session), built and proposed as pull request #9 — then two
+// rounds of review on it. Every expectation here is read off that recording by
+// hand, the way sessions.test.ts reads the per-kind fixtures.
+
+const SESSION = "a9f259f0";
+const WHERE = { factory: "acme/widgets", session: SESSION };
+const { events: RECORDED, journal: JOURNAL } = recorded["issue-then-two-reviews"];
+
+async function ship(t: Cockpit, token: string, events: WireEvent[]) {
+  const response = await ingest(t, token, { session: SESSION, events });
+  expect(response.status).toBe(200);
+}
+
+/** The recording, shipped up to and including `seq` (all of it by default). */
+async function told(upTo = RECORDED.length) {
+  const t = cockpit();
+  const token = await factory(t);
+  await ship(t, token, RECORDED.slice(0, upTo));
+  return { t, token };
+}
+
+async function story(t: Cockpit) {
+  return (await t.query(api.sessions.get, WHERE))!.story;
+}
+
+beforeEach(() => {
+  vi.stubEnv("COCKPIT_MODE", "local");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("a session told in chapters", () => {
+  it("has one chapter per workflow it passed through, in order, each saying what it answered", async () => {
+    const { t } = await told();
+
+    const { chapters } = await story(t);
+
+    expect(chapters.map(({ number, workflow, title, input, answering, status }) =>
+      ({ number, workflow, title, input, answering, status }))).toEqual([
+      { number: 1, workflow: "issue", title: "issue", input: "issue", status: "success",
+        answering: { kind: "issue", number: 42, url: "https://forge/acme/widgets/issues/42" } },
+      { number: 2, workflow: "pr-review", title: "pr-review, round 1", input: "pr", status: "success",
+        answering: { kind: "pr", number: 9, url: "https://forge/acme/widgets/pull/9" } },
+      { number: 3, workflow: "pr-review", title: "pr-review, round 2", input: "pr", status: "success",
+        answering: { kind: "pr", number: 9, url: "https://forge/acme/widgets/pull/9" } },
+    ]);
+  });
+
+  it("opens each chapter with Asked: the issue with its agreed requirements, or the reviewers' threads", async () => {
+    const { t } = await told();
+
+    const [issue, first, second] = (await story(t)).chapters.map((chapter) => chapter.asked!);
+
+    expect(issue.path).toBe("context_handoff/issue.md");
+    expect(issue.content).toContain("## Requirements (agreed with schurik)");
+    expect(issue.content).toContain("- R1 The prompt receives the meeting date; there is no fallback to now.");
+    expect([first.path, second.path]).toEqual(["context_handoff/pr_review.md", "context_handoff/pr_review.md"]);
+    expect(first.content).toContain("> the date should read like Sep 25, 2026");
+    expect(second.content).toContain("> use that format two lines below too");
+    expect(issue.truncated || first.truncated || second.truncated).toBe(false);
+  });
+
+  it("tells agent phases as cards, code steps as rows and gates as their own cards, in the order they happened", async () => {
+    const { t } = await told();
+
+    const outline = (await story(t)).chapters.map((chapter) =>
+      chapter.items.map((item) => `${item.type} ${"name" in item ? item.name : ""}`.trimEnd()));
+
+    // The phase that read the issue or the threads is the chapter's Asked, not a row.
+    expect(outline).toEqual([
+      ["agent scout", "agent plan", "gate approve_plan", "resumed", "agent plan_revise_1",
+       "gate approve_plan_2", "resumed", "code commit_plan", "agent implement", "code verify_1",
+       "agent review_1", "code commit_implement", "code changes", "agent document",
+       "code commit_document", "automatic", "code integrate", "code report"],
+      ["agent implement", "code verify_1", "code commit_implement", "code report"],
+      ["agent implement", "code verify_1", "code commit_implement", "code report"],
+    ]);
+  });
+
+  it("gives an agent card its outcome, tool calls, cost, artifact chips and the notes it filed", async () => {
+    const { t } = await told();
+    const [first] = (await story(t)).chapters;
+    const card = (name: string) => first.items.find((item) => item.type === "agent" && item.name === name)!;
+
+    expect(card("scout")).toMatchObject({
+      owner: "scout", task: "asf/stages/scout/task.md", status: "success",
+      outputType: "ScoutOutput", summary: "the prompt is built in app.py; no date reaches it",
+      toolCalls: 3, toolFailures: 1, cost: 0.021, tokens: 1900, corrections: 0,
+      artifacts: [{ path: "context_handoff/scout_findings.md", location: "handoff" }],
+      notes: [],
+    });
+    expect(card("plan")).toMatchObject({
+      outputType: "PlanOutput", toolCalls: 1, cost: 0.102,
+      artifacts: [{ path: "docs/asf/spec/plan.md", location: "repo" }],
+      notes: [{ kind: "risk", what: "the date is local midnight",
+                because: "converted in UTC it is the previous day", insteadOf: "" }],
+    });
+    // One reply was not JSON: re-prompted in the same session, as a correction.
+    expect(card("plan_revise_1")).toMatchObject({ corrections: 1, summary: "the plan now names the module" });
+    expect(card("implement")).toMatchObject({
+      changedFiles: ["app.py"],
+      notes: [{ kind: "deviation", what: "kept the summary helpers",
+                insteadOf: "reworking every prompt", because: "only the action items need a date" }],
+    });
+  });
+
+  it("gives a code row what it ran or committed", async () => {
+    const { t } = await told();
+    const [first, review] = (await story(t)).chapters;
+    const row = (items: typeof first.items, name: string) =>
+      items.find((item) => item.type === "code" && item.name === name)!;
+
+    expect(row(first.items, "commit_implement")).toMatchObject({
+      owner: "git", status: "success", commands: [],
+      commits: [{ sha: expect.stringMatching(/^[0-9a-f]{40}$/),
+                  message: "feat: the prompt knows the meeting date", filesTotal: 1 }],
+    });
+    expect(row(review.items, "verify_1")).toMatchObject({
+      owner: "quality", status: "success", commits: [],
+      commands: [{ name: "test", exitCode: 0 }],
+    });
+  });
+
+  it("shows a gate with its round, where it was asked, the verdict and the person's remark", async () => {
+    const { t } = await told();
+    const gates = (await story(t)).chapters[0].items.filter((item) => item.type === "gate");
+
+    expect(gates).toMatchObject([
+      { name: "approve_plan", gate: "plan", round: 1, status: "rejected", channel: "issue", issueNumber: 42,
+        decision: { verdict: "reject", by: "asf tests", channel: "cli",
+                    notes: "name the module the date is converted in" } },
+      { name: "approve_plan_2", gate: "plan", round: 2, status: "approved", channel: "issue",
+        summary: "the plan now names the module",
+        decision: { verdict: "approve", by: "asf tests", notes: "keep the prompt in English" } },
+    ]);
+  });
+});
+
+describe("authority and replays", () => {
+  it("shows a decision made by policy as automatic, never as somebody's verdict", async () => {
+    const { t } = await told();
+    const { chapters } = await story(t);
+    const items = chapters.flatMap((chapter) => chapter.items);
+
+    expect(items.filter((item) => item.type === "automatic")).toMatchObject([
+      { gate: "integrate", round: 1 },
+    ]);
+    // Only people answer gates: no gate card anywhere says policy decided it.
+    for (const item of items) {
+      if (item.type === "gate") expect(item.decision?.by).not.toBe("policy");
+    }
+  });
+
+  it("folds what a resume replayed into the phase it replayed, rather than showing it twice", async () => {
+    const { t } = await told();
+    const [first] = (await story(t)).chapters;
+
+    const phaseIds = first.items.flatMap((item) => ("phaseId" in item ? [item.phaseId] : []));
+    expect(new Set(phaseIds).size).toBe(phaseIds.length);
+    expect(first.items.filter((item) => item.type === "resumed")).toMatchObject([
+      { replayed: ["scout", "plan"] },
+      { replayed: ["scout", "plan", "plan_revise_1"] },
+    ]);
+    const replayed = first.items.filter((item) => item.type === "agent" && item.replayed);
+    expect(replayed.map((item) => "name" in item && item.name)).toEqual(["scout", "plan", "plan_revise_1"]);
+    // Replays sent nothing and cost nothing: the card keeps what its live run did.
+    expect(first.items.find((item) => item.type === "agent" && item.name === "scout"))
+      .toMatchObject({ toolCalls: 3, cost: 0.021, status: "success" });
+  });
+});
+
+describe("the journal", () => {
+  it("is the journal the factory rendered for the next agent, byte for byte", async () => {
+    const { t } = await told();
+    expect((await story(t)).journal).toBe(JOURNAL);
+  });
+
+  it("is, at every task the factory sent an agent, the journal that prompt ended with", async () => {
+    // Send 1 is the task; a later send in the same session is a correction,
+    // which the agent reads with the task (and its journal) still in context.
+    const prompts = RECORDED.filter((event) =>
+      event.kind === "prompt_rendered" && (event.payload as { send: number }).send === 1);
+    expect(prompts.length).toBeGreaterThan(5);
+    for (const sent of prompts) {
+      const { t } = await told(sent.seq - 1);
+      const journal = (await story(t)).journal;
+      const prompt = (sent.payload as { prompt: string }).prompt;
+      if (journal === "") expect(prompt).not.toContain("## This run so far");
+      else expect(prompt.endsWith(`\n\n${journal}`), `the prompt at seq ${sent.seq}`).toBe(true);
+    }
+  });
+});
+
+describe("a live session", () => {
+  it("says what is happening now, and moves on as events arrive without anything reloading", async () => {
+    const at = (kind: string, name: string) =>
+      RECORDED.find((event) => event.kind === kind && (event.payload as { name?: string }).name === name)!.seq;
+    // Shipped up to the builder at work in the first chapter.
+    const { t, token } = await told(at("phase_started", "implement") + 2);
+    const before = await t.query(api.sessions.get, WHERE);
+    expect(before!.summary.status).toBe("running");
+    expect(before!.story.now).toMatchObject({ phase: { name: "implement", owner: "builder", kind: "agent" } });
+    expect(before!.story.chapters).toHaveLength(1);
+
+    // ...then the rest of the first chapter, to the policy-passed integration.
+    await ship(t, token, RECORDED.slice(at("phase_started", "implement") + 2, at("phase_started", "integrate")));
+    const after = await t.query(api.sessions.get, WHERE);
+    expect(after!.story.now.phase).toMatchObject({ name: "integrate", kind: "code" });
+    expect(after!.story.chapters[0].items.at(-1)).toMatchObject({ type: "code", name: "integrate" });
+  });
+
+  it("waits at a gate with the round, the channel and the work item it was asked on", async () => {
+    const suspended = RECORDED.find((event) => event.kind === "suspended")!.seq;
+    const { t } = await told(suspended);
+
+    const { now, chapters } = await story(t);
+    expect(now.waiting).toEqual({ gate: "plan", round: 1, kind: "gate", channel: "issue", issueNumber: 42 });
+    expect(chapters[0].items.at(-1)).toMatchObject({ type: "gate", status: "waiting", decision: null });
+  });
+
+  it("ends saying where the work went, over how many chapters", async () => {
+    const { t } = await told();
+    expect((await story(t)).now).toMatchObject({
+      status: "success", chapters: 3, prUrl: "https://forge/acme/widgets/pull/9", phase: null, waiting: null,
+    });
+  });
+});
+
+describe("edges a recording does not reach", () => {
+  const started = (seq: number, phaseId: string, name: string, kind = "agent") => ({
+    seq, ts: `2026-09-29T12:00:${String(seq).padStart(2, "0")}.000+00:00`, kind: "phase_started", v: 2,
+    payload: { phase_id: phaseId, seq: Number(phaseId.split("_")[1]), name, kind, owner: "someone",
+               description: "Do the thing this phase is for", task: "", prompt_digest: "" },
+  });
+  const ended = (seq: number, phaseId: string, name: string, status = "success", extra = {}) => ({
+    seq, ts: `2026-09-29T12:00:${String(seq).padStart(2, "0")}.000+00:00`, kind: "phase_ended", v: 1,
+    payload: { phase_id: phaseId, name, status, attempt: 1, error: "", gate: "", round: 0, ...extra },
+  });
+  const chapter = (seq: number, number: number) => ({
+    seq, ts: "2026-09-29T12:00:00.000+00:00", kind: "workflow_started", v: 1,
+    payload: { workflow: "gated", chapter: number, input: "prompt" },
+  });
+  const decided = (seq: number, notes: string) => {
+    const event = fixture("decision_recorded", seq);
+    Object.assign((event.payload as { decision: Record<string, unknown> }).decision,
+                  { gate: "plan", round: 1, verdict: "approve", notes });
+    return event;
+  };
+
+  it("gives each chapter's gate the decision taken there, though two chapters ask the same round", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    await ship(t, token, [
+      fixture("session_started", 1),
+      chapter(2, 1), started(3, "x_01_approve_plan", "approve_plan", "engineer"), decided(4, "first"),
+      ended(5, "x_01_approve_plan", "approve_plan"),
+      chapter(6, 2), started(7, "x_02_approve_plan", "approve_plan", "engineer"), decided(8, "second"),
+      ended(9, "x_02_approve_plan", "approve_plan"),
+    ]);
+
+    const notes = (await story(t)).chapters.map((each) =>
+      each.items.map((item) => (item.type === "gate" ? item.decision?.notes : "")));
+    expect(notes).toEqual([["first"], ["second"]]);
+  });
+
+  it("stops a phase the session ended under, and counts the time of a run a resume took over", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const finished = { ...fixture("session_finished", 4), ts: "2026-09-29T12:00:04.000+00:00" };
+    await ship(t, token, [fixture("session_started", 1), chapter(2, 1), started(3, "x_01_build", "build"), finished]);
+    // Killed mid-phase: no phase_ended, only the session's end.
+    expect((await story(t)).chapters[0].items[0]).toMatchObject({ status: "fail", duration: 1 });
+
+    const resumed = { ...fixture("session_resumed", 7), payload: { workflow: "gated", chapter: 1 } };
+    await ship(t, token, [{ ...fixture("session_started", 5), ts: "2026-09-29T12:00:05.000+00:00" },
+                          { ...fixture("session_finished", 6), ts: "2026-09-29T12:00:05.500+00:00" },
+                          resumed, started(8, "x_01_build", "build"), ended(10, "x_01_build", "build")]);
+    await ship(t, token, [{ ...fixture("usage", 9), ts: "2026-09-29T12:00:09.000+00:00" }]);
+    // One second before the kill, two after the resume.
+    expect((await story(t)).chapters[0].items).toMatchObject([
+      { type: "agent", name: "build", status: "success", duration: 3 },
+      { type: "resumed" },
+    ]);
+  });
+
+  it("keeps an agent phase's card though it wrote the chapter's request", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const request = { ...fixture("artifact_written", 4),
+                      payload: { ...fixture("artifact_written", 4).payload as object, phase_id: "x_01_ask", role: "request" } };
+    await ship(t, token, [fixture("session_started", 1), chapter(2, 1), started(3, "x_01_ask", "ask"), request]);
+
+    const [first] = (await story(t)).chapters;
+    expect(first.asked).not.toBeNull();
+    expect(first.items).toMatchObject([{ type: "agent", name: "ask" }]);
+  });
+});
+
+describe("the story's readers", () => {
+  it.each(Object.keys(corpus))("tell %s if they tell its kind at all", (name) => {
+    const { kind, v: version } = corpus[name];
+    const told = toldVersions(kind);
+    if (told.length) expect(told, `${kind} v${version} has a reader but no teller in story.ts`).toContain(version);
+  });
+});
+
+describe("a story from a newer factory", () => {
+  it("leaves out what it cannot read, and still tells the rest", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const unknown = { seq: 2, ts: "2026-09-29T12:00:00.000+00:00", kind: "phase_paused", v: 1,
+                      payload: { phase_id: "5c0075aa_03_plan" } };
+    await ship(t, token, [fixture("session_started", 1), unknown, { ...fixture("phase_started", 3, 2) }]);
+
+    const { chapters, now } = await story(t);
+    expect(now.phase).toMatchObject({ name: "plan", kind: "agent" });
+    // No workflow_started from this factory yet: the phases still have a chapter to sit in.
+    expect(chapters).toMatchObject([{ number: 0, workflow: "ship", items: [{ type: "agent", name: "plan" }] }]);
+  });
+});

@@ -125,17 +125,18 @@ describe("a session told by its events", () => {
     ]);
   });
 
-  it("renders its phases in the order they started, with where each one stands", async () => {
+  it("tells what it can of a phase whose start it never received", async () => {
     const t = cockpit();
     await ship(t, await factory(t), upToTheGate);
 
+    // The fixtures are one line per kind, not one session: the gate phase that
+    // ended here never started, so there is no card to put its end on.
     const view = await t.query(api.sessions.get, WHERE);
-    expect(view!.phases).toEqual([
-      { phaseId: "5c0075aa_03_plan", name: "plan", kind: "agent", owner: "planner",
-        description: "Write the plan the builder will follow", status: "running",
-        error: "", gate: "", round: 0 },
-      { phaseId: "5c0075aa_05_approve_plan", name: "approve_plan", kind: "", owner: "",
-        description: "", status: "waiting", error: "", gate: "plan", round: 2 },
+    expect(view!.story.chapters).toMatchObject([
+      { number: 0, workflow: "ship", items: [
+        { type: "agent", phaseId: "5c0075aa_03_plan", name: "plan", owner: "planner", status: "running",
+          description: "Write the plan the builder will follow", cost: 0.0185, tokens: 1200 },
+      ] },
     ]);
     expect(view!.events.map((row) => row.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });

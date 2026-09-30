@@ -58,7 +58,12 @@ The visualizer (`skills/agentic-sf/apps/visualizer`, Vue + Vite on Bun) has its 
 The cockpit (`apps/cockpit`, Next.js on self-hosted Convex, outside the skill per ADR 0001) is run
 with bun: `bun run typecheck`, `bun run lint`, `bun run test` (vitest + `convex-test`, no backend
 needed), and CI runs all three. `bun run test`, not `bun test`: the latter is Bun's own runner. Its tests ingest every fixture under `tests/golden/events/`, so a
-new event kind or version needs a reader in `apps/cockpit/convex/model/session.ts` in the same PR.
+new event kind or version needs a reader in `apps/cockpit/convex/model/session.ts` in the same PR
+— and, for a kind the session page's story tells, a teller in `convex/model/story.ts`.
+They also tell every whole session under `tests/golden/sessions/` (recorded, never edited — a new
+one is `ASF_RECORD_SESSIONS=1 pytest tests/test_asf_golden_sessions.py`), and the session page's
+Journal view must match the `journal.md` recorded beside it byte for byte (`convex/model/journal.ts`
+is `engine/journal.py`'s `render`, in TypeScript).
 They meet GitHub only as the fake forge in `apps/cockpit/tests/forge.ts`, which stands in for it at
 `fetch`: a new call to the forge goes through `convex/forge/forge.ts`'s one interface, for both the
 GitHub App (team mode) and the person's own token (local mode), and gets its route in the fake.
