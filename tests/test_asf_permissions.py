@@ -74,18 +74,66 @@ def test_a_read_only_agent_s_changes_to_files_with_non_ascii_names_are_undone(st
                               "  - notes/résumé.md — deleted")
 
 
+# ── what an agent STAGED ─────────────────────────────────────────────────────
+#
+# `git add`, `git rm` and `git mv` are one line of bash each, and the scripted
+# harness has no bash — so these drive the boundary directly, in a real
+# repository, the way `agents.execute` does around a call.
+
+def boundary(repo: Path, writes: list[str]) -> tuple[SimpleNamespace, AgentConfig]:
+    """The two things `enforce` reads: where the tree is, and what may be written."""
+    run = SimpleNamespace(repo_root=repo, cfg=FactoryConfig())
+    agent = AgentConfig(name="scout", writes=writes,
+                        prompt_engineering=PromptEngineering(system="agent.md"))
+    return run, agent
+
+
+def test_a_new_file_an_agent_staged_outside_its_boundary_leaves_the_tree_and_the_index(
+        repo: Path):
+    run, scout = boundary(repo, writes=[])
+    before = permissions.snapshot(run)
+    (repo / "naïve.py").write_text("x = 1\n")
+    git(repo, "add", "naïve.py")
+
+    with pytest.raises(permissions.PermissionBreach) as breach:
+        permissions.enforce(run, None, scout, before)
+
+    assert str(breach.value) == ("scout is read-only but modified 1 path(s):\n"
+                                 "  - naïve.py — deleted")
+    assert not (repo / "naïve.py").exists()
+    assert git(repo, "status", "--porcelain") == ""       # nothing left for `git add -A` to land
+
+
+def test_a_staged_edit_and_a_staged_deletion_of_tracked_files_are_restored_from_head(
+        repo: Path):
+    (repo / "kept.md").write_text("as committed\n")
+    (repo / "gone.md").write_text("as committed\n")
+    commit_all(repo)
+    run, scout = boundary(repo, writes=[])
+    before = permissions.snapshot(run)
+    (repo / "kept.md").write_text("rewritten\n")
+    git(repo, "add", "kept.md")
+    git(repo, "rm", "-q", "gone.md")
+
+    with pytest.raises(permissions.PermissionBreach) as breach:
+        permissions.enforce(run, None, scout, before)
+
+    assert str(breach.value) == ("scout is read-only but modified 2 path(s):\n"
+                                 "  - gone.md — rolled back\n"
+                                 "  - kept.md — rolled back")
+    assert (repo / "kept.md").read_text() == "as committed\n"
+    assert (repo / "gone.md").read_text() == "as committed\n"
+    assert git(repo, "status", "--porcelain") == ""
+
+
 def test_a_file_moved_out_of_an_agent_s_boundary_is_a_breach_at_the_path_it_landed_on(
         repo: Path):
-    # `git mv` is one line of bash, and the scripted harness has no bash — so
-    # this one drives the boundary directly, in a real repository.
     (repo / "docs" / "asf" / "spec").mkdir(parents=True)
     (repo / "docs" / "asf" / "spec" / "plan.md").write_text("# Plan\n\n1. one\n2. two\n")
     (repo / "asf" / "engine").mkdir(parents=True)
     (repo / "asf" / "engine" / "gates.py").write_text("GATES = []\n")
     commit_all(repo)
-    run = SimpleNamespace(repo_root=repo, cfg=FactoryConfig())
-    planner = AgentConfig(name="planner", writes=["docs/asf/spec/"],
-                          prompt_engineering=PromptEngineering(system="agent.md"))
+    run, planner = boundary(repo, writes=["docs/asf/spec/"])
     before = permissions.snapshot(run)
 
     git(repo, "mv", "docs/asf/spec/plan.md", "asf/engine/plän.py")
@@ -94,4 +142,10 @@ def test_a_file_moved_out_of_an_agent_s_boundary_is_a_breach_at_the_path_it_land
     # may write, and pass. Two records do not: leaving is allowed, arriving is not.
     with pytest.raises(permissions.PermissionBreach) as breach:
         permissions.enforce(run, None, planner, before)
-    assert "modified 1 path(s):\n  - asf/engine/plän.py" in str(breach.value)
+    assert str(breach.value) == ("scout is limited to ['docs/asf/spec/'] but modified "
+                                 "1 path(s):\n  - asf/engine/plän.py — deleted")
+    assert not (repo / "asf" / "engine" / "plän.py").exists()
+    # Where it left is inside the boundary, and deleting there is the planner's
+    # to do: that half stands, and the plan is still what HEAD says it is.
+    assert git(repo, "status", "--porcelain") == "D  docs/asf/spec/plan.md"
+    assert git(repo, "show", "HEAD:docs/asf/spec/plan.md").startswith("# Plan")

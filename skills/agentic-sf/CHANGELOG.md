@@ -66,6 +66,9 @@ before — `None` when there are none, never omitted.
   non-ASCII name) is no longer refused inside an agent's `writes:`, and one outside it is really
   rolled back. A file moved with `git mv` out of an allowed directory is now a breach at the path
   it landed on.
+- A breach undoes what an agent STAGED, too. A new file it ran `git add` on leaves the index as
+  well as the disk, and a staged edit or `git rm` of a tracked file is restored from `HEAD`; before,
+  each was reported as rolled back and left for the next commit stage to land.
 
 ### Upgrade
 
