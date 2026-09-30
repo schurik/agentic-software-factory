@@ -28,14 +28,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import agents, factory, git_helper, inputs, session, tasks
-from .data_types import (AgentConfig, BuildOutput, EnvelopeBase, FactoryConfig, PhaseParams,
-                         SessionSpec)
+from .data_types import (AgentConfig, BuildOutput, ChapterInput, EnvelopeBase, FactoryConfig,
+                         PhaseParams, SessionSpec)
 from .stage import StageContext, StageModule, StageStop, Step, load_registry
 
 
@@ -60,7 +60,7 @@ class Spec(BaseModel):
 
     name: str
     description: str
-    input: Literal["prompt", "issue", "pr"] = "prompt"
+    input: ChapterInput = "prompt"
     agents: dict[str, Binding] = Field(default_factory=dict)
     stages: list[dict[str, Any]]
 
@@ -73,7 +73,7 @@ class Workflow:
     cfg: FactoryConfig
     steps: list[Step]
     required_agents: list[str] = field(default_factory=list)
-    input: str = "prompt"                  # prompt | issue | pr — see engine.inputs
+    input: ChapterInput = "prompt"         # prompt | issue | pr — see engine.inputs
 
 
 def workflows_dir(config_path: str | Path) -> Path:
@@ -277,7 +277,7 @@ def run(workflow: Workflow, request: str, adw_id: Optional[str] = None,
         # one exists: a refusal costs one forge call and leaves nothing behind.
         adw_id, context = inputs.locate_pr(cfg, number, adw_id)
     run = session.ensure(cfg, SessionSpec(
-        adw_id=adw_id, resume=resume, hitl=hitl, name=workflow.name,
+        adw_id=adw_id, resume=resume, hitl=hitl, name=workflow.name, input=workflow.input,
         request=request if workflow.input == "prompt" else ""))
 
     if workflow.input == "issue":

@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from engine import events
+
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
                           forge_calls, forge_data, git, issue_json, phase_names, pr_json,
                           run_state, session_dir, set_config, wire, with_origin)
@@ -196,6 +198,20 @@ def test_a_review_is_answered_on_the_branch_under_review_and_the_thread_resolved
     assert "addressed in the commit above" in next(a for a in replies[0] if a.startswith("body="))
     summary = [c for c in calls if c[0] == "comment"][-1]
     assert "answered 1 review thread(s)" in summary[summary.index("--body") + 1]
+    # To a cockpit the round is a chapter of its own, and it opens with what the
+    # reviewers asked: the threads file, shipped as the request it answers.
+    lines = events.read(session_dir(stamped, ID))
+    chapter = [line.payload for line in lines if line.kind == "workflow_started"][-1]
+    assert (chapter["workflow"], chapter["input"], chapter["chapter"]) == ("pr-review", "pr", 2)
+    [asked] = [line.payload for line in lines if line.kind == "artifact_written"
+               and line.payload["path"] == "context_handoff/pr_review.md"]
+    threads = (session_dir(stamped, ID) / "context_handoff" / "pr_review.md").read_text()
+    assert asked["role"] == "request" and asked["location"] == "handoff"
+    assert "make ok 2" in threads and asked["content"] == threads
+    # ...and the builder's phase names the task this workflow overrides the stage's with.
+    built = [line.payload for line in lines
+             if line.kind == "phase_started" and line.payload["name"] == "implement"][-1]
+    assert built["task"] == "asf/workflows/pr-review/tasks/implement.md"
 
 
 def test_a_builder_that_declines_on_purpose_keeps_the_thread_open_with_its_reason(stamped: Path):

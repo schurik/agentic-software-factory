@@ -18,11 +18,13 @@ import yaml
 
 from . import (artifacts, git_helper, harnesses, journal, limits, permissions,
                preflight, prompts)
-from .data_types import (RAW_TAIL_CHARS, AgentCall, AgentConfig, AgentRequest, AgentResult,
-                         AgentSession, EnvelopeAccepted, EnvelopeBase, EnvelopeRejected,
-                         EventRecord, FactoryConfig, GateCheck, GateReport, GateResult, Phase,
-                         RecordedPhase, UsageBreakdown)
-from .utils import anchor, write_atomic
+from .data_types import (BODY_BYTES, RAW_TAIL_CHARS, TRANSCRIPT_CHUNK_CHARS, AgentCall,
+                         AgentConfig, AgentRequest, AgentResult, AgentSession,
+                         EnvelopeAccepted, EnvelopeBase, EnvelopeRejected, EventRecord,
+                         FactoryConfig, GateCheck, GateReport, GateResult, HarnessOutput, Phase,
+                         PhaseReplayed, PromptRendered, RecordedPhase, ToolCalled,
+                         UsageBreakdown)
+from .utils import anchor, clip_utf8, write_atomic
 
 JSON_FIX_ATTEMPTS = 2      # continue-with-correction attempts for malformed JSON
 
@@ -165,7 +167,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     agent_dir = run.session_dir / agent.name
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    replayed = _replay(run, phase, call, agent.name)
+    replayed = _replay(run, phase, call, agent)
     if replayed is not None:
         return replayed
 
@@ -196,7 +198,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         prompts.render(anchor(run.main_root, ref), variables).rstrip()
         for ref in [agent.prompt_engineering.system, *agent.prompt_engineering.system_append]
     ) + "\n"
-    task_ref = call.task or agent.prompt_engineering.user
+    task_ref = _task_ref(call, agent)
     if not task_ref:
         raise RuntimeError(f"agent {agent.name!r}: this call names no task and the agent "
                            f"has no fallback user prompt — a stage must resolve a task "
@@ -214,6 +216,8 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         user_text = f"{user_text.rstrip()}\n\n{story}"
     prompts.save(agent_dir / "prompts", "system.md", system_text)
     prompts.save(agent_dir / "prompts", "user.md", user_text)
+    run.announce(phase, task=_task_path(run, call, agent),
+                 prompt_digest=prompts.digest(system_text, user_text))
 
     driver = harness_for(agent)
     session = _agent_session(run, agent, driver)
@@ -235,14 +239,28 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     latest: AgentResult | None = None
     spent = UsageBreakdown()
     forward = _event_forwarder(run, phase, agent.name, driver)
+    output = _HarnessOutput(run, phase, agent.name)
+    sends = 0
+
+    def on_event(event: dict) -> None:
+        output.add(event)
+        forward(event)
 
     def send(prompt_text: str) -> AgentResult:
-        nonlocal latest
+        nonlocal latest, sends
         # Asked BEFORE the turn, because spend is only known after one is paid
         # for: a session that has hit its ceiling keeps the envelope it already
         # bought and dies here instead, rather than mid-turn with nothing to
         # show for the money. limits.py has the full argument.
         _refuse_if_over_budget(run, phase, agent)
+        sends += 1
+        identity, cut_identity = clip_utf8((system_text if sends == 1 else "").encode(),
+                                           BODY_BYTES)
+        text, cut_text = clip_utf8(prompt_text.encode(), BODY_BYTES)
+        run.transcript(PromptRendered(
+            phase_id=phase.phase_id, agent=agent.name, send=sends,
+            digest=prompts.digest(system_text, prompt_text), system=identity, prompt=text,
+            truncated=cut_identity or cut_text))
         request = AgentRequest(
             prompt=prompt_text,
             system_prompt=system_text,
@@ -265,7 +283,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         try:
             result = driver.run(
                 request,
-                on_event=forward,
+                on_event=on_event,
                 on_spawn=lambda pid: _spawned(run, agent, pid),
                 on_exit=lambda pid: _exited(run, pid))
         except limits.AgentTimeout as expiry:
@@ -277,6 +295,8 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                 spent.merge(expiry.result.usage)
             _record_limit(run, phase, agent, "agent_timeout", str(expiry))
             raise
+        finally:
+            output.flush()      # a turn's last lines do not wait for the next turn
         run.add_usage(phase, agent, result)
         spent.merge(result.usage)
         latest = result
@@ -335,6 +355,9 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
                                      payload={"agent": agent.name, "paths": touched}))
 
     _persist_envelope(run, phase, agent.name, call, envelope, attempt, valid=True)
+    # What it declared it wrote, now that the claim has held. Not on a replay:
+    # nothing was written then, and the record already says what was.
+    artifacts.record_artifacts(run, "output", envelope.artifacts)
     # The agent proposed these; code files them. Deliberately AFTER permissions
     # and the gates, so nothing an agent was not allowed to do reaches the
     # record as a thing that happened — and before the status check below, so a
@@ -449,7 +472,24 @@ def _check_gates(run, phase: Phase, call: AgentCall, envelope: EnvelopeBase,
     return violations
 
 
-def _replay(run, phase: Phase, call: AgentCall, agent_name: str) -> Optional[EnvelopeBase]:
+def _task_ref(call: AgentCall, agent: AgentConfig) -> str:
+    """The task file this call renders: the one its stage resolved, else the
+    agent's own fallback prompt. "" when there is neither."""
+    return call.task or agent.prompt_engineering.user
+
+
+def _task_path(run, call: AgentCall, agent: AgentConfig) -> str:
+    """That file the way a reader of the repository names it: relative to the
+    repository root when it lies inside it."""
+    ref = _task_ref(call, agent)
+    if not ref:
+        return ""
+    path = anchor(run.main_root, ref).resolve()
+    root = run.main_root.resolve()
+    return path.relative_to(root).as_posix() if root in path.parents else str(ref)
+
+
+def _replay(run, phase: Phase, call: AgentCall, agent: AgentConfig) -> Optional[EnvelopeBase]:
     """The recorded answer to this phase, if a resumed run may still use it.
 
     None means "call the agent" — including the case where a record existed and
@@ -467,7 +507,11 @@ def _replay(run, phase: Phase, call: AgentCall, agent_name: str) -> Optional[Env
     envelope = run.replay.envelope_for(phase, call.output_type)
     if envelope is None:
         return None
+    agent_name = agent.name
     record = run.replay.records[phase.params.name]
+    # Announced without a digest: a replay sends no prompt. If the gates below
+    # refuse the record, the live call announces the phase again, with one.
+    run.announce(phase, task=_task_path(run, call, agent))
     if _check_gates(run, phase, call, envelope, attempt=0):
         run.console.note(f"replay rejected by its gates — running {agent_name} for real")
         return None
@@ -477,6 +521,8 @@ def _replay(run, phase: Phase, call: AgentCall, agent_name: str) -> Optional[Env
                                           "source_phase": record.phase,
                                           "output_type": record.output_type,
                                           "agent": agent_name}))
+    run.tracer.event(PhaseReplayed(phase_id=phase.phase_id, name=phase.params.name,
+                                   agent=agent_name))
     run.console.replayed(phase.params.name, record.seq)
     _persist_envelope(run, phase, agent_name, call, envelope, attempt=0, valid=True)
     run.console.envelope_summary(envelope)
@@ -521,8 +567,45 @@ def _remember(run, agent: AgentConfig, session: AgentSession) -> None:
                                     "started": session.started})
 
 
+class _HarnessOutput:
+    """A phase's harness stream, as `harness_output` transcript events.
+
+    One JSON line per event the harness forwarded — the lines it also appends to
+    `raw_output.jsonl` — cut where a chunk fills rather than where a line ends,
+    so one enormous tool result is several events instead of one a cockpit
+    cannot store. Nothing is kept in memory for a factory that did not opt in.
+    """
+
+    def __init__(self, run, phase: Phase, agent_name: str):
+        self._run, self._phase_id, self._agent = run, phase.phase_id, agent_name
+        self._pending = ""
+        self._chunk = 0
+
+    def add(self, event: dict) -> None:
+        if not self._run.cfg.cockpit.transcripts:
+            return
+        self._pending += json.dumps(event) + "\n"
+        while len(self._pending) >= TRANSCRIPT_CHUNK_CHARS:
+            self._emit(self._pending[:TRANSCRIPT_CHUNK_CHARS])
+            self._pending = self._pending[TRANSCRIPT_CHUNK_CHARS:]
+
+    def flush(self) -> None:
+        if self._pending:
+            self._emit(self._pending)
+            self._pending = ""
+
+    def _emit(self, text: str) -> None:
+        self._chunk += 1
+        self._run.transcript(HarnessOutput(phase_id=self._phase_id, agent=self._agent,
+                                           chunk=self._chunk, text=text))
+
+
 def _event_forwarder(run, phase: Phase, agent_name: str, driver):
-    """One tool_call event per real tool call, with its exact args and result.
+    """One record per real tool call, written twice and not the same way.
+
+    The `tool_called` domain event is what a station ships: the tool, whether
+    it worked, how long it took. The db row beside it, for the legacy
+    visualizer on this machine, keeps the exact args and result.
 
     The tracker comes from the harness; the record shape does not (it is
     tool_calls.py's, identical for both), which is what keeps the tracer, the
@@ -532,6 +615,11 @@ def _event_forwarder(run, phase: Phase, agent_name: str, driver):
 
     def forward(event: dict) -> None:
         for record in tracker.observe(event):
+            # What travels: the name, the outcome and the time it took. The
+            # arguments and the result stay in the db row below, on this machine.
+            run.tracer.event(ToolCalled(phase_id=phase.phase_id, agent=agent_name,
+                                        tool=record["tool"], ok=bool(record["ok"]),
+                                        duration_ms=record.get("duration_ms", 0)))
             # The call's span rides the columns; duration_ms stays in the
             # payload as the coding agent's own authoritative number.
             run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,

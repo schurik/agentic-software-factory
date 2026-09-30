@@ -31,7 +31,7 @@ TEMPLATES = SKILL_ROOT / "templates" / "asf"
 if str(TEMPLATES) not in sys.path:
     sys.path.insert(0, str(TEMPLATES))
 
-from .asf_helpers import git, install  # noqa: E402
+from .asf_helpers import new_repo, stamp  # noqa: E402
 
 
 @pytest.fixture
@@ -39,24 +39,10 @@ def repo(tmp_path: Path) -> Path:
     """A git repository with one commit and a pyproject that names pytest — the
     least a worktree can branch from, and enough for the installer to detect a
     test command."""
-    root = tmp_path / "repo"
-    root.mkdir()
-    git(root, "init", "-q", "-b", "main")
-    git(root, "config", "user.email", "tests@example.invalid")
-    git(root, "config", "user.name", "asf tests")
-    git(root, "config", "commit.gpgsign", "false")
-    (root / "README.md").write_text("# fixture\n")
-    (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\ntestpaths = ['.']\n")
-    git(root, "add", "-A")
-    git(root, "commit", "-q", "-m", "init")
-    return root
+    return new_repo(tmp_path / "repo")
 
 
 @pytest.fixture
 def stamped(repo: Path) -> Path:
     """The fixture repo with the factory installed, on the claude_code harness."""
-    result = install(repo, "--harness", "claude_code")
-    assert result.returncode == 0, result.stdout + result.stderr
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "stamp the factory")
-    return repo
+    return stamp(repo)

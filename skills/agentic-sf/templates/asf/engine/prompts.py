@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from . import frontmatter
@@ -16,6 +17,12 @@ def render(template_path: str | Path, variables: dict[str, str]) -> str:
     for key, value in variables.items():
         text = text.replace("{{" + key + "}}", value)
     return text
+
+
+def digest(system: str, prompt: str) -> str:
+    """What names a prompt without carrying it: sha256 over the system prompt,
+    a NUL, and the text sent — the two files `save` keeps, in that order."""
+    return hashlib.sha256(f"{system}\0{prompt}".encode()).hexdigest()
 
 
 def save(directory: str | Path, name: str, content: str) -> Path:

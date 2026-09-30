@@ -1,0 +1,15 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "prompt_rendered",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_03_plan",
+    "agent": "planner",
+    "send": 1,
+    "digest": "967c790b762fbe17e1363dba86b2923548f2093b2123a23e89a068f48d26ff93",
+    "system": "# Planner\n\nYou turn a request into a plan the builder can follow.\n",
+    "prompt": "# Plan\n\nadd a health check\n\n## This run so far\n\n1. request · alex · success — input: add a health check\n",
+    "truncated": false
+  }
+}

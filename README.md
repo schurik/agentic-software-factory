@@ -163,6 +163,10 @@ Every session also writes typed domain events, and a **cockpit** (`apps/cockpit`
 from them. `just up` is the station loop: it ships every session on the checkout to the shared
 cockpit `ASF_COCKPIT_URL` names or, without one, starts a local cockpit from the same published
 images a team deploys (Docker; `http://localhost:3000`). The trace UI starts only when asked for.
+What travels is the session's story — chapters, phases, gates, spend, commits, the handoff files
+its phases wrote, and each tool call's name, outcome and duration. A tool's arguments and results,
+the prompts and the harness's raw output are the transcript, which a factory sends only if its
+`factory.yaml` says `cockpit: {transcripts: true}`.
 
 ![A stamped repo as a station, the Docker project asf-cockpit with the Next.js app and the Convex backend, and the browser](docs/diagrams/local-cockpit-components.svg)
 

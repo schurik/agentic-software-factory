@@ -205,6 +205,27 @@ function phase(state: State, phaseId: string): Phase {
   return found;
 }
 
+function phaseStarted(state: State, p: Payload): void {
+  const found = phase(state, p.str("phase_id"));
+  Object.assign(found, {
+    name: p.str("name"), kind: p.str("kind"), owner: p.str("owner"),
+    description: p.str("description"), status: "running", error: "", gate: "", round: 0,
+  });
+}
+
+const describePhaseStarted = (p: Payload) =>
+  `${p.str("name")} started · ${p.str("kind")}` + (p.str("owner") ? ` ${p.str("owner")}` : "");
+
+/** How an artifact reached the cockpit. A repo file is only named; a handoff
+ * file is here whole, cut at the factory's cap, or (not text) not sent at all. */
+function travelled(p: Payload): string {
+  if (p.str("location") === "repo") return "in the repository";
+  if (!p.bool("truncated")) return "inline";
+  return p.str("content") === "" ? "not text, not sent" : "inline, cut at the cap";
+}
+
+const ANSWERING: Record<string, string> = { issue: "an issue", pr: "a pull request's review" };
+
 const money = (cost: number) => `$${cost.toFixed(4)}`;
 const gateRound = (p: Payload | null) => (p ? `${p.str("gate")} round ${p.num("round")}` : "a gate");
 
@@ -237,17 +258,35 @@ const READERS: Record<string, Record<number, Reader>> = {
       describe: (p) => `provenance: ${p.str("request") || p.str("trigger")}`,
     },
   },
-  phase_started: {
+  // A chapter: one workflow the session passes through. The chapters themselves
+  // are the session page's story, which is not built yet — until it is, these
+  // read as rows.
+  workflow_started: {
     1: {
-      fold: (state, p) => {
-        const found = phase(state, p.str("phase_id"));
-        Object.assign(found, {
-          name: p.str("name"), kind: p.str("kind"), owner: p.str("owner"),
-          description: p.str("description"), status: "running", error: "", gate: "", round: 0,
-        });
-      },
-      describe: (p) => `${p.str("name")} started · ${p.str("kind")}` +
-        (p.str("owner") ? ` ${p.str("owner")}` : ""),
+      describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
+        (ANSWERING[p.str("input")] ? `, answering ${ANSWERING[p.str("input")]}` : ""),
+    },
+  },
+  workflow_finished: {
+    1: {
+      describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} finished: ` +
+        p.str("status") + (p.str("reason") ? ` — ${p.str("reason")}` : ""),
+    },
+  },
+  session_resumed: {
+    1: { describe: (p) => `resumed chapter ${p.num("chapter")}: ${p.str("workflow")}` },
+  },
+  phase_started: {
+    1: { fold: phaseStarted, describe: describePhaseStarted },
+    // v2 adds what an agent phase was given: its task file and its prompt's digest.
+    2: {
+      fold: phaseStarted,
+      describe: (p) => describePhaseStarted(p) + (p.str("task") ? ` · ${p.str("task")}` : ""),
+    },
+  },
+  phase_replayed: {
+    1: {
+      describe: (p) => `${p.str("name")} replayed from the record, ${p.str("agent")} not called`,
     },
   },
   phase_ended: {
@@ -329,6 +368,25 @@ const READERS: Record<string, Record<number, Reader>> = {
         money(p.num("cost")),
     },
   },
+  artifact_written: {
+    1: {
+      describe: (p) => `${p.str("role")} ${p.str("path")} written: ${p.num("size")} bytes, ` +
+        travelled(p),
+    },
+  },
+  committed: {
+    1: {
+      describe: (p) => `committed ${p.str("sha").slice(0, 7)}: ${p.str("message")} ` +
+        `(${p.num("files_total")} file${p.num("files_total") === 1 ? "" : "s"})`,
+    },
+  },
+  // Never a tool's arguments or its result: the factory does not send them.
+  tool_called: {
+    1: {
+      describe: (p) => `${p.str("agent")} called ${p.str("tool")}: ` +
+        `${p.bool("ok") ? "ok" : "failed"} after ${p.num("duration_ms")}ms`,
+    },
+  },
   process_started: {
     1: { describe: (p) => `process ${p.num("pid")} started: ${p.str("command") || p.str("name")}` },
   },
@@ -346,6 +404,17 @@ const READERS: Record<string, Record<number, Reader>> = {
       describe: (p) => `command ${p.str("verb")} by ${p.str("by")}: ` +
         (p.bool("ok") ? "done" : "refused") + (p.str("detail") ? ` — ${p.str("detail")}` : ""),
     },
+  },
+  // Transcript events: present only for a factory that opted in. Nothing but a
+  // transcript view may be built from them — their bodies age out.
+  prompt_rendered: {
+    1: {
+      describe: (p) => `prompt ${p.num("send")} sent to ${p.str("agent")}` +
+        (p.bool("truncated") ? ", cut at the cap" : ""),
+    },
+  },
+  harness_output: {
+    1: { describe: (p) => `${p.str("agent")}'s harness output, chunk ${p.num("chunk")}` },
   },
   session_finished: {
     1: {

@@ -117,6 +117,21 @@ def sweep_temps(directory: str | Path, older_than: float = STALE_TEMP_SECONDS) -
     return removed
 
 
+def clip_utf8(data: bytes, limit: int) -> tuple[str, bool]:
+    """`data` as text of at most `limit` bytes, and whether anything was cut.
+
+    Cut on a character, never inside one: a body that ends in half a character
+    decodes to a replacement mark the file never held. Bytes that are not UTF-8
+    at all read as that mark — what is sent is always text.
+    """
+    if len(data) <= limit:
+        return data.decode("utf-8", errors="replace"), False
+    cut = limit
+    while cut and data[cut] & 0xC0 == 0x80:      # a continuation byte: step back to its lead
+        cut -= 1
+    return data[:cut].decode("utf-8", errors="replace"), True
+
+
 def anchor(root: str | Path, path: str | Path) -> Path:
     """Resolve `path` against `root` unless it is already absolute.
 

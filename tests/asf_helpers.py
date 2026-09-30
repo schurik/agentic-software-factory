@@ -32,6 +32,31 @@ def install(cwd: Path, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
 
+def new_repo(root: Path) -> Path:
+    """A git repository with one commit and a pyproject that names pytest — the
+    least a worktree can branch from, and enough for the installer to detect a
+    test command."""
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.email", "tests@example.invalid")
+    git(root, "config", "user.name", "asf tests")
+    git(root, "config", "commit.gpgsign", "false")
+    (root / "README.md").write_text("# fixture\n")
+    (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\ntestpaths = ['.']\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "init")
+    return root
+
+
+def stamp(repo: Path) -> Path:
+    """Install the factory into `repo`, on the claude_code harness, and commit it."""
+    result = install(repo, "--harness", "claude_code")
+    assert result.returncode == 0, result.stdout + result.stderr
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "stamp the factory")
+    return repo
+
+
 def asf(cwd: Path, *args: str, env: dict | None = None) -> subprocess.CompletedProcess:
     """`asf/asf.py …` as a user runs it, with no terminal on stdin — so a gate
     that fires suspends instead of prompting, exactly as under a watcher."""

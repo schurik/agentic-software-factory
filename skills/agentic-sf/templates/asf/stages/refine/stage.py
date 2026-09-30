@@ -35,7 +35,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from engine import gates, hitl, issues
+from engine import artifacts, gates, hitl, issues
 from engine.data_types import (AgentCall, EnvelopeBase, IssueComment, IssueOutput, IssueRef,
                                PhaseParams, RequirementsOutput, ScoutOutput, Subject)
 from engine.stage import StageStop
@@ -160,6 +160,9 @@ def _answers(ctx, draft: RequirementsOutput, decision, round: int) -> str:
     heard = [IssueComment(body=said, author=decision.by or "someone",
                           created_at=decision.decided_at)] if said else []
     issues.write_answers(path, heard, draft.open_questions, agreed=decision.approved)
+    # What the person answered is part of what this workflow is asked, like the
+    # item itself — so a cockpit is told it the same way.
+    artifacts.record_artifacts(ctx.run, "request", [str(path)])
     return str(path)
 
 

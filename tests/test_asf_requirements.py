@@ -868,7 +868,8 @@ class Fetching:
     """What `issues.fetch` reads off a Run: where to work and where to write."""
 
     def __init__(self, tree: Path, handoff: Path):
-        self.main_root = tree
+        self.main_root = self.repo_root = tree
+        self.session_dir = handoff.parent          # the body is a request artifact of the session
         self.context_handoff_dir = handoff
         self.phases: list = []
         self.tracer = type("T", (), {"mirror": lambda *a, **k: None})()

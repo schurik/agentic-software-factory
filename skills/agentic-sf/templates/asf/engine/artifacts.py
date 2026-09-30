@@ -33,6 +33,12 @@ function, so no caller can move the file without the event, and a station
 shipping the events ships the same story the files tell. `tests/projection.py`
 rebuilds `run.json` from those events alone.
 
+Two things it says have no file of their own. Which CHAPTER a session is in —
+one per workflow it passes through — is a fact about its events, read back off
+them (`open_chapter`). And an ARTIFACT in the glossary's sense, a file a phase
+declared or code wrote as a request, already has its file: `record_artifacts`
+is where a cockpit is told what that file holds.
+
 The same rule covers the two watchers, whose liveness is not a session at all:
 `watchers/<kind>.json` is what `just status` reads. The heartbeat is still
 written to the db as well, because the trace UI renders those badges — a WRITE
@@ -46,14 +52,18 @@ because every answer below is a file this session wrote.
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import events
-from .data_types import (DomainEvent, GateOpened, ProcessEnded, ProcessStarted,
-                         ProvenanceRecorded, RecordedPhase, RunState, SessionFinished,
-                         SessionStarted, SessionSuspended, UsageRecorded, WaitingFor)
-from .utils import ensure_dir, sweep_temps, write_atomic
+from .data_types import (BODY_BYTES, ArtifactRole, ArtifactWritten, ChapterInput, DomainEvent,
+                         GateOpened, ProcessEnded, ProcessStarted, ProvenanceRecorded,
+                         RecordedPhase, RunState, SessionFinished, SessionResumed,
+                         SessionStarted, SessionSuspended, UsageRecorded, WaitingFor,
+                         WorkflowFinished, WorkflowStarted)
+from .utils import anchor, clip_utf8, ensure_dir, sweep_temps, write_atomic
 
 RUN_FILE = "run.json"
 ENVELOPES_DIR = "envelopes"
@@ -132,9 +142,10 @@ def start_run(session_dir: Path, started: SessionStarted) -> RunState:
 def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
     """Close the session's record. Never raises: a run must not die reporting.
 
-    Called from `run.finish()`, from a failed phase, and from the SIGTERM
-    handler, so the file agrees with the db about how the session ended even
-    when the ending was not the happy one.
+    Called from `run.finish()`, from a failed phase, from the SIGTERM handler
+    and from a watcher aborting a run at its gate, so the file agrees with the
+    db about how the session ended even when the ending was not the happy one.
+    Whichever of them it is, the chapter the session was in ends with it.
     """
     from .utils import now_iso
     state = read_run(session_dir)
@@ -147,10 +158,76 @@ def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
     end_all_processes(session_dir)
     try:
         write_run(session_dir, state)
+        chapters = _chapters(session_dir)
+        if chapters.open:
+            events.emit(session_dir, WorkflowFinished(
+                workflow=chapters.workflows[chapters.active], chapter=chapters.active,
+                status=status, reason=reason))
         events.emit(session_dir, SessionFinished(status=status, ended_at=state.ended_at,
                                                  reason=reason))
     except OSError:
         pass
+
+
+# ── chapters: one per workflow the session passes through ────────────────────
+
+def open_chapter(session_dir: Path, workflow: str, input: ChapterInput, resume: bool) -> None:
+    """Say which chapter of the session this process works on.
+
+    A process that RESUMES a workflow continues that workflow's latest chapter
+    (`session_resumed`) — the latest of ITS workflow, which need not be the
+    session's latest: another workflow may have joined while this one waited at
+    a gate. Every other start opens the next chapter (`workflow_started`): a
+    joined run is new work, and a second round of pull-request review is a
+    second chapter of the same workflow. A resume with no chapter to continue
+    (the session was recorded before chapters were, or never ran this workflow)
+    opens one and says it resumed.
+
+    No file holds this: the chapters are read back off the session's own
+    events, which is also how `finish_run` knows which one to close — from any
+    process, including one that never opened it.
+    """
+    chapters = _chapters(session_dir)
+    number = chapters.latest_of(workflow) if resume else 0
+    if not number:
+        number = max(chapters.workflows, default=0) + 1
+        events.emit(session_dir, WorkflowStarted(workflow=workflow, chapter=number,
+                                                 input=input))
+    if resume:
+        events.emit(session_dir, SessionResumed(workflow=workflow, chapter=number))
+
+
+@dataclass
+class _Chapters:
+    """A session's chapters, as its events tell them."""
+
+    workflows: dict[int, str] = field(default_factory=dict)   # number -> workflow, as opened
+    active: int = 0               # the one the latest process took up; 0 = none yet
+    open: bool = False            # ...and whether it is still unfinished
+
+    def latest_of(self, workflow: str) -> int:
+        """The newest chapter of `workflow`, or 0 when it has none."""
+        return max((number for number, name in self.workflows.items() if name == workflow),
+                   default=0)
+
+
+def _chapters(session_dir: Path) -> _Chapters:
+    """Read off the raw payloads, so a chapter a newer or older factory opened
+    still counts."""
+    chapters = _Chapters()
+    for line in events.read(session_dir):
+        if line.kind not in (WorkflowStarted.KIND, SessionResumed.KIND, WorkflowFinished.KIND):
+            continue
+        number = int(line.payload.get("chapter") or 0)
+        if line.kind == WorkflowStarted.KIND:
+            chapters.workflows[number] = str(line.payload.get("workflow", ""))
+        if number not in chapters.workflows:
+            continue                # a resume or an ending of a chapter nothing opened
+        if line.kind == WorkflowFinished.KIND:
+            chapters.open = chapters.open and number != chapters.active
+        else:
+            chapters.active, chapters.open = number, True
+    return chapters
 
 
 def _patch(session_dir: Path, event: DomainEvent, **fields) -> None:
@@ -380,6 +457,70 @@ def _phase_outcomes(session_dir: Path, every: bool = False) -> dict[str, str]:
     except OSError:
         return {}
     return outcomes
+
+
+# ── artifacts: what a phase wrote, as a cockpit is told ──────────────────────
+
+def record_artifacts(run, role: ArtifactRole, paths: list[str]) -> None:
+    """Say what these artifacts hold now, as the run's current phase left them.
+    Never raises: a run must not die reporting.
+
+    Called where an artifact becomes part of the record: by the code that
+    writes a request (`issues.fetch`, `pull_requests.attach`, the answers a
+    `refine` round collected), and by `agents.execute` for what an agent
+    declared on an envelope that was then
+    ACCEPTED — through its gates and its write boundary, so nothing an agent
+    was not allowed to write is shipped as something it produced.
+
+    `ArtifactWritten` says what travels for a handoff file and what for a repo
+    file. Either is skipped while its bytes are the ones this session last said
+    it held: a resume reads the issue again and replays the scout, and neither
+    wrote anything new. A path that lies in neither tree is not this run's to
+    describe (`gates.artifacts_exist` has already refused it).
+    """
+    phase_id = run.phases[-1].phase_id if run.phases else ""
+    try:
+        sent = {(line.payload.get("location"), line.payload.get("path")):
+                line.payload.get("digest")
+                for line in events.read(run.session_dir) if line.kind == ArtifactWritten.KIND}
+        located = [found for found in (_locate(run, declared) for declared in paths) if found]
+        # Repo files first, so a handoff copy declared beside one finds it already named.
+        for location, path, target in sorted(located, key=lambda found: found[0] != "repo"):
+            data = target.read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            if sent.get((location, path)) == digest:
+                continue
+            twin = location == "handoff" and (location, path) not in sent and any(
+                where == "repo" and held == digest for (where, _), held in sent.items())
+            if twin:
+                continue
+            sent[(location, path)] = digest
+            content, truncated = "", False
+            if location == "handoff":
+                # Git's own test for "not text". A file of NULs costs six
+                # characters each on the wire, and an event a cockpit refuses
+                # for its size holds up every event of the session behind it.
+                content, truncated = ("", True) if b"\0" in data \
+                    else clip_utf8(data, BODY_BYTES)
+            events.emit(run.session_dir, ArtifactWritten(
+                phase_id=phase_id, role=role, location=location, path=path, size=len(data),
+                digest=digest, content=content, truncated=truncated))
+    except OSError:
+        pass
+
+
+def _locate(run, declared: str) -> tuple[str, str, Path] | None:
+    """(handoff | repo, the path relative to that tree, the file) for a declared
+    artifact. The session directory is asked first: without a worktree it lies
+    inside the repository, and its files are still handoff files."""
+    target = anchor(run.repo_root, declared).resolve()
+    if not target.is_file():
+        return None
+    for location, tree in (("handoff", run.session_dir.resolve()),
+                           ("repo", run.repo_root.resolve())):
+        if tree in target.parents:
+            return location, target.relative_to(tree).as_posix(), target
+    return None
 
 
 # ── asking about many sessions at once ───────────────────────────────────────

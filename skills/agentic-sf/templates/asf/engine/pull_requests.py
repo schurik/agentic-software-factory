@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 
+from . import artifacts
 from .data_types import (EventRecord, PullRequestContext, PullRequestOutput,
                          PullRequestRef, PullRequestResult, PullRequestsConfig,
                          PullRequestUpdate, ReviewComment, ReviewThread)
@@ -218,6 +219,7 @@ def attach(run, config: PullRequestsConfig,
     body_path = run.context_handoff_dir / THREADS_FILENAME
     write_atomic(body_path, _threads_document(context, open_threads))
     context.threads_path = str(body_path)
+    artifacts.record_artifacts(run, "request", [str(body_path)])
 
     run.tracer.mirror(EventRecord(
         adw_id=run.adw_id, phase_id=run.phases[-1].phase_id if run.phases else "",

@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 PhaseKind = Literal["engineer", "agent", "code"]
 PhaseStatus = Literal["queued", "running", "success", "fail", "waiting"]
+ChapterInput = Literal["prompt", "issue", "pr"]     # what a workflow's `input:` may say
+ArtifactRole = Literal["request", "output"]         # code wrote it as the ask, or a phase declared it
 
 # Wall clock for one agent turn, unless the roster says otherwise. Generous on
 # purpose — a builder working a real change legitimately runs for many minutes,
@@ -1044,6 +1046,21 @@ class ObservabilityConfig(BaseModel):
     poll_ms: int = 500
 
 
+class CockpitConfig(BaseModel):
+    """What this factory sends a cockpit beyond what every factory sends.
+
+    A session's core events — phases, gates, spend, the handoff files its
+    phases wrote — are written and shipped regardless. A TRANSCRIPT
+    (`CONTEXT.md`) is the rest: every prompt an agent was sent and the raw
+    stream its harness produced, tool arguments and results included. It is
+    large, it is where a secret an agent read ends up, and it is the one part
+    of a session a cockpit lets age out — so it is written only when the
+    repository says so, here, in a file that is reviewed.
+    """
+
+    transcripts: bool = False
+
+
 class IssueStates(BaseModel):
     """The label state machine. The flip from `queued` IS the lock.
 
@@ -1201,6 +1218,7 @@ class FactoryConfig(BaseModel):
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     hitl: HitlConfig = Field(default_factory=HitlConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    cockpit: CockpitConfig = Field(default_factory=CockpitConfig)
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     issues: IssuesConfig = Field(default_factory=IssuesConfig)
     pull_requests: PullRequestsConfig = Field(default_factory=PullRequestsConfig)
@@ -1356,6 +1374,9 @@ class SessionSpec(BaseModel):
     hitl: str = ""
     name: Optional[str] = None      # the workflow's name; None = the script's own
     request: str = ""               # the prompt, on a prompt run — `session_started` carries it
+    # What the chapter this opens answers. A work item unless the caller says
+    # otherwise: a factory is reached from a tracker, and a prompt is the exception.
+    input: ChapterInput = "issue"
 
 
 # ── Integration (landing a run's branch) ─────────────────────────────────────
@@ -1881,8 +1902,65 @@ class ProvenanceRecorded(DomainEvent):
     pr_url: str = ""
 
 
+class WorkflowStarted(DomainEvent):
+    """A workflow took the session: a chapter opens.
+
+    A session reads in chapters, one per workflow it passes through — an
+    issue's workflow, then a round of pull-request review for each round of
+    feedback, so the same workflow twice is two chapters. `input` is what the
+    chapter answers: a prompt, an issue or a pull request's review.
+    """
+
+    KIND: ClassVar[str] = "workflow_started"
+
+    workflow: str
+    chapter: int                    # from 1, in the order the session opened them
+    input: ChapterInput
+
+
+class WorkflowFinished(DomainEvent):
+    """The chapter's workflow ended, accepted or not. A chapter that failed and
+    was resumed finishes again, and the later one is how it stands."""
+
+    KIND: ClassVar[str] = "workflow_finished"
+
+    workflow: str
+    chapter: int
+    status: Literal["success", "fail"]
+    reason: str = ""
+
+
+class SessionResumed(DomainEvent):
+    """A process picked a chapter back up with `--resume` — its own workflow's
+    latest, which is the session's latest unless another workflow joined since.
+
+    Everything it walks before it reaches new ground is a phase the session
+    already has, re-entered under its own `phase_id`: an agent phase answered
+    from the record says so with `phase_replayed`, a code phase runs again for
+    real. A reader folds those onto the phases it already shows.
+    """
+
+    KIND: ClassVar[str] = "session_resumed"
+
+    workflow: str
+    chapter: int
+
+
 class PhaseStarted(DomainEvent):
+    """A phase opened. A resumed session walks its phases again and says so
+    again, under the `phase_id` each already has.
+
+    An agent phase also says what it was given: `task` is the task file it
+    rendered, relative to the repository root, and `prompt_digest` is
+    `prompts.digest` of the prompt it was sent — which names the prompt without
+    shipping it, and matches the `prompt_rendered` of a factory that opted in
+    to transcripts. A phase answered from the record was sent nothing and has
+    no digest; one whose replay its gates refused is announced a second time,
+    with the digest of what the agent was then sent.
+    """
+
     KIND: ClassVar[str] = "phase_started"
+    VERSION: ClassVar[int] = 2      # v2: task, prompt_digest
 
     phase_id: str
     seq: int
@@ -1890,6 +1968,8 @@ class PhaseStarted(DomainEvent):
     kind: PhaseKind
     owner: str = ""
     description: str = ""
+    task: str = ""
+    prompt_digest: str = ""
 
 
 class PhaseEnded(DomainEvent):
@@ -1904,6 +1984,18 @@ class PhaseEnded(DomainEvent):
     error: str = ""
     gate: str = ""
     round: int = 0
+
+
+class PhaseReplayed(DomainEvent):
+    """A resumed run answered this agent phase from the session's record: the
+    recorded envelope cleared its gates again, no agent was called and nothing
+    was spent. The `envelope_accepted` that follows carries `attempt` 0."""
+
+    KIND: ClassVar[str] = "phase_replayed"
+
+    phase_id: str
+    name: str
+    agent: str
 
 
 class EnvelopeAccepted(DomainEvent):
@@ -2022,6 +2114,79 @@ class UsageRecorded(DomainEvent):
     session_cost: float = 0.0
 
 
+# The most text one event carries in one field: a handoff file's content, a
+# prompt. A cockpit stores an event as one document, and a document has a size.
+BODY_BYTES = 256 * 1024
+
+
+class ArtifactWritten(DomainEvent):
+    """An artifact as it stood when its phase was accepted (`CONTEXT.md`): a file
+    a phase declared as its output, or one code wrote as the request a workflow
+    answers.
+
+    A HANDOFF file lives in the session directory and nowhere else, so it
+    travels whole: `content` is the file, and `path` is relative to the session
+    directory. Past `BODY_BYTES` the content is cut and `truncated` says
+    so; a file that is not text (it holds a NUL) is cut to nothing, and says so
+    the same way. A REPO file is committed on the session's branch, so it travels as a
+    reference — `path` relative to the repository root and no content — and is
+    read from the forge at the sha the `committed` after it names. `size` and
+    `digest` are the whole file's either way.
+
+    Sent once per content: an artifact written again with the same bytes says
+    nothing new, and a handoff file that is byte for byte a repo file the
+    session already named (the planner's two copies of its plan) is that repo
+    file, not a second body.
+    """
+
+    KIND: ClassVar[str] = "artifact_written"
+
+    phase_id: str = ""
+    role: ArtifactRole
+    location: Literal["handoff", "repo"]
+    path: str
+    size: int = 0                   # of the file, in bytes
+    digest: str = ""                # sha256 of the file
+    content: str = ""               # handoff only
+    truncated: bool = False
+
+
+COMMIT_FILES = 500              # paths one `committed` names; `files_total` says how many there were
+
+
+class Committed(DomainEvent):
+    """A phase committed the run's tree on the session's branch.
+
+    `sha` is where a cockpit reads this session's repo artifacts from the
+    forge: a repo file named by an `artifact_written` is in the tree of the
+    next commit after it. `files` is what this commit changed, which is how a
+    later commit to the same file shows as "changed later".
+    """
+
+    KIND: ClassVar[str] = "committed"
+
+    phase_id: str
+    sha: str                        # full, as the forge addresses it
+    message: str = ""               # the subject line
+    files: list[str] = Field(default_factory=list)      # relative to the repository root
+    files_total: int = 0
+
+
+class ToolCalled(DomainEvent):
+    """One completed tool call of an agent: which tool, whether it worked, how
+    long it took. NEVER its arguments or its result — a command line and a file's
+    contents are exactly what a repository does not send off the machine
+    unasked. They are in the transcript, for a factory that opted in to one."""
+
+    KIND: ClassVar[str] = "tool_called"
+
+    phase_id: str
+    agent: str
+    tool: str
+    ok: bool
+    duration_ms: int = 0
+
+
 class ProcessStarted(DomainEvent):
     KIND: ClassVar[str] = "process_started"
 
@@ -2076,10 +2241,58 @@ class SessionFinished(DomainEvent):
     reason: str = ""
 
 
+# ── transcript events: written only when `cockpit.transcripts` is on ─────────
+#
+# Through `Run.transcript`, the one door they are written through — so no caller
+# can write one for a factory that did not opt in. Nothing but a transcript view
+# may be built from these: a cockpit ages their bodies out, and whatever else a
+# view needs (a tool's name, a prompt's digest, spend) is on a core event.
+
+TRANSCRIPT_CHUNK_CHARS = 64_000
+
+
+class PromptRendered(DomainEvent):
+    """One prompt an agent was sent, as it was sent: the task with the journal
+    behind it on the first send of a phase, a correction on each later one.
+
+    `system` is the agent's identity and rides on the first send only — the
+    later ones continue the same agent session under it. `digest` is
+    `prompts.digest` of the pair, and on the first send it is the
+    `prompt_digest` its `phase_started` carries. Either text past `BODY_BYTES`
+    is cut, and `truncated` says so.
+    """
+
+    KIND: ClassVar[str] = "prompt_rendered"
+
+    phase_id: str
+    agent: str
+    send: int                       # from 1, within one walk of the phase
+    digest: str
+    system: str = ""
+    prompt: str = ""
+    truncated: bool = False
+
+
+class HarnessOutput(DomainEvent):
+    """A piece of the raw stream an agent's harness produced during a phase: one
+    JSON line per harness event, as `raw_output.jsonl` holds them, cut into
+    chunks of at most `TRANSCRIPT_CHUNK_CHARS`. `chunk` counts from 1 within one
+    walk of the phase — a resume that runs the phase again starts over, behind a
+    new `phase_started` — and the texts in that order are that walk's stream."""
+
+    KIND: ClassVar[str] = "harness_output"
+
+    phase_id: str
+    agent: str
+    chunk: int
+    text: str
+
+
 # Every kind the factory writes, by the name on the wire. One list, so a kind
 # cannot exist without the golden-corpus test asking for its fixture.
 EVENT_KINDS: dict[str, type[DomainEvent]] = {model.KIND: model for model in (
-    SessionStarted, ProvenanceRecorded, PhaseStarted, PhaseEnded, EnvelopeAccepted,
-    EnvelopeRejected, GateResult, GateOpened, SessionSuspended, DecisionRecorded,
-    JournalNoted, UsageRecorded, ProcessStarted, ProcessEnded, CommandFinished,
-    CommandResult, SessionFinished)}
+    SessionStarted, ProvenanceRecorded, WorkflowStarted, WorkflowFinished, SessionResumed,
+    PhaseStarted, PhaseEnded, PhaseReplayed, EnvelopeAccepted, EnvelopeRejected, GateResult,
+    GateOpened, SessionSuspended, DecisionRecorded, JournalNoted, UsageRecorded,
+    ArtifactWritten, Committed, ToolCalled, ProcessStarted, ProcessEnded, CommandFinished,
+    CommandResult, SessionFinished, PromptRendered, HarnessOutput)}

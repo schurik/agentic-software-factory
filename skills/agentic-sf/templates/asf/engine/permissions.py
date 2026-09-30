@@ -54,17 +54,28 @@ def snapshot(run) -> dict[str, str]:
     file still registers as a change. Untracked files are listed by name.
     Gitignored paths never appear, which is why the session runtime under
     `data_dir` — where handoff files legitimately land — needs no special case.
+
+    Every path is read with `-z`, so it is the path as it is on disk. Without
+    it git quotes and octal-escapes whatever it finds unusual (`plän.md` comes
+    back as `"pl\\303\\244n.md"`), and that string matches no `writes:` rule and
+    names no file: an agent was refused a file it was allowed to write, and the
+    rollback of one it was not allowed undid nothing. `--no-renames` keeps one
+    record per path: a staged move is otherwise a single record naming both
+    ends, which a `writes:` prefix matched by where the file CAME from — so
+    `git mv` out of an allowed directory carried a file past the boundary. A
+    moved file is a path that vanished and a path that appeared.
     """
     fingerprints: dict[str, str] = {}
-    for line in _git(["diff", "HEAD", "--numstat"], run.repo_root).splitlines():
-        fields = line.split("\t")
-        if len(fields) >= 3:
-            path = fields[-1].strip()
-            fingerprints[path] = f"{fields[0]},{fields[1]}"
-    for path in _git(["ls-files", "--others", "--exclude-standard"],
-                     run.repo_root).splitlines():
-        if path.strip():
-            fingerprints[path.strip()] = "untracked"
+    for record in _git(["diff", "HEAD", "--numstat", "--no-renames", "-z"],
+                       run.repo_root).split("\0"):
+        fields = record.split("\t", 2)
+        if len(fields) == 3:
+            added, removed, path = fields
+            fingerprints[path] = f"{added},{removed}"
+    for path in _git(["ls-files", "--others", "--exclude-standard", "-z"],
+                     run.repo_root).split("\0"):
+        if path:
+            fingerprints[path] = "untracked"
     return fingerprints
 
 
@@ -151,6 +162,20 @@ def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) ->
     when the agent started is left exactly as it is: the operator had
     uncommitted work there, and discarding it to tidy up would be the same harm
     this module exists to prevent, committed by the cleanup instead of the agent.
+
+    What "undo" means is decided by HEAD, not by how the path shows up in the
+    snapshot, because an agent with `bash` can stage what it did. A path HEAD
+    holds is restored FROM HEAD, index and tree both: `git checkout -- path`
+    restores from the index, which for a staged edit is the agent's own version
+    and for a `git rm` is nothing at all. A path HEAD never held was created by
+    the agent, so it leaves the index as well as the disk — left staged, it
+    would be reported as undone and then landed by the next commit stage's
+    `git add -A`.
+
+    One path at a time, and only the paths that breached. A file moved out of
+    the agent's boundary is removed where it arrived; that it is gone from
+    where it left is a deletion inside the boundary, which the agent is allowed
+    to make, and the file is still in HEAD for whoever wants it back.
     """
     if path in before:
         # Already dirty beforehand. If it is gone from the diff now, the agent
@@ -158,15 +183,19 @@ def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) ->
         # to reconstruct — say so loudly rather than pretend it was handled.
         return "REVERTED-BY-AGENT (uncommitted work lost, cannot restore)" \
             if path not in after else "left as-is (was already modified)"
-    if after.get(path) == "untracked":
-        try:
-            (Path(run.repo_root) / path).unlink()
-            return "deleted"
-        except OSError as error:
-            return f"could not delete ({error})"
-    result = subprocess.run(["git", "checkout", "--", path],
-                            cwd=run.repo_root, capture_output=True, text=True)
-    return "rolled back" if result.returncode == 0 else "could not roll back"
+
+    def git(*args: str) -> bool:
+        return subprocess.run(["git", *args], cwd=run.repo_root,
+                              capture_output=True, text=True).returncode == 0
+
+    if git("cat-file", "-e", f"HEAD:{path}"):
+        return "rolled back" if git("checkout", "HEAD", "--", path) else "could not roll back"
+    git("rm", "--cached", "--force", "--quiet", "--", path)     # a no-op for a path never staged
+    try:
+        (Path(run.repo_root) / path).unlink()
+        return "deleted"
+    except OSError as error:
+        return f"could not delete ({error})"
 
 
 def enforce(run, phase, agent: AgentConfig, before: dict[str, str]) -> list[str]:
