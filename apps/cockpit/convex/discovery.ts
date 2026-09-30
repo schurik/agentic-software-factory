@@ -16,6 +16,7 @@ import { internal } from "./_generated/api";
 import { type ActionCtx, internalAction, internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { type Forge, repoKey, repositoryValidator } from "./forge/forge";
 import { ForgeError, RateLimited } from "./forge/github";
+import { credentialed } from "./forge/memory";
 import { open } from "./forge/open";
 import { mode } from "./model/mode";
 import { PENDING_SHOWN, type Progress } from "./model/progress";
@@ -31,11 +32,14 @@ const BATCH = 100;
  * leave them with nothing.
  */
 const RESERVE = 0.25;
+/** How long a stretch may hold its turn: an action that died with it (the backend went down) holds it no longer. */
+const STRETCH_TAKES = 3 * 60_000;
+
 export const catchUp = internalAction({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
-    const listed = await polling(ctx, async (forge) => {
+    const listed = await polling(ctx, "listing", async (forge) => {
       const repositories = await forge.repositories();
       for (const range of ranges(repositories, (repository) => repoKey(repository.name))) {
         await ctx.runMutation(internal.discovery.reconcile, {
@@ -60,7 +64,7 @@ export const check = internalAction({
   handler: async (ctx) => {
     const stale = await ctx.runQuery(internal.discovery.stale, { limit: BATCH });
     if (stale.length === 0) return null;
-    const checked = await polling(ctx, async (forge) => {
+    const checked = await polling(ctx, "checking", async (forge) => {
       const answers: { key: string; rev: number; factory: boolean }[] = [];
       try {
         for (const { key, name, rev } of stale) {
@@ -72,42 +76,87 @@ export const check = internalAction({
       }
       return {};
     });
-    if (checked && stale.length === BATCH) await ctx.scheduler.runAfter(0, internal.discovery.check, {});
+    // More than one batch, or a repository that moved while this one was
+    // being asked about — whose own `check` found this one at work and left.
+    if (checked && (await ctx.runQuery(internal.discovery.stale, { limit: 1 })).length > 0) {
+      await ctx.scheduler.runAfter(0, internal.discovery.check, {});
+    }
     return null;
   },
 });
 
+/** The two kinds of work the poll does, each of which one action at a time is at. */
+const stretchValidator = v.union(v.literal("listing"), v.literal("checking"));
+type Stretch = "listing" | "checking";
+
+/** What a stretch leaves in the record of how the poll is doing. */
+interface Noted {
+  listedAt?: number;
+  pausedUntil?: number | null;
+  problem?: string;
+}
+
 /**
  * One stretch of background work against the forge, and whether it ran to
- * its end. It does not start while the rate limit has it waiting, and what
- * stops it is recorded rather than thrown: a spent budget as the time it
- * resets, a refusal as what the forge said. The Factories page shows both.
- * `work` returns what to note of a stretch that did run to its end.
+ * its end. It does not start while the rate limit has it waiting, nor while
+ * another action is at the same stretch (`begin`), and what stops it is
+ * recorded rather than thrown: a spent budget as the time it resets, a
+ * refusal as what the forge said. The Factories page shows both. `work`
+ * returns what to note of a stretch that did run to its end.
  */
-async function polling(ctx: ActionCtx, work: (forge: Forge) => Promise<{ listedAt?: number }>): Promise<boolean> {
-  const { pausedUntil, problem } = await ctx.runQuery(internal.discovery.progress, {});
-  if (pausedUntil !== null && Date.now() < pausedUntil) return false;
+async function polling(ctx: ActionCtx, stretch: Stretch, work: (forge: Forge) => Promise<Noted>): Promise<boolean> {
+  if (!(await ctx.runMutation(internal.discovery.begin, { stretch }))) return false;
+  let noted: Noted = {};
   const opened = await open(ctx, { reserve: RESERVE });
-  if (opened === null) {
-    // No credential, so nothing was refused: what an earlier one ran into is not this cockpit's state.
-    if (pausedUntil !== null || problem !== "") {
-      await ctx.runMutation(internal.discovery.note, { pausedUntil: null, problem: "" });
-    }
-    return false;
-  }
   try {
-    const noted = await work(opened.forge);
-    await ctx.runMutation(internal.discovery.note, { ...noted, pausedUntil: null, problem: "" });
+    if (opened === null) return false;
+    noted = { ...(await work(opened.forge)), pausedUntil: null, problem: "" };
     return true;
   } catch (error) {
-    if (error instanceof RateLimited) await ctx.runMutation(internal.discovery.note, { pausedUntil: error.until });
-    else if (error instanceof ForgeError) await ctx.runMutation(internal.discovery.note, { problem: error.message });
+    if (error instanceof RateLimited) noted = { pausedUntil: error.until };
+    else if (error instanceof ForgeError) noted = { problem: error.message };
     else throw error;
     return false;
   } finally {
-    await opened.close();
+    await ctx.runMutation(internal.discovery.note, { ...noted, [stretch]: null });
+    await opened?.close();
   }
 }
+
+/**
+ * Take the turn at `stretch`, or learn that it is not to be started: the
+ * rate limit has the poll waiting, another action is at it already, or this
+ * cockpit holds no credential to ask with.
+ *
+ * Polls overlap as a matter of course — the cron's tick beside the one
+ * `start.sh` runs, a webhook's look beside the cron's — and two at once ask
+ * the forge everything twice, out of a budget that is the person's own.
+ */
+export const begin = internalMutation({
+  args: { stretch: stretchValidator },
+  returns: v.boolean(),
+  handler: async (ctx, { stretch }) => {
+    const now = Date.now();
+    const state = await ctx.db.query("discovery").first();
+    if (!(await credentialed(ctx))) {
+      // Nothing to ask with, so nothing was refused: what an earlier credential ran into is not this cockpit's state.
+      if (state !== null && (state.pausedUntil !== null || state.problem !== "")) {
+        await ctx.db.patch(state._id, { pausedUntil: null, problem: "" });
+      }
+      return false;
+    }
+    if (state === null) {
+      await ctx.db.insert("discovery", { listedAt: null, pausedUntil: null, problem: "", [stretch]: now });
+      return true;
+    }
+    if (state.pausedUntil !== null && now < state.pausedUntil) return false;
+    const taken = state[stretch] ?? null;
+    // A turn is given back when its stretch ends; one older than this was never going to be.
+    if (taken !== null && now - taken < STRETCH_TAKES) return false;
+    await ctx.db.patch(state._id, { [stretch]: now });
+    return true;
+  },
+});
 
 /** How the poll is doing, for whoever shows it. */
 export async function readProgress(ctx: QueryCtx): Promise<Progress> {
@@ -121,6 +170,7 @@ export async function readProgress(ctx: QueryCtx): Promise<Progress> {
   };
 }
 
+/** For whoever runs the deployment: `./convex.sh run discovery:progress`. */
 export const progress = internalQuery({
   args: {},
   handler: (ctx) => readProgress(ctx),
@@ -131,6 +181,8 @@ export const note = internalMutation({
     listedAt: v.optional(v.number()),
     pausedUntil: v.optional(v.union(v.null(), v.number())),
     problem: v.optional(v.string()),
+    listing: v.optional(v.null()),
+    checking: v.optional(v.null()),
   },
   returns: v.null(),
   handler: async (ctx, noted) => {

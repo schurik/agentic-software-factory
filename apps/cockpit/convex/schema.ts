@@ -162,5 +162,9 @@ export default defineSchema({
     listedAt: v.union(v.null(), v.number()),
     pausedUntil: v.union(v.null(), v.number()),
     problem: v.string(),
+    // When an action took its turn at listing the repositories, or at asking
+    // about the stale ones, and null once it gave it back (discovery.begin).
+    listing: v.optional(v.union(v.null(), v.number())),
+    checking: v.optional(v.union(v.null(), v.number())),
   }),
 });

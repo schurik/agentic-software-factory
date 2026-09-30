@@ -5,6 +5,7 @@
  */
 import { v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "../_generated/server";
+import { localToken, mode } from "../model/mode";
 import type { App } from "./app";
 
 const answerValidator = v.object({ key: v.string(), etag: v.string(), value: v.string() });
@@ -20,6 +21,12 @@ export async function registeredApp(ctx: QueryCtx): Promise<App | null> {
   delete app._id;
   delete app._creationTime;
   return app as App;
+}
+
+/** Whether this cockpit holds a credential to ask the forge with: the person's token, or a registered App. */
+export async function credentialed(ctx: QueryCtx): Promise<boolean> {
+  if (mode() === "local") return localToken() !== "";
+  return (await ctx.db.query("forgeApps").first()) !== null;
 }
 
 export const app = internalQuery({

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
 import { catchUp, cockpit, factory, fixture, ingest } from "./helpers";
 import { FACTORY_FILE, fakeForge, localMode } from "./forge";
 
@@ -143,6 +143,44 @@ describe("the Factories list in local mode, with the person's own token", () => 
 
     expect((await t.query(api.factories.list, {}))?.factories.map((factory) => factory.repo))
       .toEqual(["acme/a", "acme/b", "acme/c", "acme/d"]);
+  });
+
+  it("asks the forge once when two polls start at the same moment, as the first start's do", async () => {
+    const forge = fakeForge();
+    const token = forge.person("alex");
+    forge.repo("acme/widgets", { factory: true, roles: { alex: "admin" } });
+    forge.repo("acme/docs", { roles: { alex: "write" } });
+    localMode(forge, token);
+    const t = cockpit();
+
+    // `start.sh` runs the catch-up as the deployment starts, and the cron's first tick lands beside it.
+    await Promise.all([t.action(internal.discovery.catchUp, {}), t.action(internal.discovery.catchUp, {})]);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(forge.since(0)).toEqual([
+      "GET /user/repos?per_page=100&sort=full_name → 200",
+      "GET /user → 200",
+      "HEAD /repos/acme/docs/contents/asf/factory.yaml → 404",
+      "HEAD /repos/acme/widgets/contents/asf/factory.yaml → 200",
+    ]);
+    expect((await t.query(api.factories.list, {}))?.factories.map((factory) => factory.repo)).toEqual(["acme/widgets"]);
+  });
+
+  it("starts again after a poll that died holding its turn", async () => {
+    const forge = fakeForge();
+    const token = forge.person("alex");
+    forge.repo("acme/widgets", { factory: true, roles: { alex: "admin" } });
+    localMode(forge, token);
+    const t = cockpit();
+    // A poll that took its turn and never gave it back: the backend went down under it.
+    await t.mutation(internal.discovery.begin, { stretch: "listing" });
+
+    await catchUp(t);
+    expect(forge.requests).toEqual([]);
+
+    vi.advanceTimersByTime(3 * 60_000);
+    await catchUp(t);
+    expect((await t.query(api.factories.list, {}))?.factories.map((factory) => factory.repo)).toEqual(["acme/widgets"]);
   });
 
   it("keeps up with more repositories than one transaction, or one look, takes", async () => {
