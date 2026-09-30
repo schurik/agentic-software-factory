@@ -46,8 +46,25 @@ from __future__ import annotations
 import subprocess
 
 from . import artifacts, git_helper
-from .data_types import IntegrationRequest, IntegrationResult, ProvenanceRecorded
+from .data_types import Finding, IntegrationRequest, IntegrationResult, ProvenanceRecorded
 from .utils import operator_env
+
+
+def none_is_retiring(setting: str) -> Finding:
+    """What to tell a repository that still says `none`, and what to say instead.
+
+    `none` did two jobs — land nothing, and push nothing — and both now have a
+    name of their own: a workflow that lands nothing has no `integrate` stage,
+    and `worktree.publish` says when a branch may leave the machine. It warns
+    for one release and is refused in the next; it is never remapped, because
+    which of the two the repository meant is its to say.
+    """
+    return Finding(
+        check="integration", level="warn", detail=f"`{setting}` is refused from 1.2",
+        fix="say `mode: pr` instead (with `open_pr: false` to push a branch and open "
+            "nothing), and `worktree.publish: on_integrate` to keep a branch off the "
+            "remote until it is integrated; a workflow that should land nothing leaves "
+            "out its `integrate` stage")
 
 
 def integrate(run, params: IntegrationRequest) -> IntegrationResult:
@@ -135,10 +152,12 @@ def keep_published(run) -> IntegrationResult:
 
     if not workspace.enabled or not git_helper.has_remote(tree, config.remote):
         return result
-    if config.mode == "none":
+    if config.mode == "none" and run.cfg.worktree.publish != "on_create":
         # The off switch is total. A repository that has said a run's work stays
         # on its branch does not get a push either — not even onto a branch
-        # something else put on the remote.
+        # something else put on the remote. Unless it ALSO said `worktree.
+        # publish: on_create`: then the branch is there because this factory
+        # put it there, and a copy a cockpit reads is kept current.
         result.notes.append("integration is disabled "
                             "(worktree.integration.mode: none)")
         return result
@@ -151,7 +170,10 @@ def keep_published(run) -> IntegrationResult:
                             f"{result.head[:7]}")
         return result
 
-    pushed = git_helper.push(tree, config.remote, workspace.branch)
+    # Without `-u`: this keeps a copy current, and tracking the remote branch is
+    # how a session says it was PROPOSED (`publish.withdraw`). An integration's
+    # own push set it already, where there was one.
+    pushed = git_helper.push(tree, config.remote, workspace.branch, set_upstream=False)
     if pushed.returncode != 0:
         result.ok = False
         result.notes.append(

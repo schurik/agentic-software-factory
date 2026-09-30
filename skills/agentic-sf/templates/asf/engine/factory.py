@@ -15,12 +15,13 @@ trace — knows the roster changed shape.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import yaml
 
-from . import agents, frontmatter
-from .data_types import FactoryConfig
+from . import agents, frontmatter, integration
+from .data_types import FactoryConfig, Finding
 
 DEFAULT_CONFIG = "asf/factory.yaml"
 AGENT_FILE = "agent.md"
@@ -46,7 +47,30 @@ def load(config_path: str | Path = DEFAULT_CONFIG) -> FactoryConfig:
     default_harness = (raw.get("defaults") or {}).get("harness", "")
     raw["agents"] = [_agent_entry(directory, default_harness)
                      for directory in agent_dirs(root_of(path))]
-    return agents.merge_defaults(raw)
+    cfg = agents.merge_defaults(raw)
+    for finding in retiring(cfg):
+        _warn_once(f"{path}: {finding.detail} — {finding.fix}")
+    return cfg
+
+
+def retiring(cfg: FactoryConfig) -> list[Finding]:
+    """What this config still says that a later release will refuse. Warned
+    about wherever the config is loaded, and listed by `doctor` with the rest
+    of what wants fixing."""
+    if cfg.worktree.integration.mode == "none":
+        return [integration.none_is_retiring("worktree.integration.mode: none")]
+    return []
+
+
+_warned: set[str] = set()
+
+
+def _warn_once(text: str) -> None:
+    """On stderr, once per process: `check` loads the config once per workflow,
+    and a watcher loads it for as long as it runs."""
+    if text not in _warned:
+        _warned.add(text)
+        print(f"asf: warning — {text}", file=sys.stderr, flush=True)
 
 
 def agent_dirs(root: Path) -> list[Path]:

@@ -26,6 +26,8 @@ A stage module exposes, at module level:
     run        run(ctx: StageContext, opts: Options) -> EnvelopeBase | None
     check      optional: check(opts, earlier) -> list[str] of static problems,
                where `earlier` maps every preceding stage's name to its OUTPUT
+    warn       optional: warn(opts) -> list[str] of things that load today and
+               will not in a later release — said by `check`, never a refusal
 
 `engine.workflow.load` verifies all of that at load time, and refuses a
 workflow before a session, a branch or a process record exists.
@@ -78,6 +80,10 @@ class StageModule:
     def check(self, opts: BaseModel, earlier: dict[str, Optional[type]]) -> list[str]:
         checker = getattr(self.module, "check", None)
         return list(checker(opts, earlier)) if checker else []
+
+    def warn(self, opts: BaseModel) -> list[str]:
+        warner = getattr(self.module, "warn", None)
+        return list(warner(opts)) if warner else []
 
 
 @dataclass

@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import artifacts, git_helper
+from . import artifacts, git_helper, publish
 from .data_types import Workspace, WorktreeConfig, WorktreeInfo, WorktreeRequest
 from .utils import anchor, ensure_dir, now_iso, write_atomic
 
@@ -85,7 +85,10 @@ def ensure(request: WorktreeRequest) -> Workspace:
     meta = _meta_path(root, request.adw_id)
 
     if path.is_dir():
-        return _reattach(path, main, branch, meta)
+        joined = _reattach(path, main, branch, meta)
+        if request.publish:
+            publish.on_create(main, config, joined.branch)
+        return joined
 
     # A worktree whose directory was deleted by hand still holds its
     # registration, and `worktree add` refuses the same path twice. Pruning is
@@ -98,6 +101,8 @@ def ensure(request: WorktreeRequest) -> Workspace:
         # The run's branch outlived its worktree — a pruned success, or a rerun.
         # Check it out again rather than branching a second time from the base:
         # the branch is the record, and re-creating it would discard the record.
+        if request.publish:
+            publish.on_create(main, config, branch)
         git_helper.worktree_add(main, path, branch)
         recorded = _read_meta(meta)
         base_ref = recorded.get("base_ref") or _base_ref_of(main, config)
@@ -106,6 +111,10 @@ def ensure(request: WorktreeRequest) -> Workspace:
     else:
         base_ref = _base_ref_of(main, config)
         base_commit = git_helper.rev(main, base_ref)
+        # Before the branch exists, so a push the remote refuses leaves nothing
+        # behind — see publish.on_create on why the base has to get there.
+        if request.publish:
+            publish.on_create(main, config, branch, base_commit)
         git_helper.worktree_add(main, path, branch, base_ref)
 
     workspace = Workspace(main_root=main, repo_root=path.resolve(), enabled=True,

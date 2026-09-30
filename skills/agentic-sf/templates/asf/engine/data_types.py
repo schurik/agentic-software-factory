@@ -782,6 +782,10 @@ class Subject(BaseModel):
     # A question round's questions, which the channel renders for the person.
     # Empty on a gate — there is nothing to publish, the artifact IS the ask.
     questions: list[Question] = Field(default_factory=list)
+    # What the producing agent would have its work committed as. A suspend on a
+    # published branch commits the subject (`engine/publish.py`), and in these
+    # words when there are any: the commit is that agent's work either way.
+    commit_message: str = ""
 
 
 class Gate(BaseModel):
@@ -915,6 +919,8 @@ class ConfigDefaults(BaseModel):
     data_dir: str = "asf/data"
 
 
+# `none` is on its way out: it warns wherever the config is loaded and is
+# refused from 1.2 — see `integration.none_is_retiring`.
 IntegrationMode = Literal["none", "merge", "pr"]
 
 
@@ -946,6 +952,9 @@ class IntegrationConfig(BaseModel):
     pr_body_template: str = ""
 
 
+PublishMode = Literal["on_create", "on_integrate"]
+
+
 class WorktreeConfig(BaseModel):
     """One git worktree and one branch per run.
 
@@ -959,6 +968,13 @@ class WorktreeConfig(BaseModel):
     dir: str = ".asf-worktrees"     # relative to the MAIN checkout; gitignored
     branch_prefix: str = "asf/"     # the run's branch is <prefix><adw_id>
     base_ref: str = ""               # "" = whatever the main checkout has checked out
+    # WHEN the run's branch first goes to `integration.remote`. `on_create`
+    # pushes it as the session starts and again before every suspend, so a
+    # cockpit can read a gate's subject from the forge at the commit the
+    # question was asked about; `on_integrate` pushes nothing until an integrate
+    # stage does. Unset, `engine/publish.py` decides: `on_create` once a cockpit
+    # is configured, `on_integrate` without one.
+    publish: Optional[PublishMode] = None
     # A successful run's worktree is a redundant copy of a branch, so it goes.
     # A failed or killed one is where you go to see what happened, so it stays —
     # and so does any worktree with uncommitted work in it, whatever the outcome.
@@ -1261,6 +1277,9 @@ class WorktreeRequest(BaseModel):
     main_root: Path
     adw_id: str
     config: WorktreeConfig = Field(default_factory=WorktreeConfig)
+    # Put the branch on the remote before the run starts — `publish.mode` said
+    # `on_create`. Resolved by the caller: what decides it is not git's to know.
+    publish: bool = False
 
 
 class WorktreeInfo(BaseModel):
@@ -2063,6 +2082,9 @@ class SessionSuspended(DomainEvent):
 
     `base_commit` and `head_sha` pin what was being asked about, so a reader
     can show the subject at exactly that commit rather than the branch tip.
+    Under `worktree.publish: on_create` both are on the remote and the subject
+    is in `head_sha`'s tree (`engine/publish.py`); under `on_integrate` they
+    name commits only this station has, and the subject may not be committed.
     """
 
     KIND: ClassVar[str] = "suspended"

@@ -2,8 +2,9 @@
 repository has said it wants it landed.
 
 A code stage, and the one that leaves the run's own branch. `worktree.
-integration` in factory.yaml decides how (merge, pr, none); `mode:` here
-overrides it for one workflow. The `integrate` gate, when a workflow turns it
+integration` in factory.yaml decides how (merge, pr); `mode:` here overrides
+it for one workflow. `none` still loads and lands nothing, and `check` warns
+about it: from 1.2 a workflow that lands nothing leaves this stage out. The `integrate` gate, when a workflow turns it
 on, hands the engineer this run's whole diff against its baseline before the
 branch moves. A branch that does not land is not a failed run: the work is
 committed and the branch is kept, so landing stays something a person can
@@ -31,6 +32,13 @@ class Options(BaseModel):
 
     hitl: Optional[bool] = None                       # None: factory.yaml decides
     mode: Literal["", "none", "merge", "pr"] = ""     # "": worktree.integration.mode
+
+
+def warn(opts: Options) -> list[str]:
+    if opts.mode == "none":
+        finding = integration.none_is_retiring("integrate: {mode: none}")
+        return [f"{finding.detail} — {finding.fix}"]
+    return []
 
 
 def run(ctx, opts: Options):

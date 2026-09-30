@@ -38,13 +38,17 @@ at, a missing flag is an error rather than a silent choice.
 |---|---|---|
 | **Which harness?** (`claude_code`, `pi`) | none — it is asked | `claude_code` runs `claude -p`, takes model *aliases* (`opus`, `sonnet`, `haiku`) and brings its own auth: **no API key at all**, which is usually the shortest path to a first green run. `pi` runs `pi -p --mode json`, takes `provider/model-id`, and needs that provider's key in `.env`. |
 | **How does this repo run its tests, lint, typecheck and build?** | whatever the installer detects; **anything it cannot detect stays a placeholder, and a placeholder fails** | `install.py` reads `package.json` scripts, the lockfiles and `pyproject.toml`, and writes what it finds into `asf/engine/quality.py` marked `# detected at install`. Confirm those lines — a detected command is a guess from a filename. An unwired block exits 78 rather than passing, because a chain that reports a green suite it never ran is the most expensive default this factory could ship. |
-| **How should a run's branch land?** (`worktree.integration.mode`: `merge`, `pr`, `none`) | `pr`, opened with `gh pr create` (`open_pr: true`) | Repositories genuinely disagree about whether a machine may move the base branch. `pr` suits anywhere a human reviews first; `merge` suits a solo repo; `none` leaves every branch for a person. Issue- and review-triggered runs can never merge regardless — `integration` downgrades them to a pull request, in code. |
+| **How should a run's branch land?** (`worktree.integration.mode`: `merge`, `pr`) | `pr`, opened with `gh pr create` (`open_pr: true`) | Repositories genuinely disagree about whether a machine may move the base branch. `pr` suits anywhere a human reviews first; `merge` suits a solo repo; a workflow with no `integrate` stage leaves its branch for a person (`none` said the same, and is refused from 1.2). Issue- and review-triggered runs can never merge regardless — `integration` downgrades them to a pull request, in code. |
 | **May issues and reviews start runs?** (`issues.enabled`, `pull_requests.enabled`) | both on; `asf:ship` routes to the `issue` workflow | Neither starts anything by itself: an issue needs a human to apply `asf:queued` plus a routing label, and a review needs a pull request the factory opened. But this is the one path where the prompt is written by whoever can file an issue or leave a review rather than by the engineer at the keyboard — where that is anyone, narrow `trusted_authors` / `trusted_reviewers`, or turn it off. |
 
-Two more worth naming only if the answer is not the default: `worktree.enabled`
+Three more worth naming only if the answer is not the default: `worktree.enabled`
 (on — every run works in its own tree on branch `asf/<adw_id>`, never the
-engineer's checkout) and `defaults.protected_files` (the factory's own code, so
-an agent cannot edit the machinery that judges its work).
+engineer's checkout), `defaults.protected_files` (the factory's own code, so
+an agent cannot edit the machinery that judges its work), and `worktree.publish`
+(unset — a run's branch is pushed as it is created once a cockpit is configured,
+so the cockpit can show what a gate asks about, and not before an `integrate`
+stage otherwise; `on_integrate` keeps branches local even with a cockpit, at
+the price of gates the cockpit cannot show).
 
 Apply the answers by editing `asf/factory.yaml` and `asf/engine/quality.py`
 **after** stamping. The installer takes no flags for any of it, on purpose: the

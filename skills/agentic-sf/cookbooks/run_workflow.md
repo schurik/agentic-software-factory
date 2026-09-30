@@ -109,6 +109,13 @@ just abort <adw_id> [-m "why"]    # end it here, not accepted
 printed and let them answer. `reject` requires `-m` — the notes are what the
 agent revises against. `--no-resume` records the decision without relaunching.
 
+Under `worktree.publish: on_create` (the default once a cockpit is configured) a
+run that suspends first commits what the gate is asking about, in the words of
+the agent that produced it, and pushes the branch: that commit is what the
+cockpit shows the person who answers, and it is why a commit stage after the
+gate reports `unchanged`. An `abort` takes the branch off the remote again,
+unless it was already proposed as a pull request; the local branch stays.
+
 ## When a run fails
 
 ```bash
@@ -132,9 +139,18 @@ line rather than the last phase.
 
 The branch is `asf/<adw_id>`, and what happened to it is
 `worktree.integration.mode` in `asf/factory.yaml`: `pr` (the default) opened a
-pull request, `merge` moved the base branch, `none` left the branch for a
-person. A `pr` run that could not push — no `origin`, a rejected push — is still
-accepted, with its work on the branch; the `integrate` phase's notes say why.
+pull request, `merge` moved the base branch. A workflow with no `integrate`
+stage left the branch for a person (`none` did the same; it warns now and is
+refused from 1.2). A `pr` run that could not push — no `origin`, a rejected
+push — is still accepted, with its work on the branch; the `integrate` phase's
+notes say why.
+
+Whether the branch is ALSO on the remote is a separate answer. One that was
+integrated as a pull request is, and stays. One that was only published for a
+cockpit to read (`worktree.publish: on_create`) is removed from the remote when
+its session finishes without integrating — the run's last lines say `remote:
+deleted …` — and is still there after a failure, for `just resume`. The local
+branch is kept either way.
 Say which of these happened, with the branch name or the PR link — an engineer
 whose run "succeeded" still needs to know where to look.
 

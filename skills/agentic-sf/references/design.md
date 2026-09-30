@@ -47,7 +47,7 @@ as a Claude Code subagent file. No `user.md`: the task belongs to the stage.
 ### Stages
 
 A stage module declares `NAME, KIND, OUTPUT, NEEDS, TASKS, Options, run` and
-optionally `check`. `Options` is a pydantic model with `extra="forbid"`.
+optionally `check` and `warn`. `Options` is a pydantic model with `extra="forbid"`.
 `NEEDS` is what must precede it; `OUTPUT` is what it hands on, or `None` to
 pass the previous envelope through. `TASKS` maps a key to `(default file,
 envelope type the agent answers with)`; the two can differ from `OUTPUT` —
@@ -61,7 +61,9 @@ or nothing": `plan` takes a `ScoutOutput` as its `previous` when a `scout`
 runs first, and its task tells the planner to read the findings as recon,
 not as a plan. `check(opts, earlier)` lets a
 stage add its own static rule: `commit` requires `of:` to name an earlier
-stage whose output carries `commit_message`.
+stage whose output carries `commit_message`. `warn(opts)` is for what loads
+today and will not in a later release — `integrate` says so about `mode:
+none` — and `check` prints it without refusing anything.
 
 `ctx.current(stage_name)` returns that stage's work product *as it stands
 now*: after `verify`, the build is the fixed build. `commit: {of: implement}` lands
@@ -207,6 +209,44 @@ and what an agent declares in `artifacts` is what is shipped, once its envelope
 is accepted. The prompts themselves and the harness's raw stream are the
 transcript (`prompt_rendered`, `harness_output`), written only under
 `cockpit: {transcripts: true}` and only through `Run.transcript`.
+
+### Publishing
+
+A cockpit never reads a station's files. It renders a gate's subject from the
+forge at the commit the question was asked about: the plan at `head_sha`, the
+diff as `base_commit…head_sha`, both carried by `suspended`. So those two
+commits have to be on the forge before anyone is asked, and `engine/publish.py`
+is what puts them there — a decision of its own, `worktree.publish`, separate
+from landing the branch (`engine/integration.py`):
+
+- **`on_create`** (the default once a cockpit is configured: `ASF_COCKPIT_URL`,
+  or a local cockpit that has issued this factory a token). The branch is
+  pushed as `<base_commit>:refs/heads/<branch>` BEFORE the worktree is cut, so
+  a base the remote has never seen gets there, and a push the remote refuses
+  refuses the run while the repository is still untouched. Before every
+  suspend, `hitl.decide` commits the tree through `run.commit` — in the
+  producing agent's own `commit_message` where it has one — and pushes, so
+  `head_sha` is a commit the remote has and the subject is in its tree. The
+  commit stage that follows runs in a resumed process, finds the tree clean,
+  and says `unchanged`.
+- **`on_integrate`** (the default without a cockpit, and under
+  `integration.mode: none`). Nothing is pushed or committed at a suspend; the
+  factory is the one it was before this module.
+
+A session that ends takes its copy with it: `publish.withdraw` deletes the
+remote branch when the session is aborted or finishes accepted without
+integrating, and nothing calls it on a failure, which `resume` still needs.
+A PROPOSED branch is never deleted — that would close its pull request — and
+what says "proposed" is read off the session and the branch: `run.pr_url`, or
+the branch tracking its remote counterpart, which an integration's `push -u`
+sets and every push in `publish.py` and `keep_published` deliberately does
+not. There is no flag to keep in step, and a person who pushed the branch by
+hand with `-u` is respected the same way.
+
+`integration.mode: none` warns wherever the config is loaded and in `doctor`
+(`factory.retiring`), and is refused from 1.2. It did two jobs, and each has
+its own name now: a workflow that lands nothing has no `integrate` stage, and
+`worktree.publish` says when a branch leaves the machine. It is never remapped.
 
 ## What this costs
 

@@ -76,6 +76,8 @@ def cmd_check(args) -> int:
             continue
         chain = " -> ".join(step.stage.name for step in loaded.steps)
         print(f"✓ {name}: {chain}   agents: {', '.join(loaded.required_agents)}")
+        for warning in loaded.warnings:
+            print(f"  ~ {warning}")
     return 1 if failed else 0
 
 
