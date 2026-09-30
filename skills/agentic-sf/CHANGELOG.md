@@ -76,6 +76,9 @@ before — `None` when there are none, never omitted.
 - A breach undoes what an agent STAGED, too. A new file it ran `git add` on leaves the index as
   well as the disk, and a staged edit or `git rm` of a tracked file is restored from `HEAD`; before,
   each was reported as rolled back and left for the next commit stage to land.
+- The claude_code harness's shipped `safe_mode` default is now `false`: a fresh install runs with
+  your `CLAUDE.md`, skills, plugins, hooks and MCP servers available, same as an interactive
+  session. Turn it on in `asf/factory.yaml` for a run that must not depend on whose machine ran it.
 - **`worktree.publish: on_create | on_integrate`** says when a session's branch first reaches the
   remote. Unset, it is `on_create` once a cockpit is configured (`ASF_COCKPIT_URL`, or a local
   cockpit that has issued this factory a token) and `on_integrate` without one — and always

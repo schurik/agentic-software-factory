@@ -23,7 +23,7 @@ defaults:
     - Glob
   harness_options:
     claude_code:
-      safe_mode: true              # no CLAUDE.md, skills, plugins, hooks or MCP servers:
+      safe_mode: false             # true = no CLAUDE.md, skills, plugins, hooks or MCP servers:
                                    # a run must not depend on whose machine ran it
       bare: false
       setting_sources: []

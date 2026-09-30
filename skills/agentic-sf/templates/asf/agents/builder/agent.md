@@ -3,6 +3,8 @@
 # touch anything except factory.yaml's `protected_files`; narrow it per
 # workflow with a binding if a chain should keep it out of somewhere.
 purpose: Implement the plan exactly; report every changed file in the envelope.
+thinking: high
+model: opus                        # overrides factory.yaml defaults.model
 color: "#22d3ee"
 ---
 

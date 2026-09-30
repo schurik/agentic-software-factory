@@ -5,6 +5,7 @@
 # from `defaults:` in factory.yaml.
 purpose: Turn a request into a plan the builder can implement without asking questions.
 thinking: high
+model: opus                        # overrides factory.yaml defaults.model
 color: "#a78bfa"                   # its lane in the visualizer
 # The boundary, enforced in code after every call: the plan is the only thing
 # the planner may leave in the repo. Its handoff files under data_dir are

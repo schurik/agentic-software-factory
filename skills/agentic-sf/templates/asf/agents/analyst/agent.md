@@ -8,6 +8,7 @@
 # and the block that lands on the issue is written by code, not by it.
 purpose: Turn a request into requirements; ask about what cannot be settled.
 thinking: high
+model: opus                        # overrides factory.yaml defaults.model
 color: "#a78bfa"
 writes: []
 tools:

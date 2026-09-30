@@ -1,10 +1,10 @@
 ---
 # scout — finds and reports where things live, ahead of the planner. Cheap and
-# fast by design: a low-thinking model on a read-only errand. `writes: []`
+# fast by design: a middling-thinking model on a read-only errand. `writes: []`
 # means it may change nothing tracked; its findings go to the run's
 # context_handoff/, which is runtime, not the repo.
 purpose: Find and report where things live; change nothing.
-thinking: low
+thinking: medium
 color: "#fbbf24"
 writes: []
 ---
