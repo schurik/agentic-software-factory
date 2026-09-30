@@ -112,6 +112,12 @@ def commit_all(cwd: Pathish, message: str, allow_clean: bool = False) -> str:
     return _git(cwd, "rev-parse", "--short", "HEAD")
 
 
+def commit_files(cwd: Pathish, ref: str = "HEAD") -> list[str]:
+    """The paths one commit changed, relative to the repository root."""
+    out = _git(cwd, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", ref)
+    return [line for line in out.splitlines() if line]
+
+
 def changed_files(cwd: Pathish) -> list[str]:
     out = _git(cwd, "status", "--porcelain")
     return [line[3:] for line in out.splitlines() if line]

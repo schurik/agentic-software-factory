@@ -277,7 +277,7 @@ def run(workflow: Workflow, request: str, adw_id: Optional[str] = None,
         # one exists: a refusal costs one forge call and leaves nothing behind.
         adw_id, context = inputs.locate_pr(cfg, number, adw_id)
     run = session.ensure(cfg, SessionSpec(
-        adw_id=adw_id, resume=resume, hitl=hitl, name=workflow.name,
+        adw_id=adw_id, resume=resume, hitl=hitl, name=workflow.name, input=workflow.input,
         request=request if workflow.input == "prompt" else ""))
 
     if workflow.input == "issue":

@@ -108,6 +108,13 @@ bug already shipped once.
    cockpit reads every version ever written. An event that describes a session file is appended by
    the function that writes that file, and `tests/projection.py` must still rebuild `run.json`, the
    decisions, the envelopes and the journal from the events alone.
+11. **A tool's arguments and results, the prompts and the harness's raw stream leave the machine
+   only when the repository opted in.** `tool_called` is a tool's name, outcome and duration and
+   nothing else. `prompt_rendered` and `harness_output` are TRANSCRIPT events: written only under
+   `cockpit: {transcripts: true}` in `factory.yaml`, and only through `Run.transcript`. A handoff
+   artifact travels inline up to `BODY_BYTES` and says when it was cut; a repo artifact travels as
+   a path, read from the forge at the sha its `committed` names — which is why a stage commits
+   through `run.commit`, never `git_helper.commit_all`.
 
 ## Working in here
 

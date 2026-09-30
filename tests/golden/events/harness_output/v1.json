@@ -1,0 +1,12 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "harness_output",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_03_plan",
+    "agent": "planner",
+    "chunk": 2,
+    "text": "{\"type\": \"assistant\", \"message\": {\"content\": [{\"type\": \"text\", \"text\": \"The plan is written.\"}]}}\n{\"type\": \"result\", \"result\": \"{\\\"status\\\": \\\"success\\\"}\"}\n"
+  }
+}

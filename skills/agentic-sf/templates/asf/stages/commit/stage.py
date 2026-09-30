@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from engine import git_helper, integration
+from engine import integration
 from engine.data_types import PhaseParams
 
 NAME = "commit"
@@ -54,8 +54,7 @@ def run(ctx, opts: Options):
                                description=f"Land the {opts.of} on the run's branch, in "
                                            f"the words of the agent that produced it")) as ph:
         message = envelope.commit_message or f"asf({run.adw_id}): {envelope.summary}"
-        sha = git_helper.commit_all(run.repo_root, message,
-                                    allow_clean=run.resuming or opts.allow_clean)
+        sha = run.commit(ph.phase, message, allow_clean=run.resuming or opts.allow_clean)
         if not sha and not run.resuming:
             ph.log(committed="nothing — the tree is clean, on purpose (allow_clean)",
                    reason=envelope.summary)

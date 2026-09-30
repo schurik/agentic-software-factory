@@ -31,6 +31,16 @@ observability:
   db: asf/data/asf.db
   poll_ms: 500
 
+# What a cockpit is told. A session's events are written either way, and a
+# station ships them once there is a cockpit to ship to: phases, gates, spend,
+# commits, the handoff files its phases wrote, and each tool call's name,
+# outcome and duration — never a tool's arguments or its result. A TRANSCRIPT
+# is the rest: every prompt an agent was sent and the raw output of its
+# harness, tool arguments and results included. It is large, it holds whatever
+# an agent read, and it is off until this says otherwise.
+cockpit:
+  transcripts: false
+
 # Every run gets its own git worktree on its own branch, cut from a base ref
 # pinned at run start. The engineer's working tree is never touched.
 worktree:

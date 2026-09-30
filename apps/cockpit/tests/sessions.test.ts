@@ -14,24 +14,35 @@ async function ship(t: Cockpit, token: string, events: WireEvent[]) {
 // fixture itself. A fixture the factory adds has no line here until the cockpit
 // says how it reads it, which is the point: the reader ships in the same PR.
 const DESCRIBED: Record<string, string> = {
+  "artifact_written/v1.json": "output context_handoff/scout_findings.md written: 59 bytes, inline",
   "command_finished/v1.json": "test exited 1 after 4.25s",
   "command_result/v1.json": "command kill by schurik: done — stopped 2 processes",
+  "committed/v1.json": "committed 3e1f0a9: docs: plan the health check (1 file)",
   "decision_recorded/v1.json": "decision on plan round 1: reject by alex",
   "envelope_accepted/v1.json": "planner's PlanOutput accepted: planned the health check",
   "envelope_rejected/v1.json":
     "planner's PlanOutput rejected (attempt 1): no JSON object found in the response",
   "gate_opened/v1.json": "plan round 2 opened on the issue channel",
   "gate_result/v1.json": "gate artifacts_exist failed (attempt 1)",
+  "harness_output/v1.json": "planner's harness output, chunk 2",
   "journal_noted/v1.json": "journal: deviation — used httpx",
   "phase_ended/v1.json": "approve_plan ended: waiting at plan round 2",
+  "phase_replayed/v1.json": "plan replayed from the record, planner not called",
   "phase_started/v1.json": "plan started · agent planner",
+  "phase_started/v2.json": "plan started · agent planner · asf/stages/plan/task.md",
   "process_ended/v1.json": "process 4250 ended",
   "process_started/v1.json": "process 4250 started: claude_code planner sonnet",
+  "prompt_rendered/v1.json": "prompt 1 sent to planner",
   "provenance_recorded/v1.json": "provenance: #42 health check broken",
   "session_finished/v1.json": "session finished: fail — the run's acceptance criterion was not met",
+  "session_resumed/v1.json": "resumed chapter 1: ship",
   "session_started/v1.json": "session started: ship on alex@mbp:widgets",
   "suspended/v1.json": "suspended at plan round 2",
+  "tool_called/v1.json": "planner called bash: failed after 1840ms",
   "usage/v1.json": "planner · sonnet: 1200 tokens, $0.0185",
+  "workflow_finished/v1.json":
+    "chapter 1: ship finished: fail — the run's acceptance criterion was not met",
+  "workflow_started/v1.json": "chapter 1: ship started, answering an issue",
 };
 
 describe("the golden corpus", () => {
@@ -160,8 +171,8 @@ describe("an event this cockpit cannot read", () => {
   it("is stored and shown as a generic row, and changes nothing it cannot vouch for", async () => {
     const t = cockpit();
     const token = await factory(t);
-    const unknownKind = { seq: 2, ts: "2026-09-29T12:01:00.000+00:00", kind: "artifact_written",
-                          v: 1, payload: { path: "plan.md", role: "output" } };
+    const unknownKind = { seq: 2, ts: "2026-09-29T12:01:00.000+00:00", kind: "claim_granted",
+                          v: 1, payload: { station: "st_7f3a9c", issue: 42 } };
     const newerVersion = { ...fixture("session_finished", 3), v: 2,
                            payload: { status: "success", ended_at: "later", verdict: "new" } };
     expect(await ship(t, token, [fixture("session_started", 1), unknownKind, newerVersion]))
@@ -169,7 +180,7 @@ describe("an event this cockpit cannot read", () => {
 
     const view = await t.query(api.sessions.get, WHERE);
     expect(view!.events.slice(1)).toEqual([
-      { seq: 2, ts: "2026-09-29T12:01:00.000+00:00", kind: "artifact_written", v: 1,
+      { seq: 2, ts: "2026-09-29T12:01:00.000+00:00", kind: "claim_granted", v: 1,
         unreadBecause: "unknown kind", detail: "", raw: JSON.stringify(unknownKind.payload) },
       { seq: 3, ts: "2026-09-29T12:00:00.000+00:00", kind: "session_finished", v: 2,
         unreadBecause: "newer version", detail: "", raw: JSON.stringify(newerVersion.payload) },

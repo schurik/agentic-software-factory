@@ -21,9 +21,10 @@ from contextlib import contextmanager
 
 from . import agents, artifacts, git_helper, hitl, journal, limits, replay, worktree
 from .console import Console
-from .data_types import (AgentCall, AgentConfig, AgentResult, Decision, EnvelopeBase,
-                         EventRecord, Gate, Phase, PhaseEnded, PhaseParams, PhaseStarted,
-                         ProvenanceRecorded, RunSpec, SessionSuspended, Subject, UsageRecorded)
+from .data_types import (COMMIT_FILES, AgentCall, AgentConfig, AgentResult, Committed,
+                         Decision, DomainEvent, EnvelopeBase, EventRecord, Gate, Phase, PhaseEnded,
+                         PhaseParams, PhaseStarted, ProvenanceRecorded, RunSpec,
+                         SessionSuspended, Subject, UsageRecorded)
 from .utils import anchor, ensure_dir, now_iso, write_atomic
 
 
@@ -72,6 +73,7 @@ class Run:
         self.tokens = 0                 # THIS process — what the banner reports
         self.cost = 0.0
         self._seq = 0                   # set below, once session_dir is known
+        self._unannounced: Phase | None = None     # opened, not yet on the wire — see `announce`
         self.workspace = spec.workspace
         self.repo_root = spec.workspace.repo_root      # the tree agents work in
         self.main_root = spec.workspace.main_root      # the checkout that owns data_dir
@@ -261,6 +263,36 @@ class Run:
         return limits.overrun(self._prior_tokens + self.tokens,
                               self._prior_cost + self.cost, self.cfg.budget)
 
+    # ── transcripts (opt-in: the prompts sent, the harness's raw stream) ────
+    def transcript(self, event: DomainEvent) -> None:
+        """Append a transcript event — for a factory that opted in, and no other.
+
+        The one door `prompt_rendered` and `harness_output` go through, so
+        "never without the opt-in" is a property of this method rather than of
+        every place that has a prompt in its hands.
+        """
+        if self.cfg.cockpit.transcripts:
+            self.tracer.event(event)
+
+    # ── commits (the sha a cockpit reads this session's repo files at) ──────
+    def commit(self, phase: Phase, message: str, allow_clean: bool = False) -> str:
+        """Commit the run's tree and say which commit that was.
+
+        Returns the short sha, or "" when the tree was clean and `allow_clean`
+        said that is an answer (see `git_helper.commit_all`) — nothing was
+        committed then, so nothing is said. The event is appended here rather
+        than by the stage that asked, so a new stage that commits cannot land
+        a file a cockpit is never told where to read.
+        """
+        short = git_helper.commit_all(self.repo_root, message, allow_clean=allow_clean)
+        if short:
+            files = git_helper.commit_files(self.repo_root)
+            self.tracer.event(Committed(
+                phase_id=phase.phase_id, sha=git_helper.rev(self.repo_root, "HEAD"),
+                message=message.strip().split("\n", 1)[0], files=files[:COMMIT_FILES],
+                files_total=len(files)))
+        return short
+
     def _head(self) -> str:
         """The work branch's commit right now, or "" when git cannot say."""
         try:
@@ -291,15 +323,37 @@ class Run:
         self._seq += 1
         return self._seq, f"{self.adw_id}_{self._seq:02d}_{params.name}"
 
+    def announce(self, phase: Phase, task: str = "", prompt_digest: str = "") -> None:
+        """Say on the wire that a phase started.
+
+        A code or engineer phase is announced as it opens. An agent phase is
+        announced a moment later by `agents.execute`, because that is where
+        what it was GIVEN is known: the task file it renders and the digest of
+        the prompt it is sent. One that dies before it gets that far is
+        announced on its way out (`_ended`), so no `phase_ended` lacks its start.
+        """
+        self._unannounced = None
+        params = phase.params
+        self.tracer.event(PhaseStarted(
+            phase_id=phase.phase_id, seq=phase.seq, name=params.name, kind=params.kind,
+            owner=params.owner, description=params.description, task=task,
+            prompt_digest=prompt_digest))
+
+    def _ended(self, phase: Phase, **how) -> None:
+        if self._unannounced is phase:
+            self.announce(phase)
+        self.tracer.event(PhaseEnded(phase_id=phase.phase_id, name=phase.params.name,
+                                     status=phase.status, attempt=phase.attempt, **how))
+
     @contextmanager
     def phase(self, params: PhaseParams):
         seq, phase_id = self._identity(params)
         phase = Phase(phase_id=phase_id, adw_id=self.adw_id, seq=seq, params=params,
                       status="running", started_at=now_iso())
         self.phases.append(phase)
-        self.tracer.event(PhaseStarted(phase_id=phase_id, seq=seq, name=params.name,
-                                       kind=params.kind, owner=params.owner,
-                                       description=params.description))
+        self._unannounced = phase
+        if params.kind != "agent":
+            self.announce(phase)
         self.tracer.phase_upsert(phase)
         self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                       type="phase_start", name=params.name,
@@ -316,9 +370,7 @@ class Run:
             # by name. The worktree is kept — its uncommitted work is the subject.
             phase.status = "waiting"
             phase.ended_at = now_iso()
-            self.tracer.event(PhaseEnded(phase_id=phase_id, name=params.name, status="waiting",
-                                         attempt=phase.attempt, gate=stop.waiting.gate,
-                                         round=stop.waiting.round))
+            self._ended(phase, gate=stop.waiting.gate, round=stop.waiting.round)
             self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="phase_end", name=params.name,
                                           payload={"status": "waiting",
@@ -337,8 +389,7 @@ class Run:
             phase.status = "fail"                      # success must be earned
             phase.error = str(error)[:1000]
             phase.ended_at = now_iso()
-            self.tracer.event(PhaseEnded(phase_id=phase_id, name=params.name, status="fail",
-                                         attempt=phase.attempt, error=phase.error))
+            self._ended(phase, error=phase.error)
             self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="error", name=params.name,
                                           payload={"error": phase.error}))
@@ -356,8 +407,7 @@ class Run:
         else:
             phase.status = "success"
             phase.ended_at = now_iso()
-            self.tracer.event(PhaseEnded(phase_id=phase_id, name=params.name,
-                                         status="success", attempt=phase.attempt))
+            self._ended(phase)
             self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="phase_end", name=params.name,
                                           payload={"status": "success"}))

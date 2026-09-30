@@ -1,0 +1,15 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "committed",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_04_commit_plan",
+    "sha": "3e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f",
+    "message": "docs: plan the health check",
+    "files": [
+      "docs/asf/spec/5c0075aa_health-check.md"
+    ],
+    "files_total": 1
+  }
+}

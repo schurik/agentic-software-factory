@@ -50,6 +50,18 @@ before — `None` when there are none, never omitted.
   are pulled yet, and a local cockpit already running. It no longer crashes on a machine without `gh`.
 - Cutting a release publishes `ghcr.io/schurik/asf-cockpit` and `…/asf-cockpit-backend`, tagged with
   the release's version, and refuses when `asf/cockpit/min-version` is newer than the release.
+- A session's events say what a cockpit's session page needs. It reads in **chapters**, one per
+  workflow it passes through (`workflow_started`, `workflow_finished`); a `--resume` continues the
+  open one (`session_resumed`) and names each agent phase it answered from the record
+  (`phase_replayed`). `phase_started` is at version 2: an agent phase names its task file and the
+  digest of the prompt it was sent. `artifact_written` carries a handoff file inline (cut at 256 KB,
+  and it says so) or names a repo file, and `committed` names the sha that landed it. `tool_called`
+  is a tool's name, outcome and duration, never its arguments or its result.
+- **Transcripts are opt-in.** With `cockpit: {transcripts: true}` in `asf/factory.yaml`, a session
+  also writes every prompt its agents were sent (`prompt_rendered`) and the harness's raw output in
+  chunks (`harness_output`). Without it, neither is ever written.
+- A stage that commits does it through `run.commit(ph.phase, message)`, which is what appends
+  `committed`.
 
 ### Upgrade
 
@@ -68,6 +80,12 @@ rewrites an existing `.env` (a re-stamped `.env.sample` names both). A CI job th
 The same `--force` re-stamp brings `asf/cockpit/` and the station loop. After it, `just up` starts
 a local cockpit unless `.env` names a shared one; install Docker for it, or accept the warning. The
 trace UI no longer starts with `up`: use `just obs`, or `just up --with obs`, if you still want it.
+
+The same re-stamp brings the new events; a session started before it keeps its events and gains
+chapters from its next run. Transcripts stay off: to send them, add `cockpit: {transcripts: true}`
+to `asf/factory.yaml` by hand (the installer never rewrites that file; the `.new` beside it shows
+the block). A stage of your own that calls `git_helper.commit_all` still commits, but says nothing
+to a cockpit until it calls `run.commit(ph.phase, message)` instead.
 
 ## 1.0.0
 

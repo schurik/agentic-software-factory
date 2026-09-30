@@ -1,0 +1,16 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "artifact_written",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_02_scout",
+    "role": "output",
+    "location": "handoff",
+    "path": "context_handoff/scout_findings.md",
+    "size": 59,
+    "digest": "423c806acbca2a4a12aafb5235facffd3f7a5e0e849b023a7eaad05f44606cd0",
+    "content": "# Findings\n\n- app.py: the /health route is not registered.\n",
+    "truncated": false
+  }
+}
