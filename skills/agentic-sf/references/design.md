@@ -231,17 +231,26 @@ from landing the branch (`engine/integration.py`):
   and says `unchanged`.
 - **`on_integrate`** (the default without a cockpit, and under
   `integration.mode: none`). Nothing is pushed or committed at a suspend; the
-  factory is the one it was before this module.
+  factory is the one it was before this module, and a cockpit cannot show what
+  that session's gates ask about.
 
 A session that ends takes its copy with it: `publish.withdraw` deletes the
 remote branch when the session is aborted or finishes accepted without
 integrating, and nothing calls it on a failure, which `resume` still needs.
-A PROPOSED branch is never deleted — that would close its pull request — and
-what says "proposed" is read off the session and the branch: `run.pr_url`, or
-the branch tracking its remote counterpart, which an integration's `push -u`
-sets and every push in `publish.py` and `keep_published` deliberately does
-not. There is no flag to keep in step, and a person who pushed the branch by
-hand with `-u` is respected the same way.
+An INTEGRATED branch is never deleted, and `publish.integrated` reads that off
+the session and the repository rather than off a flag somebody has to keep in
+step: `run.pr_url`; the branch tracking its remote counterpart, which an
+integration's `push -u` sets (a person's does too) and every push in
+`publish.py` and `keep_published` deliberately does not; or its commits being
+on the base branch, where a merge put them. What it cannot see is a pull
+request opened on the forge while the session was still working — deleting
+that branch closes it, and only asking the forge would know.
+
+Nothing here decides from `refs/remotes/<remote>/<branch>` being ABSENT. A
+clone with a narrowed fetch refspec keeps no such ref for a branch it pushes,
+so a session that read "not published" from its absence would stop committing
+its gates' subjects without a word. Present, it proves the branch was pushed;
+missing, it proves nothing, and the push is made.
 
 `integration.mode: none` warns wherever the config is loaded and in `doctor`
 (`factory.retiring`), and is refused from 1.2. It did two jobs, and each has

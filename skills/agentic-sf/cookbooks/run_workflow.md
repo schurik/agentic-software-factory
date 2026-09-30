@@ -146,11 +146,11 @@ push — is still accepted, with its work on the branch; the `integrate` phase's
 notes say why.
 
 Whether the branch is ALSO on the remote is a separate answer. One that was
-integrated as a pull request is, and stays. One that was only published for a
-cockpit to read (`worktree.publish: on_create`) is removed from the remote when
-its session finishes without integrating — the run's last lines say `remote:
-deleted …` — and is still there after a failure, for `just resume`. The local
-branch is kept either way.
+integrated — proposed as a pull request, or merged into its base — is, and
+stays. One that was only published for a cockpit to read (`worktree.publish:
+on_create`) is removed from the remote when its session finishes without
+integrating — the run's last lines say `remote: deleted …` — and is still there
+after a failure, for `just resume`. The local branch is kept either way.
 Say which of these happened, with the branch name or the PR link — an engineer
 whose run "succeeded" still needs to know where to look.
 

@@ -169,7 +169,7 @@ the prompts and the harness's raw output are the transcript, which a factory sen
 `factory.yaml` says `cockpit: {transcripts: true}`.
 
 A cockpit shows what a gate asks about by reading it from the forge, at the commit the run stopped
-on. So once a cockpit is configured a run's branch is pushed as the session starts and before every
+on. So once a cockpit is configured a session's branch is pushed as it starts and before every
 suspend, with the gate's subject committed (`worktree.publish: on_create`); a branch that was never
 integrated leaves the remote again when its session finishes or is aborted. `on_integrate` keeps
 every branch on the machine until an `integrate` stage pushes it, which is also the default without

@@ -92,9 +92,9 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     warnings = preflight.before_run(cfg, main_root)
     # ...and, under `worktree.publish: on_create`, put on the remote — the last
     # refusal that is still free, because it happens before the branch is cut.
-    publishing = publish.mode(cfg, main_root) == publish.ON_CREATE
-    workspace = worktree.ensure(WorktreeRequest(main_root=main_root, adw_id=adw_id,
-                                                config=cfg.worktree, publish=publishing))
+    workspace = worktree.ensure(WorktreeRequest(
+        main_root=main_root, adw_id=adw_id, config=cfg.worktree,
+        publish_on_create=publish.mode(cfg, main_root) == publish.ON_CREATE))
     tracer = Tracer(anchor(main_root, cfg.observability.db),
                     anchor(main_root, f"{cfg.defaults.data_dir}/sessions/{adw_id}"))
     run = Run(RunSpec(cfg=cfg, adw_id=adw_id, engineer=engineer_name(),
@@ -135,11 +135,10 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     _finalize_when_killed(run)
     run.console.session_started(adw_id, run.engineer)
     run.console.note(_workspace_line(workspace))
-    remote = cfg.worktree.integration.remote
-    if publishing and workspace.enabled and git_helper.remote_tip(main_root, remote,
-                                                                 workspace.branch):
-        run.console.note(f"published: {workspace.branch} is on {remote}, and is pushed again "
-                         f"before every suspend (worktree.publish: on_create)")
+    if publish.publishes(cfg, workspace):
+        run.console.note(f"published: {workspace.branch} is on "
+                         f"{cfg.worktree.integration.remote}, and is pushed again before "
+                         f"every suspend (worktree.publish: on_create)")
     # Two lines, not one: the console clips a note at 160 characters, and a fix
     # that gets cut off is the half worth keeping.
     for finding in warnings:

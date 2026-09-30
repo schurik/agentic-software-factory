@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import subprocess
 
-from . import artifacts, git_helper
+from . import artifacts, git_helper, publish
 from .data_types import Finding, IntegrationRequest, IntegrationResult, ProvenanceRecorded
 from .utils import operator_env
 
@@ -129,9 +129,10 @@ def keep_published(run) -> IntegrationResult:
 
     This is what stops a pull request from going stale while its session keeps
     working. A commit phase calls it right after committing, and it does exactly
-    one thing: if `refs/remotes/<remote>/<branch>` exists — it does only because
-    an earlier integration pushed this branch — and the local branch has moved
-    past it, push. Otherwise nothing, and nothing is a success: a branch nobody
+    one thing: if `refs/remotes/<remote>/<branch>` exists — because an earlier
+    integration pushed this branch, or `worktree.publish: on_create` put it
+    there as the session started — and the local branch has moved past it,
+    push. Otherwise nothing, and nothing is a success: a branch nobody
     published is not this function's business.
 
     Deliberately NOT `integrate()`. Nothing here can move the base branch, open
@@ -152,7 +153,7 @@ def keep_published(run) -> IntegrationResult:
 
     if not workspace.enabled or not git_helper.has_remote(tree, config.remote):
         return result
-    if config.mode == "none" and run.cfg.worktree.publish != "on_create":
+    if config.mode == "none" and publish.mode(run.cfg, run.main_root) != publish.ON_CREATE:
         # The off switch is total. A repository that has said a run's work stays
         # on its branch does not get a push either — not even onto a branch
         # something else put on the remote. Unless it ALSO said `worktree.
@@ -171,7 +172,7 @@ def keep_published(run) -> IntegrationResult:
         return result
 
     # Without `-u`: this keeps a copy current, and tracking the remote branch is
-    # how a session says it was PROPOSED (`publish.withdraw`). An integration's
+    # how a session says it was PROPOSED (`publish.integrated`). An integration's
     # own push set it already, where there was one.
     pushed = git_helper.push(tree, config.remote, workspace.branch, set_upstream=False)
     if pushed.returncode != 0:

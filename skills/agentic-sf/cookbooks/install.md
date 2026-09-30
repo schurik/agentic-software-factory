@@ -45,7 +45,7 @@ Three more worth naming only if the answer is not the default: `worktree.enabled
 (on — every run works in its own tree on branch `asf/<adw_id>`, never the
 engineer's checkout), `defaults.protected_files` (the factory's own code, so
 an agent cannot edit the machinery that judges its work), and `worktree.publish`
-(unset — a run's branch is pushed as it is created once a cockpit is configured,
+(unset — a session's branch is pushed as it is created once a cockpit is configured,
 so the cockpit can show what a gate asks about, and not before an `integrate`
 stage otherwise; `on_integrate` keeps branches local even with a cockpit, at
 the price of gates the cockpit cannot show).

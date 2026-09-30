@@ -1279,7 +1279,7 @@ class WorktreeRequest(BaseModel):
     config: WorktreeConfig = Field(default_factory=WorktreeConfig)
     # Put the branch on the remote before the run starts — `publish.mode` said
     # `on_create`. Resolved by the caller: what decides it is not git's to know.
-    publish: bool = False
+    publish_on_create: bool = False
 
 
 class WorktreeInfo(BaseModel):

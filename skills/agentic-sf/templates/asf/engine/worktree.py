@@ -86,8 +86,7 @@ def ensure(request: WorktreeRequest) -> Workspace:
 
     if path.is_dir():
         joined = _reattach(path, main, branch, meta)
-        if request.publish:
-            publish.on_create(main, config, joined.branch)
+        _publish(request, joined.branch)
         return joined
 
     # A worktree whose directory was deleted by hand still holds its
@@ -101,8 +100,7 @@ def ensure(request: WorktreeRequest) -> Workspace:
         # The run's branch outlived its worktree — a pruned success, or a rerun.
         # Check it out again rather than branching a second time from the base:
         # the branch is the record, and re-creating it would discard the record.
-        if request.publish:
-            publish.on_create(main, config, branch)
+        _publish(request, branch)
         git_helper.worktree_add(main, path, branch)
         recorded = _read_meta(meta)
         base_ref = recorded.get("base_ref") or _base_ref_of(main, config)
@@ -113,8 +111,7 @@ def ensure(request: WorktreeRequest) -> Workspace:
         base_commit = git_helper.rev(main, base_ref)
         # Before the branch exists, so a push the remote refuses leaves nothing
         # behind — see publish.on_create on why the base has to get there.
-        if request.publish:
-            publish.on_create(main, config, branch, base_commit)
+        _publish(request, branch, base_commit)
         git_helper.worktree_add(main, path, branch, base_ref)
 
     workspace = Workspace(main_root=main, repo_root=path.resolve(), enabled=True,
@@ -122,6 +119,14 @@ def ensure(request: WorktreeRequest) -> Workspace:
                           created=True)
     _write_meta(meta, request.adw_id, workspace)
     return workspace
+
+
+def _publish(request: WorktreeRequest, branch: str, base_commit: str = "") -> None:
+    """Under `worktree.publish: on_create`, the branch goes to the remote before
+    the run starts — or the run is refused (`publish.on_create`)."""
+    if request.publish_on_create:
+        publish.on_create(Path(request.main_root).resolve(), request.config, branch,
+                          base_commit)
 
 
 def _reattach(path: Path, main: Path, branch: str, meta: Path) -> Workspace:

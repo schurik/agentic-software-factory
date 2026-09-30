@@ -17,8 +17,9 @@ from pathlib import Path
 import pytest
 
 from . import projection
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, fake_roster, git, session_dir,
-                          set_config, wire, with_origin, write_workflow)
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, fake_roster, forge, forge_data,
+                          git, issue_json, session_dir, set_config, wire, with_origin,
+                          write_workflow)
 from .test_asf_events import build_reply
 from .test_asf_slice2 import plan_reply
 
@@ -123,6 +124,49 @@ def test_a_session_begun_before_on_create_is_published_when_it_next_starts(stamp
     assert git(origin, "show", f"{waiting['head_sha']}:{PLAN}") == "# Plan, revised"
 
 
+def test_a_clone_that_tracks_only_its_base_branch_still_publishes_and_withdraws(stamped: Path):
+    """`git clone --single-branch` (and `--depth`) narrows the fetch refspec, and
+    git then keeps no remote-tracking ref for a branch it pushes. What the
+    remote holds is the question, so nothing may be decided from that ref."""
+    origin = gated(stamped, "on_create")
+    git(stamped, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
+
+    adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
+
+    waiting = suspended(stamped, adw_id)
+    assert remote_tip(origin, f"asf/{adw_id}") == waiting["head_sha"]
+    assert git(origin, "show", f"{waiting['head_sha']}:{PLAN}") == "# Plan"
+    asf(stamped, "abort", adw_id)
+    assert remote_tip(origin, f"asf/{adw_id}") == ""
+
+
+def test_an_issue_run_that_asks_on_its_work_item_has_pushed_what_it_asks_about(stamped: Path):
+    """The way a factory is normally reached: a watcher's run on a tracked issue,
+    with nobody at a terminal. The gate is answered from the tracker or a
+    cockpit, and either one reads the subject off the forge."""
+    unspent = [{"envelope": {"status": "success", "summary": "never reached"}}]
+    fake_roster(stamped, scout=[{"envelope": {"status": "success", "summary": "scouted"}}],
+                planner=[plan_reply()], builder=unspent, reviewer=unspent, documenter=unspent)
+    base = forge(stamped)
+    set_config(stamped, issues={"enabled": True, "project": "acme/widgets",
+                                "fetch_command": [*base, "view"],
+                                "comment_command": [*base, "comment"],
+                                "state_command": [*base, "edit"]})
+    forge_data(stamped, "issue.json", issue_json(42))
+    origin = with_origin(stamped)
+    set_config(stamped, worktree={"publish": "on_create"})
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "issue", "42", "--hitl", "plan", env={"ASF_UNATTENDED": "1"})
+
+    assert result.returncode == 75, result.stdout + result.stderr
+    adw_id = adw_id_of(result)
+    waiting = suspended(stamped, adw_id)
+    assert waiting["waiting_for"]["channel"] == "issue"
+    assert remote_tip(origin, f"asf/{adw_id}") == waiting["head_sha"]
+    assert git(origin, "show", f"{waiting['head_sha']}:{PLAN}") == "# Plan"
+
+
 def test_on_integrate_pushes_nothing_until_the_branch_is_integrated(stamped: Path):
     origin = gated(stamped, "on_integrate", then=LANDS)
 
@@ -193,6 +237,37 @@ def test_a_session_that_integrates_keeps_its_branch_on_the_remote(stamped: Path)
     assert approved.returncode == 0, approved.stdout + approved.stderr
     assert remote_tip(origin, branch) == git(stamped, "rev-parse", branch)
     assert git(origin, "log", "-1", "--format=%s", branch) == "feat: app"
+
+
+def test_a_session_whose_pull_request_is_known_keeps_its_branch_whatever_git_tracks(
+        stamped: Path):
+    """The session's own record of its pull request is enough on its own: a
+    branch somebody proposed from the forge tracks nothing here."""
+    origin = gated(stamped, "on_create", then=LANDS)
+    fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app"),
+                                  build_reply("ok = 2\n", "feat: app, again")])
+    set_config(stamped, worktree={"publish": "on_create", "integration": {
+        "open_pr": True, "pr_command": [*forge(stamped), "pr-create"]}})
+    commit_all(stamped)
+    adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
+    assert asf(stamped, "approve", adw_id).returncode == 0
+    git(stamped, "branch", "--unset-upstream", f"asf/{adw_id}")
+
+    joined = asf(stamped, "run", "quick", "make it 2", "--adw-id", adw_id)
+
+    assert joined.returncode == 0, joined.stdout + joined.stderr
+    assert git(origin, "log", "-1", "--format=%s", f"asf/{adw_id}") == "feat: app, again"
+
+
+def test_a_session_merged_into_its_base_branch_keeps_its_branch_on_the_remote(stamped: Path):
+    origin = gated(stamped, "on_create", then=[{"integrate": {"mode": "merge"}}])
+    adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
+
+    approved = asf(stamped, "approve", adw_id)
+
+    assert approved.returncode == 0, approved.stdout + approved.stderr
+    assert git(stamped, "log", "-1", "--format=%s", "main").startswith(f"asf({adw_id}): merge")
+    assert remote_tip(origin, f"asf/{adw_id}") == git(stamped, "rev-parse", f"asf/{adw_id}")
 
 
 def test_a_failed_session_keeps_its_branch_on_the_remote_for_a_resume(stamped: Path):
@@ -269,7 +344,32 @@ def test_publish_is_on_create_once_a_cockpit_is_configured_and_the_config_has_th
     # And `worktree.publish` decides, whatever is configured around it.
     set_config(stamped, worktree={"publish": "on_integrate"})
     said = publishing(stamped, tmp_path, ASF_COCKPIT_URL=COCKPIT)
-    assert "on_integrate" in said and "subject not on the forge" in said
+    assert "on_integrate" in said and "cannot show" in said
+
+
+def test_a_run_publishes_by_default_once_the_local_cockpit_has_issued_a_token(stamped: Path):
+    origin = gated(stamped, "on_create")
+    config = stamped / "asf" / "factory.yaml"
+    config.write_text(config.read_text().replace("publish: on_create", ""))   # nothing set
+    commit_all(stamped)
+    record = stamped / "asf" / "data" / "cockpit.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"repository": "acme/widgets", "token": "asf_ingest_0a"}))
+
+    adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
+
+    assert remote_tip(origin, f"asf/{adw_id}") == suspended(stamped, adw_id)["head_sha"]
+
+
+def test_on_create_with_worktrees_off_is_a_warning_because_there_is_no_branch_to_publish(
+        stamped: Path, tmp_path: Path):
+    fake_roster(stamped)
+    with_origin(stamped)
+    set_config(stamped, worktree={"enabled": False, "publish": "on_create"})
+
+    line = publishing(stamped, tmp_path)
+
+    assert "~" in line and "worktree.enabled is false" in line
 
 
 def test_on_create_without_a_remote_warns_and_runs_anyway(stamped: Path, tmp_path: Path):

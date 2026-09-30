@@ -156,6 +156,11 @@ def merge_base(cwd: Pathish, ref: str, other: str = "HEAD") -> str:
     return _git(cwd, "merge-base", ref, other)
 
 
+def is_ancestor(cwd: Pathish, commit: str, ref: str) -> bool:
+    """Whether `ref` contains `commit`. A question: False when either is unknown."""
+    return _ask_git(cwd, "merge-base", "--is-ancestor", commit, ref).returncode == 0
+
+
 def first_subject(cwd: Pathish, base: str, ref: str = "HEAD") -> str:
     """Subject of the first commit unique to `ref` since it diverged from `base`.
 

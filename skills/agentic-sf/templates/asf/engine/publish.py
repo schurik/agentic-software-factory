@@ -5,7 +5,7 @@ subject from the forge, at exactly the commit the question was asked about —
 the plan at `head_sha`, the diff as `base_commit…head_sha` — so a person
 approves what the agent produced and not whatever the branch tip has become
 since. That only works when those two commits are ON the forge, and until now
-a run's branch went there in one place: the integrate stage, after every gate
+a session's branch went there in one place: the integrate stage, after every gate
 had already been answered.
 
 So publishing is its own decision, `worktree.publish`, with two answers:
@@ -16,7 +16,7 @@ So publishing is its own decision, `worktree.publish`, with two answers:
     its tree.
   * **`on_integrate`** — nothing leaves the machine until an integrate stage
     pushes it. The factory behaves exactly as it did before this module, and a
-    cockpit shows that session's gates as "subject not on the forge".
+    cockpit cannot show what that session's gates ask about.
 
 Landing the branch is still `engine/integration.py`. Nothing here merges, opens
 a pull request, or decides what happens to the work — it keeps a copy readable.
@@ -27,14 +27,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import cockpit as local_cockpit
-from . import git_helper, integration
-from .data_types import FactoryConfig, Phase, WorktreeConfig
+from . import git_helper
+from .data_types import FactoryConfig, Phase, PublishMode, Workspace, WorktreeConfig
 from .utils import anchor
 
-ON_CREATE, ON_INTEGRATE = "on_create", "on_integrate"
+ON_CREATE: PublishMode = "on_create"
+ON_INTEGRATE: PublishMode = "on_integrate"
 
 
-def resolve(cfg: FactoryConfig, main_root: Path) -> tuple[str, str]:
+def resolve(cfg: FactoryConfig, main_root: Path) -> tuple[PublishMode, str]:
     """(`on_create` | `on_integrate`, why) for this factory as it stands now.
 
     `worktree.publish` decides when it is set. Unset, the answer follows the
@@ -52,13 +53,28 @@ def resolve(cfg: FactoryConfig, main_root: Path) -> tuple[str, str]:
         return cfg.worktree.publish, "worktree.publish"
     if cfg.worktree.integration.mode == "none":
         return ON_INTEGRATE, "the default under worktree.integration.mode: none"
-    if local_cockpit.shared() or local_cockpit.issued(anchor(main_root, cfg.defaults.data_dir)):
+    data_dir = anchor(main_root, cfg.defaults.data_dir)
+    if local_cockpit.shared() or local_cockpit.has_issued_token(data_dir):
         return ON_CREATE, "the default once a cockpit is configured"
     return ON_INTEGRATE, "the default without a cockpit"
 
 
-def mode(cfg: FactoryConfig, main_root: Path) -> str:
+def mode(cfg: FactoryConfig, main_root: Path) -> PublishMode:
     return resolve(cfg, main_root)[0]
+
+
+def publishes(cfg: FactoryConfig, workspace: Workspace) -> bool:
+    """Whether this session's branch is one this module keeps on the remote:
+    `on_create`, a branch of its own to keep there, and a remote to keep it on.
+
+    Asked of the config and the checkout, never of `refs/remotes/…`. A clone
+    with a narrowed fetch refspec (`--single-branch`, `--depth`) keeps no
+    remote-tracking ref for a branch it pushes, so that ref going missing says
+    nothing about what the remote holds — and a session that decided from it
+    would stop committing its gates' subjects without a word.
+    """
+    return (workspace.enabled and mode(cfg, workspace.main_root) == ON_CREATE
+            and git_helper.has_remote(workspace.main_root, cfg.worktree.integration.remote))
 
 
 # ── as the session starts ────────────────────────────────────────────────────
@@ -76,8 +92,10 @@ def on_create(main_root: Path, config: WorktreeConfig, branch: str,
     still untouched — no branch, no worktree, no session to clean up after.
 
     A branch that already exists here (a joined session, a rerun whose worktree
-    was pruned) is pushed as it stands, and only when the remote has never had
-    it: from then on the commit stages and every suspend keep it current.
+    was pruned) is pushed as it stands — unless its remote-tracking ref says it
+    has been pushed before, which keeps a resume off the network. That ref
+    proves presence and its absence proves nothing, so without one the push is
+    made: it is how a session begun under `on_integrate` gets there.
 
     No remote of that name is not a refusal. There is nowhere to publish to, the
     run is the run it always was, and `preflight.publishing` has said so.
@@ -114,28 +132,32 @@ def before_suspend(run, phase: Phase, message: str) -> None:
     `allow_clean` already covers it.
 
     Through `run.commit`, so the `committed` event a cockpit reads repo
-    artifacts by is written for this commit like any other.
+    artifacts by is written for this commit like any other. The push follows
+    whether or not there was anything to commit: what the remote must hold is
+    the branch as it stands, and an earlier push may have failed.
 
     A run about to wait must not die committing or pushing: whatever goes wrong
     is a note, the suspend happens anyway, and a cockpit shows the gate as one
-    whose subject is not on the forge.
+    whose subject it cannot read.
     """
+    if not publishes(run.cfg, run.workspace):
+        return
     workspace = run.workspace
     remote = run.cfg.worktree.integration.remote
-    if mode(run.cfg, run.main_root) != ON_CREATE or not workspace.enabled:
-        return
-    if not git_helper.remote_tip(workspace.main_root, remote, workspace.branch):
-        return                            # not on the remote: nothing there to keep current
     try:
         sha = run.commit(phase, message, allow_clean=True)
     except RuntimeError as error:
-        run.console.note(f"could not commit the gate's subject: {error}")
+        run.console.note(f"! could not commit what this gate asks about: {error}")
         return
     if sha:
-        run.console.note(f"committed the gate's subject as {sha}")
-    synced = integration.keep_published(run)
-    for note in synced.notes:
-        run.console.note(note)
+        run.console.note(f"committed what this gate asks about as {sha}")
+    pushed = git_helper.push(workspace.main_root, remote, workspace.branch, set_upstream=False)
+    if pushed.returncode != 0:
+        run.console.note(f"! could not push {workspace.branch} to {remote} — a cockpit "
+                         f"cannot show what this gate asks about: "
+                         f"{pushed.stderr.strip()[-300:]}")
+        return
+    run.console.note(f"pushed {workspace.branch} to {remote}")
 
 
 # ── when the session ends ────────────────────────────────────────────────────
@@ -147,33 +169,59 @@ def withdraw(run) -> str:
     Called when a session is aborted, and when it finishes accepted. A branch
     published for a cockpit to read is a copy, and once the session is over
     there is nothing left for anyone to read there: left behind, it is one more
-    stale branch on the forge per run. A FAILED session is not over — `resume`
-    picks it up, and a cockpit still shows where it stopped — so nothing calls
-    this for one. The LOCAL branch is never touched: it is the record, and
-    pushing it again is one command.
+    stale branch on the forge per session. A FAILED session is not over —
+    `resume` picks it up, and a cockpit still shows where it stopped — so
+    nothing calls this for one. The LOCAL branch is never touched: it is the
+    record, and pushing it again is one command.
 
-    A PROPOSED BRANCH STAYS, and that is the one thing this must never get
-    wrong: deleting the head of an open pull request closes it. Two facts say
-    a branch was proposed, and either is enough. The session knows its pull
-    request (`run.pr_url` — opened by an integration, or learned by a review
-    run). Or the branch TRACKS its remote counterpart: an integration's push
-    sets that (`push -u`), and so does a person who pushed it by hand, while
-    every push this module makes leaves it unset. So "finished without
-    integrating" is read off the branch itself, by any later process of the
-    session, with nothing new to record.
+    AN INTEGRATED BRANCH STAYS — `integrated` says how that is known, and what
+    it cannot know.
     """
+    if not publishes(run.cfg, run.workspace) or integrated(run):
+        return ""
     workspace = run.workspace
     remote = run.cfg.worktree.integration.remote
-    tree = workspace.main_root
-    if mode(run.cfg, run.main_root) != ON_CREATE or not workspace.enabled:
-        return ""
-    if not git_helper.remote_tip(tree, remote, workspace.branch):
+    deleted = git_helper.delete_remote_branch(workspace.main_root, remote, workspace.branch)
+    if deleted.returncode == 0:
+        return f"deleted {remote}/{workspace.branch}; the local branch is kept"
+    if "remote ref does not exist" in deleted.stderr:
         return ""                         # never published, or already withdrawn
-    if run.pr_url or git_helper.tracks(tree, workspace.branch, remote):
-        return ""
-    deleted = git_helper.delete_remote_branch(tree, remote, workspace.branch)
-    if deleted.returncode != 0:
-        return (f"could not delete {remote}/{workspace.branch}: "
-                f"{deleted.stderr.strip()[-300:]} — `git push {remote} --delete "
-                f"{workspace.branch}` removes it by hand")
-    return f"deleted {remote}/{workspace.branch}; the local branch is kept"
+    return (f"could not delete {remote}/{workspace.branch}: "
+            f"{deleted.stderr.strip()[-300:]} — `git push {remote} --delete "
+            f"{workspace.branch}` removes it by hand")
+
+
+def integrated(run) -> bool:
+    """Whether this session's work went somewhere its remote branch is still
+    needed for. Read off the session and the repository, by any process of the
+    session, with nothing new to record:
+
+      * **It has a pull request.** `run.pr_url` — opened by an integration, or
+        learned by a review run. Deleting the head of an open pull request
+        closes it, which is the one thing `withdraw` must never do.
+      * **Its branch tracks its remote counterpart.** An integration's push
+        sets that (`push -u`), and so does a person who pushed it by hand;
+        every push this module makes, and `integration.keep_published`, leaves
+        it unset. So `open_pr: false` — pushed, the pull request left to a
+        person — still reads as proposed, in a later process too.
+      * **Its commits are on the base branch.** A merge landed them, and a
+        cockpit reads this session's files at those commits, which reach the
+        forge on their own branch until the base branch is pushed.
+
+    WHAT THIS CANNOT SEE is a pull request opened on the forge, from its own
+    page or another clone, while the session was still working: nothing here
+    records it, and an accepted finish or an abort deletes the branch under it.
+    A review run on that pull request records it (`Run.record_pull_request`),
+    and so does pushing the branch with `-u`.
+    """
+    workspace = run.workspace
+    tree = workspace.main_root
+    if run.pr_url or git_helper.tracks(tree, workspace.branch,
+                                       run.cfg.worktree.integration.remote):
+        return True
+    try:
+        head = git_helper.rev(tree, workspace.branch)
+    except RuntimeError:
+        return False
+    return head != workspace.base_commit and git_helper.is_ancestor(
+        tree, head, workspace.base_ref)
