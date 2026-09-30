@@ -37,6 +37,17 @@ export class Payload {
     return isRecord(value) ? new Payload(value) : null;
   }
 
+  /** The payload as it arrived. */
+  value(): Record<string, unknown> {
+    return this.raw;
+  }
+
+  /** The objects in a list, skipping whatever is not one. */
+  list(key: string): Payload[] {
+    const value = this.raw[key];
+    return Array.isArray(value) ? value.filter(isRecord).map((each) => new Payload(each)) : [];
+  }
+
   /** The strings in a list, skipping whatever is not one. */
   strs(key: string): string[] {
     const value = this.raw[key];

@@ -25,5 +25,6 @@ export function tokenForge(github: GitHub, token: string): Forge {
     holdsFactory: (repo) => github.holdsFactory(as, repo),
     person: () => github.one(as, "/user", readPerson),
     reach: async () => (await listed()).flatMap(({ reach }) => (reach ? [reach] : [])),
+    file: (repo, path, ref) => github.file(as, repo, path, ref),
   };
 }

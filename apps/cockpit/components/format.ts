@@ -44,3 +44,10 @@ export function formatClock(ts: string): string {
   return !ts || Number.isNaN(date.getTime()) ? "" :
     date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+/** A size in bytes, the way a file listing says it. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const [value, unit] = bytes < 1024 * 1024 ? [bytes / 1024, "KB"] : [bytes / (1024 * 1024), "MB"];
+  return `${value.toFixed(1).replace(/\.0$/, "")} ${unit}`;
+}

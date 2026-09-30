@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as artifacts from "../artifacts.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as discovery from "../discovery.js";
@@ -25,6 +26,7 @@ import type * as model_digest from "../model/digest.js";
 import type * as model_journal from "../model/journal.js";
 import type * as model_mode from "../model/mode.js";
 import type * as model_payload from "../model/payload.js";
+import type * as model_phase from "../model/phase.js";
 import type * as model_progress from "../model/progress.js";
 import type * as model_ranges from "../model/ranges.js";
 import type * as model_session from "../model/session.js";
@@ -43,6 +45,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  artifacts: typeof artifacts;
   auth: typeof auth;
   crons: typeof crons;
   discovery: typeof discovery;
@@ -60,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   "model/journal": typeof model_journal;
   "model/mode": typeof model_mode;
   "model/payload": typeof model_payload;
+  "model/phase": typeof model_phase;
   "model/progress": typeof model_progress;
   "model/ranges": typeof model_ranges;
   "model/session": typeof model_session;

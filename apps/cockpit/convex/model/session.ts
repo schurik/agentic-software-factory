@@ -13,6 +13,7 @@
  */
 import { v, type Infer } from "convex/values";
 import { Payload } from "./payload";
+import { beginDetail, detail, finishDetail, type DetailState, type PhaseDetail } from "./phase";
 import { begin, finish, tell, type Story, type StoryState } from "./story";
 import { isRecord, type StoredEvent } from "./wire";
 
@@ -83,16 +84,25 @@ export interface SessionView {
  * could be read before the one that explains it.
  */
 export function view(events: StoredEvent[], acked: number): SessionView {
-  const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin() };
+  const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin(), detail: null };
   const rows = [...events]
     .sort((a, b) => a.seq - b.seq)
     .map((event) => apply(state, event, event.seq <= acked));
   return { summary: state.summary, story: finish(state.story!, state.summary), events: rows };
 }
 
+/** One phase of the page, opened into its tabs (phase.ts); null for a phase it never started. */
+export function phaseView(events: StoredEvent[], acked: number, phaseId: string): PhaseDetail | null {
+  const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: null, detail: beginDetail(phaseId) };
+  const rows = [...events]
+    .sort((a, b) => a.seq - b.seq)
+    .map((event) => apply(state, event, event.seq <= acked));
+  return finishDetail(state.detail!, rows);
+}
+
 /** `summary` moved on by `events`, which follow the ones it was folded from. */
 export function advance(summary: Summary, events: StoredEvent[]): Summary {
-  const state: State = { summary: structuredClone(summary), story: null };
+  const state: State = { summary: structuredClone(summary), story: null, detail: null };
   for (const event of events) apply(state, event, true);
   return state.summary;
 }
@@ -109,6 +119,7 @@ export function readSummary(stored: unknown): Summary {
 interface State {
   summary: Summary;
   story: StoryState | null;         // only the session page tells the story; the list needs none
+  detail: DetailState | null;       // and only an opened phase folds its tabs
 }
 
 interface Reader {
@@ -130,6 +141,7 @@ function apply(state: State, event: StoredEvent, fold: boolean): Row {
     reader.fold?.(state, p);
     state.summary.lastEventAt = ts;
     if (state.story) tell(state.story, kind, version, p, { seq, ts });
+    if (state.detail) detail(state.detail, kind, version, p, { seq, ts });
   }
   return { seq, ts, kind, v: version, unreadBecause: null, detail: reader.describe(p), raw };
 }

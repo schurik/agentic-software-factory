@@ -1,6 +1,8 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
-import { readSummary, view } from "./model/session";
+import { query, type QueryCtx } from "./_generated/server";
+import type { StoredEvent } from "./model/wire";
+import { localHost, mode } from "./model/mode";
+import { phaseView, readSummary, view } from "./model/session";
 import { canRead, viewing } from "./viewer";
 
 // Who sees a session is the forge's call, not the cockpit's: in a team
@@ -35,18 +37,45 @@ export const list = query({
 export const get = query({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, { factory, session, signIn }) => {
-    // A session the viewer may not see and one that does not exist answer alike.
-    if (!(await canRead(ctx, await viewing(ctx, signIn), factory))) return null;
-    const record = await ctx.db
-      .query("sessions")
-      .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
-      .unique();
-    if (record === null) return null;
-    const events = await ctx.db
-      .query("events")
-      .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session))
-      .collect();
-    const page = view(events, record.acked);
-    return { factory, session, acked: record.acked, ...page };
+    const stored = await storedSession(ctx, factory, session, signIn);
+    if (stored === null) return null;
+    const page = view(stored.events, stored.acked);
+    return { factory, session, acked: stored.acked, forge: await forgeWeb(ctx), ...page };
   },
 });
+
+/**
+ * One phase of that page, opened into its tabs. Asked for when a person opens
+ * the phase, not with the page: it carries the phase's artifacts and its
+ * transcript, which the page as a whole has no use for.
+ */
+export const phase = query({
+  args: { factory: v.string(), session: v.string(), phaseId: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory, session, phaseId, signIn }) => {
+    const stored = await storedSession(ctx, factory, session, signIn);
+    return stored && phaseView(stored.events, stored.acked, phaseId);
+  },
+});
+
+/** The web origin of the forge this cockpit reads, which a page's links go to: "" before it has one. */
+async function forgeWeb(ctx: QueryCtx): Promise<string> {
+  const host = mode() === "local" ? localHost() : (await ctx.db.query("forgeApps").first())?.host;
+  return host ? `https://${host}` : "";
+}
+
+/** A session's events and how far they were acknowledged, or null when the viewer may not see it. */
+export async function storedSession(ctx: QueryCtx, factory: string, session: string, signIn?: string):
+    Promise<{ acked: number; events: StoredEvent[] } | null> {
+  // A session the viewer may not see and one that does not exist answer alike.
+  if (!(await canRead(ctx, await viewing(ctx, signIn), factory))) return null;
+  const record = await ctx.db
+    .query("sessions")
+    .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
+    .unique();
+  if (record === null) return null;
+  const events = await ctx.db
+    .query("events")
+    .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session))
+    .collect();
+  return { acked: record.acked, events };
+}

@@ -52,6 +52,12 @@ export interface Forge {
   person(): Promise<Person>;
   /** Every repository that person reaches through this forge, and as what. */
   reach(): Promise<Reach[]>;
+  /**
+   * The bytes of `path` in `repo` at the commit `ref`, or null when the forge
+   * will not show it there. A commit, never a branch: what a session wrote is
+   * read where it was committed, not wherever the branch has moved since.
+   */
+  file(repo: string, path: string, ref: string): Promise<Uint8Array<ArrayBuffer> | null>;
 }
 
 /** Where a factory's config lives: a repository is a factory when its default branch holds this. */

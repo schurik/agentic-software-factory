@@ -1,15 +1,18 @@
+import { useState } from "react";
 import type {
   AgentItem, Asked, AutomaticItem, Chapter as ChapterData, CodeItem, GateItem, Item, ResumedItem,
 } from "@/convex/model/story";
 import { Status } from "../Status";
 import { formatClock, formatCost, formatDuration } from "../format";
+import { PhaseDetails } from "./PhaseDetails";
+import type { Where } from "./PhaseTabs";
 import { channelWords, pillOf, toneOf } from "./words";
 
 export const phaseAnchor = (phaseId: string) => `phase-${phaseId}`;
 export const chapterAnchor = (number: number) => `chapter-${number}`;
 
 /** One chapter: what it was asked, then what happened, in order. */
-export function Chapter({ chapter }: { chapter: ChapterData }) {
+export function Chapter({ chapter, where }: { chapter: ChapterData; where: Where }) {
   const { answering } = chapter;
   return (
     <section className="chapter" id={chapterAnchor(chapter.number)}>
@@ -27,7 +30,7 @@ export function Chapter({ chapter }: { chapter: ChapterData }) {
       {chapter.reason ? <p className="error small">{chapter.reason}</p> : null}
       {chapter.asked ? <AskedCard asked={chapter.asked} /> : null}
       <ol className="timeline">
-        {chapter.items.map((item) => <TimelineItem key={`${item.type}-${item.seq}`} item={item} />)}
+        {chapter.items.map((item) => <TimelineItem key={`${item.type}-${item.seq}`} item={item} where={where} />)}
       </ol>
     </section>
   );
@@ -62,17 +65,32 @@ export function firstLine(content: string): string {
   return lines.slice(start, end === -1 ? undefined : end).join(" ");
 }
 
-function TimelineItem({ item }: { item: Item }) {
+function TimelineItem({ item, where }: { item: Item; where: Where }) {
   switch (item.type) {
-    case "agent": return <AgentCard phase={item} />;
-    case "code": return <CodeRow phase={item} />;
+    case "agent": return <AgentCard phase={item} where={where} />;
+    case "code": return <CodeRow phase={item} where={where} />;
     case "gate": return <GateCard gate={item} />;
     case "automatic": return <AutomaticRow row={item} />;
     case "resumed": return <ResumedRow row={item} />;
   }
 }
 
-function AgentCard({ phase }: { phase: AgentItem }) {
+/**
+ * Whether a phase is opened into its tabs, and on which: closed until asked,
+ * so a page of thirty phases asks the backend for none of their detail.
+ */
+function useOpened(): [string | null, (tab: string | null) => void, React.ReactNode] {
+  const [opened, open] = useState<string | null>(null);
+  const toggle = (
+    <button className="link small" aria-expanded={opened !== null} onClick={() => open(opened === null ? "" : null)}>
+      {opened === null ? "details" : "hide"}
+    </button>
+  );
+  return [opened, open, toggle];
+}
+
+function AgentCard({ phase, where }: { phase: AgentItem; where: Where }) {
+  const [opened, open, toggle] = useOpened();
   return (
     <li className={`item agent tone-${toneOf(phase.status)}`} id={phaseAnchor(phase.phaseId)}>
       <span className="when">{formatClock(phase.at)}</span>
@@ -88,6 +106,7 @@ function AgentCard({ phase }: { phase: AgentItem }) {
             <span>{formatDuration(phase.duration)}</span>
             <span>{formatCost(phase.cost)}</span>
           </span>
+          {toggle}
         </div>
         <div className="summary">
           {phase.outputType ? <><b>{phase.outputType}</b>{phase.summary ? ` · ${phase.summary}` : ""}</>
@@ -100,9 +119,9 @@ function AgentCard({ phase }: { phase: AgentItem }) {
         {phase.artifacts.length ? (
           <div className="chips">
             {phase.artifacts.map((chip) => (
-              <span className="chip" key={chip.path}>
+              <button className="chip" key={chip.path} onClick={() => open("artifacts")}>
                 <code>{chip.path.split("/").pop()}</code> <span className="muted">{chip.location === "repo" ? "repo" : "handoff"}</span>
-              </span>
+              </button>
             ))}
           </div>
         ) : null}
@@ -117,12 +136,16 @@ function AgentCard({ phase }: { phase: AgentItem }) {
           </div>
         ))}
         {phase.error ? <div className="error small">{phase.error}</div> : null}
+        {opened !== null ? (
+          <div className="detail"><PhaseDetails phaseId={phase.phaseId} where={where} initial={opened || undefined} /></div>
+        ) : null}
       </div>
     </li>
   );
 }
 
-function CodeRow({ phase }: { phase: CodeItem }) {
+function CodeRow({ phase, where }: { phase: CodeItem; where: Where }) {
+  const [opened, , toggle] = useOpened();
   const failed = phase.commands.filter((command) => command.exitCode !== 0).at(-1);
   return (
     <li className={`item code tone-${toneOf(phase.status)}`} id={phaseAnchor(phase.phaseId)}>
@@ -143,9 +166,13 @@ function CodeRow({ phase }: { phase: CodeItem }) {
           </span>
           <span className="grow" />
           <span className="muted small">{formatDuration(phase.duration)}</span>
+          {toggle}
         </div>
         {failed?.outputTail ? <pre className="tail">{failed.outputTail}</pre> : null}
         {phase.error ? <div className="error small">{phase.error}</div> : null}
+        {opened !== null ? (
+          <div className="detail boxed"><PhaseDetails phaseId={phase.phaseId} where={where} /></div>
+        ) : null}
       </div>
     </li>
   );

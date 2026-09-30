@@ -248,6 +248,19 @@ export class GitHub {
     if (UNSHOWN.has(response.status)) return false;
     throw await refusal(response, where);
   }
+
+  /**
+   * `path` in `repo` at `ref`, as bytes, or null when `as` is not shown it
+   * there. Never remembered (`Memory`): a file at a commit does not change,
+   * and its body is nothing the cockpit keeps.
+   */
+  async file(as: Credential, repo: string, path: string, ref: string): Promise<Uint8Array<ArrayBuffer> | null> {
+    const where = `/repos/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`;
+    const response = await this.send(as, "GET", this.api + where, { Accept: "application/vnd.github.raw+json" });
+    if (response.ok) return new Uint8Array(await response.arrayBuffer());
+    if (UNSHOWN.has(response.status)) return null;
+    throw await refusal(response, where);
+  }
 }
 
 export async function refusal(response: Response, path: string): Promise<ForgeError> {

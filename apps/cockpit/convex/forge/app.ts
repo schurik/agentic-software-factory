@@ -320,6 +320,13 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       if (installation === undefined) return false;
       return github.holdsFactory(await asInstallation(installation), repo);
     },
+    // What a session wrote is read by the cockpit for itself, on the installation's budget:
+    // whether the person may see it is the mirror's word, asked before the forge is.
+    file: async (repo, path, ref) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return github.file(await asInstallation(installation), repo, path, ref);
+    },
     person: () => github.one(asUser(), "/user", readPerson),
     reach: async () => {
       // GitHub's own answer to "where can this person go through this App", with their role on each.

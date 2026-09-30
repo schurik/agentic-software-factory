@@ -110,6 +110,18 @@ What the cockpit reads for itself goes on the App's installation token; what it 
 goes on that person's token. Both are behind one interface, `convex/forge/forge.ts`, with the App
 in `convex/forge/app.ts` and local mode's token in `convex/forge/token.ts`.
 
+A session's **repo artifacts** are read that way too. A handoff file (findings, a review, the
+issue a chapter answers) travels inline in its `artifact_written` and is on the page already; a
+repo file (the spec, the doc) travels only as a path, because it is committed on the session's
+branch. When a person opens a phase's Artifacts tab, `artifacts:read` asks the forge for the file at
+the sha of the first `committed` after it — the factory commits the whole tree, so that commit holds
+it as written — and never at the branch tip, which later phases and people move on. It checks the
+bytes against the digest the phase shipped, cuts them at the factory's own cap (256 KB), and keeps
+nothing: the cockpit stores no file bodies. The page says when a later commit changed the file (with
+a link to the forge's comparison), and when a later phase wrote it again before anything committed
+it, so that version never reached the forge. The session must be one the person may see; the read
+itself goes on the installation token, like the cockpit's other reading.
+
 ## The ingest wire
 
 A station sends one session's lines of `events.jsonl`, unchanged, to the backend's **site** origin
@@ -249,7 +261,11 @@ real session proves the session page's story reads right — chapters, what a re
 decision closed which round. `tests/story.test.ts` asserts the story the query tells of each, and
 that its Journal view is byte for byte the `journal.md` the factory rendered and the journal every
 task prompt in the recording ended with; `tests/sessionview.test.tsx` renders the page itself from
-the same session to static markup, with no backend and no browser.
+the same session to static markup, with no backend and no browser. A phase opens into its tabs
+(Artifacts · Overview · Checks · Tools · Transcript · Cost · Events) through a query of its own,
+`sessions:phase`, asked only when someone opens it: `tests/phase.test.ts` says what each tab holds
+for the recorded session, `tests/phasetabs.test.tsx` renders every tab of every phase of it, and
+`tests/artifacts.test.ts` reads repo artifacts from the fake forge.
 
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
 cockpit calls it, in memory, installed as `fetch`. It stands in at the wire rather than behind the
