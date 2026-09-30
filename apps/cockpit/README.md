@@ -243,6 +243,14 @@ sessions list and the session page return. When the factory adds a kind or a ver
 lands there, and this suite fails until `convex/model/session.ts` has a reader for it. That is the
 rule from `CLAUDE.md`: the cockpit's reader ships in the same pull request.
 
+The corpus also holds whole sessions (`../../tests/golden/sessions/<name>/`), recorded off the fake
+harness by `tests/test_asf_golden_sessions.py`: one line per kind proves a reader exists, but only a
+real session proves the session page's story reads right — chapters, what a resume replayed, whose
+decision closed which round. `tests/story.test.ts` asserts the story the query tells of each, and
+that its Journal view is byte for byte the `journal.md` the factory rendered and the journal every
+task prompt in the recording ended with; `tests/sessionview.test.tsx` renders the page itself from
+the same session to static markup, with no backend and no browser.
+
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
 cockpit calls it, in memory, installed as `fetch`. It stands in at the wire rather than behind the
 forge interface, so both credentials run their real code against it — the App's JWT is verified

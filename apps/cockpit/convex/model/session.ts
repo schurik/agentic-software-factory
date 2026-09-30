@@ -12,6 +12,8 @@
  * are the list of what must have a reader here.
  */
 import { v, type Infer } from "convex/values";
+import { Payload } from "./payload";
+import { begin, finish, tell, type Story, type StoryState } from "./story";
 import { isRecord, type StoredEvent } from "./wire";
 
 // ── the summary: what the sessions list shows, stored beside each session ────
@@ -57,18 +59,6 @@ export const EMPTY_SUMMARY: Summary = {
 
 // ── the session page ─────────────────────────────────────────────────────────
 
-export interface Phase {
-  phaseId: string;
-  name: string;
-  kind: string;
-  owner: string;
-  description: string;
-  status: string;
-  error: string;
-  gate: string;
-  round: number;
-}
-
 export type Unread = "unknown kind" | "newer version";
 
 export interface Row {
@@ -83,7 +73,7 @@ export interface Row {
 
 export interface SessionView {
   summary: Summary;
-  phases: Phase[];
+  story: Story;
   events: Row[];
 }
 
@@ -93,16 +83,16 @@ export interface SessionView {
  * could be read before the one that explains it.
  */
 export function view(events: StoredEvent[], acked: number): SessionView {
-  const state: State = { summary: structuredClone(EMPTY_SUMMARY), phases: [] };
+  const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin() };
   const rows = [...events]
     .sort((a, b) => a.seq - b.seq)
     .map((event) => apply(state, event, event.seq <= acked));
-  return { summary: state.summary, phases: state.phases, events: rows };
+  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows };
 }
 
 /** `summary` moved on by `events`, which follow the ones it was folded from. */
 export function advance(summary: Summary, events: StoredEvent[]): Summary {
-  const state: State = { summary: structuredClone(summary), phases: [] };
+  const state: State = { summary: structuredClone(summary), story: null };
   for (const event of events) apply(state, event, true);
   return state.summary;
 }
@@ -118,7 +108,7 @@ export function readSummary(stored: unknown): Summary {
 
 interface State {
   summary: Summary;
-  phases: Phase[];
+  story: StoryState | null;         // only the session page tells the story; the list needs none
 }
 
 interface Reader {
@@ -139,46 +129,9 @@ function apply(state: State, event: StoredEvent, fold: boolean): Row {
   if (fold) {
     reader.fold?.(state, p);
     state.summary.lastEventAt = ts;
+    if (state.story) tell(state.story, kind, version, p, { seq, ts });
   }
   return { seq, ts, kind, v: version, unreadBecause: null, detail: reader.describe(p), raw };
-}
-
-/**
- * A payload read defensively. The factory validates what it writes, but a
- * reader that threw on a malformed event would wedge ingest for that session
- * forever — the station resends the same batch — so a missing or mistyped
- * field reads as empty instead.
- */
-class Payload {
-  constructor(private readonly raw: Record<string, unknown>) {}
-
-  static parse(text: string): Payload {
-    try {
-      const value: unknown = JSON.parse(text);
-      return new Payload(isRecord(value) ? value : {});
-    } catch {
-      return new Payload({});
-    }
-  }
-
-  str(key: string): string {
-    const value = this.raw[key];
-    return typeof value === "string" ? value : "";
-  }
-
-  num(key: string): number {
-    const value = this.raw[key];
-    return typeof value === "number" && Number.isFinite(value) ? value : 0;
-  }
-
-  bool(key: string): boolean {
-    return this.raw[key] === true;
-  }
-
-  obj(key: string): Payload | null {
-    const value = this.raw[key];
-    return isRecord(value) ? new Payload(value) : null;
-  }
 }
 
 function waitingFor(p: Payload | null): WaitingFor | null {
@@ -193,24 +146,6 @@ function learn(summary: Summary, fields: Partial<Summary>): void {
   for (const [key, value] of Object.entries(fields)) {
     if (value) (summary as Record<string, unknown>)[key] = value;
   }
-}
-
-function phase(state: State, phaseId: string): Phase {
-  let found = state.phases.find((each) => each.phaseId === phaseId);
-  if (found === undefined) {
-    found = { phaseId, name: "", kind: "", owner: "", description: "", status: "",
-              error: "", gate: "", round: 0 };
-    state.phases.push(found);
-  }
-  return found;
-}
-
-function phaseStarted(state: State, p: Payload): void {
-  const found = phase(state, p.str("phase_id"));
-  Object.assign(found, {
-    name: p.str("name"), kind: p.str("kind"), owner: p.str("owner"),
-    description: p.str("description"), status: "running", error: "", gate: "", round: 0,
-  });
 }
 
 const describePhaseStarted = (p: Payload) =>
@@ -258,9 +193,7 @@ const READERS: Record<string, Record<number, Reader>> = {
       describe: (p) => `provenance: ${p.str("request") || p.str("trigger")}`,
     },
   },
-  // A chapter: one workflow the session passes through. The chapters themselves
-  // are the session page's story, which is not built yet — until it is, these
-  // read as rows.
+  // A chapter: one workflow the session passes through (the story, story.ts).
   workflow_started: {
     1: {
       describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
@@ -277,10 +210,9 @@ const READERS: Record<string, Record<number, Reader>> = {
     1: { describe: (p) => `resumed chapter ${p.num("chapter")}: ${p.str("workflow")}` },
   },
   phase_started: {
-    1: { fold: phaseStarted, describe: describePhaseStarted },
+    1: { describe: describePhaseStarted },
     // v2 adds what an agent phase was given: its task file and its prompt's digest.
     2: {
-      fold: phaseStarted,
       describe: (p) => describePhaseStarted(p) + (p.str("task") ? ` · ${p.str("task")}` : ""),
     },
   },
@@ -291,12 +223,6 @@ const READERS: Record<string, Record<number, Reader>> = {
   },
   phase_ended: {
     1: {
-      fold: (state, p) => {
-        const found = phase(state, p.str("phase_id"));
-        found.name ||= p.str("name");
-        Object.assign(found, { status: p.str("status"), error: p.str("error"),
-                               gate: p.str("gate"), round: p.num("round") });
-      },
       describe: (p) => `${p.str("name")} ended: ${p.str("status")}` +
         (p.str("gate") ? ` at ${gateRound(p)}` : "") + (p.str("error") ? ` — ${p.str("error")}` : ""),
     },
