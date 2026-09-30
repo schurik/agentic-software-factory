@@ -1,10 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import { cockpit, factory, ingest, type WireEvent } from "./helpers";
 
 function line(seq: number, kind = "journal_noted"): WireEvent {
   return { seq, ts: "2026-09-29T12:00:00.000+00:00", kind, v: 1, payload: { n: seq } };
 }
+
+// A local cockpit, where every session is its one viewer's to see. Who may see
+// which session in a team's cockpit is team.test.ts.
+beforeEach(() => {
+  vi.stubEnv("COCKPIT_MODE", "local");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("ingest", () => {
   it("rejects a batch with no token", async () => {

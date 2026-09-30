@@ -73,6 +73,9 @@ class Service:
     # retired), or "". The local cockpit's, when another `up` put a newer one
     # in its place — restarting at this stamp's version would downgrade it.
     retire_if: Callable[[], str] | None = None
+    # One more line for `up`'s summary of what it started, as (label, text):
+    # the local cockpit's says whose forge token it was handed.
+    summary: tuple[str, str] | None = None
     proc: subprocess.Popen | None = None
     restarts: int = 0
     started_at: float = 0.0
@@ -215,9 +218,12 @@ def services(want: set[str], config_path: str, interval: int, main_root: Path,
     if "cockpit" in want:
         # compose stops its containers on SIGTERM, and a Convex backend takes
         # its own stop_grace_period to go — more than a watcher's 8s.
+        # …and it asks the forge as whoever started it: their `gh auth token`
+        # goes to the app container in the child's environment, not its argv.
+        forge = local_cockpit.forge_credential()
         found.append(Service("cockpit", local_cockpit.up_argv(), main_root,
-                             local_cockpit.compose_env(), grace=30.0,
-                             retire_if=_superseded))
+                             {**local_cockpit.compose_env(), **forge.env()},
+                             grace=30.0, retire_if=_superseded, summary=("forge", forge.line)))
     for name in WATCHERS:
         if name in want:
             found.append(Service(name, [sys.executable, RUNNER, "--config", config_path, name,
@@ -296,6 +302,9 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     print()
     print(f"  station    {here.name} ({here.kind}, {here.id})")
     print(f"  cockpit    {ships_to.label if ships_to else 'none — nothing is shipped'}")
+    for service in started:
+        if service.summary:
+            print(f"  {service.summary[0]:<9}  {service.summary[1]}")
     if "obs" in want:
         print(f"  trace UI   http://localhost:{UI_PORT}   (api on :{API_PORT})")
     for name in WATCHERS:

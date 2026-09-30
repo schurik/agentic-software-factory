@@ -8,13 +8,30 @@
  * @module
  */
 
+import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
+import type * as discovery from "../discovery.js";
+import type * as factories from "../factories.js";
+import type * as forge_app from "../forge/app.js";
+import type * as forge_forge from "../forge/forge.js";
+import type * as forge_github from "../forge/github.js";
+import type * as forge_memory from "../forge/memory.js";
+import type * as forge_open from "../forge/open.js";
+import type * as forge_token from "../forge/token.js";
+import type * as handshakes from "../handshakes.js";
 import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as model_digest from "../model/digest.js";
+import type * as model_mode from "../model/mode.js";
+import type * as model_progress from "../model/progress.js";
+import type * as model_ranges from "../model/ranges.js";
 import type * as model_session from "../model/session.js";
+import type * as model_webhook from "../model/webhook.js";
 import type * as model_wire from "../model/wire.js";
 import type * as sessions from "../sessions.js";
+import type * as setup from "../setup.js";
 import type * as tokens from "../tokens.js";
+import type * as viewer from "../viewer.js";
 
 import type {
   ApiFromModules,
@@ -23,13 +40,30 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  auth: typeof auth;
+  crons: typeof crons;
+  discovery: typeof discovery;
+  factories: typeof factories;
+  "forge/app": typeof forge_app;
+  "forge/forge": typeof forge_forge;
+  "forge/github": typeof forge_github;
+  "forge/memory": typeof forge_memory;
+  "forge/open": typeof forge_open;
+  "forge/token": typeof forge_token;
+  handshakes: typeof handshakes;
   http: typeof http;
   ingest: typeof ingest;
   "model/digest": typeof model_digest;
+  "model/mode": typeof model_mode;
+  "model/progress": typeof model_progress;
+  "model/ranges": typeof model_ranges;
   "model/session": typeof model_session;
+  "model/webhook": typeof model_webhook;
   "model/wire": typeof model_wire;
   sessions: typeof sessions;
+  setup: typeof setup;
   tokens: typeof tokens;
+  viewer: typeof viewer;
 }>;
 
 /**

@@ -33,8 +33,11 @@ COCKPIT = Cockpit(url="http://cockpit.test:3211", token="asf_ingest_test")
 @pytest.fixture(autouse=True)
 def no_cockpit_from_the_shell(monkeypatch):
     for name in ("ASF_COCKPIT_URL", "ASF_COCKPIT_TOKEN", "ASF_COCKPIT_VERSION",
-                 "ASF_STATION_NAME", "CI"):
+                 "ASF_STATION_NAME", "CI", "GH_HOST"):
         monkeypatch.delenv(name, raising=False)
+    # Nor a forge token from whoever runs the suite: `gh` is asked through
+    # this, and here it is a machine where nobody is logged in.
+    monkeypatch.setattr(local_cockpit, "_gh", minting())
 
 
 def a_session(root: Path, adw_id: str, count: int) -> Path:
@@ -209,6 +212,70 @@ def test_a_token_the_local_cockpit_refuses_is_replaced_by_a_fresh_one(tmp_path: 
 
     assert local.refused(refused) is True
     assert local.get().token == "asf_ingest_0e50"
+
+
+# ── the forge credential the local cockpit asks with ─────────────────────────
+
+def test_the_local_cockpit_is_started_with_the_persons_own_gh_token(stamped, monkeypatch):
+    gh = minting((0, "gho_0a1b2c\n"))
+    monkeypatch.setattr(local_cockpit, "_gh", gh)
+
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+
+    assert gh.calls == [["gh", "auth", "token", "--hostname", "github.com"]]
+    assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == "gho_0a1b2c"
+    assert cockpit.env["ASF_COCKPIT_FORGE_HOST"] == "github.com"
+    assert not any("gho_0a1b2c" in arg for arg in cockpit.argv)      # in the environment, never on argv
+
+
+def test_the_token_is_the_one_for_the_host_gh_is_aimed_at(stamped, monkeypatch):
+    gh = minting((0, "ghp_enterprise\n"))
+    monkeypatch.setattr(local_cockpit, "_gh", gh)
+    monkeypatch.setenv("GH_HOST", "ghe.acme.test")
+
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+
+    assert gh.calls == [["gh", "auth", "token", "--hostname", "ghe.acme.test"]]
+    assert cockpit.env["ASF_COCKPIT_FORGE_HOST"] == "ghe.acme.test"
+    assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == "ghp_enterprise"
+
+
+def test_without_a_gh_login_the_local_cockpit_starts_with_no_token_and_says_what_that_costs(
+        stamped, monkeypatch):
+    monkeypatch.setattr(local_cockpit, "_gh", minting((1, "")))
+
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+
+    assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == ""
+    assert cockpit.summary[0] == "forge" and "gh auth login" in cockpit.summary[1]
+    monkeypatch.setattr(local_cockpit, "_gh", minting((0, "gho_0a1b2c\n")))
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+    said = cockpit.summary[1]
+    assert "github.com" in said and "gho_0a1b2c" not in said         # named, never shown
+
+
+def test_the_stamped_compose_file_runs_a_local_cockpit_that_asks_with_that_token():
+    compose = yaml.safe_load(local_cockpit.COMPOSE.read_text())
+    environment = compose["services"]["app"]["environment"]
+
+    assert "COCKPIT_MODE=local" in environment
+    assert "COCKPIT_FORGE_TOKEN=${ASF_COCKPIT_FORGE_TOKEN:-}" in environment
+    assert "COCKPIT_FORGE_HOST=${ASF_COCKPIT_FORGE_HOST:-github.com}" in environment
+    # no sign-in, so nothing off this machine may reach it
+    ports = [port for service in compose["services"].values() for port in service.get("ports", [])]
+    assert ports and all(port.startswith("127.0.0.1:") for port in ports)
+
+
+def test_doctor_says_whether_the_local_cockpit_will_have_a_forge_token(docker_here, monkeypatch):
+    monkeypatch.setattr(local_cockpit, "missing_images", lambda *_: [])
+
+    without = [finding for finding in preflight.cockpit() if "forge" in finding.check]
+    assert [finding.level for finding in without] == ["warn"] and "gh auth login" in without[0].fix
+
+    monkeypatch.setattr(local_cockpit, "_gh", minting((0, "gho_0a1b2c\n")))
+    with_one = [finding for finding in preflight.cockpit() if "forge" in finding.check]
+    assert [finding.level for finding in with_one] == ["ok"]
+    assert "gho_0a1b2c" not in with_one[0].line
 
 
 # ── the children of `asf up` and `asf station` ───────────────────────────────

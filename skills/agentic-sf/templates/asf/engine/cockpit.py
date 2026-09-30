@@ -20,6 +20,17 @@ ingest token the cockpit issued this factory (`Local`). Issuing one is an
 admin call into the running app container, so the token is minted once the
 cockpit is up, kept in the gitignored `<data_dir>/cockpit.json`, and replaced
 when the cockpit refuses it — a wiped volume forgets every token it issued.
+
+A team's cockpit reaches the forge through a GitHub App and signs people in
+with it. A local one has neither: GitHub cannot reach localhost, and the one
+person in front of it is whoever ran `asf up`. So it asks the forge AS them,
+with the token `gh auth token` prints (`forge_credential`), handed to the app
+container in its environment — never on a command line, never in a file of
+this repository. The cockpit keeps it where it keeps everything: in its
+backend, in the `data` volume on this machine, until the next `asf up` hands
+it another or none. Without one the cockpit still shows every session this
+station ships; it just cannot ask the forge which other repositories hold a
+factory.
 """
 
 from __future__ import annotations
@@ -30,6 +41,7 @@ import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -47,6 +59,7 @@ PROJECT = "asf-cockpit"            # compose.yaml's `name:`
 REGISTRY = "ghcr.io/schurik"
 IMAGES = ("asf-cockpit-backend", "asf-cockpit")
 APP_PORT, BACKEND_PORT, SITE_PORT = 3000, 3210, 3211
+FORGE_HOST = "github.com"
 MINT_RETRY = 5.0               # seconds between asking a cockpit still starting for a token
 
 _TOKEN = re.compile(r"asf_ingest_[0-9a-f]+")
@@ -145,6 +158,56 @@ def _run(argv: list[str]) -> tuple[int, str]:
     except (OSError, subprocess.SubprocessError) as error:
         return 1, str(error)
     return done.returncode, (done.stdout or "") + (done.stderr or "")
+
+
+# ── the forge, as the local cockpit asks it ──────────────────────────────────
+
+def _gh(argv: list[str]) -> tuple[int, str]:
+    """stdout only: a token, or nothing. stderr is `gh` explaining itself."""
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+    return done.returncode, done.stdout or ""
+
+
+def forge_host() -> str:
+    """The forge `gh` is aimed at: GH_HOST, as `gh` itself reads it, else
+    github.com. An Enterprise Server is named there; nothing assumes one host."""
+    return os.environ.get("GH_HOST", "").strip() or FORGE_HOST
+
+
+@dataclass(frozen=True)
+class ForgeCredential:
+    """What the local cockpit asks the forge with: the host, and the person's
+    own token for it — "" when `gh` is missing or not logged in."""
+    host: str
+    token: str
+
+    def env(self) -> dict[str, str]:
+        """For the `cockpit` child: what the stamped compose file hands the app container."""
+        return {"ASF_COCKPIT_FORGE_HOST": self.host, "ASF_COCKPIT_FORGE_TOKEN": self.token}
+
+    @property
+    def line(self) -> str:
+        """One line on what was found, naming the host and never the token."""
+        if self.token:
+            return f"{self.host}, as you (`gh auth token`)"
+        return (f"no token for {self.host} — the local cockpit lists only the factories its "
+                f"stations ship: `gh auth login`, then start again")
+
+
+def forge_credential() -> ForgeCredential:
+    """The token `gh auth token` prints for the host `gh` is aimed at, so the
+    local cockpit can ask the forge as the person who ran `asf up`.
+
+    Asked once, as the cockpit starts. A token changed later (`gh auth
+    login`, `gh auth refresh`) reaches the cockpit with the next `asf up`.
+    """
+    host = forge_host()
+    code, output = _gh(["gh", "auth", "token", "--hostname", host])
+    token = output.strip() if code == 0 else ""
+    return ForgeCredential(host=host, token=token if len(token.split()) == 1 else "")
 
 
 # ── docker ───────────────────────────────────────────────────────────────────

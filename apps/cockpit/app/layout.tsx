@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -17,21 +16,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <header className="bar">
-          <Link href="/sessions" className="brand">cockpit</Link>
-          <nav>
-            <Link href="/sessions">Sessions</Link>
-          </nav>
-        </header>
-        <main>
-          {url ? (
-            <Providers url={url}>{children}</Providers>
-          ) : (
+        {url ? (
+          <Providers url={url}>{children}</Providers>
+        ) : (
+          <main>
             <p className="notice">
               <code>CONVEX_URL</code> is not set: the cockpit does not know where its backend is.
             </p>
-          )}
-        </main>
+          </main>
+        )}
       </body>
     </html>
   );

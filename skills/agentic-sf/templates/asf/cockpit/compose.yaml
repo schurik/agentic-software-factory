@@ -61,6 +61,13 @@ services:
     environment:
       - CONVEX_SELF_HOSTED_URL=http://backend:3210
       - CONVEX_URL=http://127.0.0.1:${ASF_COCKPIT_BACKEND_PORT:-3210}
+      # Local mode: nobody signs in, and the forge is asked as whoever ran
+      # `asf up` — with the `gh auth token` it hands over here, which the app
+      # passes to the backend as it starts. Empty when `gh` had none: the
+      # cockpit then shows what its stations ship and asks the forge nothing.
+      - COCKPIT_MODE=local
+      - COCKPIT_FORGE_HOST=${ASF_COCKPIT_FORGE_HOST:-github.com}
+      - COCKPIT_FORGE_TOKEN=${ASF_COCKPIT_FORGE_TOKEN:-}
     depends_on:
       keygen:
         condition: service_completed_successfully

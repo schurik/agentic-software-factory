@@ -1,6 +1,8 @@
 import { convexTest } from "convex-test";
+import { vi } from "vitest";
 import schema from "../convex/schema";
-import { internal } from "../convex/_generated/api";
+import { api, internal } from "../convex/_generated/api";
+import { APP_URL, type FakeForge, teamMode } from "./forge";
 import type { WireEvent } from "../convex/model/wire";
 
 export type { WireEvent };
@@ -42,4 +44,29 @@ export function fixture(kind: string, seq: number, version = 1): WireEvent {
   const event = corpus[`${kind}/v${version}.json`];
   if (!event) throw new Error(`no golden fixture ${kind}/v${version}.json`);
   return structuredClone({ ...event, seq });
+}
+
+/**
+ * One round of the forge catch-up poll, and everything it schedules after
+ * itself. What the cron does every minute, and `start.sh` once at start.
+ * Needs `vi.useFakeTimers()`: convex-test runs scheduled functions on timers.
+ */
+export async function catchUp(t: Cockpit): Promise<void> {
+  await t.action(internal.discovery.catchUp, {});
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+}
+
+/** A team's cockpit with its GitHub App registered on `forge`: the setup page's whole flow. */
+export async function team(t: Cockpit, forge: FakeForge, organization = "acme"): Promise<void> {
+  teamMode();
+  const begun = await t.action(api.setup.begin, {
+    code: await t.action(internal.setup.code, {}), host: forge.host, organization, appUrl: APP_URL,
+  });
+  await t.action(api.setup.complete, { code: await forge.register(begun), state: begun.state });
+}
+
+/** `login` signing in with the team's App; returns what their browser then holds. */
+export async function signIn(t: Cockpit, forge: FakeForge, login: string): Promise<string> {
+  const { state } = await t.action(api.auth.start, {});
+  return await t.action(api.auth.finish, { code: forge.authorize(login), state });
 }

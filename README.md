@@ -175,11 +175,17 @@ integrated leaves the remote again when its session finishes or is aborted. `on_
 every branch on the machine until an `integrate` stage pushes it, which is also the default without
 a cockpit.
 
+The forge also says which factories there are, and who may see them. A cockpit's Factories page
+lists every repository it can reach whose default branch holds `asf/factory.yaml` — nothing is
+registered in the cockpit. A team's cockpit reaches the forge through a GitHub App the team
+registers for itself, people sign in with it, and each sees what the forge lets them read. The
+local one has no sign-in: `asf up` hands it your own `gh auth token`, and it asks as you.
+
 ![A stamped repo as a station, the Docker project asf-cockpit with the Next.js app and the Convex backend, and the browser](docs/diagrams/local-cockpit-components.svg)
 
 The watchers, the station loop and the cockpit child all live in the one `asf up` process; a session
 is its own `asf run`. The only data that crosses into the cockpit is the loop's `POST /ingest` to
-the backend's site on `:3211`. [`apps/cockpit/README.md`](apps/cockpit/README.md#how-the-pieces-connect)
+the backend's site on `:3211`, and, once as it starts, the `gh auth token` it asks the forge with. [`apps/cockpit/README.md`](apps/cockpit/README.md#how-the-pieces-connect)
 has the sequence: start-up, page load, and what happens for each event.
 
 ## Install the skill

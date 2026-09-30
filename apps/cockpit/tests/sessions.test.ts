@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import { cockpit, corpus, factory, fixture, ingest, type Cockpit, type WireEvent } from "./helpers";
 
@@ -44,6 +44,16 @@ const DESCRIBED: Record<string, string> = {
     "chapter 1: ship finished: fail — the run's acceptance criterion was not met",
   "workflow_started/v1.json": "chapter 1: ship started, answering an issue",
 };
+
+// A local cockpit, where every session is its one viewer's to see. Who may see
+// which session in a team's cockpit is team.test.ts.
+beforeEach(() => {
+  vi.stubEnv("COCKPIT_MODE", "local");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("the golden corpus", () => {
   it("is where the cockpit expects it", () => {
