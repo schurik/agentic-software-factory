@@ -14,7 +14,7 @@ input: issue
 
 stages:
   - scout:     {agent: scout}                      # the reporter guessed; the scout looked
-  - plan:      {agent: planner}                    # hitl: true is worth most here — a stranger's ask
+  - plan:      {agent: planner, hitl: true}         # worth most here — a stranger's ask
   - commit:    {of: plan}
   - implement: {agent: builder}
   - verify:    {blocks: [test], max_fix_loops: 3, fix: {agent: builder}}
