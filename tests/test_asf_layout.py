@@ -68,7 +68,7 @@ def test_the_roster_is_directories_and_factory_yaml_may_not_carry_agents(factory
     assert sorted(a.name for a in cfg.agents) == ["analyst", "builder", "documenter", "planner",
                                                   "reviewer", "scout"]
     scout = next(a for a in cfg.agents if a.name == "scout")
-    assert scout.writes == [] and scout.thinking == "low"             # read-only recon, cheap
+    assert scout.writes == [] and scout.thinking == "medium"          # read-only recon, cheap
     planner = next(a for a in cfg.agents if a.name == "planner")
     assert planner.writes == ["docs/asf/spec/"]
     assert planner.prompt_engineering.user == ""          # tasks belong to stages
