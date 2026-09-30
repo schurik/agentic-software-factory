@@ -167,6 +167,30 @@ describe("a session told by its events", () => {
   });
 });
 
+describe("an artifact", () => {
+  it("says how it travelled: inline, cut, not sent at all, or as a path in the repository", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const written = (seq: number, payload: Record<string, unknown>) => ({
+      ...fixture("artifact_written", seq),
+      payload: { ...fixture("artifact_written", seq).payload, ...payload },
+    });
+    await ship(t, token, [
+      fixture("session_started", 1),
+      written(2, { path: "context_handoff/scout_findings.md", size: 300001, truncated: true }),
+      written(3, { path: "context_handoff/core.dump", size: 4008, content: "", truncated: true }),
+      written(4, { location: "repo", path: "docs/asf/spec/plan.md", size: 38, content: "" }),
+    ]);
+
+    const view = await t.query(api.sessions.get, WHERE);
+    expect(view!.events.slice(1).map((row) => row.detail)).toEqual([
+      "output context_handoff/scout_findings.md written: 300001 bytes, inline, cut at the cap",
+      "output context_handoff/core.dump written: 4008 bytes, not text, not sent",
+      "output docs/asf/spec/plan.md written: 38 bytes, in the repository",
+    ]);
+  });
+});
+
 describe("an event this cockpit cannot read", () => {
   it("is stored and shown as a generic row, and changes nothing it cannot vouch for", async () => {
     const t = cockpit();

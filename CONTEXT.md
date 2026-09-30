@@ -20,6 +20,12 @@ factory's data dir. It may pass through several workflows in turn: an issue's wo
 of pull-request review for each round of feedback.
 _Avoid_: run (as a noun for the whole thing), job, execution
 
+**Chapter**:
+One workflow's passage through a session, from the moment it takes the session until it ends;
+resuming the workflow continues its chapter. A session reads as its chapters in order: an issue's
+workflow, then one for each round of pull-request review.
+_Avoid_: run, round, stage, step
+
 **Artifact**:
 A file a phase writes and declares as its output, or code writes as the request a workflow answers.
 It either lives in the repository and is committed on the session's branch, or is handed off inside

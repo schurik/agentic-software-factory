@@ -113,9 +113,14 @@ def commit_all(cwd: Pathish, message: str, allow_clean: bool = False) -> str:
 
 
 def commit_files(cwd: Pathish, ref: str = "HEAD") -> list[str]:
-    """The paths one commit changed, relative to the repository root."""
-    out = _git(cwd, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", ref)
-    return [line for line in out.splitlines() if line]
+    """The paths one commit changed, relative to the repository root.
+
+    `-z`, because without it git quotes and octal-escapes any path it finds
+    unusual (`"na\\303\\257ve.py"`), and these are compared with paths read
+    off the disk.
+    """
+    out = _git(cwd, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "-z", ref)
+    return [path for path in out.split("\0") if path]
 
 
 def changed_files(cwd: Pathish) -> list[str]:

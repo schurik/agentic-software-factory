@@ -98,7 +98,10 @@ def tell(repo: Path) -> None:
     resumed = asf(repo, "resume", TOLD_ID)
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
 
-    fake_roster(repo, builder=[build_reply("ok = 2\n", "feat: ok is 2")])
+    fake_roster(repo, builder=[{
+        "writes": {"app.py": "ok = 2\n", "naïve.py": "ok = 2\n"},
+        "envelope": envelope(changed_files=["app.py", "naïve.py"],
+                             commit_message="feat: ok is 2")}])
     joined = asf(repo, "run", "again", "make ok 2", "--adw-id", TOLD_ID)
     assert joined.returncode == 0, joined.stdout + joined.stderr
 
@@ -114,6 +117,16 @@ def told(tmp_path_factory) -> Path:
 def lines_of(repo: Path, *kinds: str) -> list[EventLine]:
     return [line for line in events.read(session_dir(repo, TOLD_ID))
             if not kinds or line.kind in kinds]
+
+
+def processes(lines: list[EventLine]) -> list[list[EventLine]]:
+    """The session's events, split at each `session_started`."""
+    split: list[list[EventLine]] = []
+    for line in lines:
+        if line.kind == "session_started":
+            split.append([])
+        split[-1].append(line)
+    return split
 
 
 # ── the wire still holds ─────────────────────────────────────────────────────
@@ -152,27 +165,47 @@ def test_a_session_reads_in_chapters_one_per_workflow_it_passes_through(told: Pa
     assert [line.payload["status"] for line in closed] == ["fail", "success", "success"]
     assert closed[0].payload["reason"].startswith("implement failed: builder failed gates")
 
-    # A chapter opens right behind the process that opens it, and closes right
-    # before the session says how it ended.
-    kinds = [line.kind for line in lines]
-    for index, kind in enumerate(kinds):
-        if kind in ("workflow_started", "session_resumed"):
-            assert kinds[index - 1] == "session_started"
-        if kind == "workflow_finished":
-            assert kinds[index + 1] == "session_finished"
+    # Every process says which chapter it works on before it opens a phase, and
+    # the chapter closes right before the session says how it ended.
+    for process in processes(lines):
+        kinds = [line.kind for line in process]
+        assert kinds[1] in ("workflow_started", "session_resumed")
+        assert kinds[-2:] == ["workflow_finished", "session_finished"]
+
+
+def test_a_resume_continues_its_own_workflow_s_chapter_and_opens_one_when_it_has_none(
+        stamped: Path):
+    fake_roster(stamped, builder=[
+        {"envelope": envelope(changed_files=["app.py"], commit_message="feat: app")}])
+    for name in ("first", "second", "third"):
+        write_workflow(stamped, name, {
+            "description": f"build and commit, as the {name} workflow on the session",
+            "stages": [{"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+
+    # `first` fails, `second` joins the session and lands the file, and then
+    # `first` is resumed although it is no longer the session's latest chapter.
+    failed = asf(stamped, "run", "first", "add app.py")
+    assert failed.returncode == 1, failed.stdout + failed.stderr
+    adw_id = adw_id_of(failed)
+    fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
+    for argv in (["second", "add app.py"], ["first", "add app.py", "--resume"],
+                 ["third", "add app.py", "--resume"]):    # ...and one it never ran
+        result = asf(stamped, "run", *argv, "--adw-id", adw_id)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    story = [(line.kind, line.payload["workflow"], line.payload["chapter"])
+             for line in events.read(session_dir(stamped, adw_id))
+             if line.kind in ("workflow_started", "session_resumed", "workflow_finished")]
+    assert story == [
+        ("workflow_started", "first", 1), ("workflow_finished", "first", 1),
+        ("workflow_started", "second", 2), ("workflow_finished", "second", 2),
+        ("session_resumed", "first", 1), ("workflow_finished", "first", 1),
+        ("workflow_started", "third", 3), ("session_resumed", "third", 3),
+        ("workflow_finished", "third", 3)]
 
 
 # ── a resume ─────────────────────────────────────────────────────────────────
-
-def processes(lines: list[EventLine]) -> list[list[EventLine]]:
-    """The session's events, split at each `session_started`."""
-    split: list[list[EventLine]] = []
-    for line in lines:
-        if line.kind == "session_started":
-            split.append([])
-        split[-1].append(line)
-    return split
-
 
 def test_a_resume_names_the_phases_it_answered_from_the_record(told: Path):
     first, resumed, _ = processes(lines_of(told))
@@ -189,6 +222,46 @@ def test_a_resume_names_the_phases_it_answered_from_the_record(told: Path):
         opened_first["scout"], opened_first["plan"]]
     # ...and nowhere else: neither the first walk nor the second workflow replayed anything.
     assert len(lines_of(told, "phase_replayed")) == 2
+
+
+def test_a_replay_its_gates_refuse_is_announced_again_as_the_live_call_it_became(
+        stamped: Path):
+    fake_roster(stamped,
+                planner=[{"writes": {"docs/asf/spec/plan.md": PLAN},
+                          "envelope": envelope(artifacts=["docs/asf/spec/plan.md"])}],
+                builder=[{"envelope": envelope(changed_files=["app.py"],
+                                               commit_message="feat: app")}])
+    write_workflow(stamped, "recoverable", {
+        "description": "a plan, then a build that fails the first time",
+        "stages": [{"plan": {}}, {"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+    failed = asf(stamped, "run", "recoverable", "add app.py")
+    assert failed.returncode == 1, failed.stdout + failed.stderr
+    adw_id = adw_id_of(failed)
+
+    # The recorded plan claims a file the tree no longer has: its replay cannot hold.
+    (stamped / ".asf-worktrees" / adw_id / "docs" / "asf" / "spec" / "plan.md").unlink()
+    fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
+    resumed = asf(stamped, "resume", adw_id)
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+
+    _, second = processes(events.read(session_dir(stamped, adw_id)))
+    walk = [(line.kind, line.payload.get("prompt_digest", line.payload.get("passed")))
+            for line in second if line.kind in ("phase_started", "gate_result")
+            and line.payload["phase_id"].endswith("_plan")]
+    sent = hashlib.sha256("\0".join(
+        (session_dir(stamped, adw_id) / "planner" / "prompts" / name).read_text()
+        for name in ("system.md", "user.md")).encode()).hexdigest()
+    # Announced for the replay, which sends no prompt; refused by the gate that
+    # looks for the file; announced again for the call that replaced it.
+    assert walk == [
+        ("phase_started", ""), ("gate_result", False), ("gate_result", True),
+        ("phase_started", sent), ("gate_result", True), ("gate_result", True)]
+    # The build had never passed either, so nothing at all was answered from the record.
+    assert [line for line in second if line.kind == "phase_replayed"] == []
+    # The plan was written again, with the same bytes — so it is not shipped again.
+    assert len([line for line in events.read(session_dir(stamped, adw_id))
+                if line.kind == "artifact_written"]) == 1
 
 
 # ── tool calls ───────────────────────────────────────────────────────────────
@@ -291,11 +364,30 @@ def test_every_commit_a_session_makes_names_its_sha_and_the_files_it_landed(told
 
     # One per commit — the resume walked `commit_plan` again and landed nothing.
     assert [(each["sha"], each["message"]) for each in committed] == on_the_branch
+    # Paths as they are on disk — not as git quotes one it finds unusual.
     assert [each["files"] for each in committed] == [
-        ["docs/asf/spec/plan.md"], ["app.py"], ["app.py"]]
-    assert [each["files_total"] for each in committed] == [1, 1, 1]
+        ["docs/asf/spec/plan.md"], ["app.py"], ["app.py", "naïve.py"]]
+    assert [each["files_total"] for each in committed] == [1, 1, 2]
     assert [phases[each["phase_id"]] for each in committed] == [
         "commit_plan", "commit_implement", "commit_implement"]
+
+
+def test_a_commit_of_more_files_than_one_event_names_says_how_many_there_were(stamped: Path):
+    many = {f"gen/{index:03d}.txt": f"{index}\n" for index in range(501)}
+    fake_roster(stamped, builder=[{
+        "writes": many,
+        "envelope": envelope(changed_files=["gen/000.txt"], commit_message="feat: gen")}])
+    write_workflow(stamped, "bulk", {
+        "description": "one commit of very many files",
+        "stages": [{"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "bulk", "generate")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    [committed] = [line.payload for line in events.read(session_dir(stamped, adw_id_of(result)))
+                   if line.kind == "committed"]
+    assert committed["files"] == sorted(many)[:500] and committed["files_total"] == 501
 
 
 # ── what a phase was given ───────────────────────────────────────────────────

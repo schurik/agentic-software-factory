@@ -189,8 +189,7 @@ def fetch(run, config: IssuesConfig, ref: IssueRef) -> IssueContext:
            f"confirmed. It still says what must be TRUE when the work is done — not how "
            f"to build it, and not which files to touch. -->\n" if refined else "")
         + f"\n{body}\n")
-    artifacts.record_artifacts(run, run.phases[-1].phase_id if run.phases else "",
-                               "request", [str(body_path)])
+    artifacts.record_artifacts(run, "request", [str(body_path)])
 
     context = IssueContext(
         number=int(payload.get("number", ref.number)),

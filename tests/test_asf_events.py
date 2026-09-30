@@ -271,3 +271,8 @@ def test_replaying_a_session_s_events_rebuilds_its_files_exactly(stamped: Path, 
     assert sum(line.kind == "session_started" for line in lines) == 4
     request = next(events.payload(line) for line in lines if line.kind == "provenance_recorded")
     assert request.request == "#42 health check broken (#42)"
+    # What the person answered is a request the workflow works from, like the issue itself.
+    [answers] = [line.payload for line in lines if line.kind == "artifact_written"
+                 and line.payload["path"] == "context_handoff/answers_1.md"]
+    assert answers["role"] == "request" and "the refresh path" in answers["content"]
+    assert answers["content"] == Path(handoff(stamped, "answers_1.md")).read_text()

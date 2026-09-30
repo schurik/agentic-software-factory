@@ -198,7 +198,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         prompts.render(anchor(run.main_root, ref), variables).rstrip()
         for ref in [agent.prompt_engineering.system, *agent.prompt_engineering.system_append]
     ) + "\n"
-    task_ref = call.task or agent.prompt_engineering.user
+    task_ref = _task_ref(call, agent)
     if not task_ref:
         raise RuntimeError(f"agent {agent.name!r}: this call names no task and the agent "
                            f"has no fallback user prompt — a stage must resolve a task "
@@ -242,7 +242,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     output = _HarnessOutput(run, phase, agent.name)
     sends = 0
 
-    def heard(event: dict) -> None:
+    def on_event(event: dict) -> None:
         output.add(event)
         forward(event)
 
@@ -256,11 +256,11 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         sends += 1
         identity, cut_identity = clip_utf8((system_text if sends == 1 else "").encode(),
                                            BODY_BYTES)
-        sent, cut_sent = clip_utf8(prompt_text.encode(), BODY_BYTES)
+        text, cut_text = clip_utf8(prompt_text.encode(), BODY_BYTES)
         run.transcript(PromptRendered(
             phase_id=phase.phase_id, agent=agent.name, send=sends,
-            digest=prompts.digest(system_text, prompt_text), system=identity, prompt=sent,
-            truncated=cut_identity or cut_sent))
+            digest=prompts.digest(system_text, prompt_text), system=identity, prompt=text,
+            truncated=cut_identity or cut_text))
         request = AgentRequest(
             prompt=prompt_text,
             system_prompt=system_text,
@@ -283,7 +283,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         try:
             result = driver.run(
                 request,
-                on_event=heard,
+                on_event=on_event,
                 on_spawn=lambda pid: _spawned(run, agent, pid),
                 on_exit=lambda pid: _exited(run, pid))
         except limits.AgentTimeout as expiry:
@@ -357,7 +357,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     _persist_envelope(run, phase, agent.name, call, envelope, attempt, valid=True)
     # What it declared it wrote, now that the claim has held. Not on a replay:
     # nothing was written then, and the record already says what was.
-    artifacts.record_artifacts(run, phase.phase_id, "output", envelope.artifacts)
+    artifacts.record_artifacts(run, "output", envelope.artifacts)
     # The agent proposed these; code files them. Deliberately AFTER permissions
     # and the gates, so nothing an agent was not allowed to do reaches the
     # record as a thing that happened — and before the status check below, so a
@@ -472,10 +472,16 @@ def _check_gates(run, phase: Phase, call: AgentCall, envelope: EnvelopeBase,
     return violations
 
 
+def _task_ref(call: AgentCall, agent: AgentConfig) -> str:
+    """The task file this call renders: the one its stage resolved, else the
+    agent's own fallback prompt. "" when there is neither."""
+    return call.task or agent.prompt_engineering.user
+
+
 def _task_path(run, call: AgentCall, agent: AgentConfig) -> str:
-    """The task file this call renders, the way a reader of the repository
-    names it: relative to the repository root when it lies inside it."""
-    ref = call.task or agent.prompt_engineering.user
+    """That file the way a reader of the repository names it: relative to the
+    repository root when it lies inside it."""
+    ref = _task_ref(call, agent)
     if not ref:
         return ""
     path = anchor(run.main_root, ref).resolve()

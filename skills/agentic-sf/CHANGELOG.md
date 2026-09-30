@@ -51,8 +51,8 @@ before — `None` when there are none, never omitted.
 - Cutting a release publishes `ghcr.io/schurik/asf-cockpit` and `…/asf-cockpit-backend`, tagged with
   the release's version, and refuses when `asf/cockpit/min-version` is newer than the release.
 - A session's events say what a cockpit's session page needs. It reads in **chapters**, one per
-  workflow it passes through (`workflow_started`, `workflow_finished`); a `--resume` continues the
-  open one (`session_resumed`) and names each agent phase it answered from the record
+  workflow it passes through (`workflow_started`, `workflow_finished`); a `--resume` continues its
+  workflow's chapter (`session_resumed`) and names each agent phase it answered from the record
   (`phase_replayed`). `phase_started` is at version 2: an agent phase names its task file and the
   digest of the prompt it was sent. `artifact_written` carries a handoff file inline (cut at 256 KB,
   and it says so) or names a repo file, and `committed` names the sha that landed it. `tool_called`

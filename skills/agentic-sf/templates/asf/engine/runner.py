@@ -24,7 +24,7 @@ from .console import Console
 from .data_types import (COMMIT_FILES, AgentCall, AgentConfig, AgentResult, Committed,
                          Decision, DomainEvent, EnvelopeBase, EventRecord, Gate, Phase, PhaseEnded,
                          PhaseParams, PhaseStarted, ProvenanceRecorded, RunSpec,
-                         SessionSuspended, Subject, UsageRecorded)
+                         SessionSuspended, Subject, UsageRecorded, WaitingFor)
 from .utils import anchor, ensure_dir, now_iso, write_atomic
 
 
@@ -339,11 +339,14 @@ class Run:
             owner=params.owner, description=params.description, task=task,
             prompt_digest=prompt_digest))
 
-    def _ended(self, phase: Phase, **how) -> None:
+    def _ended(self, phase: Phase, error: str = "", waiting: WaitingFor | None = None) -> None:
+        """Say on the wire how a phase closed — after saying that it opened."""
         if self._unannounced is phase:
             self.announce(phase)
-        self.tracer.event(PhaseEnded(phase_id=phase.phase_id, name=phase.params.name,
-                                     status=phase.status, attempt=phase.attempt, **how))
+        self.tracer.event(PhaseEnded(
+            phase_id=phase.phase_id, name=phase.params.name, status=phase.status,
+            attempt=phase.attempt, error=error, gate=waiting.gate if waiting else "",
+            round=waiting.round if waiting else 0))
 
     @contextmanager
     def phase(self, params: PhaseParams):
@@ -370,7 +373,7 @@ class Run:
             # by name. The worktree is kept — its uncommitted work is the subject.
             phase.status = "waiting"
             phase.ended_at = now_iso()
-            self._ended(phase, gate=stop.waiting.gate, round=stop.waiting.round)
+            self._ended(phase, waiting=stop.waiting)
             self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
                                           type="phase_end", name=params.name,
                                           payload={"status": "waiting",

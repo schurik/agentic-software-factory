@@ -216,6 +216,14 @@ function phaseStarted(state: State, p: Payload): void {
 const describePhaseStarted = (p: Payload) =>
   `${p.str("name")} started · ${p.str("kind")}` + (p.str("owner") ? ` ${p.str("owner")}` : "");
 
+/** How an artifact reached the cockpit. A repo file is only named; a handoff
+ * file is here whole, cut at the factory's cap, or (not text) not sent at all. */
+function travelled(p: Payload): string {
+  if (p.str("location") === "repo") return "in the repository";
+  if (!p.bool("truncated")) return "inline";
+  return p.str("content") === "" ? "not text, not sent" : "inline, cut at the cap";
+}
+
 const ANSWERING: Record<string, string> = { issue: "an issue", pr: "a pull request's review" };
 
 const money = (cost: number) => `$${cost.toFixed(4)}`;
@@ -363,8 +371,7 @@ const READERS: Record<string, Record<number, Reader>> = {
   artifact_written: {
     1: {
       describe: (p) => `${p.str("role")} ${p.str("path")} written: ${p.num("size")} bytes, ` +
-        (p.str("location") === "repo" ? "in the repository"
-          : p.bool("truncated") ? "inline, cut at the cap" : "inline"),
+        travelled(p),
     },
   },
   committed: {

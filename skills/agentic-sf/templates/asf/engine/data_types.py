@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 PhaseKind = Literal["engineer", "agent", "code"]
 PhaseStatus = Literal["queued", "running", "success", "fail", "waiting"]
+ChapterInput = Literal["prompt", "issue", "pr"]     # what a workflow's `input:` may say
+ArtifactRole = Literal["request", "output"]         # code wrote it as the ask, or a phase declared it
 
 # Wall clock for one agent turn, unless the roster says otherwise. Generous on
 # purpose — a builder working a real change legitimately runs for many minutes,
@@ -1372,7 +1374,9 @@ class SessionSpec(BaseModel):
     hitl: str = ""
     name: Optional[str] = None      # the workflow's name; None = the script's own
     request: str = ""               # the prompt, on a prompt run — `session_started` carries it
-    input: str = "prompt"           # prompt | issue | pr — what the chapter this opens answers
+    # What the chapter this opens answers. A work item unless the caller says
+    # otherwise: a factory is reached from a tracker, and a prompt is the exception.
+    input: ChapterInput = "issue"
 
 
 # ── Integration (landing a run's branch) ─────────────────────────────────────
@@ -1911,7 +1915,7 @@ class WorkflowStarted(DomainEvent):
 
     workflow: str
     chapter: int                    # from 1, in the order the session opened them
-    input: Literal["prompt", "issue", "pr"] = "prompt"
+    input: ChapterInput
 
 
 class WorkflowFinished(DomainEvent):
@@ -1927,7 +1931,8 @@ class WorkflowFinished(DomainEvent):
 
 
 class SessionResumed(DomainEvent):
-    """A process picked the session's open chapter back up with `--resume`.
+    """A process picked a chapter back up with `--resume` — its own workflow's
+    latest, which is the session's latest unless another workflow joined since.
 
     Everything it walks before it reaches new ground is a phase the session
     already has, re-entered under its own `phase_id`: an agent phase answered
@@ -1942,8 +1947,8 @@ class SessionResumed(DomainEvent):
 
 
 class PhaseStarted(DomainEvent):
-    """A phase opened — once per WALK of it, so a resumed session says it again
-    under the same `phase_id`.
+    """A phase opened. A resumed session walks its phases again and says so
+    again, under the `phase_id` each already has.
 
     An agent phase also says what it was given: `task` is the task file it
     rendered, relative to the repository root, and `prompt_digest` is
@@ -2137,7 +2142,7 @@ class ArtifactWritten(DomainEvent):
     KIND: ClassVar[str] = "artifact_written"
 
     phase_id: str = ""
-    role: Literal["request", "output"]
+    role: ArtifactRole
     location: Literal["handoff", "repo"]
     path: str
     size: int = 0                   # of the file, in bytes
@@ -2146,7 +2151,7 @@ class ArtifactWritten(DomainEvent):
     truncated: bool = False
 
 
-COMMIT_FILES = 500              # paths one `committed` names; `files_total` counts the rest
+COMMIT_FILES = 500              # paths one `committed` names; `files_total` says how many there were
 
 
 class Committed(DomainEvent):
@@ -2238,7 +2243,7 @@ class SessionFinished(DomainEvent):
 
 # ── transcript events: written only when `cockpit.transcripts` is on ─────────
 #
-# Through `Run.transcript`, the one place that asks the config — so no caller
+# Through `Run.transcript`, the one door they are written through — so no caller
 # can write one for a factory that did not opt in. Nothing but a transcript view
 # may be built from these: a cockpit ages their bodies out, and whatever else a
 # view needs (a tool's name, a prompt's digest, spend) is on a core event.
@@ -2261,7 +2266,7 @@ class PromptRendered(DomainEvent):
 
     phase_id: str
     agent: str
-    send: int                       # from 1, within the phase
+    send: int                       # from 1, within one walk of the phase
     digest: str
     system: str = ""
     prompt: str = ""
@@ -2271,8 +2276,9 @@ class PromptRendered(DomainEvent):
 class HarnessOutput(DomainEvent):
     """A piece of the raw stream an agent's harness produced during a phase: one
     JSON line per harness event, as `raw_output.jsonl` holds them, cut into
-    chunks of at most `TRANSCRIPT_CHUNK_CHARS`. `chunk` counts from 1 within the
-    phase, and the texts in that order are the stream."""
+    chunks of at most `TRANSCRIPT_CHUNK_CHARS`. `chunk` counts from 1 within one
+    walk of the phase — a resume that runs the phase again starts over, behind a
+    new `phase_started` — and the texts in that order are that walk's stream."""
 
     KIND: ClassVar[str] = "harness_output"
 

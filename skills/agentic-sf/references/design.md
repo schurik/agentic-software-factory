@@ -194,11 +194,12 @@ session's files from.
 Those events are also what a cockpit's session page is told, so they say more
 than the files do. A session reads in chapters (`workflow_started` /
 `workflow_finished`, one per workflow it passes through; a `--resume`
-continues the open one with `session_resumed`, and an agent phase answered
-from the record says `phase_replayed`). An agent phase names the task file it
+continues its workflow's chapter with `session_resumed`, and an agent phase
+answered from the record says `phase_replayed`). An agent phase names the task file it
 rendered and the digest of the prompt it was sent. An artifact is
 `artifact_written`: a handoff file whole, up to 256 KB, a repo file as a path
-the `committed` after it says where to read. A tool call is its name, its
+the `committed` after it says where to read — whether a phase declared it or
+code wrote it as the request (the issue, the review threads, a round's answers). A tool call is its name, its
 outcome and its duration, never its arguments or its result. Two rules for a
 stage that adds to this: commit through `run.commit(ph.phase, message)`, not
 `git_helper.commit_all`, or the commit lands without the event that names it;

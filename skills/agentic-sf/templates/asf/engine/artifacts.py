@@ -54,13 +54,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import events
-from .data_types import (BODY_BYTES, ArtifactWritten, DomainEvent, GateOpened, ProcessEnded,
-                         ProcessStarted, ProvenanceRecorded, RecordedPhase, RunState,
-                         SessionFinished, SessionResumed, SessionStarted, SessionSuspended,
-                         UsageRecorded, WaitingFor, WorkflowFinished, WorkflowStarted)
+from .data_types import (BODY_BYTES, ArtifactRole, ArtifactWritten, ChapterInput, DomainEvent,
+                         GateOpened, ProcessEnded, ProcessStarted, ProvenanceRecorded,
+                         RecordedPhase, RunState, SessionFinished, SessionResumed,
+                         SessionStarted, SessionSuspended, UsageRecorded, WaitingFor,
+                         WorkflowFinished, WorkflowStarted)
 from .utils import anchor, clip_utf8, ensure_dir, sweep_temps, write_atomic
 
 RUN_FILE = "run.json"
@@ -156,10 +158,11 @@ def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
     end_all_processes(session_dir)
     try:
         write_run(session_dir, state)
-        workflow, chapter, is_open = _chapter(session_dir)
-        if is_open and chapter:
-            events.emit(session_dir, WorkflowFinished(workflow=workflow, chapter=chapter,
-                                                      status=status, reason=reason))
+        chapters = _chapters(session_dir)
+        if chapters.open:
+            events.emit(session_dir, WorkflowFinished(
+                workflow=chapters.workflows[chapters.active], chapter=chapters.active,
+                status=status, reason=reason))
         events.emit(session_dir, SessionFinished(status=status, ended_at=state.ended_at,
                                                  reason=reason))
     except OSError:
@@ -168,44 +171,63 @@ def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
 
 # ── chapters: one per workflow the session passes through ────────────────────
 
-def open_chapter(session_dir: Path, workflow: str, input: str, resume: bool) -> None:
+def open_chapter(session_dir: Path, workflow: str, input: ChapterInput, resume: bool) -> None:
     """Say which chapter of the session this process works on.
 
-    A process that RESUMES the workflow the session is in continues that
-    chapter (`session_resumed`); every other start opens the next one
-    (`workflow_started`) — a joined run is new work, and a second round of
-    pull-request review is a second chapter of the same workflow. A resume with
-    no chapter to continue (the session was recorded before chapters were, or
-    it names another workflow) opens one and says it resumed.
+    A process that RESUMES a workflow continues that workflow's latest chapter
+    (`session_resumed`) — the latest of ITS workflow, which need not be the
+    session's latest: another workflow may have joined while this one waited at
+    a gate. Every other start opens the next chapter (`workflow_started`): a
+    joined run is new work, and a second round of pull-request review is a
+    second chapter of the same workflow. A resume with no chapter to continue
+    (the session was recorded before chapters were, or never ran this workflow)
+    opens one and says it resumed.
 
-    No file holds this: the chapter is read back off the session's own events,
-    which is also how `finish_run` knows which one to close — from any process,
-    including one that never opened it.
+    No file holds this: the chapters are read back off the session's own
+    events, which is also how `finish_run` knows which one to close — from any
+    process, including one that never opened it.
     """
-    current, chapter, _ = _chapter(session_dir)
-    if not (resume and current == workflow):
-        chapter += 1
-        events.emit(session_dir, WorkflowStarted(workflow=workflow, chapter=chapter,
+    chapters = _chapters(session_dir)
+    number = chapters.latest_of(workflow) if resume else 0
+    if not number:
+        number = max(chapters.workflows, default=0) + 1
+        events.emit(session_dir, WorkflowStarted(workflow=workflow, chapter=number,
                                                  input=input))
     if resume:
-        events.emit(session_dir, SessionResumed(workflow=workflow, chapter=chapter))
+        events.emit(session_dir, SessionResumed(workflow=workflow, chapter=number))
 
 
-def _chapter(session_dir: Path) -> tuple[str, int, bool]:
-    """(the workflow of the session's latest chapter, its number, whether it is
-    still open) — ("", 0, False) for a session that has none. Read off the raw
-    payloads, so a chapter a newer or older factory opened still counts."""
-    workflow, chapter, is_open = "", 0, False
+@dataclass
+class _Chapters:
+    """A session's chapters, as its events tell them."""
+
+    workflows: dict[int, str] = field(default_factory=dict)   # number -> workflow, as opened
+    active: int = 0               # the one the latest process took up; 0 = none yet
+    open: bool = False            # ...and whether it is still unfinished
+
+    def latest_of(self, workflow: str) -> int:
+        """The newest chapter of `workflow`, or 0 when it has none."""
+        return max((number for number, name in self.workflows.items() if name == workflow),
+                   default=0)
+
+
+def _chapters(session_dir: Path) -> _Chapters:
+    """Read off the raw payloads, so a chapter a newer or older factory opened
+    still counts."""
+    chapters = _Chapters()
     for line in events.read(session_dir):
+        if line.kind not in (WorkflowStarted.KIND, SessionResumed.KIND, WorkflowFinished.KIND):
+            continue
+        number = int(line.payload.get("chapter") or 0)
         if line.kind == WorkflowStarted.KIND:
-            workflow = str(line.payload.get("workflow", ""))
-            chapter = int(line.payload.get("chapter") or chapter + 1)
-            is_open = True
-        elif line.kind == SessionResumed.KIND:
-            is_open = True
-        elif line.kind == WorkflowFinished.KIND:
-            is_open = False
-    return workflow, chapter, is_open
+            chapters.workflows[number] = str(line.payload.get("workflow", ""))
+        if number not in chapters.workflows:
+            continue                # a resume or an ending of a chapter nothing opened
+        if line.kind == WorkflowFinished.KIND:
+            chapters.open = chapters.open and number != chapters.active
+        else:
+            chapters.active, chapters.open = number, True
+    return chapters
 
 
 def _patch(session_dir: Path, event: DomainEvent, **fields) -> None:
@@ -439,12 +461,14 @@ def _phase_outcomes(session_dir: Path, every: bool = False) -> dict[str, str]:
 
 # ── artifacts: what a phase wrote, as a cockpit is told ──────────────────────
 
-def record_artifacts(run, phase_id: str, role: str, paths: list[str]) -> None:
-    """Say what these artifacts hold now. Never raises: a run must not die reporting.
+def record_artifacts(run, role: ArtifactRole, paths: list[str]) -> None:
+    """Say what these artifacts hold now, as the run's current phase left them.
+    Never raises: a run must not die reporting.
 
     Called where an artifact becomes part of the record: by the code that
-    writes a request (`issues.fetch`, `pull_requests.attach`), and by
-    `agents.execute` for what an agent declared on an envelope that was then
+    writes a request (`issues.fetch`, `pull_requests.attach`, the answers a
+    `refine` round collected), and by `agents.execute` for what an agent
+    declared on an envelope that was then
     ACCEPTED — through its gates and its write boundary, so nothing an agent
     was not allowed to write is shipped as something it produced.
 
@@ -454,6 +478,7 @@ def record_artifacts(run, phase_id: str, role: str, paths: list[str]) -> None:
     wrote anything new. A path that lies in neither tree is not this run's to
     describe (`gates.artifacts_exist` has already refused it).
     """
+    phase_id = run.phases[-1].phase_id if run.phases else ""
     try:
         sent = {(line.payload.get("location"), line.payload.get("path")):
                 line.payload.get("digest")
