@@ -16,7 +16,7 @@ const LATER = Date.parse("2026-09-30T18:00:00Z");
 function page(events: WireEvent[]): Page {
   const stored = events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) }));
   const acked = events.at(-1)?.seq ?? 0;
-  return { factory: "acme/widgets", session: "a9f259f0", acked, ...view(stored, acked) };
+  return { factory: "acme/widgets", session: "a9f259f0", acked, forge: "https://github.com", ...view(stored, acked) };
 }
 
 function shown(events: WireEvent[]): string {
@@ -85,6 +85,22 @@ describe("the finished session", () => {
     expect(text).toContain("1 · issue");
     expect(text).toContain("✕ plan gate · round 1 ✓ plan_revise_1");
     expect(text).toContain("✓ plan gate · round 2");
+  });
+});
+
+describe("a phase, one click from its tabs", () => {
+  const html = renderToStaticMarkup(<SessionView page={page(RECORDED)} now={LATER} />);
+
+  it("offers every agent card and code row its details, closed until asked", () => {
+    const { story } = page(RECORDED);
+    const phases = story.chapters.flatMap((chapter) => chapter.items)
+      .filter((item) => item.type === "agent" || item.type === "code");
+    expect(html.match(/<button[^>]*aria-expanded="false"[^>]*>details<\/button>/g)).toHaveLength(phases.length);
+    expect(html).not.toContain('class="phase-tabs"');
+  });
+
+  it("makes each artifact chip a way into the Artifacts tab", () => {
+    expect(html).toMatch(/<button class="chip"[^>]*><code>scout_findings.md<\/code>/);
   });
 });
 

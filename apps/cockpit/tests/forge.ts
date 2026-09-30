@@ -23,6 +23,10 @@ interface Repo {
   pushedAt: string;
   files: Set<string>;
   roles: Record<string, Role>;
+  /** Each commit's tree, by its sha: what a file holds there. */
+  trees: Map<string, Map<string, string>>;
+  /** The sha its default branch is at, when a test committed anything. */
+  tip: string | null;
 }
 
 interface Person {
@@ -203,7 +207,22 @@ export class FakeForge {
       pushedAt: this.stamp(),
       files: new Set(given.factory ? [FACTORY_FILE] : []),
       roles: given.roles ?? {},
+      trees: new Map(),
+      tip: null,
     });
+  }
+
+  /**
+   * A commit on `name`, holding `files` (path → content) on top of the tree of
+   * the commit before it, which becomes its default branch's tip.
+   */
+  commit(name: string, sha: string, files: Record<string, string>): void {
+    const repo = this.known(name);
+    const tree = new Map(repo.tip === null ? [] : repo.trees.get(repo.tip)!);
+    for (const [path, content] of Object.entries(files)) tree.set(path, content);
+    repo.trees.set(sha, tree);
+    repo.tip = sha;
+    for (const path of Object.keys(files)) repo.files.add(path);
   }
 
   /** A push to the default branch that adds or removes files. */
@@ -318,10 +337,17 @@ export class FakeForge {
       const repo = this.repos.get(decodeURIComponent(contents[1]).toLowerCase());
       const refused = this.refusing.get(contents[1].toLowerCase());
       if (refused !== undefined) return this.reply(request, token, refused.status, { message: refused.message });
-      if (!repo || !this.reads(bearer, repo) || !repo.files.has(contents[2])) {
+      const path = contents[2].split("/").map(decodeURIComponent).join("/");
+      // Without a ref, GitHub answers from the default branch: its tip.
+      const ref = url.searchParams.get("ref") ?? repo?.tip ?? null;
+      const tree = ref === null ? null : repo?.trees.get(ref);
+      if (!repo || !this.reads(bearer, repo) || (tree ? !tree.has(path) : ref !== null || !repo.files.has(path))) {
         return this.reply(request, token, 404, { message: "Not Found" });
       }
-      return this.reply(request, token, 200, { type: "file", path: contents[2] });
+      if (tree && request.headers.get("Accept") === "application/vnd.github.raw+json") {
+        return this.reply(request, token, 200, tree.get(path)!, {}, "raw");
+      }
+      return this.reply(request, token, 200, { type: "file", path });
     }
     return this.reply(request, token, 404, { message: `the fake forge has no ${method} ${path} for ${bearer.kind}` });
   }
@@ -412,9 +438,10 @@ export class FakeForge {
   }
 
   private reply(request: Request, bearer: string, status: number, body: unknown,
-                headers: Record<string, string> = {}): Response {
-    const text = JSON.stringify(body);
-    const all: Record<string, string> = { "Content-Type": "application/json", ...headers };
+                headers: Record<string, string> = {}, as: "json" | "raw" = "json"): Response {
+    const text = as === "raw" ? String(body) : JSON.stringify(body);
+    const type = as === "raw" ? "application/vnd.github.raw+json" : "application/json";
+    const all: Record<string, string> = { "Content-Type": type, ...headers };
     let answered = status;
     if (status === 200 && request.method === "GET") {
       // As GitHub's: the same body for another credential is another ETag. The

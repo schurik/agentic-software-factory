@@ -212,3 +212,36 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent); fon
   .topbar { flex-wrap: wrap; }
   .item .meta { display: none; }
 }
+
+/* ── a phase opened into its tabs ─────────────────────────────────────────── */
+
+.item .head button.link, .step button.link { margin-left: 0.25rem; }
+button.chip { background: none; color: inherit; font: inherit; font-size: 0.82rem; cursor: pointer; }
+button.chip:hover { border-color: var(--accent); }
+.detail { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--line); }
+.detail.boxed { padding: 0.6rem 0.85rem; border: 1px solid var(--line); border-radius: 6px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.75rem; }
+.tabs button { border: 1px solid transparent; border-radius: 5px; padding: 0.2rem 0.65rem; background: none; color: var(--muted); font: inherit; font-size: 0.85rem; cursor: pointer; }
+.tabs button[aria-selected="true"] { border-color: var(--line); background: var(--line); color: var(--fg); }
+.tabs .off { color: var(--muted); font-weight: 400; }
+.panel { font-size: 0.9rem; }
+.panel h4 { margin: 0.9rem 0 0.35rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.panel h4:first-child { margin-top: 0; }
+.panel pre { margin: 0.35rem 0; padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 4px; white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; max-height: 32rem; overflow: auto; }
+.panel .table.compact th, .panel .table.compact td { padding: 0.25rem 0.5rem 0.25rem 0; font-size: 0.85rem; }
+.panel .ok { color: var(--ok); }
+.plain { list-style: none; margin: 0.2rem 0 0.4rem; padding-left: 1.25rem; font-size: 0.85rem; }
+.check { margin: 0.35rem 0; }
+.kv { display: grid; grid-template-columns: 7.5rem 1fr; gap: 0.2rem 0.75rem; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.art { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 0.75rem; overflow: hidden; }
+.art-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+.art-h .grow { flex: 1; }
+.art-n { padding: 0.3rem 0.7rem; font-size: 0.82rem; color: var(--wait); border-bottom: 1px solid var(--line); }
+.panel .art pre.art-b { margin: 0; border: 0; border-radius: 0; }
+.art p.art-b { margin: 0; padding: 0.5rem 0.7rem; }
+.off-box { border: 1px dashed var(--line); border-radius: 6px; padding: 0.5rem 0.7rem; color: var(--muted); font-size: 0.85rem; }
+.meter { position: relative; height: 1.4rem; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; font-size: 0.8rem; }
+.meter i { position: absolute; inset: 0 auto 0 0; background: var(--line); }
+.meter span { position: relative; padding: 0 0.5rem; line-height: 1.4rem; }

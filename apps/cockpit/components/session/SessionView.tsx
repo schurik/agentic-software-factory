@@ -4,12 +4,12 @@ import { useState } from "react";
 import type { SessionView as View } from "@/convex/model/session";
 import type { Item, Story } from "@/convex/model/story";
 import { Status } from "../Status";
-import { formatAgo, formatCost, formatDuration, formatTime } from "../format";
+import { formatAgo, formatCost, formatDuration, formatTime, pretty } from "../format";
 import { actionFor } from "./action";
 import { Chapter, chapterAnchor, phaseAnchor } from "./Chapter";
 import { channelWords, glyphOf, toneOf } from "./words";
 
-export type Page = View & { factory: string; session: string; acked: number };
+export type Page = View & { factory: string; session: string; acked: number; forge: string };
 
 /**
  * The session page: a top bar with the one action that applies now, a sidebar
@@ -50,7 +50,9 @@ export function SessionView({ page, now }: { page: Page; now: number }) {
         <Sidebar page={page} now={now} />
         <div className="story">
           <NowCard story={story} status={summary.status} cost={summary.totalCost} />
-          {story.chapters.map((chapter) => <Chapter key={chapter.number} chapter={chapter} />)}
+          {story.chapters.map((chapter) => (
+            <Chapter key={chapter.number} chapter={chapter} where={{ factory, session, forge: page.forge }} />
+          ))}
           {summary.status === "running" ? <p className="live muted small">● live · updating as events arrive</p> : null}
           <Events page={page} />
         </div>
@@ -193,12 +195,4 @@ function Events({ page }: { page: Page }) {
       </table>
     </details>
   );
-}
-
-function pretty(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }
