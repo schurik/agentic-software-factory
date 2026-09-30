@@ -524,6 +524,15 @@ def cockpit() -> list[Finding]:
             detail=f"local {already} is running on this machine — `asf up` joins it "
                    f"rather than starting {running}"))
         return findings
+    # The `up` that starts the local cockpit is the one whose token it asks
+    # the forge with; one that joins another's hands over nothing.
+    forge = local_cockpit.forge_credential()
+    findings.append(Finding(
+        check="cockpit forge", level="ok" if forge.token else "warn", detail=forge.line,
+        fix="" if forge.token else
+            "gh auth login (with GH_HOST set for an Enterprise Server) — the local cockpit "
+            "asks the forge with your own token, and without one its Factories page shows "
+            "only what this machine's stations ship"))
     if already and already != running:
         findings.append(Finding(
             check="cockpit", level="warn",

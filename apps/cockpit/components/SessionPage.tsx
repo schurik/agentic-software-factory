@@ -4,11 +4,18 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Status } from "./Status";
 import { formatCost, formatTime, formatWaitingFor } from "./format";
+import { useSignIn } from "./signIn";
 
 export function SessionPage({ factory, session }: { factory: string; session: string }) {
-  const page = useQuery(api.sessions.get, { factory, session });
+  const page = useQuery(api.sessions.get, { factory, session, signIn: useSignIn() });
   if (page === undefined) return <p className="muted">Loading…</p>;
-  if (page === null) return <p className="notice">No station has shipped session <code>{session}</code> of {factory}.</p>;
+  if (page === null) {
+    return (
+      <p className="notice">
+        No station has shipped session <code>{session}</code> of {factory}, or it is in a repository you cannot read.
+      </p>
+    );
+  }
   const { summary, phases, events } = page;
 
   return (

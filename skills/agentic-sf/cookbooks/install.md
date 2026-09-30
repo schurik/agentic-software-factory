@@ -140,6 +140,10 @@ prose you edited, so commit before you force.
    with the compose plugin, running. Without it `up` warns, drops the cockpit
    and runs the watchers anyway — nothing is refused — and `doctor`'s `cockpit`
    line says which of the three is missing and which version it would run.
+   The local cockpit asks the forge as the engineer, with their `gh auth
+   token`, which `up` hands to it as it starts: `doctor`'s `cockpit forge`
+   line says whether there is one. Without a `gh` login the cockpit still
+   shows every session this checkout ships, and lists no factory beyond those.
 6. **`just labels --create`** — only if either watcher is on. Every label in
    `issues.route`, `issues.states`, `issues.refined_label` and
    `pull_requests.states.failed` has to EXIST at the forge before anything can

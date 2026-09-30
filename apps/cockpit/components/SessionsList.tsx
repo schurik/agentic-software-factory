@@ -5,9 +5,10 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Status } from "./Status";
 import { formatCost, formatTime, formatWaitingFor, sessionHref } from "./format";
+import { useSignIn } from "./signIn";
 
 export function SessionsList() {
-  const sessions = useQuery(api.sessions.list, {});
+  const sessions = useQuery(api.sessions.list, { signIn: useSignIn() });
   if (sessions === undefined) return <p className="muted">Loading…</p>;
   if (sessions.length === 0) {
     return (

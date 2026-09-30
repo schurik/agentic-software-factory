@@ -6,3 +6,12 @@ export async function digest(text: string): Promise<string> {
 export function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+/**
+ * A fresh secret, to be handed over once and kept only as its digest. Call it
+ * from an action: a mutation's randomness is seeded so it can be replayed, and
+ * a secret must not be reproducible.
+ */
+export function secret(prefix: string): string {
+  return prefix + hex(crypto.getRandomValues(new Uint8Array(32)));
+}

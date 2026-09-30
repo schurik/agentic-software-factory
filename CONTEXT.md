@@ -52,6 +52,18 @@ It is what keeps two stations' watchers from both starting the same issue; witho
 there is no claim, only the rule of one watcher per repository.
 _Avoid_: lock, lease, assignment
 
+**Viewer**:
+The person looking at a cockpit, known by their forge login and by nothing else: whoever signed in
+to a shared cockpit with the team's GitHub App, or, in a local one, the person whose own forge token
+it holds. A cockpit has no accounts or roles of its own.
+_Avoid_: user, account, member, operator
+
+**Permission mirror**:
+A cockpit's copy of what the forge says a viewer may do on each repository they reach, kept for a
+few minutes and asked again. It decides what the cockpit shows and offers; it never grants anything,
+because the forge and the factory are what enforce.
+_Avoid_: ACL, roles, permissions table, access list
+
 **Inbox**:
 The cross-repo list, in a cockpit, of every gate currently waiting on the person looking at it.
 _Avoid_: queue, pending list, notifications

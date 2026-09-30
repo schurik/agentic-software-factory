@@ -59,6 +59,9 @@ The cockpit (`apps/cockpit`, Next.js on self-hosted Convex, outside the skill pe
 with bun: `bun run typecheck`, `bun run lint`, `bun run test` (vitest + `convex-test`, no backend
 needed), and CI runs all three. `bun run test`, not `bun test`: the latter is Bun's own runner. Its tests ingest every fixture under `tests/golden/events/`, so a
 new event kind or version needs a reader in `apps/cockpit/convex/model/session.ts` in the same PR.
+They meet GitHub only as the fake forge in `apps/cockpit/tests/forge.ts`, which stands in for it at
+`fetch`: a new call to the forge goes through `convex/forge/forge.ts`'s one interface, for both the
+GitHub App (team mode) and the person's own token (local mode), and gets its route in the fake.
 `docker compose up --build` in that directory brings up the backend, dashboard and app.
 
 ## The factory

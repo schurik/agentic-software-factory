@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { digest, hex } from "./model/digest";
+import { digest, secret } from "./model/digest";
 
 /**
  * Issue an ingest token for `factory` (its repository, e.g. `acme/widgets`) and
@@ -10,15 +10,14 @@ import { digest, hex } from "./model/digest";
  *
  *   npx convex run tokens:issue '{"factory": "acme/widgets"}'
  *
- * An action rather than a mutation because a mutation's randomness is seeded
- * for determinism, and a secret must not be reproducible.
+ * An action rather than a mutation, because that is where a secret can be made
+ * (`secret`, model/digest.ts).
  */
 export const issue = internalAction({
   args: { factory: v.string() },
   returns: v.string(),
   handler: async (ctx, { factory }) => {
-    const bytes = crypto.getRandomValues(new Uint8Array(32));
-    const token = "asf_ingest_" + hex(bytes);
+    const token = secret("asf_ingest_");
     await ctx.runMutation(internal.tokens.store, { factory, digest: await digest(token) });
     return token;
   },

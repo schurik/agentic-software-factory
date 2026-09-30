@@ -44,6 +44,13 @@ before — `None` when there are none, never omitted.
   release ships to (1.1.0); `ASF_COCKPIT_VERSION` can name a newer one, never an older one. An `up`
   that finds a newer local cockpit already running joins it instead of downgrading it. Without
   Docker, `up` warns, drops the cockpit and runs the watchers.
+- The local cockpit asks the forge **as you**: `asf up` hands the `cockpit` child the token `gh auth
+  token` prints (for `GH_HOST`, else github.com) in its environment, and the stamped
+  `asf/cockpit/compose.yaml` starts the cockpit in local mode with it — no sign-in, every port on
+  127.0.0.1. Its Factories page lists every repository that token reaches whose default branch holds
+  `asf/factory.yaml`, whether or not a station has reported from it. `up` prints a `forge` line and
+  `asf doctor` a `cockpit forge` one; neither shows the token. Without a `gh` login the cockpit
+  lists only the factories its stations ship from.
 - `obs`, the legacy trace UI, starts only on request: `asf up --with obs`, `--only …,obs`, or
   `just obs`.
 - `asf doctor` checks for Docker and names the cockpit version `up` would run, whether its images
@@ -108,6 +115,9 @@ rewrites an existing `.env` (a re-stamped `.env.sample` names both). A CI job th
 The same `--force` re-stamp brings `asf/cockpit/` and the station loop. After it, `just up` starts
 a local cockpit unless `.env` names a shared one; install Docker for it, or accept the warning. The
 trace UI no longer starts with `up`: use `just obs`, or `just up --with obs`, if you still want it.
+That cockpit is given your `gh auth token` to ask the forge with, and keeps it in its own backend
+on this machine: run `gh auth login` first for a Factories page that knows your repositories, or
+leave `gh` logged out to hand it nothing.
 
 The same re-stamp brings the new events; a session started before it keeps its events and gains
 chapters from its next run. Transcripts stay off: to send them, add `cockpit: {transcripts: true}`

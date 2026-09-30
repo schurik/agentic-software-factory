@@ -85,6 +85,13 @@ services:
       - CONVEX_SELF_HOSTED_URL=http://backend:3210
       # …and where a browser reaches the same backend.
       - CONVEX_URL=${CONVEX_CLOUD_ORIGIN:-http://127.0.0.1:${PORT:-3210}}
+      # Unset, this is a team's cockpit: a GitHub App registered at /setup, and
+      # a sign-in with it. COCKPIT_MODE=local with COCKPIT_FORGE_TOKEN="$(gh
+      # auth token)" is one person's, with no sign-in — what `asf up` starts
+      # from the stamped compose file, and what to develop against (README.md).
+      - COCKPIT_MODE
+      - COCKPIT_FORGE_HOST
+      - COCKPIT_FORGE_TOKEN
     depends_on:
       keygen:
         condition: service_completed_successfully
