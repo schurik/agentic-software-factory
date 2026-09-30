@@ -83,7 +83,9 @@ def test_an_issue_is_scouted_planned_shipped_and_reported_as_a_pull_request(stam
     commit_all(stamped)
     before = git(stamped, "rev-parse", "main")
 
-    result = asf(stamped, "run", "issue", "42", "--adw-id", ID)
+    # The stamped `issue` workflow asks for a verdict on the plan (`hitl: true`);
+    # this is the chain with no gate in it, which is what `--hitl none` runs.
+    result = asf(stamped, "run", "issue", "42", "--adw-id", ID, "--hitl", "none")
     assert result.returncode == 0, result.stdout + result.stderr
 
     assert phase_names(stamped, ID) == [
@@ -132,7 +134,7 @@ def test_an_untrusted_reporter_costs_nothing_and_a_failed_run_still_reports(stam
     # A trusted reporter whose build never goes green hears where it stopped.
     forge_data(stamped, "issue.json", issue_json(43, author="alice"))
     set_config(stamped, worktree={"integration": {"mode": "none"}})
-    failed = asf(stamped, "run", "issue", "43", "--adw-id", ID2)
+    failed = asf(stamped, "run", "issue", "43", "--adw-id", ID2, "--hitl", "none")   # past the plan gate
     assert failed.returncode == 1, failed.stdout + failed.stderr
     names = phase_names(stamped, ID2)
     assert names[-1] == "report" and "commit_implement" not in names
