@@ -140,7 +140,7 @@ pull requests comes back as a `pr-review` run that answers in the threads.
 ```bash
 just issue 42        # work a tracked issue
 just pr-review 17    # answer the review on a pull request
-just up              # both watchers + the trace UI, supervised; ctrl-c stops all
+just up              # the station loop, the local cockpit and both watchers; ctrl-c stops all
 just status          # is anything actually polling?
 ```
 
@@ -156,8 +156,20 @@ gate verdicts, token spend.
 just sessions        # recent runs
 just phases <id>     # the phase-by-phase record
 just tail <id>       # follow a live run
-just obs             # the trace UI (Vue + Vite on Bun, ships with the skill)
+just obs             # the legacy trace UI (Vue + Vite on Bun, ships with the skill)
 ```
+
+Every session also writes typed domain events, and a **cockpit** (`apps/cockpit`) builds its views
+from them. `just up` is the station loop: it ships every session on the checkout to the shared
+cockpit `ASF_COCKPIT_URL` names or, without one, starts a local cockpit from the same published
+images a team deploys (Docker; `http://localhost:3000`). The trace UI starts only when asked for.
+
+![A stamped repo as a station, the Docker project asf-cockpit with the Next.js app and the Convex backend, and the browser](docs/diagrams/local-cockpit-components.svg)
+
+The watchers, the station loop and the cockpit child all live in the one `asf up` process; a session
+is its own `asf run`. The only data that crosses into the cockpit is the loop's `POST /ingest` to
+the backend's site on `:3211`. [`apps/cockpit/README.md`](apps/cockpit/README.md#how-the-pieces-connect)
+has the sequence: start-up, page load, and what happens for each event.
 
 ## Install the skill
 

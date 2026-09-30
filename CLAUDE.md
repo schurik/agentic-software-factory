@@ -23,7 +23,8 @@ Consequences that shape every change here:
   editing both the Python and the SKILL.md routing/rules that describe it.
 
 `README.md` is the long-form explanation of the design. There is no `docs/` directory for prose
-on purpose (`docs/agents/` is agent configuration, not documentation — see `## Agent skills`):
+on purpose (`docs/agents/` is agent configuration, not documentation — see `## Agent skills` — and
+`docs/diagrams/` holds the pictures the READMEs show, each explained where it is shown):
 what the factory does is documented where an agent will actually read it — `SKILL.md`, the
 cookbooks, and `references/design.md` — and the rest is prose next to the code.
 
@@ -133,7 +134,10 @@ bug already shipped once.
   `templates/asf/.skill-version`, the file a stamp records the release in (a mirror because
   `npx skills add` copies the skill directory and nothing above it) — and with
   `skills/agentic-sf/CHANGELOG.md`'s `Unreleased` heading renamed and dated. A test pins the
-  mirrors to `plugin.json`, and every changelog entry names its `### Upgrade` steps.
+  mirrors to `plugin.json`, and every changelog entry names its `### Upgrade` steps. Pushing the
+  tag publishes the cockpit images (`.github/workflows/release.yml`), and
+  `templates/asf/cockpit/min-version` is the oldest of those a stamp's `asf up` will run — raise it
+  when the factory starts writing something an older cockpit cannot read.
 - **Runtime must stay gitignored.** CI fails the install if `asf/data/`, `.asf-worktrees/`, `.env`
   or `.pyc` files end up staged — a workflow's commit stage runs `git add -A` in the user's repo.
 - Scripts carry `#!/usr/bin/env -S uv run` + PEP-723 deps (`pydantic`, `python-dotenv`, `pyyaml`,

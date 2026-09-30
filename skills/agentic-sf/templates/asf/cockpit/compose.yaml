@@ -1,0 +1,70 @@
+# The local cockpit: the same published images a team deploys (ADR 0004), on
+# this machine, started by `asf up` (and `asf station`) when ASF_COCKPIT_URL
+# names no shared cockpit. Stamped by install.py; nothing here needs editing.
+#
+#   app      http://localhost:${ASF_COCKPIT_APP_PORT:-3000}
+#   backend  :${ASF_COCKPIT_BACKEND_PORT:-3210}, its site (where the station ships) :${ASF_COCKPIT_SITE_PORT:-3211}
+#
+# `asf up` supplies ASF_COCKPIT_REGISTRY and ASF_COCKPIT_VERSION — never older
+# than asf/cockpit/min-version, the cockpit this release of the skill needs —
+# which is why neither has a default here: run by hand, set both.
+#
+# ONE PER MACHINE. The project name is fixed, so every factory on this machine
+# ships to the same cockpit and keeps its sessions in the same `data` volume.
+# A second `asf up` whose stamp needs an older cockpit than the one running
+# joins it rather than downgrading it; one that needs a newer one replaces it
+# (the cockpit upgrades first). The `asf up` that started it owns it: ctrl-c
+# there stops it for every factory, and theirs keep every event until it is
+# back. Every port is bound to 127.0.0.1: a local cockpit has no sign-in, and
+# nothing off this machine should reach it.
+name: asf-cockpit
+
+services:
+  backend:
+    image: ${ASF_COCKPIT_REGISTRY:?}/asf-cockpit-backend:${ASF_COCKPIT_VERSION:?}
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "127.0.0.1:${ASF_COCKPIT_BACKEND_PORT:-3210}:3210"
+      - "127.0.0.1:${ASF_COCKPIT_SITE_PORT:-3211}:3211"
+    volumes:
+      - data:/convex/data
+    environment:
+      - CONVEX_CLOUD_ORIGIN=http://127.0.0.1:${ASF_COCKPIT_BACKEND_PORT:-3210}
+      - CONVEX_SITE_ORIGIN=http://127.0.0.1:${ASF_COCKPIT_SITE_PORT:-3211}
+      - DISABLE_BEACON=true
+      - DISABLE_METRICS_ENDPOINT=true
+      - RUST_LOG=${RUST_LOG:-warn}
+    healthcheck:
+      test: curl -f http://localhost:3210/version
+      interval: 5s
+      start_period: 10s
+
+  # One shot: derives the admin key from the backend's own instance secret, so
+  # the app can deploy its functions with nothing pasted (as the team compose).
+  keygen:
+    image: ${ASF_COCKPIT_REGISTRY:?}/asf-cockpit-backend:${ASF_COCKPIT_VERSION:?}
+    entrypoint: ["/bin/bash", "-c", "./generate_admin_key.sh | tail -n 1 > /keys/admin_key"]
+    volumes:
+      - data:/convex/data
+      - keys:/keys
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  app:
+    image: ${ASF_COCKPIT_REGISTRY:?}/asf-cockpit:${ASF_COCKPIT_VERSION:?}
+    ports:
+      - "127.0.0.1:${ASF_COCKPIT_APP_PORT:-3000}:3000"
+    volumes:
+      - keys:/keys:ro
+    environment:
+      - CONVEX_SELF_HOSTED_URL=http://backend:3210
+      - CONVEX_URL=http://127.0.0.1:${ASF_COCKPIT_BACKEND_PORT:-3210}
+    depends_on:
+      keygen:
+        condition: service_completed_successfully
+
+volumes:
+  data:
+  keys:

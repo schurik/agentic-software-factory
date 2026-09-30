@@ -78,8 +78,12 @@ just status            # what is watching, running, waiting, left behind
 just sessions          # the last 10 runs
 just phases <adw_id>   # phase status in sequence
 just tail <adw_id>     # the live event tail
-just obs               # the trace UI over the db (needs bun and ASF_SKILL)
+just obs               # the legacy trace UI over the db (needs bun and ASF_SKILL)
 ```
+
+The cockpit is where a run is meant to be watched: `just up` starts one on this
+machine at `http://localhost:3000` (Docker; or ships to the shared one
+`ASF_COCKPIT_URL` names) and ships every session to it as it is written.
 
 Reads on the trace db never block a run. The factory itself never reads that db
 — every question about a live run is answered from its own directory under

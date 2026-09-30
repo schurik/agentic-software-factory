@@ -95,9 +95,14 @@ def referenced(cfg: FactoryConfig) -> list[Label]:
 
 def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess:
     """As everywhere else on a forge path: never raises, and runs under the
-    operator's environment rather than the ephemeral venv `uv run` hands us."""
-    return subprocess.run(argv, cwd=str(cwd), env=operator_env(),
-                          capture_output=True, text=True)
+    operator's environment rather than the ephemeral venv `uv run` hands us.
+    A CLI that is not installed is an answer too — `doctor` on a bare machine
+    is exactly when it is asked."""
+    try:
+        return subprocess.run(argv, cwd=str(cwd), env=operator_env(),
+                              capture_output=True, text=True)
+    except OSError as error:
+        return subprocess.CompletedProcess(argv, 127, "", str(error))
 
 
 def survey(cfg: FactoryConfig, main_root: Path) -> LabelSurvey:

@@ -185,7 +185,7 @@ And five modules of its own: `stage.py` (contract and registry), `tasks.py`
 (resolution and the report check), `factory.py` (roster from directories),
 `workflow.py` (load, validate, run), `inputs.py` (where a request comes from
 and where its outcome goes). The trace db is `asf/data/asf.db`; the
-visualizer under `apps/visualizer` reads it. Beside it, every session writes
+legacy visualizer under `apps/visualizer` reads it (`asf up --with obs`). Beside it, every session writes
 `events.jsonl`: typed, per-kind-versioned domain events (`events.py`), each
 appended by the function that writes the session file it describes — what a
 station ships to a cockpit, and what `tests/projection.py` rebuilds the

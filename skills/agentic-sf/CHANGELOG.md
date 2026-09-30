@@ -32,7 +32,24 @@ before — `None` when there are none, never omitted.
   cockpit acknowledged (kept in the session's `shipped.json`). A cockpit that is down loses nothing,
   and a run never waits on one beyond a bounded flush as it exits. `asf station sync` (`just
   station-sync`) ships every session a cockpit has not acknowledged, and fails only on a refused
-  token. Without `ASF_COCKPIT_URL`, nothing is shipped.
+  token. Without `ASF_COCKPIT_URL`, a run ships nothing.
+- `asf up` is the **station loop**: it holds the station and ships every session on the checkout,
+  whichever process wrote it. Its children are `cockpit`, `issues`, `answers` and `prs`, with the
+  same restart, backoff and give-up rules as before. `asf station` (`just station`) is the same loop
+  without watchers.
+- `cockpit` is a **local cockpit**, started only when `ASF_COCKPIT_URL` is unset: the published
+  images a team deploys, run through the stamped `asf/cockpit/compose.yaml` on Docker at
+  `http://localhost:3000`, one per machine. The station issues itself a token from it (kept in
+  `asf/data/cockpit.json`) and ships to it. `asf/cockpit/min-version` names the oldest cockpit this
+  release ships to (1.1.0); `ASF_COCKPIT_VERSION` can name a newer one, never an older one. An `up`
+  that finds a newer local cockpit already running joins it instead of downgrading it. Without
+  Docker, `up` warns, drops the cockpit and runs the watchers.
+- `obs`, the legacy trace UI, starts only on request: `asf up --with obs`, `--only …,obs`, or
+  `just obs`.
+- `asf doctor` checks for Docker and names the cockpit version `up` would run, whether its images
+  are pulled yet, and a local cockpit already running. It no longer crashes on a machine without `gh`.
+- Cutting a release publishes `ghcr.io/schurik/asf-cockpit` and `…/asf-cockpit-backend`, tagged with
+  the release's version, and refuses when `asf/cockpit/min-version` is newer than the release.
 
 ### Upgrade
 
@@ -47,6 +64,10 @@ To ship to a cockpit, the same `--force` re-stamp brings the engine and the `sta
 then add `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` to `.env` by hand, because the installer never
 rewrites an existing `.env` (a re-stamped `.env.sample` names both). A CI job that ships ends with
 `uv run asf/asf.py station sync`, with both set from the job's secrets.
+
+The same `--force` re-stamp brings `asf/cockpit/` and the station loop. After it, `just up` starts
+a local cockpit unless `.env` names a shared one; install Docker for it, or accept the warning. The
+trace UI no longer starts with `up`: use `just obs`, or `just up --with obs`, if you still want it.
 
 ## 1.0.0
 

@@ -12,7 +12,7 @@ repo yourself reproduces the *files* and none of the decisions around them:
 
 | Skipped by hand | What breaks, and when you find out |
 |---|---|
-| `.env` with `ASF_SKILL=` | `just uninstall` fails outright; `just up` and `just obs` start the watchers **without the trace UI**, silently. `.env` is gitignored, so it also never arrives with a clone |
+| `.env` with `ASF_SKILL=` | `just uninstall` fails outright; `just obs` and `just up --with obs` start **without the legacy trace UI**. `.env` is gitignored, so it also never arrives with a clone |
 | the `# agentic-sf runtime` block in `.gitignore` | `asf/data/` and `.asf-worktrees/` become tracked, and a commit stage running `git add -A` sweeps the run record into the repository |
 | quality detection | every `verify` block stays a placeholder, and a placeholder **fails** with exit 78 |
 | `justfile` vs `asf.justfile` | a repository's own justfile gets overwritten, or the recipes never land |
@@ -118,8 +118,8 @@ prose you edited, so commit before you force.
    the designated answer to "is this repo ready to run anything?".
 2. **`ASF_SKILL` in `.env`** — already written by the installer, and worth
    knowing about. Two things need it: `just uninstall` runs the uninstaller out
-   of the skill, and the trace UI ships with the skill under `apps/visualizer`,
-   so `just up` and `just obs` find it that way. `install.py` never overwrites a
+   of the skill, and the legacy trace UI ships with the skill under
+   `apps/visualizer`, so `just obs` finds it that way. `install.py` never overwrites a
    value that is already there; if the path came from another machine it says so
    and leaves it. Unset, `doctor` warns on both `ASF_SKILL` and `trace UI`.
 3. **The harness's own steps** — `install.py` printed them after stamping, out
@@ -129,7 +129,14 @@ prose you edited, so commit before you force.
 4. **The quality blocks** — `doctor` names every block still unwired. Write the
    real argv into `asf/engine/quality.py` as a **list**, calling binaries by
    bare name. A `verify` stage that names an unwired block fails the run.
-5. **`just labels --create`** — only if either watcher is on. Every label in
+5. **Docker, for the local cockpit** — `just up` starts a cockpit on this
+   machine when `.env` names no shared one (`ASF_COCKPIT_URL`): the same
+   published images a team deploys, through the stamped
+   `asf/cockpit/compose.yaml`, at `http://localhost:3000`. That needs Docker
+   with the compose plugin, running. Without it `up` warns, drops the cockpit
+   and runs the watchers anyway — nothing is refused — and `doctor`'s `cockpit`
+   line says which of the three is missing and which version it would run.
+6. **`just labels --create`** — only if either watcher is on. Every label in
    `issues.route`, `issues.states`, `issues.refined_label` and
    `pull_requests.states.failed` has to EXIST at the forge before anything can
    apply it, and a fresh repository defines none of them. A route label nobody
@@ -141,14 +148,14 @@ prose you edited, so commit before you force.
    question on every run, so an **upgrade** that adds a label is caught too —
    `install.py` never rewrites the `factory.yaml` you own, so a new label
    reference arrives in the code with no way for the name to exist.
-6. **`just list`** — the workflows, one line each. Then a first run:
+7. **`just list`** — the workflows, one line each. Then a first run:
    [run_workflow.md](run_workflow.md).
 
 ## If the skill is vendored inside the repo
 
 Some repos keep the skill in-tree (`.agents/skills/agentic-sf/`) rather than
 pointing `ASF_SKILL` at a checkout elsewhere. That works, with one thing to
-know: `just up` runs `bun install` in `<skill>/apps/visualizer` on first use,
+know: `just obs` runs `bun install` in `<skill>/apps/visualizer` on first use,
 which writes `node_modules/` inside the tracked skill tree. The skill ships
 `apps/visualizer/.gitignore` to cover it, so it stays out of the host repo's
 `git status` — and out of the `git add -A` a commit stage runs.
@@ -156,7 +163,7 @@ which writes `node_modules/` inside the tracked skill tree. The skill ships
 ## Issue- and review-triggered runs
 
 On by default, but nothing polls until a watcher is started: `just up` runs
-both watchers and the trace UI in one process. `just issues-status` and
+the station loop, the local cockpit and every watcher in one process. `just issues-status` and
 `just prs-status` say what the watchers would do and whether they can — both
 need the forge CLI (`gh`) on PATH and authenticated, and `doctor` warns when it
 is not. `issues.route` decides which label launches which workflow (`asf:ship`
