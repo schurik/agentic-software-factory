@@ -49,6 +49,13 @@ reach the backend's API (`:3210`) and `CONVEX_SITE_ORIGIN` where GitHub and stat
 Enterprise Server), and it is yours: private to your account, registered through GitHub's **manifest
 flow**, so nobody copies a key by hand.
 
+GitHub refuses to register an App whose webhook it could not deliver to: a loopback or private
+address (`CONVEX_SITE_ORIGIN` left at `http://127.0.0.1:3211`, say). Such a cockpit — on one
+machine for a trial, or behind a firewall GitHub.com cannot cross — is registered **without a
+webhook**, and the setup page says so before you leave for GitHub. Everything else works the same;
+the cockpit learns of the forge by the catch-up poll alone, once a minute. Sign-in needs only your
+browser to reach the cockpit, so `http://localhost:3000` is fine for that.
+
 1. Print a setup code. It is what shows you run the deployment; it works once, for an hour.
 
    ```bash
@@ -58,7 +65,7 @@ flow**, so nobody copies a key by hand.
 2. Open `/setup` on the cockpit, enter the code, the GitHub host and the organization that will own
    the App, and continue. GitHub shows the App it is about to create; confirm it there.
 3. GitHub sends you back, and the cockpit stores what it handed over: the App's private key, its
-   client secret and its webhook secret, in the backend's `forgeApps` table. No page or public
+   client secret and (with a webhook) its webhook secret, in the backend's `forgeApps` table. No page or public
    function returns them.
 4. Install the App on the repositories that hold your factories (the link is on the page you land
    on). An organization owner can; anyone else sends the owner a request from the same page.

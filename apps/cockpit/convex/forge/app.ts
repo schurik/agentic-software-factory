@@ -30,7 +30,7 @@ export const appValidator = v.object({
   htmlUrl: v.string(),
   clientId: v.string(),
   clientSecret: v.string(),
-  webhookSecret: v.string(),
+  webhookSecret: v.union(v.null(), v.string()),   // null: registered without a webhook (`deliverable`)
   privateKey: v.string(),       // PEM, as GitHub sends it
 });
 
@@ -56,8 +56,14 @@ export interface Registration {
  * allowed all of it. The events are the ones a cockpit is kept current by;
  * `installation` and `installation_repositories` are sent to every App and
  * cannot be asked for.
+ *
+ * The webhook, and the events with it, are left out where GitHub could not
+ * deliver one (`deliverable`): it refuses such a manifest outright. That
+ * cockpit learns of the forge by the catch-up poll alone, which is what the
+ * poll is for.
  */
 export function manifest({ appUrl, siteUrl, organization }: Registration): Record<string, unknown> {
+  const webhook = webhookUrl(siteUrl);
   return {
     // The admin can rename it on GitHub's page; a name is at most 34 characters.
     name: (organization ? `asf-cockpit-${organization}` : "asf-cockpit").slice(0, 34),
@@ -67,11 +73,44 @@ export function manifest({ appUrl, siteUrl, organization }: Registration): Recor
     redirect_url: `${appUrl}/setup/callback`,
     callback_urls: [`${appUrl}/auth/callback`],
     setup_url: `${appUrl}/factories`,
-    hook_attributes: { url: `${siteUrl}/forge/webhook`, active: true },
     request_oauth_on_install: false,
     default_permissions: { metadata: "read", contents: "write", issues: "write", pull_requests: "write" },
-    default_events: ["push", "repository", "issues", "issue_comment", "pull_request", "pull_request_review"],
+    ...(deliverable(webhook) ? {
+      hook_attributes: { url: webhook, active: true },
+      default_events: ["push", "repository", "issues", "issue_comment", "pull_request", "pull_request_review"],
+    } : {}),
   };
+}
+
+/** Where GitHub delivers the App's webhooks: on the backend's site. */
+export function webhookUrl(siteUrl: string): string {
+  return `${siteUrl}/forge/webhook`;
+}
+
+/**
+ * Whether GitHub would take `url` as a webhook. It refuses one "not reachable
+ * over the public Internet" — a loopback or private address — when the App is
+ * registered, so a cockpit on someone's machine, or behind a firewall, has to
+ * register without.
+ */
+export function deliverable(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".localhost")) return false;
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  if (v4) {
+    const [first, second] = [Number(v4[1]), Number(v4[2])];
+    const closed = first === 0 || first === 10 || first === 127 || (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
+    return !closed;
+  }
+  // IPv6: loopback, unique-local (fc00::/7) and link-local (fe80::/10).
+  if (host.startsWith("[")) return !/^\[(::1\]|f[cd]|fe[89ab])/.test(host);
+  return true;
 }
 
 /** Where a browser posts the manifest: the page on which the admin names the App and confirms. */
@@ -108,7 +147,9 @@ export async function convert(github: GitHub, code: string): Promise<App> {
     htmlUrl: handed("html_url"),
     clientId: handed("client_id"),
     clientSecret: handed("client_secret"),
-    webhookSecret: handed("webhook_secret"),
+    // Null for an App registered without a webhook. It stays null: a delivery is
+    // checked against a secret or refused, never against the text of a missing one.
+    webhookSecret: typeof body.webhook_secret === "string" && body.webhook_secret !== "" ? body.webhook_secret : null,
     privateKey: handed("pem"),
   };
 }

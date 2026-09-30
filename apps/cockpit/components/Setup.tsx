@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { said, useCockpit } from "./Shell";
@@ -14,6 +14,7 @@ import { carried, carry } from "./signIn";
 export function SetupPage() {
   const { mode, forge } = useCockpit();
   const begin = useAction(api.setup.begin);
+  const webhook = useQuery(api.setup.webhook, {});
   const [code, setCode] = useState("");
   const [host, setHost] = useState("github.com");
   const [organization, setOrganization] = useState("");
@@ -65,6 +66,14 @@ export function SetupPage() {
           signs everyone out. To add repositories, <a href={forge.app.installUrl}>install it</a> on them instead.
         </p>
       ) : null}
+      {webhook && !webhook.deliverable ? (
+        <p className="notice">
+          GitHub cannot deliver webhooks to <code>{webhook.url}</code>, and refuses to register an App that asks
+          it to. So this App is registered <strong>without a webhook</strong>: the cockpit finds changes by asking
+          GitHub once a minute instead. For webhooks, set <code>CONVEX_SITE_ORIGIN</code> to an address GitHub can
+          reach, restart, and register again.
+        </p>
+      ) : null}
       <ol className="steps">
         <li>
           Print a setup code on the deployment. It shows you run this cockpit, and works once, for an hour.
@@ -72,7 +81,7 @@ export function SetupPage() {
         </li>
         <li>
           Fill this in and continue to GitHub, which shows the App it is about to create: private to your
-          account, with its webhook and sign-in pointed at this cockpit.
+          account, with its sign-in{webhook?.deliverable ? " and its webhook" : ""} pointed at this cockpit.
         </li>
         <li>Back here, install the App on the repositories that hold your factories.</li>
       </ol>
@@ -136,7 +145,7 @@ export function SetupCallback({ code, state }: { code: string; state: string }) 
     <div className="card">
       <h1>{app.slug} is registered</h1>
       <p>
-        Its private key, client secret and webhook secret are stored in this cockpit&apos;s backend. One step is
+        Its private key and secrets are stored in this cockpit&apos;s backend. One step is
         left: install it on the repositories that hold your factories. An organization owner can; anyone else
         sends the owner a request from the same page.
       </p>

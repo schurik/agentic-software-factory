@@ -122,6 +122,11 @@ export class FakeForge {
       throw new Error(`${begun.url} is not where ${this.host} registers an App from a manifest`);
     }
     const manifest = JSON.parse(begun.manifest) as Record<string, unknown>;
+    // GitHub refuses a manifest whose webhook it could not deliver to, before any App exists.
+    const hook = (manifest.hook_attributes as { url?: string } | undefined)?.url;
+    if (hook !== undefined && /^https?:\/\/(localhost|127\.|10\.|192\.168\.|\[::1\])/.test(hook)) {
+      throw new Error("Invalid GitHub App configuration: Hook url is not supported because it isn't reachable over the public Internet");
+    }
     const id = ++this.ids;
     const code = `manifest-${id}`;
     this.manifestCodes.set(code, {
@@ -129,7 +134,8 @@ export class FakeForge {
       slug: String(manifest.name).toLowerCase(),
       clientId: `Iv23.${id}`,
       clientSecret: `secret-${id}`,
-      webhookSecret: handed.webhookSecret === undefined ? `hook-${id}` : handed.webhookSecret,
+      // An App registered without a webhook has no secret to sign deliveries with.
+      webhookSecret: handed.webhookSecret !== undefined ? handed.webhookSecret : hook === undefined ? null : `hook-${id}`,
       pem: (await appKeys()).pem,
       manifest,
     });
@@ -166,7 +172,7 @@ export class FakeForge {
   }
 
   /** A webhook delivery as GitHub sends it: signed with the App's webhook secret. */
-  async delivery(event: string, payload: Record<string, unknown>, secret = this.app?.webhookSecret ?? ""): Promise<Delivery> {
+  async delivery(event: string, payload: Record<string, unknown>, secret: string = this.app?.webhookSecret ?? ""): Promise<Delivery> {
     const body = JSON.stringify(payload);
     return {
       headers: {

@@ -18,12 +18,26 @@
  */
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, internalAction, internalMutation } from "./_generated/server";
-import { appValidator, convert, installUrl, manifest, registrationUrl } from "./forge/app";
+import { action, internalAction, internalMutation, query } from "./_generated/server";
+import { appValidator, convert, deliverable, installUrl, manifest, registrationUrl, webhookUrl } from "./forge/app";
 import { ForgeError, GitHub } from "./forge/github";
 import { digest, secret } from "./model/digest";
 
 const HOUR = 3600_000;
+
+/**
+ * Where GitHub would deliver the App's webhook, and whether it could. The
+ * setup page says so before the admin leaves for GitHub: a cockpit GitHub
+ * cannot reach is registered without a webhook, and learns by the poll.
+ */
+export const webhook = query({
+  args: {},
+  returns: v.object({ url: v.string(), deliverable: v.boolean() }),
+  handler: async () => {
+    const url = webhookUrl(process.env.CONVEX_SITE_URL ?? "");
+    return { url, deliverable: deliverable(url) };
+  },
+});
 
 /** A setup code, printed once and good for one `begin` within the hour. */
 export const code = internalAction({

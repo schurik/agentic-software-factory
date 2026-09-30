@@ -100,16 +100,44 @@ describe("setting up a team cockpit", () => {
       .rejects.toThrow(/did not convert the manifest code \(404\)/);
   });
 
-  it("keeps no App that GitHub handed back without a secret to check its deliveries with", async () => {
+  it("registers without a webhook where GitHub could not deliver one, and finds changes by asking", async () => {
     const forge = fakeForge();
+    forge.person("alex");
+    forge.repo("acme/widgets", { factory: true, roles: { alex: "admin" } });
+    teamMode();
+    // A cockpit on someone's machine, or behind a firewall: GitHub refuses a manifest with such a webhook.
+    vi.stubEnv("CONVEX_SITE_URL", "http://127.0.0.1:3211");
+    const t = cockpit();
+    expect(await t.query(api.setup.webhook, {})).toEqual({ url: "http://127.0.0.1:3211/forge/webhook", deliverable: false });
+
+    const begun = await t.action(api.setup.begin, {
+      code: await t.action(internal.setup.code, {}), host: "github.com", organization: "acme", appUrl: "http://localhost:3000",
+    });
+    const manifest = JSON.parse(begun.manifest);
+    expect(manifest).not.toHaveProperty("hook_attributes");
+    expect(manifest).not.toHaveProperty("default_events");
+    expect(manifest.callback_urls).toEqual(["http://localhost:3000/auth/callback"]);
+    await t.action(api.setup.complete, { code: await forge.register(begun), state: begun.state });
+
+    // No secret, so no delivery is ever taken for the App's — not one signed with the text of a missing one.
+    for (const secret of ["null", "undefined"]) {
+      const delivery = await forge.delivery("push", forge.pushed("acme/widgets"), secret);
+      const response = await t.fetch("/forge/webhook", { method: "POST", headers: delivery.headers, body: delivery.body });
+      expect(response.status).toBe(401);
+    }
+    // The poll is what it learns by.
+    forge.install("acme");
+    await catchUp(t);
+    const list = await t.query(api.factories.list, { signIn: await signIn(t, forge, "alex") });
+    expect(list?.factories.map((factory) => factory.repo)).toEqual(["acme/widgets"]);
+  });
+
+  it("says its webhook can be delivered to when the backend's site is on the public internet", async () => {
+    fakeForge();
     teamMode();
     const t = cockpit();
-    const begun = await t.action(api.setup.begin, { code: await t.action(internal.setup.code, {}), ...ASKED });
 
-    const code = await forge.register(begun, { webhookSecret: null });
-    await expect(t.action(api.setup.complete, { code, state: begun.state })).rejects.toThrow(/webhook_secret/);
-
-    expect((await t.query(api.viewer.me, {})).forge.ready).toBe(false);
+    expect(await t.query(api.setup.webhook, {})).toEqual({ url: `${SITE_URL}/forge/webhook`, deliverable: true });
   });
 
   it("registers on an Enterprise Server under the admin's own account, naming no other host", async () => {

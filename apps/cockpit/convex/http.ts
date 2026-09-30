@@ -48,7 +48,8 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const body = await request.text();
     const app = await ctx.runQuery(internal.forge.memory.app, {});
-    if (app === null || !(await signed(app.webhookSecret, body, request.headers.get("X-Hub-Signature-256")))) {
+    const secret = app?.webhookSecret ?? null;
+    if (secret === null || !(await signed(secret, body, request.headers.get("X-Hub-Signature-256")))) {
       return reply(401, { error: "this delivery is not signed by the App this cockpit registered" });
     }
     let payload: unknown;
