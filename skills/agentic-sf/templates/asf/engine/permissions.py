@@ -54,17 +54,28 @@ def snapshot(run) -> dict[str, str]:
     file still registers as a change. Untracked files are listed by name.
     Gitignored paths never appear, which is why the session runtime under
     `data_dir` — where handoff files legitimately land — needs no special case.
+
+    Every path is read with `-z`, so it is the path as it is on disk. Without
+    it git quotes and octal-escapes whatever it finds unusual (`plän.md` comes
+    back as `"pl\\303\\244n.md"`), and that string matches no `writes:` rule and
+    names no file: an agent was refused a file it was allowed to write, and the
+    rollback of one it was not allowed undid nothing. `--no-renames` keeps one
+    record per path: a staged move is otherwise a single record naming both
+    ends, which a `writes:` prefix matched by where the file CAME from — so
+    `git mv` out of an allowed directory carried a file past the boundary. A
+    moved file is a path that vanished and a path that appeared.
     """
     fingerprints: dict[str, str] = {}
-    for line in _git(["diff", "HEAD", "--numstat"], run.repo_root).splitlines():
-        fields = line.split("\t")
-        if len(fields) >= 3:
-            path = fields[-1].strip()
-            fingerprints[path] = f"{fields[0]},{fields[1]}"
-    for path in _git(["ls-files", "--others", "--exclude-standard"],
-                     run.repo_root).splitlines():
-        if path.strip():
-            fingerprints[path.strip()] = "untracked"
+    for record in _git(["diff", "HEAD", "--numstat", "--no-renames", "-z"],
+                       run.repo_root).split("\0"):
+        fields = record.split("\t", 2)
+        if len(fields) == 3:
+            added, removed, path = fields
+            fingerprints[path] = f"{added},{removed}"
+    for path in _git(["ls-files", "--others", "--exclude-standard", "-z"],
+                     run.repo_root).split("\0"):
+        if path:
+            fingerprints[path] = "untracked"
     return fingerprints
 
 

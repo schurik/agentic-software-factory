@@ -62,6 +62,10 @@ before — `None` when there are none, never omitted.
   chunks (`harness_output`). Without it, neither is ever written.
 - A stage that commits does it through `run.commit(ph.phase, message)`, which is what appends
   `committed`.
+- The write boundary reads paths as they are on disk. A file whose name git would quote (any
+  non-ASCII name) is no longer refused inside an agent's `writes:`, and one outside it is really
+  rolled back. A file moved with `git mv` out of an allowed directory is now a breach at the path
+  it landed on.
 
 ### Upgrade
 
