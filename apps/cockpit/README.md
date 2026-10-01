@@ -276,6 +276,30 @@ which settles only that station's own commands. Revoking a token under Stations 
 Each verb is the station's to obey: its `asf/factory.yaml` lists it under `cockpit.commands` (`run`
 is off unless listed), and the cockpit greys out what the station's report says it would refuse.
 
+## Claims: which station starts a work item
+
+The forge label is not a lock: it has no conditional edit, so two stations' watchers that listed
+the same queued issue both flip it (ADR 0003). So a station asks this cockpit first. `POST /claims`
+with the factory's ingest token, `{op: "take", repo, kind: "issue" | "pr", number, session, since,
+station: {id, name}, requeue: {add, remove}}`, is one mutation (`convex/claims.ts`): `200
+{granted: true}` for the first session that asks and for that session on that station again, `409
+{granted: false, held: {station, name, session}}` for anyone else, and `409 {granted: false,
+abandoned: {session, by}}` for a session a writer released a claim of — a resume asks, so an
+abandoned session cannot carry on beside the run that took its item afresh. `op: "drop"` gives back a claim
+no session used, and only the station's own.
+
+Ingest frees a claim when its session's events after `since` say the run finished, or was aborted
+(`convex/model/claim.ts`); a failure keeps it, so the session can be resumed, and nothing frees one
+by the clock — a station offline is a laptop asleep, not a dead one. The session page shows each
+claim the session took, the station holding it and how long that station has been away, and offers
+a writer **Release claim**: it is let go at once, recorded as theirs, the session abandoned, and the
+item relabelled as the claim says (`requeue`, the factory's own label names: an issue back on
+`asf:queued`, a pull request without `asf:pr-failed`), as them. A forge that will not relabel
+leaves the claim released, and the page says to relabel by hand.
+
+A local cockpit is one person's and grants nothing: a factory claims only from a shared one
+(`ASF_COCKPIT_URL`). The factory's end is `engine/claims.py`.
+
 ## Local mode, and the published images
 
 One person with no team deployment gets the same cockpit on their own machine. `asf up` in a stamped

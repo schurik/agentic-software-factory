@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { appValidator } from "./forge/app";
 import { roleValidator } from "./forge/forge";
+import { claimKindValidator, releasedValidator, requeueValidator } from "./model/claim";
 import { commandStateValidator, reportValidator, verbValidator } from "./model/command";
 import { storedEventFields } from "./model/wire";
 
@@ -255,6 +256,30 @@ export default defineSchema({
     .index("by_station_state", ["factory", "station", "state"])
     .index("by_session", ["factory", "session"])
     .index("by_state_expiry", ["state", "expiresAt"]),
+
+  // A claim on a work item (model/claim.ts, ADR 0003): which station's
+  // session starts it. One row per grant, kept after it is let go — `released`
+  // says when, why and by whom, which is the audit of a writer's Release
+  // claim. `held` is what the one transactional `take` reads by: at most one
+  // held row per item. `repo` is the item's repository, lowercased; `factory`
+  // is whose ingest token asked.
+  claims: defineTable({
+    factory: v.string(),
+    repo: v.string(),
+    kind: claimKindValidator,
+    number: v.number(),
+    station: v.string(),
+    stationName: v.string(),
+    session: v.string(),
+    since: v.number(),                // the session's last seq when it asked: only what follows ends it
+    requeue: requeueValidator,        // how a release puts the item back, in the factory's own label names
+    grantedAt: v.number(),
+    aborted: v.boolean(),             // a decision after `since` aborted the run: its finish frees the claim
+    held: v.boolean(),
+    released: v.union(v.null(), releasedValidator),
+  })
+    .index("by_item", ["repo", "kind", "number", "held"])
+    .index("by_session", ["factory", "session", "held"]),
 
   // How the catch-up poll is doing: one document, read as a `Progress`
   // (model/progress.ts), which says what each field is.

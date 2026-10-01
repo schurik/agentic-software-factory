@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { digest, secret } from "./model/digest";
 
@@ -31,4 +31,12 @@ export const store = internalMutation({
     await ctx.db.insert("ingestTokens", args);
     return null;
   },
+});
+
+/** The factory whose ingest token digests to `digest`, or null when none does. */
+export const factoryOf = internalQuery({
+  args: { digest: v.string() },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, { digest }) =>
+    (await ctx.db.query("ingestTokens").withIndex("by_digest", (q) => q.eq("digest", digest)).unique())?.factory ?? null,
 });

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
+import { settleClaims } from "./claims";
 import { settle } from "./commands";
 import { advance, readSummary } from "./model/session";
 import { storedEventFields } from "./model/wire";
@@ -55,6 +56,8 @@ export const append = internalMutation({
     const summary = advance(readSummary(record?.summary), fresh);
     // A station's `command_result` is what settles a command, never its sending.
     await settle(ctx, factory, fresh);
+    // ...and its finish, or an abort, what frees the claim it was started under.
+    await settleClaims(ctx, factory, session, fresh);
     const activity = Date.now();
     const waiting = summary.waitingFor !== null;
     if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting });

@@ -218,6 +218,13 @@ export class GitHub {
     await this.post(as, `/repos/${repo}/issues/${number}/labels`, { labels }, () => null);
   }
 
+  /** Label `label` taken off issue `number` of `repo`, as `as`; one it does not carry is off already. */
+  async unlabel(as: Credential, repo: string, number: number, label: string): Promise<void> {
+    const path = `/repos/${repo}/issues/${number}/labels/${encodeURIComponent(label)}`;
+    const response = await this.send(as, "DELETE", this.api + path);
+    if (!response.ok && response.status !== 404) throw await refusal(response, path);
+  }
+
   /** Every label `repo` defines, as `as` is shown them, or null when it is not. */
   async labels(as: Credential, repo: string): Promise<Label[] | null> {
     try {

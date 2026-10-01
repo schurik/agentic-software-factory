@@ -44,6 +44,15 @@ export function formatAgo(ts: string, now: number): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+/** A span of time in its largest whole unit: "2 d", "5 h", "12 m", "40 s". */
+export function formatSpan(ms: number): string {
+  const seconds = Math.max(0, ms / 1000);
+  if (seconds < 60) return `${Math.floor(seconds)} s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h`;
+  return `${Math.floor(seconds / 86400)} d`;
+}
+
 export function formatClock(ts: string): string {
   const date = new Date(ts);
   return !ts || Number.isNaN(date.getTime()) ? "" :

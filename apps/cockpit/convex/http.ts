@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { signed } from "./forge/app";
+import { parseClaim } from "./model/claim";
 import { isRefusal as isCommandRefusal, parsePoll, parseRegistration, REGISTRATION_FOR, REGISTRATION_POLL, approvalCode } from "./model/command";
 import { digest, secret } from "./model/digest";
 import { asks } from "./model/webhook";
@@ -99,6 +100,27 @@ http.route({
       return reply(401, { error: "this command token is not one the cockpit issued, or it was revoked" });
     }
     return reply(200, answer);
+  }),
+});
+
+// A station asks for a claim on a work item before it touches a label, or
+// gives back one no session used (claims.ts, ADR 0003): with the factory's
+// ingest token, which says which factory asks. Granted is 200; held by
+// another session, or asked for a session a writer abandoned, is 409, naming
+// which.
+http.route({
+  path: "/claims",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const token = bearer(request);
+    if (!token) return reply(401, { error: "a claim is asked with the factory's ingest token" });
+    const factory = await ctx.runQuery(internal.tokens.factoryOf, { digest: await digest(token) });
+    if (factory === null) return reply(401, { error: "this ingest token is not one the cockpit issued" });
+    const parsed = parseClaim(await body(request), factory);
+    if (isCommandRefusal(parsed)) return reply(parsed.status, { error: parsed.error });
+    if (parsed.op === "drop") return reply(200, await ctx.runMutation(internal.claims.drop, { factory, asked: parsed.asked }));
+    const answer = await ctx.runMutation(internal.claims.take, { factory, asked: parsed.asked });
+    return reply(answer.granted ? 200 : 409, answer);
   }),
 });
 

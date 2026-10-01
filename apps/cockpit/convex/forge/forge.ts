@@ -96,6 +96,11 @@ export interface Forge {
    * records whoever that names as having triggered the run it starts.
    */
   label(repo: string, number: number, labels: string[]): Promise<void>;
+  /**
+   * Take `label` off issue `number` of `repo`, AS the person this forge acts
+   * for. A label the issue does not carry is already off: not an error.
+   */
+  unlabel(repo: string, number: number, label: string): Promise<void>;
 }
 
 /** Where a factory's config lives: a repository is a factory when its default branch holds this. */
