@@ -1,0 +1,60 @@
+{
+  "asked": {
+    "session": "5c0075aa",
+    "gate": "requirements",
+    "round": 1,
+    "kind": "questions",
+    "subject_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "questions": [
+      {
+        "topic": "scope",
+        "question": "Which endpoint?",
+        "why": "the fix differs per path",
+        "blocking": true,
+        "options": [
+          {
+            "answer": "/health",
+            "because": "it is the one that 500s",
+            "recommended": true
+          },
+          {
+            "answer": "every endpoint",
+            "because": "",
+            "recommended": false
+          }
+        ]
+      },
+      {
+        "topic": "data",
+        "question": "Is the 500 logged?",
+        "why": "",
+        "blocking": true,
+        "options": [
+          {
+            "answer": "yes",
+            "because": "",
+            "recommended": true
+          },
+          {
+            "answer": "no",
+            "because": "",
+            "recommended": false
+          }
+        ]
+      }
+    ]
+  },
+  "answer": {
+    "verdict": "abort",
+    "notes": "the issue is a duplicate of #40",
+    "answers": [
+      "",
+      ""
+    ]
+  },
+  "body": "/abort\n\nthe issue is a duplicate of #40\n\n<!-- asf:answer adw=5c0075aa gate=requirements round=1 digest=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 -->\n<sub>Answered in the asf cockpit.</sub>\n",
+  "heard": {
+    "verdict": "abort",
+    "words": "the issue is a duplicate of #40"
+  }
+}

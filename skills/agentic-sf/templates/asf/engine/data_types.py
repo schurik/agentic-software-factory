@@ -761,6 +761,21 @@ class Reply(BaseModel):
     channel: str = "cli"
 
 
+class Said(BaseModel):
+    """What one comment on a work item says to a wait, read by `issues.read_reply`.
+
+    `verdict` is the one its first line names (`/approve`, `/reject`,
+    `/abort`), or None for a plain reply — an answer at a question round,
+    discussion at a gate. `answering` is what a cockpit's answer names in its
+    mark (`adw`, `gate`, `round`, `digest`), empty for a comment typed on the
+    forge, which answers whatever is waiting when it is read.
+    """
+
+    verdict: Optional[Verdict] = None
+    words: str = ""
+    answering: dict[str, str] = Field(default_factory=dict)
+
+
 class Subject(BaseModel):
     """What a gate shows the human, and what its digest is taken over.
 
@@ -2085,13 +2100,26 @@ class SessionSuspended(DomainEvent):
     Under `worktree.publish: on_create` both are on the remote and the subject
     is in `head_sha`'s tree (`engine/publish.py`); under `on_integrate` they
     name commits only this station has, and the subject may not be committed.
+
+    v2 says what a cockpit needs to offer the answer itself: `published`,
+    whether `head_sha` and the subject in it reached the remote
+    (`publish.before_suspend`) — a commit this station alone holds is one no
+    cockpit can show; a question round's `questions`, which the run put on its
+    channel and no other event holds; and `trusted`, whose reply on that
+    channel the factory will hear (`hitl.who_answers`), empty for anyone the
+    forge lets reply. A cockpit offers the answer to those people and nobody
+    else; the answers watcher is still what checks it.
     """
 
     KIND: ClassVar[str] = "suspended"
+    VERSION: ClassVar[int] = 2      # v2: published, questions, trusted
 
     waiting_for: WaitingFor
     base_commit: str = ""
     head_sha: str = ""
+    published: bool = False
+    questions: list[Question] = Field(default_factory=list)
+    trusted: list[str] = Field(default_factory=list)
 
 
 class DecisionRecorded(DomainEvent):

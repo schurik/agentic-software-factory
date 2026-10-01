@@ -22,9 +22,21 @@ import { isRecord, type StoredEvent } from "./wire";
 export const waitingForValidator = v.object({
   gate: v.string(),
   round: v.number(),
-  kind: v.string(),
-  channel: v.string(),
+  kind: v.string(),               // gate | questions
+  channel: v.string(),            // issue | pr | terminal
   since: v.string(),
+  // What an inbox row says, and decides whether it may be answered with.
+  issueNumber: v.number(),
+  summary: v.string(),
+  subjectDigest: v.string(),
+  questions: v.number(),          // how many a question round asks
+  // Whose reply the factory will hear: null when the station's factory did not
+  // say (a `suspended` before v2), [] for anyone the forge lets reply.
+  trusted: v.union(v.null(), v.array(v.string())),
+  // Whether the subject is on the forge at the pinned commit; null when not said.
+  published: v.union(v.null(), v.boolean()),
+  // A decision recorded for this round that the run has not acted on yet.
+  answered: v.union(v.null(), v.object({ by: v.string(), verdict: v.string() })),
 });
 
 export const summaryValidator = v.object({
@@ -50,6 +62,11 @@ export const summaryValidator = v.object({
 
 export type Summary = Infer<typeof summaryValidator>;
 export type WaitingFor = Infer<typeof waitingForValidator>;
+
+const EMPTY_WAITING: WaitingFor = {
+  gate: "", round: 0, kind: "gate", channel: "issue", since: "", issueNumber: 0, summary: "",
+  subjectDigest: "", questions: 0, trusted: null, published: null, answered: null,
+};
 
 export const EMPTY_SUMMARY: Summary = {
   status: "unknown", workflows: [], request: "", branch: "", baseRef: "", trigger: "",
@@ -109,7 +126,10 @@ export function advance(summary: Summary, events: StoredEvent[]): Summary {
 
 /** A stored summary, with anything a fold from an older cockpit never wrote filled in. */
 export function readSummary(stored: unknown): Summary {
-  return { ...EMPTY_SUMMARY, ...(isRecord(stored) ? stored : {}) } as Summary;
+  const summary = { ...EMPTY_SUMMARY, ...(isRecord(stored) ? stored : {}) } as Summary;
+  const waiting: unknown = summary.waitingFor;
+  summary.waitingFor = isRecord(waiting) ? { ...EMPTY_WAITING, ...waiting } as WaitingFor : null;
+  return summary;
 }
 
 
@@ -148,8 +168,17 @@ function apply(state: State, event: StoredEvent, fold: boolean): Row {
 
 function waitingFor(p: Payload | null): WaitingFor | null {
   if (p === null) return null;
-  return { gate: p.str("gate"), round: p.num("round"), kind: p.str("kind"),
-           channel: p.str("channel"), since: p.str("since") };
+  return { ...EMPTY_WAITING, gate: p.str("gate"), round: p.num("round"), kind: p.str("kind") || "gate",
+           channel: p.str("channel") || "issue", since: p.str("since"), issueNumber: p.num("issue_number"),
+           summary: p.str("summary"), subjectDigest: p.str("subject_digest") };
+}
+
+/** What a `suspended` says the session waits for: v2 adds who may answer, the questions, and whether it is on the forge. */
+function suspendedFor(p: Payload, version: number): WaitingFor | null {
+  const waiting = waitingFor(p.obj("waiting_for"));
+  if (waiting === null || version < 2) return waiting;
+  return { ...waiting, questions: p.list("questions").length, trusted: p.strs("trusted"),
+           published: p.bool("published") };
 }
 
 /** Set each field the event actually carries. An empty or zero value is "not
@@ -270,15 +299,29 @@ const READERS: Record<string, Record<number, Reader>> = {
     1: {
       fold: ({ summary }, p) => {
         summary.status = "waiting";
-        summary.waitingFor = waitingFor(p.obj("waiting_for"));
+        summary.waitingFor = suspendedFor(p, 1);
       },
       describe: (p) => `suspended at ${gateRound(p.obj("waiting_for"))}`,
+    },
+    // v2 adds whether the subject reached the forge, a question round's questions, and whose reply the factory hears.
+    2: {
+      fold: ({ summary }, p) => {
+        summary.status = "waiting";
+        summary.waitingFor = suspendedFor(p, 2);
+      },
+      describe: (p) => `suspended at ${gateRound(p.obj("waiting_for"))}` +
+        (p.bool("published") ? "" : ", its subject not on the forge"),
     },
   },
   decision_recorded: {
     1: {
       fold: ({ summary }, p) => {
+        const decision = p.obj("decision");
+        const waiting = summary.waitingFor;
         if (p.bool("consumed")) summary.waitingFor = null;
+        else if (waiting && decision && decision.str("gate") === waiting.gate && decision.num("round") === waiting.round) {
+          waiting.answered = { by: decision.str("by"), verdict: decision.str("verdict") };
+        }
       },
       describe: (p) => {
         const d = p.obj("decision");

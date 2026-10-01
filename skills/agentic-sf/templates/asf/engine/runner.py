@@ -389,7 +389,8 @@ class Run:
             self.tracer.session_waiting(self.adw_id, stop.waiting.gate)
             artifacts.suspend_run(self.session_dir, SessionSuspended(
                 waiting_for=stop.waiting, base_commit=self.workspace.base_commit,
-                head_sha=self._head()))
+                head_sha=self._head(), published=stop.published, questions=stop.questions,
+                trusted=hitl.who_answers(self.cfg, stop.waiting.channel)))
             self.console.phase_ended(phase, time.monotonic() - clock)
             self.console.waiting(stop.waiting, hitl.how_to_answer(self, stop.waiting.gate,
                                                     stop.waiting.kind))

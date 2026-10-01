@@ -1,0 +1,49 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "suspended",
+  "v": 2,
+  "payload": {
+    "waiting_for": {
+      "gate": "requirements",
+      "round": 1,
+      "kind": "questions",
+      "phase_id": "5c0075aa_03_ask_requirements",
+      "phase_name": "ask_requirements",
+      "since": "2026-09-29T11:59:00.000+00:00",
+      "channel": "issue",
+      "issue_number": 42,
+      "asked_at": "2026-09-29T11:59:05Z",
+      "subject_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "paths": [],
+      "summary": "1 question before the requirements are worth planning against",
+      "notes": ""
+    },
+    "base_commit": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+    "head_sha": "89abcdef0123456789abcdef0123456789abcdef",
+    "published": true,
+    "questions": [
+      {
+        "topic": "scope",
+        "question": "Which endpoint?",
+        "why": "the fix differs per path",
+        "blocking": true,
+        "options": [
+          {
+            "answer": "/health",
+            "because": "it is the one that 500s",
+            "recommended": true
+          },
+          {
+            "answer": "every endpoint",
+            "because": "",
+            "recommended": false
+          }
+        ]
+      }
+    ],
+    "trusted": [
+      "schurik"
+    ]
+  }
+}

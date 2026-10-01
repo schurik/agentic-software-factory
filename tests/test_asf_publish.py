@@ -163,6 +163,7 @@ def test_an_issue_run_that_asks_on_its_work_item_has_pushed_what_it_asks_about(s
     adw_id = adw_id_of(result)
     waiting = suspended(stamped, adw_id)
     assert waiting["waiting_for"]["channel"] == "issue"
+    assert waiting["published"] is True             # what lets a cockpit offer the answer
     assert remote_tip(origin, f"asf/{adw_id}") == waiting["head_sha"]
     assert git(origin, "show", f"{waiting['head_sha']}:{PLAN}") == "# Plan"
 
@@ -179,6 +180,8 @@ def test_on_integrate_pushes_nothing_until_the_branch_is_integrated(stamped: Pat
     # still uncommitted in its worktree, as it always was.
     assert remote_tip(origin, branch) == ""
     assert git(stamped, "rev-parse", branch) == suspended(stamped, adw_id)["base_commit"]
+    # …and the event says so, so a cockpit's inbox does not offer to show it.
+    assert suspended(stamped, adw_id)["published"] is False
 
     approved = asf(stamped, "approve", adw_id)
     assert approved.returncode == 0, approved.stdout + approved.stderr

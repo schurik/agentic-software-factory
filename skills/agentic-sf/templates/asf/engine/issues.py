@@ -36,7 +36,8 @@ from pathlib import Path
 
 from . import artifacts, git_helper
 from .data_types import (EventRecord, IssueComment, IssueContext, IssueOutput, IssueRef,
-                         IssueResult, IssuesConfig, IssueUpdate, PullRequestsConfig, Question)
+                         IssueResult, IssuesConfig, IssueUpdate, PullRequestsConfig, Question,
+                         Said)
 from .utils import operator_env, write_atomic
 
 BODY_FILENAME = "issue.md"
@@ -60,6 +61,13 @@ ANSWERS_FILENAME = "answers.md"
 QUESTIONS_MARKER = "<!-- asf:questions"
 REQUIREMENTS_OPEN = "<!-- asf:requirements -->"
 REQUIREMENTS_CLOSE = "<!-- /asf:requirements -->"
+# A person's text that names what it answers: a cockpit's answer, posted as the
+# person signed in to it (`read_reply`). The mark ends the words, and whatever
+# follows it is the cockpit's own footer, never the person's.
+ANSWER_MARKER = "<!-- asf:answer"
+_ANSWER_MARK = re.compile(r"<!-- asf:answer\b(?P<fields>[^>]*?)-->")
+_VERDICT_LINE = re.compile(r"^/(?P<verdict>approve|reject|abort)\b[ \t]*(?P<rest>.*)$",
+                           re.IGNORECASE)
 
 # What the receiving agent is told about the text it is being handed, whichever
 # agent that is — the ADW decides whether an issue goes to a scout, a planner or
@@ -455,6 +463,37 @@ def answers_since(comments: list[IssueComment], since: str = "",
             continue
         out.append(comment)
     return out
+
+
+def read_reply(body: str) -> Said:
+    """What one reply says to a wait: a verdict on its first line, or prose.
+
+    A question round has always been answerable in prose, and still is: any
+    reply after the questions is the answer. A GATE needs a verdict, and a
+    verdict is a line a person can type from a phone as easily as a cockpit
+    can post it — `/approve`, `/reject <what should change>`, `/abort` — with
+    whatever follows it, on that line and below, as the person's words. Only
+    the first line counts, so a reply that merely mentions "/approve" halfway
+    down is discussion, not a decision.
+
+    A cockpit's answer also carries `ANSWER_MARKER`, naming the session, gate,
+    round and subject digest it answered (`Said.answering`); the words stop
+    there. Whether that is the wait the run is in now is the caller's
+    question — this only reads what the comment says.
+    """
+    answering: dict[str, str] = {}
+    mark = _ANSWER_MARK.search(body)
+    if mark is not None:
+        answering = dict(field.split("=", 1) for field in mark.group("fields").split()
+                         if "=" in field)
+        body = body[:mark.start()]
+    text = body.strip()
+    first, _, rest = text.partition("\n")
+    verdict = _VERDICT_LINE.match(first.strip())
+    if verdict is None:
+        return Said(words=text, answering=answering)
+    words = "\n".join(part for part in (verdict.group("rest").strip(), rest.strip()) if part)
+    return Said(verdict=verdict.group("verdict").lower(), words=words, answering=answering)
 
 
 def write_answers(path: Path, answers: list[IssueComment],

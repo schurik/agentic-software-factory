@@ -1,0 +1,20 @@
+{
+  "asked": {
+    "session": "a9f259f0",
+    "gate": "plan",
+    "round": 2,
+    "kind": "gate",
+    "subject_digest": "6151fe4319d06427379e4ef96b3898549880d60e220f8868b7376e5cecfe3a78",
+    "questions": []
+  },
+  "answer": {
+    "verdict": "approve",
+    "notes": "",
+    "answers": []
+  },
+  "body": "/approve\n\n<!-- asf:answer adw=a9f259f0 gate=plan round=2 digest=6151fe4319d06427379e4ef96b3898549880d60e220f8868b7376e5cecfe3a78 -->\n<sub>Answered in the asf cockpit.</sub>\n",
+  "heard": {
+    "verdict": "approve",
+    "words": ""
+  }
+}

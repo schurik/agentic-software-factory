@@ -14,11 +14,13 @@ before the claim and held for the whole run — which covers one watcher per
 repository on one machine, and nothing covers two machines. Run one.
 
 THE SUSPENDED SESSION IS THE QUEUE for answers, and it is the odd one of the
-three: nothing new is launched, an existing run is brought back. A question
-round put its questions on a work item and stopped at exit 75, and without this
-poller the reply sits there while the run waits for somebody to type
-`asf answer`. So this one walks the sessions THIS REPOSITORY already has
-waiting, looks for a comment that came after the question, and resumes.
+three: nothing new is launched, an existing run is brought back. A run on a
+work item stopped at exit 75 — a question round that put its questions there,
+or a gate — and without this poller the reply sits there while the run waits
+for somebody to type `asf answer`. So this one walks the sessions THIS
+REPOSITORY already has waiting, looks for a comment that came after the wait,
+and resumes: on any reply at a question round, on a verdict at a gate
+(`reply_to` — which is also what a cockpit's inbox posts, as the person).
 
 THE UNRESOLVED THREAD IS THE QUEUE for pull requests. No label to claim: the
 forge maintains that state, and the run that answers a thread resolves it.
@@ -47,10 +49,11 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Optional
 
 from . import artifacts, git_helper, hitl, issues, operate, pull_requests, station, worktree
 from .data_types import (Decision, IssueRef, IssueUpdate, PullRequestRef, PullRequestUpdate,
-                         FactoryConfig, Reply)
+                         FactoryConfig, Reply, WaitingFor)
 from .tracer import watcher_beat as db_beat
 from .utils import anchor, ensure_dir, now_iso, operator_env
 
@@ -346,16 +349,44 @@ def _heard(cfg: FactoryConfig, main_root, what) -> list:
     return issues.answers_since(comments, since=since, authors=cfg.issues.trusted_authors)
 
 
-def _as_reply(answers: list) -> Reply:
-    """What several comments say, as one answer, with everyone attributed.
+def reply_to(comments: list, what: WaitingFor, adw_id: str) -> Optional[Reply]:
+    """What the replies heard since the question say to THIS wait, or None.
 
-    The analyst reads this as prose, so two people disagreeing in two comments
-    must not arrive as one anonymous paragraph — which is what joining the
-    bodies alone would do.
+    A VERDICT DECIDES, the latest one: a person who wrote `/reject` and then
+    `/approve` has changed their mind, and the run acts on one decision. At a
+    gate nothing else counts — a reply without a verdict is people talking
+    about the plan, and reading it as an answer is what made a gate on a
+    tracked issue unanswerable there before. At a question round a reply
+    without one is the answer it always was.
+
+    A reply that names what it answers (a cockpit's, `issues.read_reply`) and
+    names another session, gate, round or subject than the one waiting now
+    answers nothing: it was written about something the person no longer sees.
+
+    Several answers arrive as one, with everyone attributed. The analyst reads
+    this as prose, so two people disagreeing in two comments must not arrive as
+    one anonymous paragraph — which is what joining the bodies alone would do.
     """
-    return Reply(verdict="answer", channel="issue", by=answers[-1].author or "someone",
-                 notes="\n\n".join(f"{c.author or 'someone'}: {c.body.strip()}"
-                                    for c in answers))
+    waiting = {"adw": adw_id, "gate": what.gate, "round": str(what.round),
+               "digest": what.subject_digest}
+    heard = []
+    for comment in comments:
+        said = issues.read_reply(comment.body)
+        if said.answering and any(said.answering.get(field) != value
+                                  for field, value in waiting.items()):
+            continue
+        heard.append((comment, said))
+    verdicts = [(comment, said) for comment, said in heard if said.verdict]
+    if verdicts:
+        comment, said = verdicts[-1]
+        return Reply(verdict=said.verdict, notes=said.words, channel="issue",
+                     by=comment.author or "someone")
+    answers = [(comment, said) for comment, said in heard if said.words]
+    if what.kind != "questions" or not answers:
+        return None
+    return Reply(verdict="answer", channel="issue", by=answers[-1][0].author or "someone",
+                 notes="\n\n".join(f"{comment.author or 'someone'}: {said.words}"
+                                    for comment, said in answers))
 
 
 def answers_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
@@ -402,7 +433,9 @@ def answers_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int
                 answers = _heard(cfg, main_root, what)
                 if not answers:
                     continue
-                reply = _as_reply(answers)
+                reply = reply_to(answers, what, adw_id)
+                if reply is None:
+                    continue
                 try:
                     hitl.answer(session_dir, reply)
                 except RuntimeError as error:
