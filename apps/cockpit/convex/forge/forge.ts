@@ -55,6 +55,12 @@ export interface Issue {
   labels: string[];
 }
 
+/** Two commits' distance, as the forge counts it. */
+export interface Distance {
+  ahead: number;
+  behind: number;
+}
+
 export type Role = Infer<typeof roleValidator>;
 export type Repository = Infer<typeof repositoryValidator>;
 export type Reach = Infer<typeof reachValidator>;
@@ -80,6 +86,20 @@ export interface Forge {
    * show one: two commits, so what is shown is what was asked about.
    */
   compare(repo: string, base: string, head: string): Promise<string | null>;
+  /** The commit `branch` of `repo` is at, or null when the forge will not show it. */
+  tip(repo: string, branch: string): Promise<string | null>;
+  /**
+   * Every file under the directory `dir` of `repo` at the commit `ref`, by
+   * its path from the repository's root, or null when the forge will not
+   * show them.
+   */
+  paths(repo: string, ref: string, dir: string): Promise<string[] | null>;
+  /**
+   * How far the commit `head` is from `base` in `repo`: commits it has that
+   * `base` lacks (ahead) and the other way round (behind) — or null when the
+   * forge will not compare the two.
+   */
+  distance(repo: string, base: string, head: string): Promise<Distance | null>;
   /**
    * Post `body` on issue (or pull request) `number` of `repo`, AS the person
    * this forge acts for — never as the cockpit: what the factory hears is a

@@ -281,6 +281,29 @@ export default defineSchema({
     .index("by_item", ["repo", "kind", "number", "held"])
     .index("by_session", ["factory", "session", "held"]),
 
+  // A factory's self-description, as the last `asf check --json` a CI station
+  // pushed for one branch left it (describe.ts): one row per (factory, ref),
+  // replaced by the next push. The description is kept as the JSON text it
+  // arrived as and read by `model/description.ts`, like an event's payload, so
+  // a format this cockpit cannot read yet is kept all the same. `head` and
+  // `configHash` are the checkout it described — from the default branch,
+  // what every station's config drift is measured against.
+  checks: defineTable({
+    factory: v.string(),
+    ref: v.string(),
+    head: v.string(),
+    configHash: v.string(),
+    format: v.number(),
+    ok: v.boolean(),
+    description: v.string(),
+    station: v.string(),              // the CI job's station: its id, and what it called itself
+    stationName: v.string(),
+    stationKind: v.string(),
+    at: v.number(),
+  })
+    .index("by_ref", ["factory", "ref"])
+    .index("by_factory_at", ["factory", "at"]),
+
   // How the catch-up poll is doing: one document, read as a `Progress`
   // (model/progress.ts), which says what each field is.
   discovery: defineTable({

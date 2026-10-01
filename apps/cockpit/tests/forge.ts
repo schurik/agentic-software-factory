@@ -27,6 +27,8 @@ interface Repo {
   trees: Map<string, Map<string, string>>;
   /** The sha its default branch is at, when a test committed anything. */
   tip: string | null;
+  /** Each commit's parent, by its sha: the tip it was committed on, null for the first. */
+  parents: Map<string, string | null>;
   /** Each issue's comments, by its number, in the order they were posted. */
   comments: Map<number, Comment[]>;
   /** The labels it defines: name → description. */
@@ -238,6 +240,7 @@ export class FakeForge {
       roles: given.roles ?? {},
       trees: new Map(),
       tip: null,
+      parents: new Map(),
       comments: new Map(),
       labels: new Map(),
       issues: new Map(),
@@ -282,6 +285,7 @@ export class FakeForge {
     const tree = new Map(repo.tip === null ? [] : repo.trees.get(repo.tip)!);
     for (const [path, content] of Object.entries(files)) tree.set(path, content);
     repo.trees.set(sha, tree);
+    repo.parents.set(sha, repo.tip);
     repo.tip = sha;
     for (const path of Object.keys(files)) repo.files.add(path);
   }
@@ -470,7 +474,31 @@ export class FakeForge {
       const repo = this.repos.get(comparing[1].toLowerCase());
       const [base, head] = [repo?.trees.get(comparing[2]), repo?.trees.get(comparing[3])];
       if (!repo || !this.reads(bearer, repo) || !base || !head) return this.reply(request, token, 404, { message: "Not Found" });
-      return this.reply(request, token, 200, diff(base, head), {}, "raw");
+      if (request.headers.get("Accept") === "application/vnd.github.diff") {
+        return this.reply(request, token, 200, diff(base, head), {}, "raw");
+      }
+      const [from, to] = [ancestry(repo, comparing[2]), ancestry(repo, comparing[3])];
+      const ahead = [...to].filter((sha) => !from.has(sha)).length;
+      const behind = [...from].filter((sha) => !to.has(sha)).length;
+      const status = ahead && behind ? "diverged" : ahead ? "ahead" : behind ? "behind" : "identical";
+      return this.reply(request, token, 200, { status, ahead_by: ahead, behind_by: behind });
+    }
+    const branch = /^\/repos\/([^/]+\/[^/]+)\/branches\/(.+)$/.exec(path);
+    if (branch && method === "GET" && !as("app")) {
+      const repo = this.repos.get(branch[1].toLowerCase());
+      // Only the default branch is ever committed to here, and only once a test commits.
+      if (!repo || !this.reads(bearer, repo) || decodeURIComponent(branch[2]) !== repo.defaultBranch || repo.tip === null) {
+        return this.reply(request, token, 404, { message: "Branch not found" });
+      }
+      return this.reply(request, token, 200, { name: repo.defaultBranch, commit: { sha: repo.tip } });
+    }
+    const trees = /^\/repos\/([^/]+\/[^/]+)\/git\/trees\/([^/]+)$/.exec(path);
+    if (trees && method === "GET" && !as("app")) {
+      const repo = this.repos.get(trees[1].toLowerCase());
+      const tree = repo?.trees.get(decodeURIComponent(trees[2]));
+      if (!repo || !this.reads(bearer, repo) || !tree) return this.reply(request, token, 404, { message: "Not Found" });
+      const listed = [...tree.keys()].sort().map((file) => ({ path: file, type: "blob", mode: "100644" }));
+      return this.reply(request, token, 200, { sha: trees[2], tree: listed, truncated: false });
     }
     const contents = /^\/repos\/([^/]+\/[^/]+)\/contents\/(.+)$/.exec(path);
     if (contents && (method === "GET" || method === "HEAD") && !as("app")) {
@@ -689,6 +717,13 @@ function hash(text: string): string {
 }
 
 /** A forge the cockpit's `fetch` reaches for the rest of the test. */
+/** `sha` and every commit before it on `repo`. */
+function ancestry(repo: Repo, sha: string): Set<string> {
+  const seen = new Set<string>();
+  for (let at: string | null | undefined = sha; at && !seen.has(at); at = repo.parents.get(at)) seen.add(at);
+  return seen;
+}
+
 export function fakeForge(host?: string): FakeForge {
   const forge = new FakeForge(host);
   vi.stubGlobal("fetch", forge.fetch);

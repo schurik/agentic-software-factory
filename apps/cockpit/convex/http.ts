@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { signed } from "./forge/app";
 import { parseClaim } from "./model/claim";
 import { isRefusal as isCommandRefusal, parsePoll, parseRegistration, REGISTRATION_FOR, REGISTRATION_POLL, approvalCode } from "./model/command";
+import { isRefusal as isDescribingRefusal, parseDescribing } from "./model/description";
 import { digest, secret } from "./model/digest";
 import { asks } from "./model/webhook";
 import { isRefusal, parseBatch } from "./model/wire";
@@ -121,6 +122,27 @@ http.route({
     if (parsed.op === "drop") return reply(200, await ctx.runMutation(internal.claims.drop, { factory, asked: parsed.asked }));
     const answer = await ctx.runMutation(internal.claims.take, { factory, asked: parsed.asked });
     return reply(answer.granted ? 200 : 409, answer);
+  }),
+});
+
+// A CI station pushes the factory's self-description here (`asf check --json
+// --ship`, describe.ts): with the factory's ingest token, which can add to its
+// own factory and receive nothing — so the answer names nothing either.
+http.route({
+  path: "/describe",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const token = bearer(request);
+    if (!token) return reply(401, { error: "a description is pushed with the factory's ingest token" });
+    const pushed = parseDescribing(await body(request));
+    if (isDescribingRefusal(pushed)) return reply(pushed.status, { error: pushed.error });
+    const { checked, format, ok } = pushed.description;
+    const kept = await ctx.runMutation(internal.describe.keep, {
+      digest: await digest(token), station: pushed.station, text: pushed.text,
+      ref: checked.ref, head: checked.head, configHash: checked.configHash, format, ok,
+    });
+    if (!kept) return reply(401, { error: "this ingest token is not one the cockpit issued" });
+    return reply(200, {});
   }),
 });
 

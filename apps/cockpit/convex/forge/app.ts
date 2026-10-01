@@ -19,8 +19,8 @@ import { type Infer, v } from "convex/values";
 import { isRecord } from "../model/wire";
 import type { Forge, Reach, Repository } from "./forge";
 import {
-  compare, type Credential, ForgeError, type GitHub, items, type Memory, readPerson, readRepository, readRole,
-  refusal,
+  compare, type Credential, distance, ForgeError, type GitHub, items, type Memory, paths, readPerson, readRepository,
+  readRole, refusal, tip,
 } from "./github";
 
 /** A registered App: what GitHub hands back when a manifest is converted. */
@@ -332,6 +332,23 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
       if (installation === undefined) return null;
       return compare(github, await asInstallation(installation), repo, base, head);
+    },
+    // A factory's default branch and its config files, read for the Factory page on the
+    // installation's budget, like a session's files: the mirror said the viewer may read it.
+    tip: async (repo, branch) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return tip(github, await asInstallation(installation), repo, branch);
+    },
+    paths: async (repo, ref, dir) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return paths(github, await asInstallation(installation), repo, ref, dir);
+    },
+    distance: async (repo, base, head) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return distance(github, await asInstallation(installation), repo, base, head);
     },
     labels: async (repo) => {
       const installation = (await installed()).get(repo.split("/")[0].toLowerCase());

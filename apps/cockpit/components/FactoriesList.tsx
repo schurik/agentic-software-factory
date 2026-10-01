@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "convex/react";
-import { Fragment, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Fragment, useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { PENDING_SHOWN } from "@/convex/model/progress";
+import { factoryHref } from "./factory/view";
 import { useCockpit } from "./Shell";
 import { formatTime } from "./format";
 import { useSignIn } from "./signIn";
@@ -14,6 +17,12 @@ export function FactoriesList() {
   const { mode, forge, viewer } = useCockpit();
   const list = useQuery(api.factories.list, { signIn });
   const [triggering, setTriggering] = useState<string | null>(null);
+  const router = useRouter();
+  // A solo developer's one factory is not a list: straight to its page.
+  const only = mode === "local" && list?.factories.length === 1 ? list.factories[0].repo : null;
+  useEffect(() => {
+    if (only !== null) router.replace(factoryHref(only));
+  }, [only, router]);
   if (list === undefined) return <p className="muted">Loading…</p>;
   if (list === null) return null;       // signed out between two renders: the shell is about to say so
   const { factories, discovery } = list;
@@ -71,9 +80,8 @@ export function FactoriesList() {
               <Fragment key={factory.repo}>
                 <tr>
                   <td>
-                    {factory.onForge
-                      ? <a href={`https://${forge.host}/${factory.repo}`}>{factory.repo}</a>
-                      : factory.repo}
+                    <Link href={factoryHref(factory.repo)}>{factory.repo}</Link>
+                    {factory.onForge ? <> <a className="small muted" href={`https://${forge.host}/${factory.repo}`}>on {forge.host}</a></> : null}
                     {factory.private ? <> <span className="tag">private</span></> : null}
                     {!factory.onForge ? <> <span className="tag tag-wait">not found on the forge</span></> : null}
                   </td>

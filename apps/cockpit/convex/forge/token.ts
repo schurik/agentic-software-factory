@@ -7,7 +7,7 @@
  * answers both `repositories()` and `reach()`.
  */
 import type { Forge, Reach, Repository } from "./forge";
-import { compare, type GitHub, items, readPerson, readRepository, readRole } from "./github";
+import { compare, distance, type GitHub, items, paths, readPerson, readRepository, readRole, tip } from "./github";
 
 export function tokenForge(github: GitHub, token: string): Forge {
   const as = { token, scope: "token" };
@@ -27,6 +27,9 @@ export function tokenForge(github: GitHub, token: string): Forge {
     reach: async () => (await listed()).flatMap(({ reach }) => (reach ? [reach] : [])),
     file: (repo, path, ref) => github.file(as, repo, path, ref),
     compare: (repo, base, head) => compare(github, as, repo, base, head),
+    tip: (repo, branch) => tip(github, as, repo, branch),
+    paths: (repo, ref, dir) => paths(github, as, repo, ref, dir),
+    distance: (repo, base, head) => distance(github, as, repo, base, head),
     comment: (repo, number, body) => github.comment(as, repo, number, body),
     labels: (repo) => github.labels(as, repo),
     issue: (repo, number) => github.issue(as, repo, number),
