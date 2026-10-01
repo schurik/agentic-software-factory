@@ -257,9 +257,14 @@ class Suspended(SystemExit):
     `waiting` rather than `fail`.
     """
 
-    def __init__(self, waiting: WaitingFor):
+    def __init__(self, waiting: WaitingFor, questions: Optional[list] = None,
+                 published: bool = False):
         super().__init__(EXIT_WAITING)
         self.waiting = waiting
+        # What `suspended` says besides the wait: a question round's questions,
+        # and whether the subject is on the remote for a cockpit to read.
+        self.questions = list(questions or [])
+        self.published = published
 
 
 def resolve_paths(run, paths: list[str]) -> list[Path]:
@@ -289,6 +294,23 @@ def channel_of(run) -> str:
     if getattr(run, "pr_url", ""):
         return "pr"
     return "terminal"
+
+
+def who_answers(cfg, channel: str) -> list[str]:
+    """Whose reply on `channel` ends a wait there — empty for anyone the forge
+    lets reply, which is what an empty trust list has always meant.
+
+    The issue channel's answers watcher reads `issues.trusted_authors`; a pull
+    request's reviewers are `pull_requests.trusted_reviewers`, recorded though
+    nothing reads that channel yet. A terminal names nobody: whoever is at it.
+    Written into `suspended`, so a cockpit offers the answer to the people the
+    factory will believe and to nobody else.
+    """
+    if channel == "issue":
+        return list(cfg.issues.trusted_authors)
+    if channel == "pr":
+        return list(cfg.pull_requests.trusted_reviewers)
+    return []
 
 
 def how_to_answer(run, gate: str, kind: str = "gate") -> str:
@@ -354,12 +376,12 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
 
     # The process ends here, and what it leaves on the remote is what a cockpit
     # shows the person who answers: the subject, committed, at a pushed commit.
-    publishing.before_suspend(run, phase, subject.commit_message or (
+    published = publishing.before_suspend(run, phase, subject.commit_message or (
         f"asf({run.adw_id}): what the {subject.gate} "
         f"{'questions' if subject.kind == 'questions' else 'gate'} asked about, "
         f"round {subject.round}"))
     _notify(run, waiting)
-    raise Suspended(waiting)
+    raise Suspended(waiting, subject.questions, published)
 
 
 def publish(run, waiting: WaitingFor, questions: list) -> None:

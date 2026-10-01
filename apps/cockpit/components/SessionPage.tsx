@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useClock } from "./clock";
 import { SessionView } from "./session/SessionView";
 import { useSignIn } from "./signIn";
 
@@ -23,13 +23,4 @@ export function SessionPage({ factory, session }: { factory: string; session: st
     );
   }
   return <SessionView page={page} now={now} />;
-}
-
-function useClock(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
 }

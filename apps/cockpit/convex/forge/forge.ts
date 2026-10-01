@@ -58,6 +58,17 @@ export interface Forge {
    * read where it was committed, not wherever the branch has moved since.
    */
   file(repo: string, path: string, ref: string): Promise<Uint8Array<ArrayBuffer> | null>;
+  /**
+   * The forge's diff of `base` and `head` in `repo`, or null when it will not
+   * show one: two commits, so what is shown is what was asked about.
+   */
+  compare(repo: string, base: string, head: string): Promise<string | null>;
+  /**
+   * Post `body` on issue (or pull request) `number` of `repo`, AS the person
+   * this forge acts for — never as the cockpit: what the factory hears is a
+   * person's comment, checked against its own trust list. The comment's URL.
+   */
+  comment(repo: string, number: number, body: string): Promise<{ url: string }>;
 }
 
 /** Where a factory's config lives: a repository is a factory when its default branch holds this. */

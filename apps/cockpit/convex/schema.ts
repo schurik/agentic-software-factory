@@ -42,10 +42,31 @@ export default defineSchema({
     summary: v.any(),
     // When the cockpit last folded anything in, for ordering the list.
     activity: v.number(),
+    // Whether the summary says the session waits at a gate: what the inbox
+    // reads by (inbox.ts). Written with the summary on every ingest; unset on
+    // a session stored before it existed, until the next event folds in.
+    waiting: v.optional(v.boolean()),
   })
     .index("by_session", ["factory", "session"])
     .index("by_activity", ["activity"])
-    .index("by_factory_activity", ["factory", "activity"]),
+    .index("by_factory_activity", ["factory", "activity"])
+    .index("by_waiting", ["waiting", "activity"]),
+
+  // An answer a viewer posted from the inbox: the comment on the work item,
+  // which is the answer itself — this only remembers that it was sent, so the
+  // row says so until the factory's answers watcher picks it up and the
+  // session's own events close the wait. Nothing here is the decision.
+  gateAnswers: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    gate: v.string(),
+    round: v.number(),
+    digest: v.string(),
+    verdict: v.string(),
+    by: v.string(),                   // the forge login it was posted as
+    url: v.string(),                  // the comment, on the forge
+    at: v.number(),
+  }).index("by_wait", ["factory", "session", "gate", "round"]),
 
   // Every repository the cockpit's own forge credential reaches, as the last
   // catch-up poll or webhook left it (discovery.ts). A repository is a factory

@@ -38,6 +38,7 @@ const DESCRIBED: Record<string, string> = {
   "session_resumed/v1.json": "resumed chapter 1: ship",
   "session_started/v1.json": "session started: ship on alex@mbp:widgets",
   "suspended/v1.json": "suspended at plan round 2",
+  "suspended/v2.json": "suspended at requirements round 1",
   "tool_called/v1.json": "planner called bash: failed after 1840ms",
   "usage/v1.json": "planner · sonnet: 1200 tokens, $0.0185",
   "workflow_finished/v1.json":
@@ -116,7 +117,10 @@ describe("a session told by its events", () => {
           endedAt: "",
           lastEventAt: "2026-09-29T12:00:00.000+00:00",
           waitingFor: { gate: "plan", round: 2, kind: "gate", channel: "issue",
-                        since: "2026-09-29T11:59:00.000+00:00" },
+                        since: "2026-09-29T11:59:00.000+00:00", issueNumber: 42,
+                        summary: "planned the health check", subjectDigest: "9f2c1e", questions: 0,
+                        // A v1 `suspended` says neither who may answer nor whether the subject is on the forge.
+                        trusted: null, published: null, answered: null },
           totalTokens: 5400,
           totalCost: 0.0742,
           unread: 0,

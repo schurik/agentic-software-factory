@@ -4,6 +4,11 @@ export function sessionHref(factory: string, session: string): string {
   return `/sessions/${factory.split("/").map(encodeURIComponent).join("/")}/${encodeURIComponent(session)}`;
 }
 
+/** The inbox, with this session's wait open in it. */
+export function inboxHref(factory: string, session: string): string {
+  return `/?open=${encodeURIComponent(`${factory}/${session}`)}`;
+}
+
 export function formatCost(value: number): string {
   return value ? `$${value.toFixed(2)}` : "—";
 }

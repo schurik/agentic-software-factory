@@ -64,6 +64,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <Link href="/" className="brand">cockpit</Link>
         {me && (me.mode === "local" || me.viewer !== null) ? (
           <nav>
+            <Link href="/">Inbox</Link>
             <Link href="/factories">Factories</Link>
             <Link href="/sessions">Sessions</Link>
           </nav>

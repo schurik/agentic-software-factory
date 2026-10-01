@@ -120,8 +120,9 @@ def on_create(main_root: Path, config: WorktreeConfig, branch: str,
 
 # ── before a suspend ─────────────────────────────────────────────────────────
 
-def before_suspend(run, phase: Phase, message: str) -> None:
-    """Commit what the gate is asking about, and push it. Never raises.
+def before_suspend(run, phase: Phase, message: str) -> bool:
+    """Commit what the gate is asking about, and push it. Never raises; says
+    whether the remote now holds it, which `suspended` passes on as `published`.
 
     The subject of a gate is usually NOT committed when the gate fires: a plan
     gate sits before the stage that commits the plan, and a checkpoint sits
@@ -141,14 +142,14 @@ def before_suspend(run, phase: Phase, message: str) -> None:
     whose subject it cannot read.
     """
     if not publishes(run.cfg, run.workspace):
-        return
+        return False
     workspace = run.workspace
     remote = run.cfg.worktree.integration.remote
     try:
         sha = run.commit(phase, message, allow_clean=True)
     except RuntimeError as error:
         run.console.note(f"! could not commit what this gate asks about: {error}")
-        return
+        return False
     if sha:
         run.console.note(f"committed what this gate asks about as {sha}")
     pushed = git_helper.push(workspace.main_root, remote, workspace.branch, set_upstream=False)
@@ -156,8 +157,9 @@ def before_suspend(run, phase: Phase, message: str) -> None:
         run.console.note(f"! could not push {workspace.branch} to {remote} — a cockpit "
                          f"cannot show what this gate asks about: "
                          f"{pushed.stderr.strip()[-300:]}")
-        return
+        return False
     run.console.note(f"pushed {workspace.branch} to {remote}")
+    return True
 
 
 # ── when the session ends ────────────────────────────────────────────────────

@@ -150,7 +150,8 @@ export class GitHub {
    * anyone. Throws `RateLimited` instead of spending what `reserve` keeps,
    * and when the forge says the budget is gone.
    */
-  async send(as: Credential | null, method: string, url: string, headers: Record<string, string> = {}): Promise<Response> {
+  async send(as: Credential | null, method: string, url: string, headers: Record<string, string> = {},
+             body?: string): Promise<Response> {
     const now = Date.now();
     const scope = as?.scope ?? null;
     const known = scope === null ? null : this.memory.limit(scope);
@@ -164,8 +165,10 @@ export class GitHub {
         ...(as ? { Authorization: `Bearer ${as.token}` } : {}),
         "User-Agent": "asf-cockpit",
         "X-GitHub-Api-Version": "2022-11-28",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
         ...headers,
       },
+      ...(body === undefined ? {} : { body }),
     });
     const limit = readLimit(response.headers);
     if (scope !== null) this.memory.noteLimit(scope, limit);
@@ -193,6 +196,21 @@ export class GitHub {
   /** One resource, read. */
   one<T>(as: Credential, path: string, read: (body: unknown) => T): Promise<T> {
     return this.get(as, this.api + path, async (response) => read(await response.json()));
+  }
+
+  /** One write: `body` sent as JSON, the answer read. Never conditional and never remembered. */
+  async post<T>(as: Credential, path: string, body: unknown, read: (body: unknown) => T): Promise<T> {
+    const response = await this.send(as, "POST", this.api + path, {}, JSON.stringify(body));
+    if (!response.ok) throw await refusal(response, path);
+    return read(await response.json());
+  }
+
+  /** A comment on issue `number` of `repo`, as `as`: the person whose token it is. */
+  comment(as: Credential, repo: string, number: number, body: string): Promise<{ url: string }> {
+    return this.post(as, `/repos/${repo}/issues/${number}/comments`, { body }, (answer) => {
+      const url = isRecord(answer) && typeof answer.html_url === "string" ? answer.html_url : "";
+      return { url };
+    });
   }
 
   /** Every page of a listing, in order. `read` takes one page's body to its items. */
@@ -261,6 +279,15 @@ export class GitHub {
     if (UNSHOWN.has(response.status)) return null;
     throw await refusal(response, where);
   }
+}
+
+/** The diff of two commits of `repo`, as `as` is shown it, or null when it is not. Never remembered, like a file. */
+export async function compare(github: GitHub, as: Credential, repo: string, base: string, head: string): Promise<string | null> {
+  const where = `/repos/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
+  const response = await github.send(as, "GET", github.api + where, { Accept: "application/vnd.github.diff" });
+  if (response.ok) return await response.text();
+  if (UNSHOWN.has(response.status)) return null;
+  throw await refusal(response, where);
 }
 
 export async function refusal(response: Response, path: string): Promise<ForgeError> {

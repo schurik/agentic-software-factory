@@ -113,12 +113,13 @@ describe("a session on its way", () => {
     expect(text).toContain("killing from the cockpit arrives with station commands — for now, `asf kill a9f259f0` on schurik@mbp:widgets");
   });
 
-  it("at a gate: says it waits on a person, on which work item, and sends them to answer elsewhere", () => {
+  it("at a gate: says it waits on a person, on which work item, and sends them to the inbox to answer", () => {
     const text = shown(upTo("suspended"));
     expect(text).toContain("Now Waiting on a person: the plan gate , round 1, asked on issue #42");
     expect(text).toContain("◐ plan gate · round 1 waiting");
     expect(text).toContain("Answering happens in the inbox, not here.");
-    expect(text).toContain("answering from the cockpit arrives with the inbox — for now, reply on issue #42");
+    const html = renderToStaticMarkup(<SessionView page={page(upTo("suspended"))} now={LATER} />);
+    expect(html).toContain('<a class="button" href="/?open=acme%2Fwidgets%2Fa9f259f0">Answer in inbox</a>');
   });
 
   it("never offers a button that does nothing", () => {

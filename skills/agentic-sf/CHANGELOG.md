@@ -100,6 +100,15 @@ before — `None` when there are none, never omitted.
 - **`worktree.integration.mode: none` warns** wherever the config is loaded, and `asf doctor`
   lists it; `integrate: {mode: none}` in a workflow warns in `asf check`. Both still work in this
   release and are refused in 1.2. A stage may now declare `warn(opts)` for exactly this.
+- **A gate on a tracked issue is answerable there.** The answers watcher hears a reply whose first
+  line is a verdict — `/approve`, `/reject <what should change>`, `/abort` — at a gate, and at a
+  question round too, where any other reply is still an answer; at a gate any other reply is
+  discussion. A reply that names what it answers (`<!-- asf:answer adw=… gate=… round=… digest=…
+  -->`, which a cockpit's inbox adds) is ignored once the run has moved past that round or subject.
+- `suspended` is **v2**: it says whether the subject reached the forge (`published`), carries a
+  question round's `questions`, and names whose reply on the wait's channel the factory will hear
+  (`trusted`: `issues.trusted_authors` on an issue, empty for anyone). A cockpit's **inbox** offers
+  the answer to those people only, and posts it as the person signed in.
 
 ### Upgrade
 
@@ -135,6 +144,10 @@ show what those sessions' gates ask about. If `factory.yaml` says `integration: 
 none}`, nothing changes yet, but every command warns: before 1.2, either remove the `integrate`
 stage from the workflows that should land nothing, or switch to `mode: pr` (with `open_pr: false`
 to push a branch and open nothing) and set `worktree.publish` to say when it is pushed.
+
+Gates answered on the work item and the inbox come with the same `--force` re-stamp: `just answers`
+(or `just up`) then hears `/approve`, `/reject …` and `/abort` replies. A reply whose first line
+already began that way was discussion before and is a verdict now.
 
 ## 1.0.0
 

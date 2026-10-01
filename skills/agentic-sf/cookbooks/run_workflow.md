@@ -109,6 +109,12 @@ just abort <adw_id> [-m "why"]    # end it here, not accepted
 printed and let them answer. `reject` requires `-m` — the notes are what the
 agent revises against. `--no-resume` records the decision without relaunching.
 
+A run on a tracked issue (`channel: issue` in `just show`) can also be answered
+on the issue: a reply whose first line is `/approve`, `/reject <what should
+change>` or `/abort`, from someone `issues.trusted_authors` accepts, which `just
+answers` (or the `answers` child of `just up`) picks up. A cockpit's inbox posts
+the same reply as the person signed in to it. Never post one for the engineer.
+
 Under `worktree.publish: on_create` (the default once a cockpit is configured) a
 run that suspends first commits what the gate is asking about, in the words of
 the agent that produced it, and pushes the branch: that commit is what the

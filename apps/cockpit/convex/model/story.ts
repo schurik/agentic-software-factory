@@ -458,6 +458,11 @@ const TELLERS: Record<string, Record<number, Teller>> = {
       asked(state, p.obj("waiting_for"), at, p.str("head_sha"));
       current(state).status = "waiting";
     },
+    // v2's additions are the inbox's (inbox.ts): the story tells the wait as v1 did.
+    2: (state, p, at) => {
+      asked(state, p.obj("waiting_for"), at, p.str("head_sha"));
+      current(state).status = "waiting";
+    },
   },
   decision_recorded: {
     1: (state, p, { seq, ts }) => {
