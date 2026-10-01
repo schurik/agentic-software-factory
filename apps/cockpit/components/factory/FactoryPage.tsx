@@ -5,26 +5,31 @@ import { useAction, useQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
+import type { ClaimView } from "@/convex/model/claim";
+import { needsAttention } from "@/convex/model/attention";
 import { useClock } from "../clock";
 import { RunPanel } from "../run/RunPrompt";
 import { said, useCockpit } from "../Shell";
 import { useSignIn } from "../signIn";
+import { ActivityTab } from "./ActivityTab";
 import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
 import { FactoryHeader } from "./FactoryHeader";
+import { StationsTab } from "./StationsTab";
 import { drifts, promptWorkflows } from "./view";
 import { WorkflowsTab } from "./WorkflowsTab";
 
-const TABS = { workflows: "Workflows", config: "Config" } as const;
+const TABS = { activity: "Activity", workflows: "Workflows", stations: "Stations", config: "Config" } as const;
 type Tab = keyof typeof TABS;
 
 /**
- * One factory (spec #40): the fixed header, and its tabs — Workflows, from
- * the factory's own self-description, and Config, whose files a writer edits
- * into a pull request. Live: the page query keeps itself current; the forge
- * is looked at once when the page opens, and again whenever a station reports
- * a commit it has not measured. Both tabs stay mounted, so a draft outlives a
- * look at the other one.
+ * One factory (spec #40): the fixed header, and its tabs — Activity (what
+ * needs attention, what runs now, what finished), Workflows, from the
+ * factory's own self-description, Stations, with what each one holds, and
+ * Config, whose files a writer edits into a pull request. Live: the queries
+ * keep themselves current; the forge is looked at once when the page opens,
+ * and again whenever a station reports a commit it has not measured. Every
+ * tab stays mounted, so a draft outlives a look at another one.
  */
 export function FactoryPage({ factory }: { factory: string }) {
   const signIn = useSignIn();
@@ -32,7 +37,13 @@ export function FactoryPage({ factory }: { factory: string }) {
   const page = useQuery(api.factory.page, { factory, signIn });
   const ask = useAction(api.factory.look);
   const [look, setLook] = useState<Look | null>(null);
-  const [tab, setTab] = useState<Tab>("workflows");
+  const facts = useQuery(api.activity.attention, { factory, signIn });
+  const floor = useQuery(api.activity.page, { factory, signIn });
+  const held = useQuery(api.activity.stations, { factory, signIn });
+  const release = useAction(api.claims.release);
+  const [released, setReleased] = useState("");
+  const [station, setStation] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("activity");
   const [running, setRunning] = useState<{ workflow?: string } | null>(null);
   // The file open in the config editor, and the commit the editor reads every file at — fixed when it first opens.
   const [editing, setEditing] = useState<{ path: string; base: string } | null>(null);
@@ -50,9 +61,16 @@ export function FactoryPage({ factory }: { factory: string }) {
   }, [ask, factory, signIn, heads]);
 
   const measured = useMemo(() => (page ? drifts(page, look) : new Map()), [page, look]);
+  const attention = useMemo(() => (facts ? needsAttention(facts, now) : undefined), [facts, now]);
   if (page === undefined) return <p className="muted">Loading…</p>;
   if (page === null) return <p className="notice">{factory} is not a factory you can read. <Link href="/factories">All factories</Link></p>;
   const web = `https://${forge.host}`;
+  const onRelease = (claim: ClaimView) => {
+    setReleased("");
+    void release({ claim: claim.id, signIn })
+      .then((done) => setReleased(!done.ok ? `Not released: ${done.because}` : done.relabelled ? "" : `Released — ${done.because}.`))
+      .catch((error: unknown) => setReleased(`Not released: ${said(error)}`));
+  };
 
   return (
     <div className="factory">
@@ -69,12 +87,21 @@ export function FactoryPage({ factory }: { factory: string }) {
           <button key={each} role="tab" aria-selected={each === tab} onClick={() => setTab(each)}>{TABS[each]}</button>
         ))}
       </div>
+      {released ? <p className="notice">{released}</p> : null}
+      <div hidden={tab !== "activity"}>
+        <ActivityTab factory={factory} forge={web} now={now} attention={attention} page={floor} onRelease={onRelease} />
+      </div>
       <div hidden={tab !== "workflows"}>
         <WorkflowsTab check={page.check} running={running?.workflow ?? null}
                       onRun={(workflow) => setRunning(running?.workflow === workflow ? null : { workflow })}
                       runner={(workflow) => (
                         <RunPanel factory={page.repo} workflow={workflow} workflows={promptWorkflows(page.check)} />
                       )} />
+      </div>
+      <div hidden={tab !== "stations"}>
+        {held ? <StationsTab stations={held.stations} ci={held.ci} drifts={measured} now={now} factory={factory}
+                             selected={station} onSelect={setStation} onRelease={onRelease} />
+          : <p className="muted">Loading…</p>}
       </div>
       <div hidden={tab !== "config"}>
         <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now}

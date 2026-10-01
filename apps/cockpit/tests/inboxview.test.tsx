@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { keyed } from "../components/inbox/keys";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AnswerView, type Gate } from "../components/inbox/AnswerView";
-import { InboxList } from "../components/inbox/InboxList";
+import { InboxList, onlyOf } from "../components/inbox/InboxList";
 import type { Row } from "../convex/model/inbox";
 
 // The inbox's pages, rendered to static markup with no backend: the list, the
@@ -107,5 +107,13 @@ describe("the answer view", () => {
     expect(html).toContain("leave empty to take “/health”");
     expect(html).toContain("Take all recommendations");
     expect(html).not.toContain("Reject");
+  });
+});
+
+describe("the inbox filtered to one factory", () => {
+  it("keeps that factory's waits, whatever case its name is linked in, and all of them with none named", () => {
+    const rows = [ROW, { ...ROW, factory: "acme/gadgets", session: "b1" }, { ...ROW, session: "c1" }];
+    expect(onlyOf(rows, "Acme/Widgets").map((row) => row.session)).toEqual(["a9f259f0", "c1"]);
+    expect(onlyOf(rows, undefined)).toEqual(rows);
   });
 });

@@ -62,11 +62,16 @@ describe("the Factories list in a team cockpit", () => {
       "GET /installation/repositories?per_page=100 → 200",
       asTheApp,
       "HEAD /repos/acme/widgets/contents/asf/factory.yaml → 200",
+      asTheApp,
+      "GET /repos/acme/widgets/labels?per_page=100 → 200",
     ]);
 
     const quiet = forge.requests.length;
     await catchUp(t);
-    expect(forge.since(quiet)).toEqual([asTheApp, "GET /installation/repositories?per_page=100 → 304"]);
+    expect(forge.since(quiet)).toEqual([
+      asTheApp, "GET /installation/repositories?per_page=100 → 304",
+      asTheApp, "GET /repos/acme/widgets/labels?per_page=100 → 304",
+    ]);
 
     // An hour on the token has lapsed, and a new one is minted.
     vi.advanceTimersByTime(3600_000);

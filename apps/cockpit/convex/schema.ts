@@ -52,7 +52,8 @@ export default defineSchema({
     .index("by_session", ["factory", "session"])
     .index("by_activity", ["activity"])
     .index("by_factory_activity", ["factory", "activity"])
-    .index("by_waiting", ["waiting", "activity"]),
+    .index("by_waiting", ["waiting", "activity"])
+    .index("by_factory_waiting", ["factory", "waiting"]),
 
   // An answer a viewer posted from the inbox: the comment on the work item,
   // which is the answer itself — this only remembers that it was sent, so the
@@ -86,6 +87,10 @@ export default defineSchema({
     stale: v.boolean(),
     rev: v.number(),
     factory: v.boolean(),
+    // A factory's open issues queued for a route — what a watcher would start —
+    // as the poll last found them; null when the forge would not say, absent
+    // until it was first asked. What "nobody watching" is read against.
+    queued: v.optional(v.union(v.null(), v.array(v.number()))),
   })
     .index("by_key", ["key"])
     .index("by_stale", ["stale"])
@@ -279,7 +284,8 @@ export default defineSchema({
     released: v.union(v.null(), releasedValidator),
   })
     .index("by_item", ["repo", "kind", "number", "held"])
-    .index("by_session", ["factory", "session", "held"]),
+    .index("by_session", ["factory", "session", "held"])
+    .index("by_factory", ["factory", "held"]),
 
   // A factory's self-description, as the last `asf check --json` a CI station
   // pushed for one branch left it (describe.ts): one row per (factory, ref),
@@ -314,5 +320,6 @@ export default defineSchema({
     // about the stale ones, and null once it gave it back (discovery.begin).
     listing: v.optional(v.union(v.null(), v.number())),
     checking: v.optional(v.union(v.null(), v.number())),
+    queueing: v.optional(v.union(v.null(), v.number())),
   }),
 });

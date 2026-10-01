@@ -9,7 +9,8 @@
  * catches a webhook delivery that never arrived, because GitHub does not
  * retry one. It lists the repositories and marks as `stale` each one that
  * moved since it was last looked at. `check` then asks the forge about the
- * stale ones, a batch at a time.
+ * stale ones, a batch at a time, and `queues` asks each factory which of
+ * its issues are queued for a route — what "nobody watching" is read against.
  */
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -21,6 +22,7 @@ import { open } from "./forge/open";
 import { mode } from "./model/mode";
 import { PENDING_SHOWN, type Progress } from "./model/progress";
 import { ranges } from "./model/ranges";
+import { queuedFor, routesOf } from "./model/trigger";
 import { rememberReach } from "./viewer";
 
 /** How many repositories one `check` asks about before it hands over to the next. */
@@ -53,17 +55,25 @@ export const catchUp = internalAction({
       }
       return { listedAt: Date.now() };
     });
-    if (listed) await ctx.scheduler.runAfter(0, internal.discovery.check, {});
+    if (listed) await ctx.scheduler.runAfter(0, internal.discovery.check, { queues: true });
     return null;
   },
 });
 
+/**
+ * `queues`: a round of the catch-up, which goes on to every factory's queue
+ * once which repositories are factories is settled. A webhook's look at one
+ * repository that moved does not.
+ */
 export const check = internalAction({
-  args: {},
+  args: { queues: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx) => {
+  handler: async (ctx, { queues }) => {
     const stale = await ctx.runQuery(internal.discovery.stale, { limit: BATCH });
-    if (stale.length === 0) return null;
+    if (stale.length === 0) {
+      if (queues) await ctx.scheduler.runAfter(0, internal.discovery.queues, {});
+      return null;
+    }
     const checked = await polling(ctx, "checking", async (forge) => {
       const answers: { key: string; rev: number; factory: boolean }[] = [];
       try {
@@ -76,18 +86,72 @@ export const check = internalAction({
       }
       return {};
     });
-    // More than one batch, or a repository that moved while this one was
-    // being asked about — whose own `check` found this one at work and left.
-    if (checked && (await ctx.runQuery(internal.discovery.stale, { limit: 1 })).length > 0) {
-      await ctx.scheduler.runAfter(0, internal.discovery.check, {});
+    // Again: more than one batch, or a repository that moved while this one
+    // was being asked about — whose own `check` found this one at work and
+    // left. With none left, that turn goes on to the queues.
+    if (checked) await ctx.scheduler.runAfter(0, internal.discovery.check, { queues });
+    return null;
+  },
+});
+
+/**
+ * Which of each factory's open issues are queued for a route: the ones its
+ * issues watcher would start. Asked every round, not only of what moved — a
+ * label changes no push — and conditionally, so a round that finds nothing
+ * new is 304s. A factory whose labels the forge will not show is recorded as
+ * not known, never as having nothing queued.
+ */
+export const queues = internalAction({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const factories = await ctx.runQuery(internal.discovery.factories, {});
+    if (factories.length === 0) return null;
+    await polling(ctx, "queueing", async (forge) => {
+      const found: { key: string; queued: number[] | null }[] = [];
+      try {
+        for (const { key, name } of factories) found.push({ key, queued: await queuedOn(forge, name) });
+      } finally {
+        await ctx.runMutation(internal.discovery.queued, { found });
+      }
+      return {};
+    });
+    return null;
+  },
+});
+
+async function queuedOn(forge: Forge, repo: string): Promise<number[] | null> {
+  const labels = await forge.labels(repo);
+  if (labels === null) return null;
+  const found = routesOf(labels);
+  if (found.queued === null || found.routes.length === 0) return [];
+  const issues = await forge.labelled(repo, found.queued);
+  return issues === null ? null : queuedFor(issues, found);
+}
+
+export const factories = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("repos").withIndex("by_factory", (q) => q.eq("factory", true)).collect();
+    return rows.map(({ key, name }) => ({ key, name }));
+  },
+});
+
+export const queued = internalMutation({
+  args: { found: v.array(v.object({ key: v.string(), queued: v.union(v.null(), v.array(v.number())) })) },
+  returns: v.null(),
+  handler: async (ctx, { found }) => {
+    for (const { key, queued } of found) {
+      const row = await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", key)).unique();
+      if (row !== null && JSON.stringify(row.queued) !== JSON.stringify(queued)) await ctx.db.patch(row._id, { queued });
     }
     return null;
   },
 });
 
-/** The two kinds of work the poll does, each of which one action at a time is at. */
-const stretchValidator = v.union(v.literal("listing"), v.literal("checking"));
-type Stretch = "listing" | "checking";
+/** The kinds of work the poll does, each of which one action at a time is at. */
+const stretchValidator = v.union(v.literal("listing"), v.literal("checking"), v.literal("queueing"));
+type Stretch = "listing" | "checking" | "queueing";
 
 /** What a stretch leaves in the record of how the poll is doing. */
 interface Noted {
@@ -183,6 +247,7 @@ export const note = internalMutation({
     problem: v.optional(v.string()),
     listing: v.optional(v.null()),
     checking: v.optional(v.null()),
+    queueing: v.optional(v.null()),
   },
   returns: v.null(),
   handler: async (ctx, noted) => {

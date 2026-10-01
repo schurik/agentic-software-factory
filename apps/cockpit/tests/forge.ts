@@ -487,6 +487,22 @@ export class FakeForge {
       const labels = [...repo.labels].map(([name, description]) => ({ name, description: description || null, color: "ededed" }));
       return this.page(request, token, url, labels, (items) => items);
     }
+    const issues = /^\/repos\/([^/]+\/[^/]+)\/issues$/.exec(path);
+    if (issues && method === "GET" && !as("app")) {
+      const repo = this.repos.get(issues[1].toLowerCase());
+      if (!repo || !this.reads(bearer, repo)) return this.reply(request, token, 404, { message: "Not Found" });
+      // As GitHub filters them: by state (open unless asked), and by every label named, comma-separated.
+      const state = url.searchParams.get("state") ?? "open";
+      const wanted = (url.searchParams.get("labels") ?? "").split(",").filter(Boolean);
+      const found = [...repo.issues]
+        .filter(([, issue]) => (state === "all" || issue.state === state) && wanted.every((name) => issue.labels.includes(name)))
+        .map(([number, issue]) => ({
+          number, title: issue.title, state: issue.state, labels: issue.labels.map((name) => ({ name })),
+          html_url: `https://${this.host}/${repo.name}/${issue.pull ? "pull" : "issues"}/${number}`,
+          ...(issue.pull ? { pull_request: { url: `${this.api}/repos/${repo.name}/pulls/${number}` } } : {}),
+        }));
+      return this.page(request, token, url, found, (items) => items);
+    }
     const reading = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(path);
     if (reading && method === "GET" && !as("app")) {
       const repo = this.repos.get(reading[1].toLowerCase());

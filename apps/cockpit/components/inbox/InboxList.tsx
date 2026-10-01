@@ -1,4 +1,5 @@
 import { type ForYou, type Row, stationWords } from "@/convex/model/inbox";
+import { repoKey } from "@/convex/forge/forge";
 import { formatAgo } from "../format";
 
 /** A wait older than this is flagged: a day is long enough for a run to be noticed missing. */
@@ -6,6 +7,11 @@ export const STALE_AFTER = 24 * 3600_000;
 
 export function keyOf({ factory, session }: Pick<Row, "factory" | "session">): string {
   return `${factory}/${session}`;
+}
+
+/** The waits at `factory`'s sessions — the inbox a Factory page links to — or every one when none is named. */
+export function onlyOf(rows: Row[], factory: string | undefined): Row[] {
+  return factory ? rows.filter((row) => repoKey(row.factory) === repoKey(factory)) : rows;
 }
 
 /** What a wait asks, in a word or two: which gate, or how many questions. */

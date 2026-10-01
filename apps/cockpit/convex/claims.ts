@@ -21,7 +21,7 @@ import { open } from "./forge/open";
 import { askedValidator, type Asked, type ClaimView, consequence, type Released, sameHolder, settles } from "./model/claim";
 import { writes } from "./model/command";
 import type { StoredEvent } from "./model/wire";
-import { anonymous, roleOf } from "./commands";
+import { anonymous, attendedAt, roleOf } from "./commands";
 import { stationOf } from "./stations";
 import { actAs, canRead, viewing, type Viewing } from "./viewer";
 
@@ -119,6 +119,20 @@ async function releaseRefusal(ctx: QueryCtx, who: Viewing, factory: string): Pro
     : `releasing a claim needs write on this repository, and the forge says you have ${role}`;
 }
 
+/** `rows` of `factory` as the viewer is shown them: what releasing each would do, and whether they may. */
+async function viewsOf(ctx: QueryCtx, who: Viewing, factory: string, rows: Doc<"claims">[]): Promise<ClaimView[]> {
+  const refused = await releaseRefusal(ctx, who, factory);
+  return await Promise.all(rows.map(async (row) => {
+    const seenAt = (await stationOf(ctx, factory, row.station))?.seenAt ?? 0;
+    return {
+      id: row._id, kind: row.kind, number: row.number, repo: row.repo, session: row.session, station: row.station,
+      stationName: row.stationName, seenAt,
+      heardAt: Math.max(seenAt, (await attendedAt(ctx, factory, row.session)) ?? 0, row.grantedAt),
+      grantedAt: row.grantedAt, released: row.released, consequence: consequence(row), refused: row.held ? refused : null,
+    };
+  }));
+}
+
 /**
  * Every claim a session took, newest first: on which item, by which station
  * and how recently that station was seen, what releasing it would do, and —
@@ -131,14 +145,15 @@ export const ofSession = query({
     if (!(await canRead(ctx, who, factory))) return [];
     const rows = (await ctx.db.query("claims").withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session)).collect())
       .sort((a, b) => b.grantedAt - a.grantedAt);
-    const refused = await releaseRefusal(ctx, who, factory);
-    return await Promise.all(rows.map(async (row) => ({
-      id: row._id, kind: row.kind, number: row.number, repo: row.repo, stationName: row.stationName,
-      seenAt: (await stationOf(ctx, factory, row.station))?.seenAt ?? 0, grantedAt: row.grantedAt,
-      released: row.released, consequence: consequence(row), refused: row.held ? refused : null,
-    })));
+    return await viewsOf(ctx, who, factory, rows);
   },
 });
+
+/** Every claim `factory`'s stations hold now, oldest first, as `who` is shown them — who must be allowed to read it. */
+export async function heldOn(ctx: QueryCtx, who: Viewing, factory: string): Promise<ClaimView[]> {
+  const rows = await ctx.db.query("claims").withIndex("by_factory", (q) => q.eq("factory", factory).eq("held", true)).collect();
+  return await viewsOf(ctx, who, factory, rows.sort((a, b) => a.grantedAt - b.grantedAt));
+}
 
 // ── a writer's Release claim ─────────────────────────────────────────────────
 

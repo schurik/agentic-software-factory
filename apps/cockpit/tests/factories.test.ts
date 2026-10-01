@@ -64,6 +64,7 @@ describe("the Factories list in local mode, with the person's own token", () => 
     expect(forge.since(mark)).toEqual([
       "GET /user/repos?per_page=100&sort=full_name → 304",
       "GET /user → 304",
+      "GET /repos/acme/widgets/labels?per_page=100 → 304",       // what its issues watcher has queued
     ]);
     const list = await t.query(api.factories.list, {});
     expect(list?.factories.map((factory) => factory.repo)).toEqual(["acme/widgets"]);
@@ -86,6 +87,8 @@ describe("the Factories list in local mode, with the person's own token", () => 
       "GET /user/repos?per_page=100&sort=full_name → 200",
       "GET /user → 304",
       "HEAD /repos/acme/docs/contents/asf/factory.yaml → 200",
+      "GET /repos/acme/docs/labels?per_page=100 → 200",
+      "GET /repos/acme/widgets/labels?per_page=100 → 304",
     ]);
     expect((await t.query(api.factories.list, {}))?.factories.map((factory) => factory.repo))
       .toEqual(["acme/docs", "acme/widgets"]);
@@ -162,6 +165,7 @@ describe("the Factories list in local mode, with the person's own token", () => 
       "GET /user → 200",
       "HEAD /repos/acme/docs/contents/asf/factory.yaml → 404",
       "HEAD /repos/acme/widgets/contents/asf/factory.yaml → 200",
+      "GET /repos/acme/widgets/labels?per_page=100 → 200",
     ]);
     expect((await t.query(api.factories.list, {}))?.factories.map((factory) => factory.repo)).toEqual(["acme/widgets"]);
   });

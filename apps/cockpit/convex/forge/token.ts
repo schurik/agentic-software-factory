@@ -34,6 +34,7 @@ export function tokenForge(github: GitHub, token: string): Forge {
     distance: (repo, base, head) => distance(github, as, repo, base, head),
     comment: (repo, number, body) => github.comment(as, repo, number, body),
     labels: (repo) => github.labels(as, repo),
+    labelled: (repo, label) => github.labelled(as, repo, label),
     issue: (repo, number) => github.issue(as, repo, number),
     label: (repo, number, labels) => github.label(as, repo, number, labels),
     unlabel: (repo, number, label) => github.unlabel(as, repo, number, label),
