@@ -7,6 +7,8 @@
 Usage:
     uv run asf/asf.py list                       every workflow, one line each
     uv run asf/asf.py check [<workflow>]         load and validate, spawn nothing
+    uv run asf/asf.py check --json [--ship]      the factory's self-description, as JSON;
+                                                 --ship sends it to the cockpit as a CI station
     uv run asf/asf.py doctor                     is this repo ready to run? checks + fixes
     uv run asf/asf.py labels [--create]          the forge labels this config names
     uv run asf/asf.py run <workflow> "<prompt or path/to/prompt.md>"
@@ -48,7 +50,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from engine import commands, factory, operate, station, supervise, utils, watch, workflow  # noqa: E402
+from engine import (commands, describe, factory, operate, station, supervise, utils,  # noqa: E402
+                    watch, workflow)
 from engine.data_types import Invocation  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
@@ -66,6 +69,10 @@ def cmd_list(args) -> int:
 
 
 def cmd_check(args) -> int:
+    if getattr(args, "json", False):
+        return cmd_describe(args)
+    if getattr(args, "ship", False):
+        raise SystemExit("--ship sends the self-description: it goes with --json")
     names = [args.workflow] if args.workflow else [n for n, _ in workflow.available(args.config)]
     if not names:
         print(f"no workflows under {workflow.workflows_dir(args.config)}")
@@ -83,6 +90,20 @@ def cmd_check(args) -> int:
         for warning in loaded.warnings:
             print(f"  ~ {warning}")
     return 1 if failed else 0
+
+
+def cmd_describe(args) -> int:
+    """`check --json`: every workflow, described — the JSON on stdout and nothing
+    else, so a CI job can keep it. Exits as `check` does."""
+    if args.workflow:
+        raise SystemExit("check --json describes the whole factory: name no workflow")
+    description = describe.build(args.config)
+    sys.stdout.write(describe.dumps(description))
+    sys.stdout.flush()
+    code = 0 if description.ok else 1
+    if args.ship:
+        code = max(code, describe.ship(description, factory.load(args.config)))
+    return code
 
 
 def cmd_doctor(args) -> int:
@@ -213,6 +234,13 @@ def build_parser() -> argparse.ArgumentParser:
                ).set_defaults(func=cmd_list)
     check = _config_on(sub.add_parser("check", help="load and validate, spawn nothing"))
     check.add_argument("workflow", nargs="?", help="one workflow; default: all")
+    check.add_argument("--json", action="store_true",
+                       help="print the factory's self-description — every workflow's stages, "
+                            "agents, gates, the budget — as JSON, for a cockpit")
+    check.add_argument("--ship", action="store_true",
+                       help="with --json: send it to the cockpit ASF_COCKPIT_URL names, with "
+                            "ASF_COCKPIT_TOKEN, as this checkout's station — the stamped CI "
+                            "workflow's step; fails only when the cockpit refuses the token")
     check.set_defaults(func=cmd_check)
     _config_on(sub.add_parser("doctor", help="is this repo ready to run? checks + fixes")
                ).set_defaults(func=cmd_doctor)

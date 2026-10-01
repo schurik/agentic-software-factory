@@ -1,0 +1,43 @@
+# asf-check — stamped by the agentic-sf installer (`install.py --ci`). Optional.
+#
+# Runs `asf check` on every pull request and every push to the default branch,
+# so a workflow that will not load is a red check on the pull request that
+# broke it, not a refused run days later. It is the check `run` makes before it
+# opens a session, and it spawns nothing: no agent, no model, no token.
+#
+# `--json` prints the factory's SELF-DESCRIPTION — every workflow's stages,
+# agents, gates and the per-session budget — and `--ship` sends it to the
+# cockpit as this job's CI station. A cockpit never runs repository code or
+# reads workflow files; this is how it learns what the factory is, and the
+# description pushed from the default branch is what it measures every
+# station's config drift against. Without it the cockpit shows the factory as
+# "unchecked", not broken.
+#
+# Two settings, both optional — without them the check runs and ships nothing:
+#   vars.ASF_COCKPIT_URL       the shared cockpit backend's site origin
+#   secrets.ASF_COCKPIT_TOKEN  the factory's INGEST token: it can add to this
+#                              factory and nothing else, and receives no command
+# A pull request from a fork is given no secrets, so it is checked and not shipped.
+name: asf check
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # Every pull request, and pushes to the default branch only: its name is
+    # the event's to say, so nothing here has to know it.
+    if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: asf check
+        env:
+          ASF_COCKPIT_URL: ${{ vars.ASF_COCKPIT_URL }}
+          ASF_COCKPIT_TOKEN: ${{ secrets.ASF_COCKPIT_TOKEN }}
+        run: uv run asf/asf.py check --json --ship

@@ -37,7 +37,7 @@ from engine import station  # noqa: E402
 
 spec = json.loads(Path(sys.argv[1]).read_text())
 cockpit = FakeCockpit()
-cockpit.admit(spec["station"])
+cockpit.admit(spec.get("station", "st_test"))
 for command in spec.get("queue", []):
     cockpit.queue(**command)
 for held in spec.get("hold", []):
@@ -55,6 +55,7 @@ def told() -> None:
         "claims": {f"{kind} {number}": claim.session
                    for (_repo, kind, number), claim in cockpit.claims.items()},
         "freed": cockpit.freed,
+        "descriptions": cockpit.descriptions,
     }))
 
 

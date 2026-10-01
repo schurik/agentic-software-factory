@@ -50,6 +50,7 @@ TASKS = {"recon": ("recon.md", ScoutOutput),
          "refine": ("refine.md", RequirementsOutput)}
 
 GATE = "requirements"
+GATE_KIND = "questions"
 
 # What the planner is told about what this stage appended, beside
 # `issues.HANDOFF_NOTES` (which frames artifacts[0], the reporter's own text)
@@ -80,7 +81,7 @@ class Recon(BaseModel):
     """Who goes and looks when the analyst orders it, and how often it may.
 
     A NESTED MODEL WITH `agent:` IN IT, the shape `verify.fix` and
-    `review.revise` already use, and not a flat `scout:` — `workflow._agent_fields`
+    `review.revise` already use, and not a flat `scout:` — `workflow.agent_fields`
     walks for a field called `agent`, so a flat one would sail past `check` and
     fail mid-run instead, which is the one thing `check` exists to prevent.
     """

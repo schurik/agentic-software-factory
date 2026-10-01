@@ -122,7 +122,7 @@ jobs:
           printf '[tool.pytest.ini_options]\n' > pyproject.toml
           git add -A && git commit -qm init
           uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/install.py" \
-            --harness "${{ matrix.harness }}"
+            --harness "${{ matrix.harness }}" --ci
 
       # `check` loads every workflow — roster, stages, bindings, task files
       # against their types — and spawns nothing. A stamped repo whose own
@@ -133,6 +133,11 @@ jobs:
           cd "$RUNNER_TEMP/asf-scratch"
           uv run asf/asf.py list
           uv run asf/asf.py check
+          # What the stamped CI workflow runs, with no cockpit set: the
+          # self-description on stdout, shipped nowhere, and a pass.
+          uv run asf/asf.py check --json --ship > "$RUNNER_TEMP/self-description.json"
+          python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); assert d["ok"] and d["workflows"], d' \
+            "$RUNNER_TEMP/self-description.json"
           git add -A
           if git diff --cached --name-only | grep -E '^asf/data/|\.pyc$|^\.asf-worktrees/|^\.env$'; then
             echo "::error::the install staged its own runtime — check GITIGNORE_ENTRIES"
@@ -147,5 +152,5 @@ jobs:
           cd "$RUNNER_TEMP/asf-scratch"
           uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/uninstall.py" --dry-run
           uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/uninstall.py" --yes
-          test ! -e asf && test ! -e justfile && test ! -e .env.sample
+          test ! -e asf && test ! -e justfile && test ! -e .env.sample && test ! -e .github
           uv run "$GITHUB_WORKSPACE/skills/agentic-sf/scripts/uninstall.py" --yes | grep -q "no factory here"

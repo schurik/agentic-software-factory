@@ -181,6 +181,29 @@ before — `None` when there are none, never omitted.
 - Each verb waits for an offline station as long as its TTL — kill 5 minutes, run 15, resume an
   hour, an answer or abort 7 days — showing "queued, station offline" until then, and the cockpit
   expires what nobody took every minute.
+- **The factory describes itself**: `asf check --json` prints its **self-description** — every
+  workflow's purpose, trigger (route labels, and whether a watcher launches it), stage chain, the
+  agents it binds with their `tools` and `writes`, its gates and whether each is on — plus the
+  per-session budget, the skill version, and the checkout it checked (HEAD, branch, and the hash
+  over `asf/` a station's report carries). It has its own format version (`SelfDescription.FORMAT`)
+  and a golden fixture per version under `tests/golden/self-description/`. A workflow that does not
+  load is listed under `problems`, the others are still described, and the exit code is `check`'s.
+  `--ship` sends it to `ASF_COCKPIT_URL` with the ingest token as this checkout's station; it fails
+  only on a refused token, and ships nothing without a token (a fork's pull request).
+- A stage may name the gate it places (`GATE`, and `GATE_KIND = "questions"` for a question round):
+  `plan`, `integrate` and `refine` do, and the self-description shows them.
+- **An optional CI workflow**: `install.py --ci` (or yes when asked on a terminal) stamps
+  `.github/workflows/asf-check.yml`, which runs `asf check --json --ship` on every pull request and
+  default-branch push — a normal check on the pull request, and the description shipped to the
+  cockpit as a CI station. A re-run keeps it, `--force` refreshes it once it is there, `--no-ci`
+  neither asks nor stamps, and `uninstall.py` removes it unless it changed.
+- The cockpit's **Factory page** (`/factories/<owner>/<repo>`, linked from Factories): a header with
+  the repository, the default branch's commit, the check's state, flags and Run a prompt; a
+  **Workflows** tab rendered from the self-description (with Run in place for a prompt workflow and
+  the configured budget); and a read-only **Config** tab — the files under `asf/` on the default
+  branch, the check's result, and each station's drift from it ("3 commits behind", "local edits")
+  from the HEAD and config hash its polls report. A factory with no CI workflow is "unchecked", not
+  broken. A local cockpit with one factory opens straight onto its page.
 
 ### Upgrade
 
@@ -239,6 +262,13 @@ to `[]` on a tracker that is not the forge. Sessions started before keep an empt
 For the cockpit's Trigger button, run `just labels --create` once more if your route and queued
 labels were made by hand: it creates only missing labels, so give an existing one its description
 on the forge (`gh label edit <name> --description …`, the text `just labels` would have written).
+
+To have the cockpit show a factory's workflows and measure its stations' drift, re-stamp with
+`install.py --harness <harness> --force --ci` (the engine brings `check --json`; `--ci` stamps the
+workflow), commit `.github/workflows/asf-check.yml`, and set `vars.ASF_COCKPIT_URL` and
+`secrets.ASF_COCKPIT_TOKEN` (the factory's ingest token) on the repository. The shared cockpit must
+be this release's or newer: an older one answers the push with a 404, which the job reports and
+passes. A stage of your own that places a gate may add `GATE = "<the gate's name>"` to show it.
 
 ## 1.0.0
 

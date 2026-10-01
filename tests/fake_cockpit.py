@@ -17,6 +17,8 @@ number), granted to the first session that asks and to that session on that
 station again, refused (409) to any other and to a session a writer abandoned; held until that session's events say it finished
 or was aborted — a failure keeps it — and given back by its station only for a
 session that never started. `release` is a writer freeing one in the cockpit.
+DESCRIBING (`/describe`): a factory's self-description, sent with the ingest
+token or 401, kept as it arrived beside the station that sent it.
 
 It is called exactly as `engine.station`'s transport is — `(url, token, body)
 -> (status, body)` — and raises `ConnectionRefusedError` while it is `down`,
@@ -89,6 +91,7 @@ class FakeCockpit:
         self.freed: list[dict] = []                  # every claim let go: which, why, by whom
         self.grants_claims = True                    # False: a cockpit older than claims (404)
         self.abandoned: dict[str, str] = {}          # session -> the writer who released its claim
+        self.descriptions: list[dict] = []           # every /describe body, as sent
 
     def __call__(self, url: str, token: str, body: dict) -> tuple[int, dict]:
         if self.hold is not None:
@@ -97,10 +100,20 @@ class FakeCockpit:
             raise ConnectionRefusedError(f"{url}: connection refused")
         for path, route in (("/ingest", self._ingest), ("/station/register/poll", self._handed),
                             ("/station/register", self._register), ("/commands", self._poll),
-                            ("/claims", self._claim)):
+                            ("/claims", self._claim), ("/describe", self._describe)):
             if url.endswith(path):
                 return route(token, body)
         raise AssertionError(f"no such route on the fake cockpit: {url}")
+
+    # ── describing ───────────────────────────────────────────────────────────
+
+    def _describe(self, token: str, body: dict) -> tuple[int, dict]:
+        if token != self.token:
+            return 401, {"error": "this ingest token is not one the cockpit issued"}
+        if not (isinstance(body.get("description"), dict) and isinstance(body.get("station"), dict)):
+            return 400, {"error": "a description names its station and carries the description"}
+        self.descriptions.append(body)
+        return 200, {}
 
     # ── ingest ───────────────────────────────────────────────────────────────
 

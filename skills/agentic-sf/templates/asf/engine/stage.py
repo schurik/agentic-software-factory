@@ -28,6 +28,14 @@ A stage module exposes, at module level:
                where `earlier` maps every preceding stage's name to its OUTPUT
     warn       optional: warn(opts) -> list[str] of things that load today and
                will not in a later release — said by `check`, never a refusal
+    GATE       optional: the name of the gate the stage places, for the
+               factory's self-description (`engine/describe.py`) — the name
+               `hitl.gated` or `hitl.asked` is called with, so a cockpit shows
+               the gate a run will actually stop at
+    GATE_KIND  optional, beside GATE: "gate" (the default) for a verdict on the
+               stage's work product, which `hitl:` switches on and off;
+               "questions" for a round of questions, asked whenever the agent
+               cannot settle something
 
 `engine.workflow.load` verifies all of that at load time, and refuses a
 workflow before a session, a branch or a process record exists.
@@ -48,6 +56,7 @@ from .data_types import EnvelopeBase
 
 REQUIRED = ("NAME", "KIND", "OUTPUT", "NEEDS", "TASKS", "Options", "run")
 KINDS = ("agent", "code")
+GATE_KINDS = ("gate", "questions")
 
 
 class StageStop(Exception):
@@ -73,6 +82,8 @@ class StageModule:
     needs: tuple[type[EnvelopeBase], ...]
     tasks: dict[str, tuple[str, type[EnvelopeBase]]]
     options: type[BaseModel]
+    gate: str = ""                  # GATE: the gate it places, "" for none
+    gate_kind: str = "gate"         # GATE_KIND
 
     def run(self, ctx: "StageContext", opts: BaseModel) -> Optional[EnvelopeBase]:
         return self.module.run(ctx, opts)
@@ -204,12 +215,18 @@ def _load_one(directory: Path, source: Path) -> StageModule:
                             "nothing is a workflow that silently proves nothing")
         if not callable(module.run):
             problems.append("run must be callable")
+        if not isinstance(getattr(module, "GATE", ""), str):
+            problems.append("GATE must be the gate's name")
+        if getattr(module, "GATE_KIND", "gate") not in GATE_KINDS:
+            problems.append(f"GATE_KIND must be one of {GATE_KINDS}")
     if problems:
         raise SystemExit(f"stage {directory.name} ({source}) does not meet the contract:\n- "
                          + "\n- ".join(problems))
     return StageModule(name=module.NAME, directory=directory, module=module,
                        kind=module.KIND, output=module.OUTPUT, needs=tuple(module.NEEDS),
-                       tasks=dict(module.TASKS), options=module.Options)
+                       tasks=dict(module.TASKS), options=module.Options,
+                       gate=getattr(module, "GATE", ""),
+                       gate_kind=getattr(module, "GATE_KIND", "gate"))
 
 
 def _is_envelope(candidate: Any) -> bool:

@@ -14,11 +14,11 @@ skill, which keeps every generator and can stamp the factory back tomorrow.
 
 What goes: `asf/` entire (the engine, the stages, the agents and workflows you
 own, and the whole run record under `asf/data/`), the per-run worktrees and
-their git metadata, `.env.sample`, the stamped justfile, and the
-`# agentic-sf runtime` block from `.gitignore`.
+their git metadata, `.env.sample`, the stamped justfile, the CI workflow
+`install.py --ci` stamped, and the `# agentic-sf runtime` block from `.gitignore`.
 
-Three files live in a namespace the repository had before the factory arrived —
-`justfile`, `.env`, `.gitignore` — so each is compared against what was stamped
+Four files live in a namespace the repository had before the factory arrived —
+`justfile`, `.env`, `.gitignore`, `.github/workflows/asf-check.yml` — so each is compared against what was stamped
 and **kept the moment it differs**. A `.env` holding your API keys and a
 justfile holding your own recipes are not the factory's to delete.
 
@@ -222,6 +222,13 @@ def build_plan(root: Path, db: Path, wt_dir: str, prefix: str) -> dict:
                         f"an older version of this skill); delete or strip it yourself")
         elif name == "justfile":
             keep.append("justfile — this repo's own; install.py never wrote to it")
+    ci = root / install.CI_WORKFLOW
+    if ci.is_file():
+        if is_as_stamped(ci, [install.CI_TEMPLATE.read_text()]):
+            delete.append(ci)
+        else:
+            keep.append(f"{install.CI_WORKFLOW} — changed since it was stamped; read it, then "
+                        f"delete it yourself")
     env = root / ".env"
     if env.is_file():
         if env_is_only_stamped(env):
@@ -352,17 +359,23 @@ def execute(plan: dict, root: Path, branches: bool) -> list[str]:
     for path in plan["delete"]:
         shutil.rmtree(path) if path.is_dir() else path.unlink()
         removed.append(str(path.relative_to(root)))
+    _drop_empty_parents(root, root / install.CI_WORKFLOW)
     for path in plan["db_files"]:
         path.unlink(missing_ok=True)
         removed.append(str(path.relative_to(root)))
-        parent = path.parent
-        while parent != root and parent.is_dir() and not any(parent.iterdir()):
-            parent.rmdir()
-            parent = parent.parent
+        _drop_empty_parents(root, path)
     strip_gitignore(root, plan, removed)
     if plan["env"] not in plan["delete"]:
         strip_env(plan["env"], removed)
     return removed
+
+
+def _drop_empty_parents(root: Path, path: Path) -> None:
+    """The directories above a deleted file that it alone kept, up to `root`."""
+    parent = path.parent
+    while parent != root and parent.is_dir() and not any(parent.iterdir()):
+        parent.rmdir()
+        parent = parent.parent
 
 
 def main() -> int:

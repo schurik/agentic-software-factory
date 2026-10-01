@@ -77,7 +77,9 @@ _Avoid_: instruction, order, job, RPC
 
 **Self-description**:
 A factory's own machine-readable account of its workflows, stages, agents and gates, produced by the
-factory's code at one commit. A cockpit renders it and never interprets workflow files itself.
+factory's code at one commit (`asf check --json`). A cockpit renders it and never interprets workflow
+files itself. The one checked on the default branch is what a station's config drift is measured
+against; a factory that never shipped one is unchecked, not broken.
 _Avoid_: manifest, schema, config dump
 
 **Domain event**:

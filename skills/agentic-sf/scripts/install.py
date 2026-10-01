@@ -6,12 +6,13 @@
 
 Usage:
     uv run <skill>/scripts/install.py [--harness claude_code|pi] [--force]
-                                     [--no-detect-quality]
+                                     [--no-detect-quality] [--ci | --no-ci]
 
 Stamps `asf/` — the engine, the stage vocabulary, the starter agents and
 workflows, the runner, and `.skill-version`, the release they came from — plus
 a factory.yaml assembled for the chosen harness, that harness's `.env.sample`,
-the justfile, and the .gitignore entries. Existing files are skipped unless
+the justfile, and the .gitignore entries — and, when taken (`--ci`, or yes when
+asked), `.github/workflows/asf-check.yml`. Existing files are skipped unless
 --force. ONE FILE IS NEVER OVERWRITTEN even then: factory.yaml is the
 operator's; under --force a changed render lands beside it as `.new`.
 
@@ -39,6 +40,14 @@ HARNESSES = TEMPLATES / "harnesses"
 # `npx skills add` copies this directory and nothing above it. A test pins the
 # two together; nobody edits the stamped copy.
 VERSION_FILE = Path("asf") / ".skill-version"
+
+# The optional CI workflow: `asf check --json --ship` on every pull request and
+# default-branch push, reported as a normal check and shipped to the cockpit as
+# a CI station. Offered, never imposed — a repository's CI is its own. Once it
+# is there, it is stamped like everything else: skipped on a re-run, refreshed
+# by --force. Taking it is a flag or a question; leaving it is deleting it.
+CI_TEMPLATE = TEMPLATES / "ci" / "asf-check.yml"
+CI_WORKFLOW = Path(".github") / "workflows" / "asf-check.yml"
 
 GITIGNORE_ENTRIES = [
     "asf/data/",
@@ -129,6 +138,24 @@ def version_note(root: Path, stamped: list) -> str:
     if recorded == version:
         return f"skill version {version}  ({VERSION_FILE}, already there)"
     return f"{VERSION_FILE} says {recorded}, and this skill is {version} — kept.\n{changelog}"
+
+
+def wants_ci(root: Path, asked: bool | None) -> bool:
+    """Whether to stamp the CI workflow: `--ci`/`--no-ci` when given; yes when
+    it is already there, so --force refreshes it; else asked on a terminal,
+    and no without one — `main()` says how to take it."""
+    if asked is not None:
+        return asked
+    if (root / CI_WORKFLOW).exists():
+        return True
+    if not sys.stdin.isatty():
+        return False
+    print("\nStamp .github/workflows/asf-check.yml? It runs `asf check` on every pull request "
+          "and\ndefault-branch push, and ships the factory's self-description to a cockpit.")
+    try:
+        return input("CI workflow [y/N]: ").strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
 
 
 def render_config(harness: str) -> str:
@@ -234,6 +261,12 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="overwrite existing files")
     parser.add_argument("--no-detect-quality", action="store_true",
                         help="leave every quality.py block a placeholder")
+    ci = parser.add_mutually_exclusive_group()
+    ci.add_argument("--ci", dest="ci", action="store_true", default=None,
+                    help=f"stamp {CI_WORKFLOW}: `asf check --json` on pull requests and "
+                         f"default-branch pushes, shipped to a cockpit as a CI station")
+    ci.add_argument("--no-ci", dest="ci", action="store_false",
+                    help="do not stamp it, and do not ask")
     args = parser.parse_args()
     harness = choose(args.harness)
     root = Path.cwd()
@@ -247,6 +280,9 @@ def main() -> int:
                  config_notes)
     stamp(HARNESSES / harness / "env.sample", root / ".env.sample", args.force, stamped, skipped)
     justfile_note = stamp_justfile(root, args.force, stamped, skipped)
+    ci_taken = wants_ci(root, args.ci)
+    if ci_taken:
+        stamp(CI_TEMPLATE, root / CI_WORKFLOW, args.force, stamped, skipped)
     ensure_gitignore(root, stamped)
     skill_in_env = ensure_env(root, root / ".env.sample", stamped, notes)
 
@@ -269,6 +305,12 @@ def main() -> int:
         print(f"  {note}")
     if justfile_note:
         print(f"  {justfile_note}")
+    if ci_taken:
+        print(f"  {CI_WORKFLOW}: set vars.ASF_COCKPIT_URL and secrets.ASF_COCKPIT_TOKEN (the "
+              f"factory's ingest token) for it to ship to a cockpit")
+    else:
+        print(f"  no CI workflow: re-run with --ci to stamp {CI_WORKFLOW}, which runs "
+              f"`asf check --json` on pull requests and ships it to a cockpit")
     _, steps = about(harness)
     if steps:
         print(f"\nbefore the first run ({harness}):\n\n{steps}")
