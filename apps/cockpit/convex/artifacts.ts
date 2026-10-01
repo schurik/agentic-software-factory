@@ -75,7 +75,7 @@ export const read = action({
 });
 
 /** A file's bytes as the page shows them: text up to the cap, and nothing of a file that is not text. */
-async function shown(bytes: Uint8Array): Promise<{ content: string; truncated: boolean; binary: boolean }> {
+export async function shown(bytes: Uint8Array): Promise<{ content: string; truncated: boolean; binary: boolean }> {
   // The factory's own test for "not text": a NUL anywhere in it.
   if (bytes.includes(0)) return { content: "", truncated: false, binary: true };
   const truncated = bytes.length > READ_BYTES;

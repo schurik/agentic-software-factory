@@ -28,6 +28,10 @@ done
 
 ./convex.sh deploy --yes --typecheck disable --codegen disable
 
+# Sessions an older cockpit stored carry no `waiting` mark, which is what the
+# inbox finds a waiting session by; this marks them, and then has nothing to do.
+./convex.sh run inbox:backfill > /dev/null 2>&1 || echo "start: the inbox's backfill did not run; older waiting sessions are missing from it"
+
 # The forge catch-up poll, once as the deployment starts: a cockpit that was
 # down missed whatever GitHub delivered meanwhile, and GitHub does not send it
 # again. The cron (convex/crons.ts) takes it from here. Not worth failing a

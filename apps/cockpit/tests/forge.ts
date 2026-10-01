@@ -27,6 +27,15 @@ interface Repo {
   trees: Map<string, Map<string, string>>;
   /** The sha its default branch is at, when a test committed anything. */
   tip: string | null;
+  /** Each issue's comments, by its number, in the order they were posted. */
+  comments: Map<number, Comment[]>;
+}
+
+/** A comment as posted: whose name it went up under, and which kind of token sent it. */
+export interface Comment {
+  author: string;
+  via: "person" | "user" | "installation";
+  body: string;
 }
 
 interface Person {
@@ -209,7 +218,13 @@ export class FakeForge {
       roles: given.roles ?? {},
       trees: new Map(),
       tip: null,
+      comments: new Map(),
     });
+  }
+
+  /** What has been posted on issue `number` of `name`. */
+  comments(name: string, number: number): Comment[] {
+    return this.known(name).comments.get(number) ?? [];
   }
 
   /**
@@ -331,6 +346,33 @@ export class FakeForge {
         .filter((repo) => repo.roles[bearer.login] !== undefined)
         .map((repo) => this.wire(repo, repo.roles[bearer.login]));
       return this.page(request, token, url, repos, (repositories) => ({ total_count: repos.length, repositories }));
+    }
+    const commenting = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/comments$/.exec(path);
+    if (commenting && method === "POST" && bearer.kind !== "app") {
+      // Anyone who can read a repository may comment on its issues. The comment is
+      // authored by whoever the token is: a person, or — on an installation token —
+      // the App's bot, which is exactly what an answer must never be posted as.
+      const repo = this.repos.get(commenting[1].toLowerCase());
+      if (!repo || !this.reads(bearer, repo)) return this.reply(request, token, 404, { message: "Not Found" });
+      const { body } = (await request.json()) as { body?: unknown };
+      if (typeof body !== "string" || body === "") return this.reply(request, token, 422, { message: "Validation Failed" });
+      const number = Number(commenting[2]);
+      const author = bearer.kind === "installation" ? `${this.app?.slug ?? "app"}[bot]` : bearer.login;
+      const thread = repo.comments.get(number) ?? [];
+      thread.push({ author, via: bearer.kind, body });
+      repo.comments.set(number, thread);
+      const id = ++this.ids;
+      return this.reply(request, token, 201, {
+        id, body, user: { login: author },
+        html_url: `https://${this.host}/${repo.name}/issues/${number}#issuecomment-${id}`,
+      });
+    }
+    const comparing = /^\/repos\/([^/]+\/[^/]+)\/compare\/([^/.]+)\.\.\.([^/.]+)$/.exec(path);
+    if (comparing && method === "GET" && !as("app")) {
+      const repo = this.repos.get(comparing[1].toLowerCase());
+      const [base, head] = [repo?.trees.get(comparing[2]), repo?.trees.get(comparing[3])];
+      if (!repo || !this.reads(bearer, repo) || !base || !head) return this.reply(request, token, 404, { message: "Not Found" });
+      return this.reply(request, token, 200, diff(base, head), {}, "raw");
     }
     const contents = /^\/repos\/([^/]+\/[^/]+)\/contents\/(.+)$/.exec(path);
     if (contents && (method === "GET" || method === "HEAD") && !as("app")) {
@@ -471,6 +513,17 @@ export class FakeForge {
     this.pushes += 1;
     return new Date(Date.UTC(2026, 8, 1) + this.pushes * 1000).toISOString();
   }
+}
+
+/** A unified diff of two trees, as far as a test reads one: every changed file, its old lines out and its new lines in. */
+function diff(base: Map<string, string>, head: Map<string, string>): string {
+  const paths = [...new Set([...base.keys(), ...head.keys()])].sort();
+  return paths.filter((path) => base.get(path) !== head.get(path)).map((path) => {
+    const lines = (text: string | undefined, sign: string) =>
+      text === undefined ? [] : text.replace(/\n$/, "").split("\n").map((line) => sign + line);
+    return [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`,
+            ...lines(base.get(path), "-"), ...lines(head.get(path), "+")].join("\n") + "\n";
+  }).join("");
 }
 
 function wireInstallation({ id, account }: Installation): Record<string, unknown> {

@@ -53,8 +53,9 @@ export const append = internalMutation({
       .collect();
     const summary = advance(readSummary(record?.summary), fresh);
     const activity = Date.now();
-    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity });
-    else await ctx.db.patch(record._id, { acked, summary, activity });
+    const waiting = summary.waitingFor !== null;
+    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting });
+    else await ctx.db.patch(record._id, { acked, summary, activity, waiting });
     return { acked };
   },
 });

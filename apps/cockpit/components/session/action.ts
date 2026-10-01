@@ -1,6 +1,6 @@
 import type { Summary } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
-import { channelWords } from "./words";
+import { inboxHref } from "../format";
 
 /**
  * The one thing a person can do about a session right now, and — while the
@@ -14,21 +14,17 @@ export interface Action {
   disabledBecause: string;          // "" when it can be used
 }
 
-export function actionFor(session: string, summary: Summary, story: Story): Action | null {
+export function actionFor(factory: string, session: string, summary: Summary, story: Story): Action | null {
   const at = story.station.name ? ` on ${story.station.name}` : " on its station";
   switch (summary.status) {
     case "running":
       return { label: "Kill session", href: null,
                disabledBecause: `killing from the cockpit arrives with station commands — ` +
                                 `for now, \`asf kill ${session}\`${at}` };
-    case "waiting": {
-      const waiting = story.now.waiting;
-      const where = waiting && ["issue", "pr"].includes(waiting.channel)
-        ? `reply on ${channelWords(waiting.channel, waiting.issueNumber)}`
-        : `\`asf approve ${session}\` or \`asf reject ${session}\`${at}`;
-      return { label: "Answer in inbox", href: null,
-               disabledBecause: `answering from the cockpit arrives with the inbox — for now, ${where}` };
-    }
+    // The inbox is where answering happens, and it says there whether this
+    // wait can be answered from the cockpit and, if not, why not.
+    case "waiting":
+      return { label: "Answer in inbox", href: inboxHref(factory, session), disabledBecause: "" };
     case "fail":
       return { label: "Resume", href: null,
                disabledBecause: `resuming from the cockpit arrives with station commands — ` +

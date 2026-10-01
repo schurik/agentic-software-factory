@@ -21,7 +21,7 @@ export type Page = View & { factory: string; session: string; acked: number; for
  */
 export function SessionView({ page, now }: { page: Page; now: number }) {
   const { summary, story, session, factory } = page;
-  const action = actionFor(session, summary, story);
+  const action = actionFor(factory, session, summary, story);
   return (
     <div className="session">
       <header className="topbar">
@@ -33,7 +33,7 @@ export function SessionView({ page, now }: { page: Page; now: number }) {
         {action ? (
           <div className="action">
             {action.disabledBecause ? <span className="why small muted">{action.disabledBecause}</span> : null}
-            {action.href ? <a className="button" href={action.href}>{action.label} ↗</a>
+            {action.href ? <a className="button" href={action.href}>{action.label}{action.href.startsWith("/") ? "" : " ↗"}</a>
               : <button className="button" disabled={action.disabledBecause !== ""}>{action.label}</button>}
           </div>
         ) : null}

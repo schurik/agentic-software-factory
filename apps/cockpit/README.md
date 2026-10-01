@@ -2,7 +2,7 @@
 
 Observes and steers many factories from one place (ADR 0001, spec #40). A station ships a session's
 domain events to `POST /ingest`, and a sessions list and a session page render live from what was
-stored. The forge says which factories there are and who may see them: a Factories page lists every
+stored. The home page is the **inbox**: every gate the viewer may answer, answered in place. The forge says which factories there are and who may see them: a Factories page lists every
 repository the cockpit can reach whose default branch holds `asf/factory.yaml`. It is a Next.js
 front end on a **self-hosted Convex** backend (ADR 0002), and it lives here, outside
 `skills/agentic-sf/`, so it never ships in a stamp.
@@ -121,6 +121,36 @@ nothing: the cockpit stores no file bodies. The page says when a later commit ch
 a link to the forge's comparison), and when a later phase wrote it again before anything committed
 it, so that version never reached the forge. The session must be one the person may see; the read
 itself goes on the installation token, like the cockpit's other reading.
+
+## The inbox
+
+The home page lists every gate, across every factory, that the viewer is **permitted** to answer:
+they can read its repository, and the factory's trust list for the wait's channel names them or
+nobody. That list is the factory's own word, carried by the `suspended` event (`trusted`, from
+`issues.trusted_authors` for a wait on an issue), so the cockpit offers the answer to exactly the
+people the factory will hear. Runs the viewer triggered are sorted first; the rest wait longest
+first, and a wait older than a day is flagged. The list and the open answer view are live queries.
+
+An answer is a **comment on the work item, posted as the viewer**: on their own user access token
+in a team cockpit (GitHub shows it as theirs, made through the App), or with the `gh auth token` a
+local cockpit holds. Its first line is the verdict the factory's answers watcher reads — `/approve`,
+`/reject <notes>`, `/abort`, or a question round's answers in prose — and it ends with a mark naming
+the session, gate, round and subject digest it answered, so the watcher ignores it once the run has
+moved past them (`convex/model/answer.ts`). Nothing in the cockpit records a decision: the row says
+"answered" until the session's own events close the wait. `tests/golden/answers/` holds each
+rendering; this suite renders them byte for byte and the factory's proves its watcher hears them.
+What the factory would refuse — a reject without notes, an answer at a gate, a reject at a question
+round — is refused before anything is posted, and so is an answer to a round or subject that has
+moved on since the view opened.
+
+The answer view reads the subject from the forge at the commit the question was asked about
+(`head_sha`), never the branch tip: the files, which it hashes the factory's way to say whether they
+are still what was asked about, or — for a subject the station alone holds, such as the integrate
+gate's diff — the forge's comparison of `base_commit` with `head_sha`. Rows that cannot be answered
+here stay, disabled, with the reason: a run started from a prompt (no work item), a wait on a pull
+request (nothing reads those yet), a subject not on the forge (`worktree.publish: on_integrate`),
+a gate being asked at the station's terminal, an answer already given. Keys: `j`/`k` next and
+previous, `a` approve (at a question round, take every recommendation), `r` reject.
 
 ## The ingest wire
 
@@ -265,7 +295,9 @@ the same session to static markup, with no backend and no browser. A phase opens
 (Artifacts · Overview · Checks · Tools · Transcript · Cost · Events) through a query of its own,
 `sessions:phase`, asked only when someone opens it: `tests/phase.test.ts` says what each tab holds
 for the recorded session, `tests/phasetabs.test.tsx` renders every tab of every phase of it, and
-`tests/artifacts.test.ts` reads repo artifacts from the fake forge.
+`tests/artifacts.test.ts` reads repo artifacts from the fake forge. `tests/inbox.test.ts` drives the inbox
+against it — who is permitted, why a row is disabled, the comment posted as whom, the subject at
+the pinned commit — and `tests/answer.test.ts` renders the golden answers.
 
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
 cockpit calls it, in memory, installed as `fetch`. It stands in at the wire rather than behind the

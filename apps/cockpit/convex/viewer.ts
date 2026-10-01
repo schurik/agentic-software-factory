@@ -13,7 +13,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { action, type ActionCtx, internalMutation, query, type QueryCtx } from "./_generated/server";
+import { action, type ActionCtx, internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { type App, exchange, type Expiring, installUrl } from "./forge/app";
 import { personValidator, type Reach, reachValidator, repoKey, type Role } from "./forge/forge";
 import { ForgeError, GitHub, RateLimited } from "./forge/github";
@@ -266,6 +266,27 @@ async function userToken(ctx: ActionCtx, { viewer, access, refresh }: Refreshing
   await ctx.runMutation(internal.viewer.renewed, { viewer, tokens });
   return tokens.access.token;
 }
+
+/**
+ * The access token the team's App acts as `viewer` with right now, renewed
+ * first when it has run out: what an answer from the inbox is posted on, so
+ * the forge records the person as its author. Throws `ForgeError` 401 when
+ * their sign-in is gone and only signing in again brings it back.
+ */
+export async function actAs(ctx: ActionCtx, viewer: Id<"viewers">): Promise<string> {
+  const held: Refreshing | null = await ctx.runQuery(internal.viewer.held, { viewer });
+  if (held === null) throw new ForgeError(401, "the viewer is not known here");
+  return await userToken(ctx, held);
+}
+
+/** A viewer's tokens, for `actAs`. Internal: no public function returns them. */
+export const held = internalQuery({
+  args: { viewer: v.id("viewers") },
+  handler: async (ctx, { viewer }): Promise<Refreshing | null> => {
+    const row = await ctx.db.get(viewer);
+    return row && { viewer, access: row.access ?? null, refresh: row.refresh ?? null };
+  },
+});
 
 export const renewed = internalMutation({
   args: { viewer: v.id("viewers"), tokens: tokensValidator },

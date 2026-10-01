@@ -11,15 +11,16 @@
  *   - as an installation: what the cockpit reads for itself — the
  *     repositories, and whether each holds a factory. Its budget grows with
  *     the repositories it is installed on;
- *   - as a person who signed in, with their user access token: who they are
- *     and where they can go, and (in later slices) everything the cockpit
- *     does on the forge, so that it is authored by them.
+ *   - as a person who signed in, with their user access token: who they are,
+ *     where they can go, and everything the cockpit does on the forge — an
+ *     answer to a gate is their comment — so that it is authored by them.
  */
 import { type Infer, v } from "convex/values";
 import { isRecord } from "../model/wire";
 import type { Forge, Reach, Repository } from "./forge";
 import {
-  type Credential, ForgeError, type GitHub, items, type Memory, readPerson, readRepository, readRole, refusal,
+  compare, type Credential, ForgeError, type GitHub, items, type Memory, readPerson, readRepository, readRole,
+  refusal,
 } from "./github";
 
 /** A registered App: what GitHub hands back when a manifest is converted. */
@@ -327,7 +328,14 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       if (installation === undefined) return null;
       return github.file(await asInstallation(installation), repo, path, ref);
     },
+    compare: async (repo, base, head) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return compare(github, await asInstallation(installation), repo, base, head);
+    },
     person: () => github.one(asUser(), "/user", readPerson),
+    // On the person's own token, so the comment is theirs — and GitHub shows it was made through the App.
+    comment: (repo, number, body) => github.comment(asUser(), repo, number, body),
     reach: async () => {
       // GitHub's own answer to "where can this person go through this App", with their role on each.
       const as = asUser();
