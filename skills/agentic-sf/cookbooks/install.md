@@ -144,6 +144,9 @@ prose you edited, so commit before you force.
    token`, which `up` hands to it as it starts: `doctor`'s `cockpit forge`
    line says whether there is one. Without a `gh` login the cockpit still
    shows every session this checkout ships, and lists no factory beyond those.
+   With a **shared** cockpit instead, `just station-register` lets it send
+   this checkout commands (kill, from the session page): it prints a code the
+   engineer approves there, signed in — theirs to approve, not yours.
 6. **`just labels --create`** — only if either watcher is on. Every label in
    `issues.route`, `issues.states`, `issues.refined_label` and
    `pull_requests.states.failed` has to EXIST at the forge before anything can

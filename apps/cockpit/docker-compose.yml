@@ -92,6 +92,9 @@ services:
       - COCKPIT_MODE
       - COCKPIT_FORGE_HOST
       - COCKPIT_FORGE_TOKEN
+      # Where people open the cockpit: `asf station register` prints its
+      # approval link here. Set it to the address a browser reaches it at.
+      - COCKPIT_APP_URL=${COCKPIT_APP_URL:-http://localhost:${APP_PORT:-3000}}
     depends_on:
       keygen:
         condition: service_completed_successfully

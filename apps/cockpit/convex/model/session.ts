@@ -51,6 +51,7 @@ export const summaryValidator = v.object({
   issueAssignees: v.array(v.string()), // whom that issue was assigned to when the run read it
   issueUrl: v.string(),
   prUrl: v.string(),
+  stationId: v.string(),               // the station that holds it: where its commands go
   stationName: v.string(),
   skillVersion: v.string(),
   startedAt: v.string(),
@@ -72,7 +73,7 @@ const EMPTY_WAITING: WaitingFor = {
 
 export const EMPTY_SUMMARY: Summary = {
   status: "unknown", workflows: [], request: "", branch: "", baseRef: "", trigger: "",
-  triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationName: "", skillVersion: "",
+  triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
   totalTokens: 0, totalCost: 0, unread: 0,
 };
@@ -227,7 +228,8 @@ const READERS: Record<string, Record<number, Reader>> = {
           request: p.str("request"), branch: p.str("branch"), baseRef: p.str("base_ref"),
           trigger: p.str("trigger"), triggeredBy: p.str("triggered_by"),
           issueUrl: p.str("issue_url"), prUrl: p.str("pr_url"),
-          stationName: p.str("station_name"), skillVersion: p.str("skill_version"),
+          stationId: p.str("station_id"), stationName: p.str("station_name"),
+          skillVersion: p.str("skill_version"),
           startedAt: summary.startedAt ? "" : p.str("started_at"),
         });
       },

@@ -33,7 +33,7 @@ import signal
 import sys
 from pathlib import Path
 
-from . import artifacts, git_helper, preflight, publish, station, worktree
+from . import artifacts, commands, git_helper, preflight, publish, station, worktree
 from .data_types import FactoryConfig, RunSpec, SessionSpec, SessionStarted, WorktreeRequest
 from .hitl import HitlPolicy
 from .runner import Run
@@ -133,7 +133,11 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     artifacts.open_chapter(run.session_dir, workflow, spec.input, resume)
     # And from here every event this process appends is on its way to the
     # cockpit, when there is one — from a thread, so nothing below waits on it.
-    station.start(run.session_dir)
+    # The same thread asks for the commands that name this session, so a kill
+    # from the cockpit reaches the run itself, with no daemon running.
+    station.start(run.session_dir, steering=commands.Steering(
+        cfg, main_root, lambda: station.credential(main_root, cfg.defaults.data_dir),
+        session=adw_id))
     # This process is the run. Record it before any phase opens, so a run that
     # hangs in its first agent call is still killable by adw_id.
     tracer.process_start(adw_id, "adw", "", os.getpid(), " ".join(command))

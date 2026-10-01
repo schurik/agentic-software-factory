@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { appValidator } from "./forge/app";
 import { roleValidator } from "./forge/forge";
+import { commandStateValidator, reportValidator, verbValidator } from "./model/command";
 import { storedEventFields } from "./model/wire";
 
 export const expiringValidator = v.object({ token: v.string(), expiresAt: v.union(v.null(), v.number()) });
@@ -176,6 +177,73 @@ export default defineSchema({
     token: v.string(),
     expiresAt: v.number(),
   }).index("by_installation", ["installation"]),
+
+  // A station a person approved to take commands (model/command.ts): one
+  // checkout of a factory, by the id it minted for itself. `token` is the
+  // digest of its command token — the owner's, for this station alone — and
+  // null once revoked, which is what takes it offline for commands. `seenAt`
+  // is when its long-lived loop last polled; `report` what that poll, or a
+  // run's own, said it would obey and where its checkout stands.
+  stations: defineTable({
+    factory: v.string(),
+    station: v.string(),
+    name: v.string(),
+    kind: v.string(),                 // local | ci
+    owner: v.union(v.null(), v.id("viewers")),
+    ownerLogin: v.string(),
+    token: v.union(v.null(), v.string()),
+    seenAt: v.number(),               // 0: its loop has never polled
+    report: v.union(v.null(), reportValidator),
+  })
+    .index("by_station", ["factory", "station"])
+    .index("by_token", ["token"])
+    .index("by_owner", ["owner"]),
+
+  // A station asking to be registered (`asf station register`): the digest of
+  // the secret it polls with, and the code a person approves it by. Gone once
+  // the station has its token, or once it ran out.
+  registrations: defineTable({
+    device: v.string(),
+    code: v.string(),
+    factory: v.string(),
+    station: v.string(),
+    name: v.string(),
+    kind: v.string(),
+    expiresAt: v.number(),
+    approvedBy: v.union(v.null(), v.id("viewers")),
+  })
+    .index("by_device", ["device"])
+    .index("by_code", ["code"])
+    .index("by_expiry", ["expiresAt"]),
+
+  // When a run's own shipper last polled for its session's commands: a
+  // session is attended while that is recent. Kept apart from `sessions`, so a
+  // poll every few seconds does not re-run every query that lists them.
+  attendance: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    station: v.string(),
+    at: v.number(),
+  }).index("by_session", ["factory", "session"]),
+
+  // A command a person queued for a station. Never "done" because it was
+  // sent: only the station's own `command_result`, ingested, settles it
+  // (ingest.ts), and a command nobody took by `expiresAt` expires.
+  commands: defineTable({
+    factory: v.string(),
+    station: v.string(),
+    session: v.string(),
+    verb: verbValidator,
+    notes: v.string(),
+    by: v.string(),                   // the forge login of whoever queued it
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    state: commandStateValidator,
+    deliveredAt: v.union(v.null(), v.number()),
+    detail: v.string(),               // what the station said it did, or why it would not
+  })
+    .index("by_station_state", ["factory", "station", "state"])
+    .index("by_session", ["factory", "session"]),
 
   // How the catch-up poll is doing: one document, read as a `Progress`
   // (model/progress.ts), which says what each field is.

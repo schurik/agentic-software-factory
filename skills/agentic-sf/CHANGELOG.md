@@ -124,6 +124,25 @@ before — `None` when there are none, never omitted.
   queued labels as you, from triage up, and refuses an issue already queued or one a run already
   has. It finds those labels by the descriptions `asf labels --create` writes (route, queued and
   running), which are now a contract (`tests/golden/labels/`).
+- **Stations take commands.** `asf station register` (`just station-register`) asks a shared
+  cockpit for a code, prints where to approve it, and keeps the command token a signed-in writer's
+  approval issues — theirs, for this station alone — in `asf/data/station-token.json`. A local
+  cockpit's station is its owner's without approving anything; a CI station never takes commands.
+  Revoking a station's token in the cockpit (Stations) stops every command reaching it.
+- The station loop, and every run's own shipper, poll the cockpit for commands every few seconds,
+  and each poll reports the verbs the station obeys, the commit it has out, a hash of `asf/` and the
+  watchers it runs. Those polls are how a cockpit knows a session is **attended** and a station
+  **online**; the session page shows both, with when it was last seen.
+- `cockpit.commands` in `asf/factory.yaml` opts verbs in, from `answer`, `abort`, `kill`, `resume`
+  and `run` (this release carries out `kill`; a fresh stamp lists `[kill]`). A station refuses a
+  verb that is not listed, a command whose `by` fails `issues.trusted_authors`, and one past its
+  expiry; it records each outcome in `asf/data/commands/<id>.json`, so a command delivered twice
+  acts once, and reports it as a `command_result` — the cockpit's only source for "done".
+- **Kill from the session page.** A running session's kill goes to the run itself while it is
+  attended — it stops through its own SIGTERM handler, children first — and to the station loop
+  otherwise; a station that is offline gets it when it is back, until it expires (minutes). The
+  button is disabled, with the reason, for a reader, for a station nobody registered, and for one
+  whose report says it does not take `kill`.
 
 ### Upgrade
 
@@ -138,6 +157,10 @@ To ship to a cockpit, the same `--force` re-stamp brings the engine and the `sta
 then add `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` to `.env` by hand, because the installer never
 rewrites an existing `.env` (a re-stamped `.env.sample` names both). A CI job that ships ends with
 `uv run asf/asf.py station sync`, with both set from the job's secrets.
+
+To kill runs from a cockpit, add `commands: [kill]` under `cockpit:` in `asf/factory.yaml` (a
+`--force` re-stamp never edits it), commit it, and run `asf station register` once per checkout
+against a shared cockpit; a local cockpit needs no registering. Nothing is obeyed until then.
 
 The same `--force` re-stamp brings `asf/cockpit/` and the station loop. After it, `just up` starts
 a local cockpit unless `.env` names a shared one; install Docker for it, or accept the warning. The

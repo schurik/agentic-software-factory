@@ -11,7 +11,7 @@
  * `tests/golden/labels/` holds both, and the factory's suite and this one read
  * it. A label someone made by hand says nothing here, and is not offered.
  */
-import type { Issue, Label, Role } from "../forge/forge";
+import { atLeast, type Issue, type Label, type Role } from "../forge/forge";
 
 const ROUTE = /^asf route: a person asked for the (\S+) workflow here$/;
 const QUEUED = "asf: waiting for a watcher to claim it";
@@ -70,8 +70,6 @@ export function unoffered({ routes, queued }: Routes): string | null {
   return `the forge defines ${missing} this factory made: run \`asf labels --create\` in the repository`;
 }
 
-const RANK: Role[] = ["read", "triage", "write", "maintain", "admin"];
-
 /**
  * Why the viewer may not trigger a workflow on a repository where the forge
  * says they are `role` — null when they may. Triage or higher is what the
@@ -80,7 +78,7 @@ const RANK: Role[] = ["read", "triage", "write", "maintain", "admin"];
  */
 export function refusal(role: Role | null): string | null {
   if (role === null) return "the forge has not said what you may do on this repository";
-  if (RANK.indexOf(role) < RANK.indexOf("triage")) {
+  if (!atLeast(role, "triage")) {
     return `triggering needs triage or higher on this repository, and the forge says you have ${role}`;
   }
   return null;

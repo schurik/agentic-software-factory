@@ -38,8 +38,16 @@ observability:
 # is the rest: every prompt an agent was sent and the raw output of its
 # harness, tool arguments and results included. It is large, it holds whatever
 # an agent read, and it is off until this says otherwise.
+#
+# `commands` is which COMMANDS this factory's stations carry out when a cockpit
+# asks — steering the forge cannot carry, from the closed set answer, abort,
+# kill, resume, run. Nothing is obeyed that is not listed here, and a station
+# still holds every command's author to issues.trusted_authors. A station takes
+# commands once a person approved it (`asf station register`; a local cockpit's
+# station is its owner's already).
 cockpit:
   transcripts: false
+  commands: [kill]
 
 # Every run gets its own git worktree on its own branch, cut from a base ref
 # pinned at run start. The engineer's working tree is never touched.

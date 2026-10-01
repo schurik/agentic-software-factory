@@ -68,6 +68,7 @@ services:
       - COCKPIT_MODE=local
       - COCKPIT_FORGE_HOST=${ASF_COCKPIT_FORGE_HOST:-github.com}
       - COCKPIT_FORGE_TOKEN=${ASF_COCKPIT_FORGE_TOKEN:-}
+      - COCKPIT_APP_URL=http://localhost:${ASF_COCKPIT_APP_PORT:-3000}
     depends_on:
       keygen:
         condition: service_completed_successfully

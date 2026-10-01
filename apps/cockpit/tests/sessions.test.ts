@@ -114,7 +114,7 @@ describe("a session told by its events", () => {
           issueAssignees: [],
           issueUrl: "https://github.com/acme/widgets/issues/42",
           prUrl: "https://github.com/acme/widgets/pull/9",
-          stationName: "alex@mbp:widgets",
+          stationId: "st_7f3a9c", stationName: "alex@mbp:widgets",
           skillVersion: "1.1.0",
           startedAt: "2026-09-29T11:58:00.000+00:00",
           endedAt: "",

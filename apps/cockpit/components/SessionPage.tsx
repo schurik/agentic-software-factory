@@ -1,8 +1,10 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useClock } from "./clock";
+import { said } from "./Shell";
 import { SessionView } from "./session/SessionView";
 import { useSignIn } from "./signIn";
 
@@ -12,7 +14,13 @@ import { useSignIn } from "./signIn";
  * The clock ticks on its own so "last heard from" keeps counting between events.
  */
 export function SessionPage({ factory, session }: { factory: string; session: string }) {
-  const page = useQuery(api.sessions.get, { factory, session, signIn: useSignIn() });
+  const signIn = useSignIn();
+  const page = useQuery(api.sessions.get, { factory, session, signIn });
+  // Apart from the page: the station polls every few seconds, and that must
+  // not re-tell the whole story each time.
+  const steering = useQuery(api.commands.steering, { factory, session, signIn });
+  const kill = useMutation(api.commands.kill);
+  const [problem, setProblem] = useState("");
   const now = useClock();
   if (page === undefined) return <p className="muted">Loading…</p>;
   if (page === null) {
@@ -22,5 +30,17 @@ export function SessionPage({ factory, session }: { factory: string; session: st
       </p>
     );
   }
-  return <SessionView page={page} now={now} />;
+  const onCommand = (command: "kill") => {
+    if (command !== "kill") return;
+    setProblem("");
+    void kill({ factory, session, signIn })
+      .then((queued) => { if (!queued.ok) setProblem(queued.because); })
+      .catch((error: unknown) => setProblem(said(error)));
+  };
+  return (
+    <>
+      {problem ? <p className="notice">Not queued: {problem}</p> : null}
+      <SessionView page={page} now={now} steering={steering} onCommand={onCommand} />
+    </>
+  );
 }

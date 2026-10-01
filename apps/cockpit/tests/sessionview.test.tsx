@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SessionView, type Page } from "../components/session/SessionView";
+import type { SteeringView } from "../convex/model/command";
 import { firstLine } from "../components/session/Chapter";
 import { view } from "../convex/model/session";
 import { fixture, recorded, type WireEvent } from "./helpers";
@@ -19,8 +20,8 @@ function page(events: WireEvent[]): Page {
   return { factory: "acme/widgets", session: "a9f259f0", acked, forge: "https://github.com", ...view(stored, acked) };
 }
 
-function shown(events: WireEvent[]): string {
-  const html = renderToStaticMarkup(<SessionView page={page(events)} now={LATER} />);
+function shown(events: WireEvent[], steering?: SteeringView): string {
+  const html = renderToStaticMarkup(<SessionView page={page(events)} now={LATER} steering={steering} onCommand={() => {}} />);
   // What a person reads: the text, whitespace collapsed, markup and entities gone.
   return html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ");
@@ -112,7 +113,7 @@ describe("a session on its way", () => {
     expect(text).toContain("Now scout is working on scout in issue");
     expect(text).toContain("live · updating as events arrive");
     expect(text).toContain("Kill session");
-    expect(text).toContain("killing from the cockpit arrives with station commands — for now, `asf kill a9f259f0` on schurik@mbp:widgets");
+    expect(text).toContain("the cockpit has not heard from this session's station — `asf kill a9f259f0` on schurik@mbp:widgets");
   });
 
   it("at a gate: says it waits on a person, on which work item, and sends them to the inbox to answer", () => {
@@ -129,6 +130,55 @@ describe("a session on its way", () => {
       const html = renderToStaticMarkup(<SessionView page={page(events)} now={LATER} />);
       for (const button of html.match(/<button class="button"[^>]*>/g) ?? []) expect(button).toContain("disabled");
     }
+  });
+});
+
+describe("killing a live session", () => {
+  const working = upTo("tool_called");
+  const station = { name: "schurik@mbp:widgets", kind: "local", owner: "schurik", registered: true, seenAt: 0, verbs: ["kill"] };
+  const attended: SteeringView = { station, attendedAt: LATER - 2000, kill: null, killRefused: null };
+  const killButton = (steering: SteeringView) =>
+    renderToStaticMarkup(<SessionView page={page(working)} now={LATER} steering={steering} onCommand={() => {}} />)
+      .match(/<button class="button"[^>]*>Kill session<\/button>/)![0];
+
+  it("is offered while the run is attended, and the sidebar says it is and whose station it is", () => {
+    expect(killButton(attended)).not.toContain("disabled");
+    const text = shown(working, attended);
+    expect(text).toContain("owned by schurik");
+    expect(text).toContain("● attended · last seen 2s ago");
+  });
+
+  it("is greyed out, saying why, when the station's report says it would refuse", () => {
+    const because = "schurik@mbp:widgets does not take kill: its asf/factory.yaml's cockpit.commands does not list it";
+    const refused = { ...attended, killRefused: because };
+    expect(killButton(refused)).toContain("disabled");
+    expect(shown(working, refused)).toContain(because);
+  });
+
+  it("says a station that is not polling is offline, when it was last seen, and that a kill waits for it", () => {
+    const away = { ...attended, attendedAt: LATER - 4 * 60_000, station: { ...station, seenAt: LATER - 3 * 60_000 } };
+    expect(killButton(away)).not.toContain("disabled");
+    const text = shown(working, away);
+    expect(text).toContain("○ offline · last seen 3m ago");
+    expect(text).toContain("is offline: a kill waits for it");
+  });
+
+  it("shows a queued kill as queued — station offline — until the station takes it, and never as done", () => {
+    const kill = { state: "queued" as const, by: "alex", issuedAt: LATER - 1000, expiresAt: LATER + 60_000, detail: "" };
+    const queued = { ...attended, attendedAt: null, kill };
+    expect(killButton(queued)).toContain("disabled");
+    expect(shown(working, queued)).toContain("queued, station offline: schurik@mbp:widgets takes it when it is back");
+    expect(shown(working, { ...queued, kill: { ...kill, state: "delivered" } }))
+      .toContain("sent to schurik@mbp:widgets by alex: waiting for it to say it stopped");
+    expect(shown(working, { ...queued, kill: { ...kill, state: "done", detail: "stopping itself" } }))
+      .toContain("killed by alex: stopping itself");
+    expect(shown(working, { ...attended, kill: { ...kill, state: "refused", detail: "alex is not in issues.trusted_authors" } }))
+      .toContain("refused the last kill: alex is not in issues.trusted_authors");
+  });
+
+  it("says so when the station's token was revoked", () => {
+    const revoked = { ...attended, station: { ...station, registered: false } };
+    expect(shown(working, revoked)).toContain("○ takes no commands: its token was revoked");
   });
 });
 

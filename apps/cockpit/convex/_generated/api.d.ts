@@ -10,6 +10,7 @@
 
 import type * as artifacts from "../artifacts.js";
 import type * as auth from "../auth.js";
+import type * as commands from "../commands.js";
 import type * as crons from "../crons.js";
 import type * as discovery from "../discovery.js";
 import type * as factories from "../factories.js";
@@ -24,6 +25,7 @@ import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
 import type * as ingest from "../ingest.js";
 import type * as model_answer from "../model/answer.js";
+import type * as model_command from "../model/command.js";
 import type * as model_digest from "../model/digest.js";
 import type * as model_inbox from "../model/inbox.js";
 import type * as model_journal from "../model/journal.js";
@@ -39,6 +41,7 @@ import type * as model_webhook from "../model/webhook.js";
 import type * as model_wire from "../model/wire.js";
 import type * as sessions from "../sessions.js";
 import type * as setup from "../setup.js";
+import type * as stations from "../stations.js";
 import type * as tokens from "../tokens.js";
 import type * as trigger from "../trigger.js";
 import type * as viewer from "../viewer.js";
@@ -52,6 +55,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   artifacts: typeof artifacts;
   auth: typeof auth;
+  commands: typeof commands;
   crons: typeof crons;
   discovery: typeof discovery;
   factories: typeof factories;
@@ -66,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   inbox: typeof inbox;
   ingest: typeof ingest;
   "model/answer": typeof model_answer;
+  "model/command": typeof model_command;
   "model/digest": typeof model_digest;
   "model/inbox": typeof model_inbox;
   "model/journal": typeof model_journal;
@@ -81,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   "model/wire": typeof model_wire;
   sessions: typeof sessions;
   setup: typeof setup;
+  stations: typeof stations;
   tokens: typeof tokens;
   trigger: typeof trigger;
   viewer: typeof viewer;

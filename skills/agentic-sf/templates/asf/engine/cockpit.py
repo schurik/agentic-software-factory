@@ -20,6 +20,9 @@ ingest token the cockpit issued this factory (`Local`). Issuing one is an
 admin call into the running app container, so the token is minted once the
 cockpit is up, kept in the gitignored `<data_dir>/cockpit.json`, and replaced
 when the cockpit refuses it — a wiped volume forgets every token it issued.
+The station's command token comes the same way and is kept beside it: a
+local cockpit is its one person's, so the station is theirs without anyone
+approving it (`asf station register` is for a shared cockpit).
 
 A team's cockpit reaches the forge through a GitHub App and signs people in
 with it. A local one has neither: GitHub cannot reach localhost, and the one
@@ -45,7 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .data_types import Cockpit, LocalCockpitRecord
+from .data_types import Cockpit, LocalCockpitRecord, Station, StationCredential
 from .utils import ensure_dir, now_iso, write_atomic
 
 HOME = Path(__file__).resolve().parent.parent / "cockpit"     # asf/cockpit, stamped
@@ -63,6 +66,8 @@ FORGE_HOST = "github.com"
 MINT_RETRY = 5.0               # seconds between asking a cockpit still starting for a token
 
 _TOKEN = re.compile(r"asf_ingest_[0-9a-f]+")
+_STATION_TOKEN = re.compile(r"asf_station_[0-9a-f]+")
+_OWNER = re.compile(r'"owner"\s*:\s*"([^"]*)"')
 _SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
 
@@ -285,12 +290,14 @@ class Local:
     cockpit through its repository) — the wire calls it `factory`."""
 
     def __init__(self, data_dir: Path, repository: str, run: Run = _run,
-                 retry: float = MINT_RETRY):
+                 retry: float = MINT_RETRY, here: Station | None = None):
         self.path = data_dir / RECORD
         self.repository = repository
         self.run = run
         self.retry = retry
+        self.here = here
         self._asked_at: float | None = None
+        self._credential_asked_at: float | None = None
 
     def get(self) -> Cockpit | None:
         record = self._recorded()
@@ -304,6 +311,41 @@ class Local:
             self.path.unlink(missing_ok=True)
         self._asked_at = None
         return True
+
+    def credential(self) -> StationCredential | None:
+        """The command token this station polls the local cockpit with —
+        issued to whoever the cockpit holds a forge token for, without
+        anybody approving it, because the machine is theirs. None until the
+        cockpit has issued an ingest token, and while it is still starting."""
+        record = self._recorded()
+        if record is None or self.here is None:
+            return None
+        if record.station != self.here.id or not record.command_token:
+            record = self._issue_command_token(record)
+            if record is None:
+                return None
+        return StationCredential(cockpit=site_url(), station=record.station,
+                                 token=record.command_token, owner=record.owner,
+                                 issued_at=record.command_issued_at)
+
+    def _issue_command_token(self, record: LocalCockpitRecord) -> LocalCockpitRecord | None:
+        now = time.monotonic()
+        if self._credential_asked_at is not None and now - self._credential_asked_at < self.retry:
+            return None
+        self._credential_asked_at = now
+        asked = {"factory": self.repository, "station": self.here.model_dump(mode="json")}
+        code, output = self.run(compose("exec", "-T", "app", "./convex.sh", "run",
+                                        "stations:local", json.dumps(asked)))
+        found = _STATION_TOKEN.search(output) if code == 0 else None
+        if not found:
+            return None
+        owner = _OWNER.search(output)
+        record = record.model_copy(update={"station": self.here.id,
+                                           "command_token": found.group(0),
+                                           "owner": owner.group(1) if owner else "",
+                                           "command_issued_at": now_iso()})
+        write_atomic(self.path, record.model_dump_json(indent=2))
+        return record
 
     def _recorded(self) -> LocalCockpitRecord | None:
         try:
