@@ -123,7 +123,7 @@ def load(name: str, config_path: str | Path = factory.DEFAULT_CONFIG) -> Workflo
     if problems:
         raise SystemExit(f"workflow {name!r} ({spec_path}) is not runnable:\n- "
                          + "\n- ".join(problems))
-    required = sorted({a for step in steps for a in _agent_fields(step.opts)})
+    required = sorted({a for step in steps for a in agent_fields(step.opts)})
     warnings = [f"{step.stage.name}: {warning}"
                 for step in steps for warning in step.stage.warn(step.opts)]
     return Workflow(name=name, description=spec.description.strip(), directory=directory,
@@ -210,7 +210,7 @@ def _steps(spec: Spec, registry: dict[str, StageModule], cfg: FactoryConfig,
         except ValidationError as error:
             problems.append(f"stages[{index}] {stage_name}: {_flat(error)}")
             continue
-        for agent_name in _agent_fields(opts):
+        for agent_name in agent_fields(opts):
             if agent_name not in known_agents:
                 problems.append(f"stages[{index}] {stage_name}: agent {agent_name!r} is neither "
                                 f"in the roster nor bound under agents: "
@@ -235,7 +235,7 @@ def _steps(spec: Spec, registry: dict[str, StageModule], cfg: FactoryConfig,
     return steps
 
 
-def _agent_fields(opts: BaseModel) -> list[str]:
+def agent_fields(opts: BaseModel) -> list[str]:
     """Every `agent:` an options model names, however deep — the stage's fix
     loop nests one under `fix:`."""
     found = []
@@ -243,7 +243,7 @@ def _agent_fields(opts: BaseModel) -> list[str]:
         if name == "agent" and isinstance(value, str):
             found.append(value)
         elif isinstance(value, BaseModel):
-            found += _agent_fields(value)
+            found += agent_fields(value)
     return found
 
 

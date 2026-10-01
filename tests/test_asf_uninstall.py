@@ -50,6 +50,19 @@ def test_a_stamped_repo_is_emptied_and_the_repo_s_own_files_are_kept(repo: Path)
     assert uninstall(repo, "--yes").stdout.startswith("no factory here")
 
 
+def test_the_ci_workflow_goes_as_stamped_and_stays_once_it_is_yours(repo: Path):
+    install(repo, "--harness", "claude_code", "--ci")
+    workflow = repo / ".github" / "workflows" / "asf-check.yml"
+    done = uninstall(repo, "--yes")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert not workflow.exists() and not (repo / ".github").exists()
+
+    install(repo, "--harness", "claude_code", "--ci")
+    workflow.write_text(workflow.read_text() + "      - run: make deploy\n")
+    done = uninstall(repo, "--yes")
+    assert workflow.is_file() and "asf-check.yml" in done.stdout
+
+
 def test_a_db_pointed_outside_asf_is_deleted_by_name(repo: Path):
     install(repo, "--harness", "pi")
     config = repo / "asf" / "factory.yaml"

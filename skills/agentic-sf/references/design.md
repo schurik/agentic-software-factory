@@ -63,7 +63,11 @@ not as a plan. `check(opts, earlier)` lets a
 stage add its own static rule: `commit` requires `of:` to name an earlier
 stage whose output carries `commit_message`. `warn(opts)` is for what loads
 today and will not in a later release — `integrate` says so about `mode:
-none` — and `check` prints it without refusing anything.
+none` — and `check` prints it without refusing anything. `GATE` names the gate a
+stage places (`plan`, `integrate`; `refine`'s `requirements`, with `GATE_KIND =
+"questions"` for a question round), so the factory's self-description — `asf
+check --json`, the only account of a workflow a cockpit reads — shows where a
+run may stop for a person and whether that gate is on.
 
 `ctx.current(stage_name)` returns that stage's work product *as it stands
 now*: after `verify`, the build is the fixed build. `commit: {of: implement}` lands

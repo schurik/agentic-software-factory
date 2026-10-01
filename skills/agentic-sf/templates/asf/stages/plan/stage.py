@@ -21,6 +21,7 @@ KIND = "agent"
 OUTPUT = PlanOutput
 NEEDS = ()
 TASKS = {"plan": ("task.md", PlanOutput)}
+GATE = "plan"
 
 
 class Options(BaseModel):
@@ -41,4 +42,4 @@ def run(ctx, opts: Options):
                                                "plan, before any code exists to blur "
                                                "what was asked")) as ph:
         plan = ph.call(call)
-    return hitl.gated(ctx.run, Gate(name="plan", owner=opts.agent, call=call), plan)
+    return hitl.gated(ctx.run, Gate(name=GATE, owner=opts.agent, call=call), plan)

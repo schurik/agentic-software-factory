@@ -71,6 +71,17 @@ abort leaves the repo untouched.
 `--no-detect-quality` leaves every quality block a placeholder, for a repo whose
 commands you would rather write yourself.
 
+`--ci` also stamps the **optional CI workflow**, `.github/workflows/asf-check.yml`:
+`asf check --json --ship` on every pull request and default-branch push. It is a
+normal check on the pull request — a workflow that will not load goes red where
+it was broken — and it ships the factory's self-description to a cockpit as a
+CI station, which is how the cockpit's Factory page knows the workflows and
+measures each station's config drift. It needs `vars.ASF_COCKPIT_URL` and
+`secrets.ASF_COCKPIT_TOKEN` (the factory's ingest token, which can add and never
+receive) on the repository to ship; without them it checks and ships nothing.
+On a terminal the installer asks; `--no-ci` neither asks nor stamps. A
+repository's CI is its own, so ask the engineer rather than passing `--ci` for them.
+
 ## What gets stamped
 
 | Stamped | From | Tracked? |
@@ -86,6 +97,7 @@ commands you would rather write yourself.
 | `.env` | copied from `.env.sample`, with `ASF_SKILL=` written in | **no** — gitignored, and the reason a clone needs `install.py` re-run |
 | `justfile`, or `asf.justfile` beside a foreign one | `templates/justfile` | yes — `just --list` is the menu |
 | `.gitignore` | `+5` entries under `# agentic-sf runtime` | yes |
+| `.github/workflows/asf-check.yml` — only with `--ci` | `templates/ci/asf-check.yml` | yes — the optional CI check, shipping the self-description to a cockpit |
 | `asf/data/sessions/<adw_id>/`, `asf/data/asf.db` | created at runtime | no — gitignored |
 | `.asf-worktrees/` | created at runtime | no — gitignored: one worktree per run |
 
@@ -113,7 +125,9 @@ workflows and agents, `asf/.skill-version`) to the skill's current version.
 **It does not overwrite `asf/factory.yaml`**: a fresh render lands beside it as
 `asf/factory.yaml.new` and the installer prints `YOUR CONFIG WAS NOT TOUCHED`,
 leaving the diff to you. Everything else stamped *is* replaced, including agent
-prose you edited, so commit before you force.
+prose you edited, so commit before you force. The CI workflow counts as stamped
+once it is there: `--force` refreshes it without `--ci`, and never adds it
+without.
 
 ## Post-install checklist
 

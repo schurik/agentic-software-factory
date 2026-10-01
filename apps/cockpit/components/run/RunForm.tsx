@@ -50,7 +50,7 @@ export function runWords(run: RunRow, now: number): string {
  *
  * Pure: what it shows comes from its props, so a test renders it; `onRun` queues.
  */
-export function RunForm({ factory, targets, runs, now, busy, problem, onRun }: {
+export function RunForm({ factory, targets, runs, now, busy, problem, onRun, workflow: initial = "", workflows = [] }: {
   factory: string;
   targets: Targets | null;
   runs: RunRow[];
@@ -58,10 +58,14 @@ export function RunForm({ factory, targets, runs, now, busy, problem, onRun }: {
   busy: boolean;
   problem: string;
   onRun: (run: { workflow: string; prompt: string; station: string }) => void;
+  /** The workflow it opens on: the one a Workflows tab's Run was pressed for. */
+  workflow?: string;
+  /** The prompt workflows the factory's self-description names, when it has one. */
+  workflows?: string[];
 }) {
   const fallback = targets?.stations.find((station) => station.default)?.station ?? "";
   const [picked, setPicked] = useState("");
-  const [workflow, setWorkflow] = useState("");
+  const [workflow, setWorkflow] = useState(initial);
   const [prompt, setPrompt] = useState("");
   const station = picked || fallback;
   const chosen = targets?.stations.find((each) => each.station === station) ?? null;
@@ -75,8 +79,17 @@ export function RunForm({ factory, targets, runs, now, busy, problem, onRun }: {
     }}>
       <label>
         Workflow
-        <input value={workflow} placeholder="quick" onChange={(event) => setWorkflow(event.target.value)} />
-        <small>One that takes a prompt: `asf list` in the repository names them.</small>
+        <input value={workflow} placeholder={workflows[0] ?? "quick"} list={workflows.length ? `prompt-workflows-${factory}` : undefined}
+               onChange={(event) => setWorkflow(event.target.value)} />
+        {workflows.length ? (
+          <datalist id={`prompt-workflows-${factory}`}>
+            {workflows.map((name) => <option key={name} value={name} />)}
+          </datalist>
+        ) : null}
+        <small>
+          {workflows.length ? <>One that takes a prompt: {workflows.join(", ")}.</>
+            : <>One that takes a prompt: `asf list` in the repository names them.</>}
+        </small>
       </label>
       <label>
         Prompt

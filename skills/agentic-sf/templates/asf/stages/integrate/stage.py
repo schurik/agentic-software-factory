@@ -25,6 +25,7 @@ KIND = "code"
 OUTPUT = None
 NEEDS = ()
 TASKS = {}
+GATE = "integrate"
 
 
 class Options(BaseModel):
@@ -44,7 +45,7 @@ def warn(opts: Options) -> list[str]:
 def run(ctx, opts: Options):
     run = ctx.run
     changeset = changes.capture(run, ChangeCapture(base=ctx.baseline))
-    hitl.gated(run, Gate(name="integrate", paths=[changeset.diff_path],
+    hitl.gated(run, Gate(name=GATE, paths=[changeset.diff_path],
                          description="Hand the engineer this run's diff against its "
                                      "baseline, before the branch moves"),
                changes.as_envelope(changeset))

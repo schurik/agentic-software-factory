@@ -4,7 +4,7 @@
  * Enterprise Server is `https://HOST/api/v3`.
  */
 import { isRecord } from "../model/wire";
-import { FACTORY_FILE, type Issue, type Label, type Person, type Repository, type Role } from "./forge";
+import { type Distance, FACTORY_FILE, type Issue, type Label, type Person, type Repository, type Role } from "./forge";
 
 export interface Credential {
   token: string;
@@ -319,6 +319,47 @@ export class GitHub {
     if (UNSHOWN.has(response.status)) return null;
     throw await refusal(response, where);
   }
+}
+
+/**
+ * The commit `branch` of `repo` is at, as `as` is shown it, or null when it
+ * is not. Never remembered: a branch moves, and it is asked to measure by.
+ */
+export async function tip(github: GitHub, as: Credential, repo: string, branch: string): Promise<string | null> {
+  const where = `/repos/${repo}/branches/${branch.split("/").map(encodeURIComponent).join("/")}`;
+  const body = await shown(github, as, where);
+  const commit = isRecord(body) && isRecord(body.commit) ? body.commit : {};
+  return body === null || typeof commit.sha !== "string" ? null : commit.sha;
+}
+
+/**
+ * Every file under `dir/` in `repo` at `ref`, sorted, or null when `as` is not
+ * shown the tree. One request: the recursive tree, which GitHub cuts short
+ * past a hundred thousand entries — a factory's own files are listed first
+ * long before that in any repository that holds one.
+ */
+export async function paths(github: GitHub, as: Credential, repo: string, ref: string, dir: string): Promise<string[] | null> {
+  const body = await shown(github, as, `/repos/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+  if (body === null) return null;
+  return items(isRecord(body) ? body.tree : null)
+    .filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(`${dir}/`))
+    .map((entry) => entry.path as string)
+    .sort();
+}
+
+/** How far `head` is from `base` in `repo`, in commits, or null when `as` is not shown the comparison. */
+export async function distance(github: GitHub, as: Credential, repo: string, base: string, head: string): Promise<Distance | null> {
+  const body = await shown(github, as, `/repos/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
+  if (!isRecord(body) || typeof body.ahead_by !== "number" || typeof body.behind_by !== "number") return null;
+  return { ahead: body.ahead_by, behind: body.behind_by };
+}
+
+/** A GET's JSON body, or null when the forge will not show it to `as`. Never remembered. */
+async function shown(github: GitHub, as: Credential, where: string): Promise<unknown> {
+  const response = await github.send(as, "GET", github.api + where);
+  if (response.ok) return await response.json();
+  if (UNSHOWN.has(response.status)) return null;
+  throw await refusal(response, where);
 }
 
 /** The diff of two commits of `repo`, as `as` is shown it, or null when it is not. Never remembered, like a file. */

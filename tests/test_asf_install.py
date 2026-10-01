@@ -105,6 +105,56 @@ def test_a_foreign_justfile_is_left_alone_and_ours_lands_beside_it(repo: Path):
     assert "just -f asf.justfile" in result.stdout
 
 
+# ── the optional CI workflow: `asf check --json` on every pull request ─────
+
+CI_WORKFLOW = Path(".github") / "workflows" / "asf-check.yml"
+
+
+def test_the_ci_workflow_is_offered_and_stamped_only_when_taken(repo: Path):
+    plain = install(repo, "--harness", "claude_code")
+    assert not (repo / CI_WORKFLOW).exists()
+    assert "--ci" in plain.stdout                            # offered, not imposed
+
+    taken = install(repo, "--harness", "claude_code", "--ci")
+    assert taken.returncode == 0, taken.stdout + taken.stderr
+    workflow = (repo / CI_WORKFLOW).read_text()
+    assert f"+ {repo / CI_WORKFLOW}" in taken.stdout
+    assert "pull_request" in workflow and "push" in workflow
+    assert "asf/asf.py check --json --ship" in workflow
+    assert "secrets.ASF_COCKPIT_TOKEN" in workflow           # the ingest token, and only it
+    assert "ASF_STATION_TOKEN" not in workflow and "register" not in workflow
+
+
+def test_the_ci_workflow_follows_the_installer_s_rules(repo: Path):
+    install(repo, "--harness", "claude_code", "--ci")
+    stamped = repo / CI_WORKFLOW
+    stamped.write_text(stamped.read_text() + "# mine\n")
+
+    again = install(repo, "--harness", "claude_code", "--ci")
+    assert "stamped: 0 file" in again.stdout                  # skipped, and said so
+    assert stamped.read_text().endswith("# mine\n")
+
+    forced = install(repo, "--harness", "claude_code", "--force")   # taken once: still taken
+    assert forced.returncode == 0
+    assert not stamped.read_text().endswith("# mine\n")
+
+    stamped.unlink()
+    install(repo, "--harness", "claude_code", "--force")             # never taken: never added
+    assert not stamped.exists()
+
+
+def test_the_stamped_ci_workflow_s_command_is_one_check_accepts(stamped: Path):
+    """The step is `check --json --ship`: on a checkout with no cockpit set it
+    prints the description and passes, which is what a fork's pull request gets."""
+    install(stamped, "--harness", "claude_code", "--ci")
+    step = next(line for line in (stamped / CI_WORKFLOW).read_text().splitlines()
+                if "asf/asf.py check" in line)
+    argv = step.split("asf/asf.py", 1)[1].split()
+    result = asf(stamped, *argv, env={"ASF_COCKPIT_URL": "", "ASF_COCKPIT_TOKEN": ""})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["ok"] is True
+
+
 # ── releases: one version, stamped into every factory ────────────────────────
 
 REPO_ROOT = SKILL_ROOT.parent.parent

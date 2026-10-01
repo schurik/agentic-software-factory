@@ -155,7 +155,7 @@ claim it`, and `convex/model/trigger.ts` recognises those two descriptions — `
 holds them (and the running label's), and both suites read it. A label made by hand says nothing,
 and is not offered. The forge's labels are not the factory's config, though: a route removed from
 `issues.route` keeps its label, and is offered until someone deletes it — the watcher then leaves an
-issue carrying only that label queued. The self-description (#57) is where routes belong once a
+issue carrying only that label queued. The self-description is where routes belong once a
 factory ships one.
 
 An answer is a **comment on the work item, posted as the viewer**: on their own user access token
@@ -299,6 +299,32 @@ leaves the claim released, and the page says to relabel by hand.
 
 A local cockpit is one person's and grants nothing: a factory claims only from a shared one
 (`ASF_COCKPIT_URL`). The factory's end is `engine/claims.py`.
+
+## The Factory page: a factory's self-description, and its stations' drift
+
+The cockpit never reads a factory's workflow files. What it shows of them is the factory's own
+**self-description**: what `asf check --json` prints (`engine/describe.py`) — every workflow's
+purpose, trigger, stage chain, agents with their `tools` and `writes`, gates, and the per-session
+budget — pushed by the optional CI workflow a stamp carries with `install.py --ci`. `POST /describe`
+with the factory's ingest token, `{station: {id, name, kind}, description}`, keeps the latest one per
+branch (`convex/describe.ts`), as the JSON text it arrived as; `convex/model/description.ts` reads
+it, every format ever written (`tests/golden/self-description/v<N>.json`), and says when one is newer
+than it. The answer is `200 {}`: an ingest token can add, and read nothing back. A station whose
+kind is not `ci` is refused with a 403 — a checkout's own edits are what drift measures, never what
+it is measured against.
+
+`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
+branch's commit, the check's state, flags, and Run a prompt — and two tabs. **Workflows** renders the
+description from the default branch, with Run in place for a workflow that takes a prompt.
+**Config** is read-only: the files under `asf/` on the default branch, what the check said, and each
+station's drift. A factory no CI workflow ever described is **unchecked**, never broken.
+
+Drift is the cockpit's arithmetic, never the station's (`convex/model/drift.ts`): each station's
+command polls report the commit it has out and a hash over its `asf/` files; the page's `look`
+action asks the forge where the default branch is and how far each station's commit is behind it
+(`3 commits behind`), and a hash that differs from the one the default branch's check carried at that
+very commit is `local edits`, and without such a check it is `config not measured`, never current. A station behind whose config hashes the same is said to be behind,
+and not drifted: what it runs is what the repository says.
 
 ## Local mode, and the published images
 

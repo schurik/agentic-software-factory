@@ -2022,6 +2022,108 @@ class ShipResult(BaseModel):
     error: str = ""
 
 
+# ── The self-description (engine/describe.py) ────────────────────────────────
+#
+# What `asf check --json` prints: the factory as its own code loads it, so that
+# a cockpit shows a workflow's stages, agents and gates without ever reading a
+# workflow file (spec #40). It is a contract with a cockpit this repo does not
+# run, versioned AS A WHOLE by `SelfDescription.FORMAT`: any change to a model
+# below bumps it and adds `tests/golden/self-description/v<N>.json` beside the
+# old fixture, which is never edited (CLAUDE.md, invariant 10).
+
+GateKind = Literal["gate", "questions"]
+
+
+class DescribedAgent(BaseModel):
+    """A roster agent as one workflow plays it — a binding's narrowing applied.
+
+    `tools` and `writes` keep the roster's meaning: None is unrestricted (for
+    `writes`, everything but `defaults.protected_files`), [] is nothing."""
+
+    name: str
+    harness: str
+    model: str
+    thinking: str = ""
+    purpose: str = ""
+    tools: Optional[list[str]] = None
+    writes: Optional[list[str]] = None
+
+
+class DescribedStage(BaseModel):
+    """One step of a workflow's chain: the stage, who plays it, and its gate."""
+
+    stage: str
+    kind: str                       # agent | code
+    agents: list[str] = Field(default_factory=list)   # every `agent:` its options name
+    gate: str = ""                  # the gate it places, by name; "" for none
+
+
+class DescribedGate(BaseModel):
+    """A place a run may stop for a person.
+
+    A `gate` takes a verdict on a work product and stops only when `on`, as
+    the workflow and factory.yaml's `hitl:` decide (a run's `--hitl` can say
+    otherwise, and `hitl.when_unattended: auto` passes it by policy on an
+    issue or pull request run). A `questions` round is asked whenever the
+    agent cannot settle something, so it is always on."""
+
+    name: str
+    stage: str
+    kind: GateKind
+    on: bool
+
+
+class DescribedTrigger(BaseModel):
+    """How a run of the workflow starts besides `asf run`: the route labels in
+    `issues.route` that name it, and whether a watcher launches it at all —
+    the issues watcher for one with a label, the review watcher for
+    `pull_requests.workflow` — as factory.yaml stands."""
+
+    labels: list[str] = Field(default_factory=list)
+    watched: bool = False
+
+
+class DescribedWorkflow(BaseModel):
+    name: str
+    description: str                # its purpose, the one line `asf list` shows
+    input: ChapterInput
+    trigger: DescribedTrigger
+    stages: list[DescribedStage]
+    agents: list[DescribedAgent]
+    gates: list[DescribedGate]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class WorkflowProblem(BaseModel):
+    """A workflow `check` refused, and the first reason it gave."""
+
+    workflow: str
+    error: str
+
+
+class CheckedCheckout(BaseModel):
+    """Which checkout was described: the commit it had out, the branch it was
+    on, and the hash over its `asf/` files a station's report carries
+    (`commands.config_hash`) — so a description checked on the default branch
+    is what a cockpit measures every station's config drift against."""
+
+    head: str = ""
+    ref: str = ""
+    config_hash: str = ""
+
+
+class SelfDescription(BaseModel):
+    FORMAT: ClassVar[int] = 1
+
+    format: int = 1
+    skill_version: str = ""         # asf/.skill-version; "" from a stamp before 1.1
+    checked: CheckedCheckout
+    ok: bool                        # every workflow loaded: what `check` exits 0 on
+    budget: BudgetConfig            # per session — the only ceiling the factory enforces
+    workflows: list[DescribedWorkflow]
+    problems: list[WorkflowProblem] = Field(default_factory=list)
+
+
 # ── Domain events (engine/events.py) ─────────────────────────────────────────
 #
 # The wire a station ships and a cockpit builds every view from: one typed,

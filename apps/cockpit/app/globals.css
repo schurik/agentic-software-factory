@@ -95,6 +95,8 @@ main { padding: 1.25rem 1rem; max-width: 72rem; margin: 0 auto; }
 }
 .tag-wait { color: var(--wait); border-color: currentColor; }
 .tag-mine { color: var(--fg); border-color: var(--accent); font-weight: 600; }
+.tag-ok { color: var(--ok); border-color: currentColor; }
+.tag-bad { color: var(--bad); border-color: currentColor; }
 
 .card { max-width: 40rem; margin: 2rem auto; }
 .card h1 { margin-bottom: 0.75rem; }
@@ -301,3 +303,17 @@ kbd { font: 0.75rem ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px 
 .button.ok { background: var(--ok); border-color: var(--ok); }
 .button.bad { background: none; border-color: var(--bad); color: var(--bad); }
 .button kbd { border-color: currentColor; margin-left: 0.25rem; }
+
+/* ── the Factory page ──────────────────────────────────────────────────────── */
+.factory-head h1 { margin: 0 0 0.25rem; }
+.factory-head p { margin: 0.2rem 0; }
+.flags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.run-here { margin: 1rem 0; }
+.factory > .tabs { margin-top: 1.25rem; }
+.workflow { margin: 1.5rem 0 2rem; }
+.chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.35rem; list-style: none; padding: 0; margin: 0.75rem 0; }
+.chain .stage { display: grid; gap: 0.15rem; align-content: start; padding: 0.35rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; }
+.chain .stage-code { border-style: dashed; }
+.chain .arrow { align-self: center; color: var(--muted); }
+.files, .checked { padding-left: 1.1rem; display: grid; gap: 0.2rem; }
+.checked pre { margin: 0.25rem 0 0; white-space: pre-wrap; word-break: break-word; }
