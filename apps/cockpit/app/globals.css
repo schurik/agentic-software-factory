@@ -167,6 +167,8 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent); fon
 .tone-wait { border-left-color: var(--wait); }
 .tone-run { border-left-color: var(--accent); }
 .live { margin: 0.5rem 0 0 5.25rem; }
+.liveness.on { color: var(--ok); }
+.liveness.off { color: var(--muted); }
 
 .chapter { margin-top: 2rem; }
 .ch-head { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }

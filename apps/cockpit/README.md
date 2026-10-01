@@ -234,6 +234,29 @@ echo "ASF_COCKPIT_TOKEN=asf_ingest_…" >> .env
 uv run asf/asf.py run quick "add a health check"   # appears on :3000 within seconds
 ```
 
+## Commands: register a station, and kill from the session page
+
+A station takes commands — the steering the forge cannot carry — once a person approved it. In a
+stamped checkout, with `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` set:
+
+```bash
+uv run asf/asf.py station register       # prints a code, and /stations/approve?code=… to open
+```
+
+The person opens that page signed in (write on the repository), approves, and the station's next
+poll of `POST /station/register/poll` is handed a command token: theirs, for that station alone,
+kept as a digest here (`convex/stations.ts`). The link is built from `COCKPIT_APP_URL`, which the
+compose file passes to the backend; without it the station names the Stations page instead. A local
+cockpit issues its station that token itself (`stations:local`, through `docker compose exec`).
+
+The station loop and every run's own shipper then `POST /commands` every few seconds with it
+(`convex/commands.ts`). Each poll says what the station would obey and where its checkout stands,
+and is all the liveness there is: a session is attended while its run polls, a station online while
+its loop does. A kill queued from the session page goes to the run while it is attended and to the
+loop otherwise, waits for an offline station until it expires, and is done only when the station's
+`command_result` arrives through `/ingest`. Revoking a token under Stations makes its polls `401`.
+The factory's half is `engine/commands.py`.
+
 ## Local mode, and the published images
 
 One person with no team deployment gets the same cockpit on their own machine. `asf up` in a stamped

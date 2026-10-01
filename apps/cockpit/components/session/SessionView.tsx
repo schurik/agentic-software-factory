@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { liveness, type SteeringView } from "@/convex/model/command";
 import type { SessionView as View } from "@/convex/model/session";
 import type { Item, Story } from "@/convex/model/story";
 import { Status } from "../Status";
@@ -19,9 +20,17 @@ export type Page = View & { factory: string; session: string; acked: number; for
  * Pure: everything it shows comes from `page` and the clock `now`, so a test
  * renders it from a golden session with no backend (tests/sessionview.test.tsx).
  */
-export function SessionView({ page, now }: { page: Page; now: number }) {
+export function SessionView({ page, now, steering, onCommand }: {
+  page: Page;
+  now: number;
+  /** The station's side of it (commands.steering): undefined while it is asked for. */
+  steering?: SteeringView | null;
+  /** Queue the command the top bar's button names. */
+  onCommand?: (command: "kill") => void;
+}) {
   const { summary, story, session, factory } = page;
-  const action = actionFor(factory, session, summary, story);
+  const action = actionFor(factory, session, summary, story, steering, now);
+  const command = action?.command ?? null;
   return (
     <div className="session">
       <header className="topbar">
@@ -32,9 +41,12 @@ export function SessionView({ page, now }: { page: Page; now: number }) {
         <Status status={summary.status} />
         {action ? (
           <div className="action">
-            {action.disabledBecause ? <span className="why small muted">{action.disabledBecause}</span> : null}
+            {action.disabledBecause || action.note ? (
+              <span className="why small muted">{action.disabledBecause || action.note}</span>
+            ) : null}
             {action.href ? <a className="button" href={action.href}>{action.label}{action.href.startsWith("/") ? "" : " ↗"}</a>
-              : <button className="button" disabled={action.disabledBecause !== ""}>{action.label}</button>}
+              : <button className="button" disabled={action.disabledBecause !== "" || command === null || !onCommand}
+                        onClick={() => command && onCommand?.(command)}>{action.label}</button>}
           </div>
         ) : null}
       </header>
@@ -47,7 +59,7 @@ export function SessionView({ page, now }: { page: Page; now: number }) {
       ) : null}
 
       <div className="layout">
-        <Sidebar page={page} now={now} />
+        <Sidebar page={page} now={now} steering={steering ?? null} />
         <div className="story">
           <NowCard story={story} status={summary.status} cost={summary.totalCost} />
           {story.chapters.map((chapter) => (
@@ -61,7 +73,7 @@ export function SessionView({ page, now }: { page: Page; now: number }) {
   );
 }
 
-function Sidebar({ page, now }: { page: Page; now: number }) {
+function Sidebar({ page, now, steering }: { page: Page; now: number; steering: SteeringView | null }) {
   const [tab, setTab] = useState<"outline" | "journal">("outline");
   const { summary, story } = page;
   const ran = summary.startedAt
@@ -74,6 +86,7 @@ function Sidebar({ page, now }: { page: Page; now: number }) {
         <dd>
           {story.station.name ? <code>{story.station.name}</code> : "—"}
           {story.station.runBy ? <div className="muted small">run by {story.station.runBy}</div> : null}
+          <Liveness steering={steering} now={now} />
           <div className="muted small">last heard from {formatAgo(summary.lastEventAt, now)}</div>
         </dd>
         <dt>Triggered by</dt><dd>{summary.triggeredBy || "—"}</dd>
@@ -103,6 +116,26 @@ function Sidebar({ page, now }: { page: Page; now: number }) {
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * Whether anything of the station is polling for this session's commands,
+ * and when it last did: read off the polls it makes anyway, never a heartbeat.
+ */
+function Liveness({ steering, now }: { steering: SteeringView | null; now: number }) {
+  const station = steering?.station ?? null;
+  if (station === null) return <div className="muted small">○ takes no commands from here</div>;
+  const live = liveness(station.seenAt, steering!.attendedAt, now);
+  const seen = live.lastSeen === null ? "never polled for commands"
+    : `last seen ${formatAgo(new Date(live.lastSeen).toISOString(), now)}`;
+  const state = !station.registered ? "○ takes no commands: its token was revoked"
+    : live.attended ? "● attended" : live.online ? "● online" : "○ offline";
+  return (
+    <>
+      {station.owner ? <div className="muted small">owned by {station.owner}</div> : null}
+      <div className={`small liveness ${live.attended || live.online ? "on" : "off"}`}>{state} · {seen}</div>
+    </>
   );
 }
 

@@ -14,7 +14,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, internalMutation, type MutationCtx, query, type QueryCtx } from "./_generated/server";
 import {
-  ATTENDED_FOR, commandRefusal, KILL_FOR, REDELIVER_AFTER, reportValidator, type StationFacts,
+  ATTENDED_FOR, commandRefusal, KILL_FOR, REDELIVER_AFTER, reportValidator, type StationFacts, type SteeringView,
 } from "./model/command";
 import { Payload } from "./model/payload";
 import { readSummary } from "./model/session";
@@ -89,7 +89,8 @@ export const poll = internalMutation({
         .unique();
       if (seen === null) await ctx.db.insert("attendance", { factory, session, station, at: now });
       else await ctx.db.patch(seen._id, { at: now, station });
-      await ctx.db.patch(row._id, { report: reported });
+      // Written only when it says something new: every page showing the station reads this row.
+      if (JSON.stringify(row.report) !== JSON.stringify(reported)) await ctx.db.patch(row._id, { report: reported });
     } else {
       await ctx.db.patch(row._id, { seenAt: now, report: reported });
     }
@@ -174,7 +175,7 @@ export const kill = mutation({
  */
 export const steering = query({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, session, signIn }) => {
+  handler: async (ctx, { factory, session, signIn }): Promise<SteeringView | null> => {
     const who = await viewing(ctx, signIn);
     const record = await sessionRecord(ctx, factory, session);
     if (record === null || !(await canRead(ctx, who, factory))) return null;

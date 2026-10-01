@@ -136,6 +136,24 @@ export function liveness(seenAt: number, attendedAt: number | null, now: number)
   };
 }
 
+// ── what the session page is told ────────────────────────────────────────────
+
+/** The steering side of a session (commands.steering): timestamps, which the page reads against its clock. */
+export interface SteeringView {
+  station: null | {
+    name: string;
+    kind: string;
+    owner: string;
+    registered: boolean;
+    seenAt: number;
+    verbs: string[] | null;
+  };
+  attendedAt: number | null;
+  kill: null | { state: CommandState; by: string; issuedAt: number; expiresAt: number; detail: string };
+  /** Why the viewer may not queue a kill, or null when they may. */
+  killRefused: string | null;
+}
+
 // ── who may queue a kill ─────────────────────────────────────────────────────
 
 const RANK: Role[] = ["read", "triage", "write", "maintain", "admin"];
