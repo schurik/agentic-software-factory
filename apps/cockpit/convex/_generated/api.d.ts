@@ -34,11 +34,13 @@ import type * as model_progress from "../model/progress.js";
 import type * as model_ranges from "../model/ranges.js";
 import type * as model_session from "../model/session.js";
 import type * as model_story from "../model/story.js";
+import type * as model_trigger from "../model/trigger.js";
 import type * as model_webhook from "../model/webhook.js";
 import type * as model_wire from "../model/wire.js";
 import type * as sessions from "../sessions.js";
 import type * as setup from "../setup.js";
 import type * as tokens from "../tokens.js";
+import type * as trigger from "../trigger.js";
 import type * as viewer from "../viewer.js";
 
 import type {
@@ -74,11 +76,13 @@ declare const fullApi: ApiFromModules<{
   "model/ranges": typeof model_ranges;
   "model/session": typeof model_session;
   "model/story": typeof model_story;
+  "model/trigger": typeof model_trigger;
   "model/webhook": typeof model_webhook;
   "model/wire": typeof model_wire;
   sessions: typeof sessions;
   setup: typeof setup;
   tokens: typeof tokens;
+  trigger: typeof trigger;
   viewer: typeof viewer;
 }>;
 

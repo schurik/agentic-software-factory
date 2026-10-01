@@ -1,4 +1,4 @@
-import type { Row } from "@/convex/model/inbox";
+import type { ForYou, Row } from "@/convex/model/inbox";
 import { formatAgo } from "../format";
 
 /** A wait older than this is flagged: a day is long enough for a run to be noticed missing. */
@@ -17,6 +17,13 @@ export function asks(row: Pick<Row, "kind" | "gate" | "questions">): string {
 /** What asked for the session: its request (`#42 title`), else its issue, else a prompt. */
 export function workItem(row: Pick<Row, "workItem" | "issueNumber">): string {
   return row.workItem || (row.issueNumber ? `#${row.issueNumber}` : "a prompt, no work item");
+}
+
+const WHY: Record<ForYou, string> = { triggered: "you triggered it", wrote: "you wrote the issue", assigned: "assigned to you" };
+
+/** Why a wait is the viewer's own, in words. */
+export function whyYours(reasons: ForYou[]): string {
+  return `for you: ${reasons.map((reason) => WHY[reason]).join(", ")}`;
 }
 
 /**
@@ -40,7 +47,7 @@ export function InboxList({ rows, selected, now, onSelect }: {
             <button type="button" onClick={() => onSelect(key)}>
               <span className="line">
                 <strong>{row.factory}</strong>
-                {row.mine ? <span className="tag">yours</span> : null}
+                {row.forYou.length ? <span className="tag tag-mine" title={whyYours(row.forYou)}>for you</span> : null}
                 <span className={`waited${stale ? " stale" : ""}`}>{formatAgo(row.since, now)}</span>
               </span>
               <span className="line">

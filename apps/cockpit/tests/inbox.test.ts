@@ -21,6 +21,9 @@ interface Wait {
   published?: boolean;
   since?: string;
   triggeredBy?: string;
+  /** Who wrote the issue and whom it is assigned to: a `provenance_recorded` v2 between the two. */
+  author?: string;
+  assignees?: string[];
   questions?: unknown[];
 }
 
@@ -45,7 +48,10 @@ function suspendedAt(wait: Wait): WireEvent[] {
     phase_name: kind === "questions" ? `ask_${gate}` : `approve_${gate}`,
     paths: kind === "questions" ? [] : [`${ROOT}/${wait.session}/docs/asf/spec/plan.md`],
   });
-  return [started, suspended];
+  if (wait.author === undefined && wait.assignees === undefined) return [started, suspended];
+  const learned = fixture("provenance_recorded", 2, 2);
+  Object.assign(learned.payload, { issue_author: wait.author ?? "", issue_assignees: wait.assignees ?? [] });
+  return [started, learned, { ...suspended, seq: 3 }];
 }
 
 async function ship(t: Cockpit, token: string, session: string, events: WireEvent[]): Promise<void> {
@@ -175,18 +181,38 @@ describe("the list, live", () => {
     expect(await inboxOf(t, alex)).toEqual([]);
   });
 
-  it("sorts the runs the viewer triggered first", async () => {
+  it("marks and sorts first what is for the viewer — triggered, written, assigned — and hides nothing", async () => {
     const forge = fakeForge();
     const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
     const widgets = await factory(t, "acme/widgets");
+    // The longest wait, and nobody's in particular.
     await ship(t, widgets, "e1e1e1e1", suspendedAt({ session: "e1e1e1e1", since: "2026-09-29T10:00:00.000+00:00" }));
     await ship(t, widgets, "e2e2e2e2", suspendedAt({ session: "e2e2e2e2", triggeredBy: "Alex" }));
+    await ship(t, widgets, "e3e3e3e3", suspendedAt({ session: "e3e3e3e3", author: "alex", triggeredBy: "bob",
+                                                     since: "2026-09-29T11:00:00.000+00:00" }));
+    await ship(t, widgets, "e4e4e4e4", suspendedAt({ session: "e4e4e4e4", assignees: ["carol", "alex"],
+                                                     since: "2026-09-29T11:30:00.000+00:00" }));
+    await ship(t, widgets, "e5e5e5e5", suspendedAt({ session: "e5e5e5e5", author: "bob", assignees: ["carol"],
+                                                     triggeredBy: "bob", since: "2026-09-29T09:00:00.000+00:00" }));
 
     const { rows } = await t.query(api.inbox.list, { signIn: await signIn(t, forge, "alex") });
-    expect(rows.map(({ session, mine }) => ({ session, mine }))).toEqual([
-      { session: "e2e2e2e2", mine: true },
-      { session: "e1e1e1e1", mine: false },
+    expect(rows.map(({ session, forYou }) => ({ session, forYou }))).toEqual([
+      { session: "e3e3e3e3", forYou: ["wrote"] },
+      { session: "e4e4e4e4", forYou: ["assigned"] },
+      { session: "e2e2e2e2", forYou: ["triggered"] },
+      { session: "e5e5e5e5", forYou: [] },
+      { session: "e1e1e1e1", forYou: [] },
     ]);
+  });
+
+  it("names every reason a row is for the viewer", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    await ship(t, await factory(t, "acme/widgets"), "e6e6e6e6",
+               suspendedAt({ session: "e6e6e6e6", triggeredBy: "alex", author: "Alex", assignees: ["ALEX"] }));
+
+    const { rows } = await t.query(api.inbox.list, { signIn: await signIn(t, forge, "alex") });
+    expect(rows.map(({ forYou }) => forYou)).toEqual([["triggered", "wrote", "assigned"]]);
   });
 });
 

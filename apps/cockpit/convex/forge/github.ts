@@ -4,7 +4,7 @@
  * Enterprise Server is `https://HOST/api/v3`.
  */
 import { isRecord } from "../model/wire";
-import { FACTORY_FILE, type Person, type Repository, type Role } from "./forge";
+import { FACTORY_FILE, type Issue, type Label, type Person, type Repository, type Role } from "./forge";
 
 export interface Credential {
   token: string;
@@ -211,6 +211,39 @@ export class GitHub {
       const url = isRecord(answer) && typeof answer.html_url === "string" ? answer.html_url : "";
       return { url };
     });
+  }
+
+  /** Labels added to issue `number` of `repo`, as `as`. */
+  async label(as: Credential, repo: string, number: number, labels: string[]): Promise<void> {
+    await this.post(as, `/repos/${repo}/issues/${number}/labels`, { labels }, () => null);
+  }
+
+  /** Every label `repo` defines, as `as` is shown them, or null when it is not. */
+  async labels(as: Credential, repo: string): Promise<Label[] | null> {
+    try {
+      return await this.list(as, `/repos/${repo}/labels?per_page=100`, (body) => items(body).map((label) => ({
+        name: String(label.name),
+        description: typeof label.description === "string" ? label.description : "",
+      })));
+    } catch (error) {
+      if (error instanceof ForgeError && UNSHOWN.has(error.status)) return null;
+      throw error;
+    }
+  }
+
+  /** Issue `number` of `repo`, as `as` is shown it, or null when it is not. Never remembered: it is asked about to act on. */
+  async issue(as: Credential, repo: string, number: number): Promise<Issue | null> {
+    const where = `/repos/${repo}/issues/${number}`;
+    const response = await this.send(as, "GET", this.api + where);
+    if (UNSHOWN.has(response.status)) return null;
+    if (!response.ok) throw await refusal(response, where);
+    const body: unknown = await response.json();
+    const issue = isRecord(body) ? body : {};
+    return {
+      number, title: typeof issue.title === "string" ? issue.title : "", open: issue.state === "open",
+      pull: isRecord(issue.pull_request), url: typeof issue.html_url === "string" ? issue.html_url : "",
+      labels: items(issue.labels).map((label) => String(label.name)),
+    };
   }
 
   /** Every page of a listing, in order. `read` takes one page's body to its items. */

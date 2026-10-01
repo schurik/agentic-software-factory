@@ -29,6 +29,26 @@ interface Repo {
   tip: string | null;
   /** Each issue's comments, by its number, in the order they were posted. */
   comments: Map<number, Comment[]>;
+  /** The labels it defines: name → description. */
+  labels: Map<string, string>;
+  /** Its issues (and pull requests, which GitHub numbers and serves as issues too). */
+  issues: Map<number, Issue>;
+  /** Each issue's label additions, by its number, in order. */
+  labelled: Map<number, Labelled[]>;
+}
+
+interface Issue {
+  title: string;
+  state: "open" | "closed";
+  pull: boolean;
+  labels: string[];
+}
+
+/** Labels added to an issue in one request: by whom, through which kind of token. */
+export interface Labelled {
+  by: string;
+  via: "person" | "user" | "installation";
+  labels: string[];
 }
 
 /** A comment as posted: whose name it went up under, and which kind of token sent it. */
@@ -219,7 +239,28 @@ export class FakeForge {
       trees: new Map(),
       tip: null,
       comments: new Map(),
+      labels: new Map(),
+      issues: new Map(),
+      labelled: new Map(),
     });
+  }
+
+  /** A label `name` defines, as `gh label create --description` leaves it. */
+  label(name: string, label: string, description: string): void {
+    this.known(name).labels.set(label, description);
+  }
+
+  /** Issue (or, `pull`, pull request) `number` of `name`. */
+  issue(name: string, number: number,
+        given: { title: string; state?: "open" | "closed"; pull?: boolean; labels?: string[] }): void {
+    this.known(name).issues.set(number, {
+      title: given.title, state: given.state ?? "open", pull: given.pull ?? false, labels: [...(given.labels ?? [])],
+    });
+  }
+
+  /** Every label addition to issue `number` of `name`. */
+  labelled(name: string, number: number): Labelled[] {
+    return this.known(name).labelled.get(number) ?? [];
   }
 
   /** What has been posted on issue `number` of `name`. */
@@ -366,6 +407,45 @@ export class FakeForge {
         id, body, user: { login: author },
         html_url: `https://${this.host}/${repo.name}/issues/${number}#issuecomment-${id}`,
       });
+    }
+    const listing = /^\/repos\/([^/]+\/[^/]+)\/labels$/.exec(path);
+    if (listing && method === "GET" && !as("app")) {
+      const repo = this.repos.get(listing[1].toLowerCase());
+      if (!repo || !this.reads(bearer, repo)) return this.reply(request, token, 404, { message: "Not Found" });
+      const labels = [...repo.labels].map(([name, description]) => ({ name, description: description || null, color: "ededed" }));
+      return this.page(request, token, url, labels, (items) => items);
+    }
+    const reading = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(path);
+    if (reading && method === "GET" && !as("app")) {
+      const repo = this.repos.get(reading[1].toLowerCase());
+      const issue = repo?.issues.get(Number(reading[2]));
+      if (!repo || !this.reads(bearer, repo) || !issue) return this.reply(request, token, 404, { message: "Not Found" });
+      const number = Number(reading[2]);
+      return this.reply(request, token, 200, {
+        number, title: issue.title, state: issue.state, labels: issue.labels.map((name) => ({ name })),
+        html_url: `https://${this.host}/${repo.name}/${issue.pull ? "pull" : "issues"}/${number}`,
+        ...(issue.pull ? { pull_request: { url: `${this.api}/repos/${repo.name}/pulls/${number}` } } : {}),
+      });
+    }
+    const labelling = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/labels$/.exec(path);
+    if (labelling && method === "POST" && bearer.kind !== "app") {
+      // Labelling takes triage, unlike commenting. GitHub answers someone who may
+      // read but not triage with a 403; someone who may not read is not shown it.
+      const repo = this.repos.get(labelling[1].toLowerCase());
+      const issue = repo?.issues.get(Number(labelling[2]));
+      if (!repo || !this.reads(bearer, repo) || !issue) return this.reply(request, token, 404, { message: "Not Found" });
+      if (bearer.kind !== "installation" && RANK.indexOf(repo.roles[bearer.login]) < RANK.indexOf("triage")) {
+        return this.reply(request, token, 403, { message: "Must have triage access to add labels." });
+      }
+      const { labels } = (await request.json()) as { labels?: unknown };
+      if (!Array.isArray(labels) || labels.some((label) => typeof label !== "string")) {
+        return this.reply(request, token, 422, { message: "Validation Failed" });
+      }
+      const number = Number(labelling[2]);
+      const by = bearer.kind === "installation" ? `${this.app?.slug ?? "app"}[bot]` : bearer.login;
+      for (const label of labels as string[]) if (!issue.labels.includes(label)) issue.labels.push(label);
+      repo.labelled.set(number, [...(repo.labelled.get(number) ?? []), { by, via: bearer.kind, labels: labels as string[] }]);
+      return this.reply(request, token, 200, issue.labels.map((name) => ({ name })));
     }
     const comparing = /^\/repos\/([^/]+\/[^/]+)\/compare\/([^/.]+)\.\.\.([^/.]+)$/.exec(path);
     if (comparing && method === "GET" && !as("app")) {

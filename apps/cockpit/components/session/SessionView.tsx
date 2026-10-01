@@ -76,6 +76,7 @@ function Sidebar({ page, now }: { page: Page; now: number }) {
           {story.station.runBy ? <div className="muted small">run by {story.station.runBy}</div> : null}
           <div className="muted small">last heard from {formatAgo(summary.lastEventAt, now)}</div>
         </dd>
+        <dt>Triggered by</dt><dd>{summary.triggeredBy || "—"}</dd>
         <dt>Started</dt><dd>{formatTime(summary.startedAt)}{ran !== null && ran >= 0 ? <span className="muted"> · {formatDuration(ran)}</span> : null}</dd>
         <dt>Cost</dt><dd><b>{formatCost(summary.totalCost)}</b> <span className="muted">· {summary.totalTokens.toLocaleString()} tokens</span></dd>
         <dt>Branch</dt><dd>{summary.branch ? <code>{summary.branch}</code> : "—"}</dd>

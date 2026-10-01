@@ -301,6 +301,14 @@ function phaseOf(state: StoryState, phaseId: string): PhaseState | undefined {
   return state.phases.find((each) => each.phaseId === phaseId);
 }
 
+function provenance(state: StoryState, p: Payload): void {
+  state.request ||= p.str("request");
+  const where = current(state);
+  where.issueNumber ||= p.num("issue_number");
+  where.issueUrl ||= p.str("issue_url");
+  where.prUrl ||= p.str("pr_url");
+}
+
 function phaseStarted(state: StoryState, p: Payload, { seq, ts }: At): void {
   let found = phaseOf(state, p.str("phase_id"));
   if (found === undefined) {
@@ -378,15 +386,8 @@ const TELLERS: Record<string, Record<number, Teller>> = {
       state.extras.push({ chapter: resumed.number, item: state.resumed });
     },
   },
-  provenance_recorded: {
-    1: (state, p) => {
-      state.request ||= p.str("request");
-      const where = current(state);
-      where.issueNumber ||= p.num("issue_number");
-      where.issueUrl ||= p.str("issue_url");
-      where.prUrl ||= p.str("pr_url");
-    },
-  },
+  // v2 adds the issue's author and assignees, which the story does not tell.
+  provenance_recorded: { 1: provenance, 2: provenance },
   phase_started: { 1: phaseStarted, 2: phaseStarted },
   phase_replayed: {
     1: (state, p) => {
