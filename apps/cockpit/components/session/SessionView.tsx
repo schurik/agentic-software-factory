@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import type { ClaimView } from "@/convex/model/claim";
 import { liveness, type SteeringView } from "@/convex/model/command";
 import type { SessionView as View } from "@/convex/model/session";
 import type { Item, Story } from "@/convex/model/story";
 import { Status } from "../Status";
-import { formatAgo, formatCost, formatDuration, formatTime, pretty } from "../format";
+import { formatAgo, formatCost, formatDuration, formatSpan, formatTime, pretty } from "../format";
 import { actionFor, type Command } from "./action";
 import { Chapter, chapterAnchor, phaseAnchor } from "./Chapter";
 import { channelWords, glyphOf, toneOf } from "./words";
@@ -20,13 +21,17 @@ export type Page = View & { factory: string; session: string; acked: number; for
  * Pure: everything it shows comes from `page` and the clock `now`, so a test
  * renders it from a golden session with no backend (tests/sessionview.test.tsx).
  */
-export function SessionView({ page, now, steering, onCommand }: {
+export function SessionView({ page, now, steering, onCommand, claims, onRelease }: {
   page: Page;
   now: number;
   /** The station's side of it (commands.steering): undefined while it is asked for. */
   steering?: SteeringView | null;
   /** Queue the command the top bar's button names. */
   onCommand?: (command: Command) => void;
+  /** The claims the session took (claims.ofSession). */
+  claims?: ClaimView[];
+  /** Release one, confirmed. */
+  onRelease?: (claim: ClaimView) => void;
 }) {
   const { summary, story, session, factory } = page;
   const action = actionFor(factory, session, summary, story, steering, now);
@@ -59,7 +64,7 @@ export function SessionView({ page, now, steering, onCommand }: {
       ) : null}
 
       <div className="layout">
-        <Sidebar page={page} now={now} steering={steering ?? null} />
+        <Sidebar page={page} now={now} steering={steering ?? null} claims={claims ?? []} onRelease={onRelease} />
         <div className="story">
           <NowCard story={story} status={summary.status} cost={summary.totalCost} />
           {story.chapters.map((chapter) => (
@@ -73,7 +78,9 @@ export function SessionView({ page, now, steering, onCommand }: {
   );
 }
 
-function Sidebar({ page, now, steering }: { page: Page; now: number; steering: SteeringView | null }) {
+function Sidebar({ page, now, steering, claims, onRelease }: {
+  page: Page; now: number; steering: SteeringView | null; claims: ClaimView[]; onRelease?: (claim: ClaimView) => void;
+}) {
   const [tab, setTab] = useState<"outline" | "journal">("outline");
   const { summary, story } = page;
   const ran = summary.startedAt
@@ -102,6 +109,12 @@ function Sidebar({ page, now, steering }: { page: Page; now: number; steering: S
           {summary.prUrl ? <a href={summary.prUrl}>pull request</a> : null}
           {!summary.issueUrl && !summary.prUrl ? "—" : null}
         </dd>
+        {claims.length ? (
+          <>
+            <dt>Claim</dt>
+            <dd>{claims.map((claim) => <Claim key={claim.id} claim={claim} now={now} onRelease={onRelease} />)}</dd>
+          </>
+        ) : null}
       </dl>
       <div className="seg" role="tablist">
         <button role="tab" aria-selected={tab === "outline"} onClick={() => setTab("outline")}>Outline</button>
@@ -136,6 +149,43 @@ function Liveness({ steering, now }: { steering: SteeringView | null; now: numbe
       {station.owner ? <div className="muted small">owned by {station.owner}</div> : null}
       <div className={`small liveness ${live.attended || live.online ? "on" : "off"}`}>{state} · {seen}</div>
     </>
+  );
+}
+
+const RELEASED_WHY: Record<string, string> = {
+  finished: "freed: the run finished", aborted: "freed: the run was aborted", "never started": "given back: the run never started",
+};
+
+/**
+ * A work item the session claimed (ADR 0003): which station holds it and how
+ * long that station has been away — away, never "orphaned": a laptop asleep
+ * over a weekend is not a dead one, and nothing releases a claim by the clock.
+ * A writer may release it, in two steps, the second saying what that does.
+ */
+function Claim({ claim, now, onRelease }: { claim: ClaimView; now: number; onRelease?: (claim: ClaimView) => void }) {
+  const [asking, setAsking] = useState(false);
+  const item = `${claim.kind === "pr" ? "pull request" : "issue"} #${claim.number}`;
+  const consequence = claim.consequence.charAt(0).toUpperCase() + claim.consequence.slice(1);
+  if (claim.released !== null) {
+    const { by, why } = claim.released;
+    return <div className="small muted">{item} {why === "released" ? `released by ${by || "someone"}: session abandoned` : RELEASED_WHY[why] ?? why}</div>;
+  }
+  const away = claim.seenAt === 0 ? "its station loop never polled"
+    : liveness(claim.seenAt, null, now).online ? "online" : `offline ${formatSpan(now - claim.seenAt)}`;
+  return (
+    <div className="claim">
+      <div className="small">{item} held by <code>{claim.stationName}</code>, {away}</div>
+      {claim.refused !== null ? <div className="muted small">{claim.refused}</div>
+        : asking ? (
+          <div className="confirm small">
+            {consequence}.{" "}
+            <button className="button small danger" onClick={() => { setAsking(false); onRelease?.(claim); }}>Release</button>{" "}
+            <button className="link small" onClick={() => setAsking(false)}>Cancel</button>
+          </div>
+        ) : (
+          <button className="button small" title={consequence} disabled={!onRelease} onClick={() => setAsking(true)}>Release claim</button>
+        )}
+    </div>
   );
 }
 

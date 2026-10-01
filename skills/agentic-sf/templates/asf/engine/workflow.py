@@ -33,9 +33,10 @@ from typing import Any, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import agents, factory, git_helper, inputs, session, tasks
-from .data_types import (AgentConfig, BuildOutput, ChapterInput, EnvelopeBase, FactoryConfig,
-                         PhaseParams, SessionSpec)
+from . import agents, claims, factory, git_helper, inputs, issues, pull_requests, session, tasks
+from .data_types import (AgentConfig, BuildOutput, ChapterInput, ClaimAsk, EnvelopeBase,
+                         FactoryConfig, Invocation, PhaseParams, SessionSpec)
+from .utils import new_id
 from .stage import StageContext, StageModule, StageStop, Step, load_registry
 
 
@@ -264,17 +265,23 @@ def _flat(error: ValidationError) -> str:
 
 # ── running ──────────────────────────────────────────────────────────────────
 
-def run(workflow: Workflow, request: str, adw_id: Optional[str] = None,
-        resume: bool = False, hitl: str = "") -> int:
+def run(workflow: Workflow, invocation: Invocation) -> int:
     """Play the workflow's stages in order against one session. Returns the
     exit code `run.finish` decided.
 
-    `request` is what `input:` says it is: the prompt, or an issue or pull
-    request number. The input is opened before the first stage and reported
-    to after the last; the stages see only `ctx.prompt` and `ctx.previous`.
+    `invocation.request` is what `input:` says it is: the prompt, or an issue
+    or pull request number. The input is opened before the first stage and
+    reported to after the last; the stages see only `ctx.prompt` and
+    `ctx.previous`.
+
+    A work item is claimed before its session is opened (`engine/claims.py`):
+    with a shared cockpit, a run another station holds the item for — or a
+    resume of a session a writer abandoned — is refused here, having spent
+    nothing. `--force` asks for none.
     """
     agents.validate(workflow.cfg, workflow.required_agents)
     cfg = workflow.cfg
+    request, adw_id = invocation.request, invocation.adw_id
     context, number = None, 0
     if workflow.input != "prompt":
         number = inputs.number_of(request, workflow.input)      # before a session exists
@@ -282,9 +289,13 @@ def run(workflow: Workflow, request: str, adw_id: Optional[str] = None,
         # The pull request names its own session, and that is decided before
         # one exists: a refusal costs one forge call and leaves nothing behind.
         adw_id, context = inputs.locate_pr(cfg, number, adw_id)
+    if workflow.input != "prompt":
+        adw_id = adw_id or new_id(8)            # the session the claim is for
+        claims.for_run(cfg, ClaimAsk(kind=workflow.input, number=number, session=adw_id,
+                                     repo=_project(cfg, workflow.input)), invocation)
     run = session.ensure(cfg, SessionSpec(
-        adw_id=adw_id, resume=resume, hitl=hitl, name=workflow.name, input=workflow.input,
-        request=request if workflow.input == "prompt" else ""))
+        adw_id=adw_id, resume=invocation.resume, hitl=invocation.hitl, name=workflow.name,
+        input=workflow.input, request=request if workflow.input == "prompt" else ""))
 
     if workflow.input == "issue":
         opened = inputs.open_issue(run, cfg, number)
@@ -320,3 +331,11 @@ def run(workflow: Workflow, request: str, adw_id: Optional[str] = None,
         build = ctx.latest.get(BuildOutput)
         inputs.report_pr(run, cfg, opened, accepted, build.summary if build else "")
     return run.finish(accepted=accepted, reason=reason)
+
+
+def _project(cfg: FactoryConfig, kind: str) -> str:
+    """The work item's repository, as the watcher that would start it names it."""
+    main_root = git_helper.main_root()
+    if kind == "pr":
+        return pull_requests.resolve_project(cfg.pull_requests, main_root)
+    return issues.resolve_project(cfg.issues, main_root)

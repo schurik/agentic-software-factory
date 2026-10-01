@@ -292,6 +292,8 @@ def land_label(cfg: FactoryConfig, main_root, state, code: int) -> None:
         return
     if code == hitl.EXIT_WAITING:
         return                              # stopped at the NEXT gate; still claimed
+    if code == REFUSED:
+        return                              # refused before it ran — abandoned, say: not its label
     landed = cfg.issues.states.done if code == 0 else cfg.issues.states.failed
     try:
         result = issues.set_state(main_root, cfg.issues, IssueUpdate(

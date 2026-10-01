@@ -13,7 +13,9 @@ what the fake was sent to the file the test named.
 
 with `spec.json` holding `out` (where to write the fake's state), `station`
 (the id whose command token the fake knows: `asf_station_test`) and `queue`
-(`[{verb, session, by}]`).
+(`[{verb, session, by}]`), `hold` (`[{kind, number, session, station?}]`, claims
+taken earlier), `abandoned` (`[{session, by}]`, sessions a writer released) and
+`down` (a cockpit that does not answer).
 """
 
 from __future__ import annotations
@@ -38,6 +40,11 @@ cockpit = FakeCockpit()
 cockpit.admit(spec["station"])
 for command in spec.get("queue", []):
     cockpit.queue(**command)
+for held in spec.get("hold", []):
+    cockpit.taken(**held)
+for gone in spec.get("abandoned", []):
+    cockpit.abandoned[gone["session"]] = gone["by"]
+cockpit.down = spec.get("down", False)
 station.post = cockpit
 
 
@@ -45,6 +52,9 @@ def told() -> None:
     Path(spec["out"]).write_text(json.dumps({
         "stored": cockpit.stored, "results": cockpit.results,
         "polls": [poll.__dict__ for poll in cockpit.polls],
+        "claims": {f"{kind} {number}": claim.session
+                   for (_repo, kind, number), claim in cockpit.claims.items()},
+        "freed": cockpit.freed,
     }))
 
 

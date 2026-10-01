@@ -1,10 +1,11 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useClock } from "./clock";
 import { said } from "./Shell";
+import type { ClaimView } from "@/convex/model/claim";
 import type { Command } from "./session/action";
 import { SessionView } from "./session/SessionView";
 import { useSignIn } from "./signIn";
@@ -22,7 +23,10 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const steering = useQuery(api.commands.steering, { factory, session, signIn });
   const kill = useMutation(api.commands.kill);
   const resume = useMutation(api.commands.resume);
+  const claims = useQuery(api.claims.ofSession, { factory, session, signIn });
+  const release = useAction(api.claims.release);
   const [problem, setProblem] = useState("");
+  const [released, setReleased] = useState("");
   const now = useClock();
   if (page === undefined) return <p className="muted">Loading…</p>;
   if (page === null) {
@@ -35,13 +39,24 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const onCommand = (command: Command) => {
     setProblem("");
     void (command === "kill" ? kill : resume)({ factory, session, signIn })
-      .then((queued) => { if (!queued.ok) setProblem(queued.because); })
-      .catch((error: unknown) => setProblem(said(error)));
+      .then((queued) => { if (!queued.ok) setProblem(`Not queued: ${queued.because}`); })
+      .catch((error: unknown) => setProblem(`Not queued: ${said(error)}`));
+  };
+  const onRelease = (claim: ClaimView) => {
+    setProblem("");
+    setReleased("");
+    void release({ claim: claim.id, signIn })
+      .then((done) => {
+        if (!done.ok) setProblem(`Not released: ${done.because}`);
+        else if (!done.relabelled) setReleased(`Released — ${done.because}.`);
+      })
+      .catch((error: unknown) => setProblem(`Not released: ${said(error)}`));
   };
   return (
     <>
-      {problem ? <p className="notice">Not queued: {problem}</p> : null}
-      <SessionView page={page} now={now} steering={steering} onCommand={onCommand} />
+      {problem ? <p className="notice">{problem}</p> : null}
+      {released ? <p className="notice">{released}</p> : null}
+      <SessionView page={page} now={now} steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease} />
     </>
   );
 }

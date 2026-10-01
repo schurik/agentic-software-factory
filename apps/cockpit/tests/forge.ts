@@ -263,6 +263,11 @@ export class FakeForge {
     return this.known(name).labelled.get(number) ?? [];
   }
 
+  /** The labels issue `number` of `name` carries now. */
+  labelsOn(name: string, number: number): string[] {
+    return [...(this.known(name).issues.get(number)?.labels ?? [])];
+  }
+
   /** What has been posted on issue `number` of `name`. */
   comments(name: string, number: number): Comment[] {
     return this.known(name).comments.get(number) ?? [];
@@ -445,6 +450,19 @@ export class FakeForge {
       const by = bearer.kind === "installation" ? `${this.app?.slug ?? "app"}[bot]` : bearer.login;
       for (const label of labels as string[]) if (!issue.labels.includes(label)) issue.labels.push(label);
       repo.labelled.set(number, [...(repo.labelled.get(number) ?? []), { by, via: bearer.kind, labels: labels as string[] }]);
+      return this.reply(request, token, 200, issue.labels.map((name) => ({ name })));
+    }
+    const unlabelling = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/labels\/([^/]+)$/.exec(path);
+    if (unlabelling && method === "DELETE" && bearer.kind !== "app") {
+      const repo = this.repos.get(unlabelling[1].toLowerCase());
+      const issue = repo?.issues.get(Number(unlabelling[2]));
+      if (!repo || !this.reads(bearer, repo) || !issue) return this.reply(request, token, 404, { message: "Not Found" });
+      if (bearer.kind !== "installation" && RANK.indexOf(repo.roles[bearer.login]) < RANK.indexOf("triage")) {
+        return this.reply(request, token, 403, { message: "Must have triage access to remove labels." });
+      }
+      const label = decodeURIComponent(unlabelling[3]);
+      if (!issue.labels.includes(label)) return this.reply(request, token, 404, { message: "Label does not exist" });
+      issue.labels = issue.labels.filter((name) => name !== label);
       return this.reply(request, token, 200, issue.labels.map((name) => ({ name })));
     }
     const comparing = /^\/repos\/([^/]+\/[^/]+)\/compare\/([^/.]+)\.\.\.([^/.]+)$/.exec(path);

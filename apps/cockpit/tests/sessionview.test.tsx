@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SessionView, type Page } from "../components/session/SessionView";
+import type { ClaimView } from "../convex/model/claim";
 import type { SteeringView } from "../convex/model/command";
 import { firstLine } from "../components/session/Chapter";
 import { view } from "../convex/model/session";
@@ -208,6 +209,41 @@ describe("resuming a failed session", () => {
     expect(shown(failed, away)).toContain("queued, station offline: schurik@mbp:widgets takes it when it is back");
     expect(shown(failed, { ...online, resume: { ...resume, state: "done", detail: "relaunched a9f259f0" } }))
       .toContain("resumed by alex: relaunched a9f259f0");
+  });
+});
+
+describe("a claim the session holds", () => {
+  const working = upTo("tool_called");
+  const failed = [...working, fixture("session_finished", working.length + 1)];
+  const held: ClaimView = {
+    id: "k1", kind: "issue", number: 42, repo: "acme/widgets", stationName: "alex@mbp:widgets", seenAt: LATER - 2 * 86_400_000,
+    grantedAt: LATER - 3 * 86_400_000, released: null, refused: null,
+    consequence: "relabels #42 `asf:queued` and abandons session a9f259f0",
+  };
+  const withClaims = (claims: ClaimView[]) => {
+    const html = renderToStaticMarkup(
+      <SessionView page={page(failed)} now={LATER} claims={claims} onRelease={() => {}} />);
+    // Tags dropped without a space: the claim's line is one sentence across a <code>.
+    return { html, text: html.replace(/<[^>]+>/g, "").replace(/&#x27;|&#39;/g, "'").replace(/\s+/g, " ") };
+  };
+
+  it("says which station holds it and how long it has been away — never that it is orphaned", () => {
+    const { text } = withClaims([held]);
+    expect(text).toContain("issue #42 held by alex@mbp:widgets, offline 2 d");
+    expect(text).not.toMatch(/orphan/i);
+  });
+
+  it("offers a writer Release claim, spelling out what it does", () => {
+    const { html } = withClaims([held]);
+    expect(html).toMatch(/<button class="button small"[^>]*title="Relabels #42 `asf:queued` and abandons session a9f259f0"[^>]*>Release claim<\/button>/);
+  });
+
+  it("tells anyone else why they may not, and shows a released one as who let it go", () => {
+    expect(withClaims([{ ...held, refused: "releasing a claim needs write on this repository" }]).text)
+      .toContain("releasing a claim needs write on this repository");
+    const released = withClaims([{ ...held, released: { at: LATER - 60_000, by: "alex", why: "released" } }]);
+    expect(released.text).toContain("issue #42 released by alex");
+    expect(released.html).not.toContain("Release claim");
   });
 });
 

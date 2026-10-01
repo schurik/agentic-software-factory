@@ -72,6 +72,15 @@ def read(session_dir: str | Path) -> list[EventLine]:
     return found
 
 
+def last_seq(session_dir: str | Path) -> int:
+    """The seq of the session's last event; 0 when it has written none."""
+    source = path(session_dir)
+    if not source.is_file():
+        return 0
+    with source.open("rb") as stream:
+        return _last_seq(stream)[0]
+
+
 def payload(line: EventLine) -> Optional[DomainEvent]:
     """The line's payload as its model — None for a kind or version this factory
     does not write. A reader of old sessions skips those rather than guessing."""

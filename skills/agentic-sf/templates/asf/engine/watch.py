@@ -7,11 +7,14 @@ because they are the same shape — list, guard, claim, launch, read the exit
 code — at the two ends of a branch's life. `asf issues once|loop|status` and
 `asf prs once|loop|status` reach them; `asf up` supervises both.
 
-THE LABEL IS THE QUEUE for issues, and the flip is the claim, NOT the lock:
-the forge has no conditional label change, so two watchers that listed
-concurrently both come back ok. Exclusion is a file lock per issue, taken
-before the claim and held for the whole run — which covers one watcher per
-repository on one machine, and nothing covers two machines. Run one.
+THE LABEL IS THE QUEUE for issues, and NOT the lock: the forge has no
+conditional label change, so two watchers that listed concurrently both flip
+it and both come back ok. Exclusion is two things. On one machine, a file lock
+per item, held for the whole run. Across machines, a CLAIM from the shared
+cockpit (`engine/claims.py`, ADR 0003), asked for after the file lock and
+before the label is touched: exactly one station is granted it. Without a
+shared cockpit there are no claims, and the rule is one issues watcher per
+repository — which the watcher says when it starts.
 
 THE SUSPENDED SESSION IS THE QUEUE for answers, and it is the odd one of the
 three: nothing new is launched, an existing run is brought back. A run on a
@@ -51,12 +54,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from . import (artifacts, git_helper, hitl, issues, operate, pull_requests, session, station,
-               worktree)
-from .data_types import (Decision, IssueRef, IssueUpdate, Launch, PullRequestRef,
+from . import (artifacts, claims, git_helper, hitl, inputs, issues, operate, pull_requests,
+               session, station, worktree)
+from .data_types import (ClaimAsk, Decision, IssueRef, IssueUpdate, Launch, PullRequestRef,
                          PullRequestUpdate, FactoryConfig, Reply, WaitingFor)
 from .tracer import watcher_beat as db_beat
-from .utils import anchor, ensure_dir, now_iso, operator_env
+from .utils import anchor, ensure_dir, new_id, now_iso, operator_env
 
 RUNNER = "asf/asf.py"
 EXIT_WAITING = hitl.EXIT_WAITING
@@ -122,9 +125,11 @@ def beat(cfg: FactoryConfig, main_root, kind: str, status: str, *, project: str 
 
 
 @contextmanager
-def claim(cfg: FactoryConfig, main_root, bucket: str, project: str, number: int):
-    """Hold an exclusive claim on one item, or yield False. `flock`, non-blocking,
-    held for the whole run and released by the OS even if this process dies."""
+def local_lock(cfg: FactoryConfig, main_root, bucket: str, project: str, number: int):
+    """Hold an exclusive lock on one item among this machine's watchers, or
+    yield False. `flock`, non-blocking, held for the whole run and released by
+    the OS even if this process dies. Not a claim: that is the shared
+    cockpit's, across machines (`engine/claims.py`)."""
     lock_dir = ensure_dir(anchor(main_root, f"{cfg.defaults.data_dir}/{bucket}"))
     handle = open(lock_dir / _slug(project, number), "w")
     try:
@@ -149,16 +154,43 @@ def launch(config_path: str, main_root, item: Launch) -> int:
 
     Who triggered it travels in the environment, not on the command line: the
     argv is recorded as what `asf resume` runs again, and a resume is not a
-    second trigger. The run records it once (`session.triggered_by`)."""
+    second trigger. The run records it once (`session.triggered_by`).
+
+    A claim the watcher holds names the session: the run starts as that one,
+    and is told the claim is already its own (`claims.CLAIMED_ENV`)."""
     argv = [sys.executable, RUNNER, "--config", config_path, "run", item.workflow,
             str(item.number)]
+    if item.claim is not None:
+        argv += ["--adw-id", item.claim.session]
     by = f" (triggered by {item.triggered_by})" if item.triggered_by else ""
     print(f"  #{item.number}: {' '.join(argv[1:])}{by}")
     env = {**os.environ, hitl.UNATTENDED_ENV: "1"}
     env.pop(session.TRIGGERED_BY_ENV, None)
+    env.pop(claims.CLAIMED_ENV, None)
     if item.triggered_by is not None:
         env[session.TRIGGERED_BY_ENV] = item.triggered_by
+    if item.claim is not None:
+        env[claims.CLAIMED_ENV] = claims.mark(item.claim)
     return subprocess.run(argv, cwd=str(main_root), env=env).returncode
+
+
+def ask_cockpit(cfg: FactoryConfig, ask: ClaimAsk) -> tuple[bool, ClaimAsk | None]:
+    """Ask the shared cockpit for one item before anything touches it:
+    (whether to go on, the claim to launch with). Not going on, the item is
+    left as it is and this says why. No shared cockpit is no claim and no
+    refusal: (True, None), a launch as before."""
+    answer = claims.take(cfg, ask)
+    if not answer.granted:
+        print(f"  #{ask.number}: {answer.detail} — left as it is for the next poll")
+        return False, None
+    return True, ask if answer.outcome == "granted" else None
+
+
+def give_back_unused(cfg: FactoryConfig, claim: ClaimAsk | None) -> None:
+    """Give back a claim whose session never started, so the item is not held
+    by a session no station has."""
+    if claim is not None and not claims.started(cfg, claim):
+        claims.drop(cfg, claim)
 
 
 def _names(labels: list) -> list[str]:
@@ -265,14 +297,20 @@ def issues_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
             print(f"  #{number}: max_concurrent ({cfg.issues.max_concurrent}) reached — "
                   f"leaving it queued for the next poll")
             break
-        with claim(cfg, main_root, "issue-locks", project, number) as mine:
+        with local_lock(cfg, main_root, "issue-locks", project, number) as mine:
             if not mine:
                 continue
-            # The claim clears whatever an earlier run left on this issue in the
+            # The cockpit's claim BEFORE the label: the flip is visible, never exclusive.
+            go, claimed = ask_cockpit(cfg, ClaimAsk(kind="issue", number=number, repo=project,
+                                             session=new_id(8)))
+            if not go:
+                continue
+            # The flip clears whatever an earlier run left on this issue in the
             # same edit, so the flip after the run removes only a label it put on.
             if not flip(cfg, main_root, project, number, cfg.issues.states.running,
                         stale_states(cfg, entry.get("labels") or [],
                                      keep=cfg.issues.states.running)):
+                give_back_unused(cfg, claimed)
                 continue
             beat(cfg, main_root, "issues", "working", project=project, interval=interval,
                  note=f"#{number} {workflow}")
@@ -285,8 +323,10 @@ def issues_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
             by = issues.labeller(main_root, cfg.issues, IssueRef(number=number, project=project),
                                  [*labelled, cfg.issues.states.queued])
             code = launch(config_path, main_root,
-                          Launch(workflow=workflow, number=number, triggered_by=by))
+                          Launch(workflow=workflow, number=number, triggered_by=by, claim=claimed))
             launched += 1
+            if code not in (0, EXIT_WAITING):
+                give_back_unused(cfg, claimed)
             if code == EXIT_WAITING:
                 # Left on `running`: true, and only `queued` is dequeued, so it
                 # cannot be claimed twice while a person decides. The process
@@ -307,8 +347,17 @@ def issues_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
     return 0
 
 
+def warn_alone() -> None:
+    """Said once, as an issues watcher starts: without a shared cockpit there
+    are no claims, and nothing keeps a second watcher off the same issue."""
+    warning = claims.alone_warning()
+    if warning:
+        print(f"! {warning}", file=sys.stderr, flush=True)
+
+
 def issues_loop(cfg: FactoryConfig, config_path: str, interval: int) -> int:
     _exit_on_sigterm()
+    warn_alone()
     return _loop("issues", lambda: issues_once(cfg, config_path, interval), cfg,
                  git_helper.main_root(), interval)
 
@@ -444,7 +493,7 @@ def answers_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int
                   f"next poll")
             break
         session_dir = artifacts.sessions_root(main_root, cfg.defaults.data_dir) / adw_id
-        with claim(cfg, main_root, "issue-locks", project, what.issue_number) as mine:
+        with local_lock(cfg, main_root, "issue-locks", project, what.issue_number) as mine:
             # The SAME lock the issue watcher takes. The two cannot collide
             # today — that one only claims `queued` items and this one's are on
             # `running` — but sharing the key costs nothing and means the
@@ -716,16 +765,25 @@ def prs_once(cfg: FactoryConfig, config_path: str, only: int = 0, interval: int 
             print(f"  #{number}: max_concurrent ({pr.max_concurrent}) reached — leaving "
                   f"it for the next poll")
             break
-        with claim(cfg, main_root, "pr-locks", project, number) as mine:
+        with local_lock(cfg, main_root, "pr-locks", project, number) as mine:
             if not mine:
+                continue
+            # The pull request names its session; another station may hold it.
+            go, claimed = ask_cockpit(cfg, ClaimAsk(
+                kind="pr", number=number, repo=project,
+                session=inputs.session_of(str(entry.get("headRefName", "")), prefix)))
+            if not go:
                 continue
             beat(cfg, main_root, "prs", "working", project=project, interval=interval,
                  note=f"#{number} {pr.workflow}")
             # No label to read who asked: a session it re-enters keeps its own
             # trigger, and one it starts fresh records nobody, never this watcher.
             code = launch(config_path, main_root,
-                          Launch(workflow=pr.workflow, number=number, triggered_by=""))
+                          Launch(workflow=pr.workflow, number=number, triggered_by="",
+                                 claim=claimed))
             launched += 1
+            if code not in (0, EXIT_WAITING):
+                give_back_unused(cfg, claimed)
             if code == EXIT_WAITING:
                 print(f"  #{number}: stopped for a human at a gate — not marked "
                       f"{pr.states.failed}; `asf pending` names the run")

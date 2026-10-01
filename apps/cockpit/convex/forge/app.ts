@@ -348,6 +348,7 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
     comment: (repo, number, body) => github.comment(asUser(), repo, number, body),
     // The same for a label: the forge's `labeled` event is what the factory records as the trigger.
     label: (repo, number, labels) => github.label(asUser(), repo, number, labels),
+    unlabel: (repo, number, label) => github.unlabel(asUser(), repo, number, label),
     reach: async () => {
       // GitHub's own answer to "where can this person go through this App", with their role on each.
       const as = asUser();
