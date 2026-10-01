@@ -3,17 +3,27 @@
 import { useAction } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import type { Opened, Proposed } from "@/convex/config";
-import { branchFor, yamlProblem } from "@/convex/model/config";
+import type { Proposed } from "@/convex/config";
+import { asCommitted, branchFor, type Edited, proposalProblem, yamlProblem } from "@/convex/model/config";
 import { said } from "../Shell";
 import { unified } from "./diff";
 import { short } from "./view";
 
-/** A config file being edited: its text as the base commit holds it, and as it is now. */
+/**
+ * A config file being edited: its text as the base commit holds it, and as it
+ * is now — both with LF line endings, which is all a textarea keeps — and
+ * whether the file's own are CRLF, which it gets back when it is proposed.
+ */
 export interface Draft {
   path: string;
   original: string;
   text: string;
+  crlf: boolean;
+}
+
+/** What a draft proposes: the file's whole new text, in its own line endings. */
+export function proposedFile(draft: Draft): { path: string; content: string } {
+  return { path: draft.path, content: asCommitted(draft.text, draft.crlf) };
 }
 
 /** What the pull request is called, and what the person says of it. */
@@ -29,15 +39,13 @@ function problemOf(draft: Draft): string | null {
 
 /**
  * Why nothing can be proposed yet, or null when the pull request can be
- * opened: something changed, every changed file's YAML parses, and it has a
- * title. The action that opens it refuses the same things.
+ * opened: something changed, and what changed passes `proposalProblem` —
+ * which the action that opens it refuses on too.
  */
 export function blocked(drafts: Draft[], asked: Asked): string | null {
   const changed = drafts.filter((draft) => draft.text !== draft.original);
-  if (changed.length === 0) return "Nothing changed yet.";
-  const problem = changed.map(problemOf).find((each) => each !== null);
-  if (problem) return `The YAML does not parse — ${problem}`;
-  return asked.title.trim() ? null : "A pull request needs a title.";
+  if (changed.length === 0) return "nothing changed yet";
+  return proposalProblem(changed.map(proposedFile), asked.title);
 }
 
 /**
@@ -47,7 +55,7 @@ export function blocked(drafts: Draft[], asked: Asked): string | null {
  * renders it.
  */
 export function ConfigEditorView({
-  base, into, as, drafts, open, loading, asked, busy, outcome, onText, onOpen, onDiscard, onChange, onSubmit,
+  base, into, as, drafts, shown, loading, asked, busy, outcome, onText, onOpen, onDiscard, onChange, onSubmit,
 }: {
   /** The commit the files were read at, which the change is committed on top of. */
   base: string;
@@ -57,7 +65,7 @@ export function ConfigEditorView({
   as: string;
   drafts: Draft[];
   /** The path of the draft shown in the editor. */
-  open: string | null;
+  shown: string | null;
   /** A file being read from the forge, or one that could not be, and why. */
   loading: { path: string; because: string | null } | null;
   asked: Asked;
@@ -69,7 +77,7 @@ export function ConfigEditorView({
   onChange: (asked: Asked) => void;
   onSubmit: () => void;
 }) {
-  const current = drafts.find((draft) => draft.path === open) ?? null;
+  const current = drafts.find((draft) => draft.path === shown) ?? null;
   const changed = drafts.filter((draft) => draft.text !== draft.original);
   const because = blocked(drafts, asked);
   const problem = current && problemOf(current);
@@ -84,7 +92,7 @@ export function ConfigEditorView({
       {drafts.length > 1 ? (
         <div className="tabs" role="tablist">
           {drafts.map((draft) => (
-            <button key={draft.path} type="button" role="tab" aria-selected={draft.path === open} onClick={() => onOpen(draft.path)}>
+            <button key={draft.path} type="button" role="tab" aria-selected={draft.path === shown} onClick={() => onOpen(draft.path)}>
               <code>{draft.path}</code>{draft.text !== draft.original ? " •" : ""}
             </button>
           ))}
@@ -128,7 +136,7 @@ export function ConfigEditorView({
         <button type="submit" className="button" disabled={because !== null || busy}>
           {busy ? "Opening…" : `Open pull request as ${as || "you"}`}
         </button>
-        {because !== null && changed.length > 0 ? <small>{because}</small> : null}
+        {because !== null && changed.length > 0 ? <small>Not yet: {because}.</small> : null}
       </form>
       {outcome?.ok ? (
         <p className="notice small">
@@ -166,9 +174,9 @@ export function ConfigEditor({ factory, base, into, as, open, signIn, onOpen }: 
   useEffect(() => {
     if (held) return;
     let current = true;
-    const opened = (got: Opened) => {
+    const opened = (got: Edited) => {
       if (!current) return;
-      if (got.ok) setDrafts((now) => [...now, { path: open, original: got.text, text: got.text }]);
+      if (got.ok) setDrafts((now) => [...now, { path: open, original: got.text, text: got.text, crlf: got.crlf }]);
       else setFailed({ path: open, because: got.because });
     };
     read({ factory, path: open, ref: base, signIn }).then(opened, (error: unknown) => opened({ ok: false, because: said(error) }));
@@ -182,7 +190,7 @@ export function ConfigEditor({ factory, base, into, as, open, signIn, onOpen }: 
       const changed = drafts.filter((draft) => draft.text !== draft.original);
       const proposed = await propose({
         factory, base, title: asked.title, description: asked.description, signIn,
-        files: changed.map(({ path, text }) => ({ path, content: text })),
+        files: changed.map(proposedFile),
       });
       setOutcome(proposed);
       // Proposed: the drafts are the pull request's now, and the editor starts again from what `base` holds.
@@ -198,7 +206,7 @@ export function ConfigEditor({ factory, base, into, as, open, signIn, onOpen }: 
   };
   const loading = held ? null : failed?.path === open ? failed : { path: open, because: null };
   return (
-    <ConfigEditorView base={base} into={into} as={as} drafts={drafts} open={open} loading={loading} asked={asked} busy={busy}
+    <ConfigEditorView base={base} into={into} as={as} drafts={drafts} shown={open} loading={loading} asked={asked} busy={busy}
                       outcome={outcome} onOpen={onOpen} onSubmit={() => void submit()}
                       onText={(path, text) => {
                         setDrafts((now) => now.map((draft) => (draft.path === path ? { ...draft, text } : draft)));

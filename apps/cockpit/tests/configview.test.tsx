@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConfigEditorView, type Draft } from "../components/factory/ConfigEditor";
+import { ConfigEditorView, type Draft, proposedFile } from "../components/factory/ConfigEditor";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { unified } from "../components/factory/diff";
 import type { Page } from "../components/factory/view";
@@ -28,7 +28,7 @@ const LOOK: Look = { ok: true, tip: BASE, files: ["asf/factory.yaml", "asf/agent
 
 function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorView>[0]> = {}): string {
   return renderToStaticMarkup(
-    <ConfigEditorView base={BASE} into="main" as="alex" drafts={drafts} open={drafts[0]?.path ?? null} loading={null}
+    <ConfigEditorView base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
                       asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
                       onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
                       onChange={() => undefined} onSubmit={() => undefined} {...given} />);
@@ -56,7 +56,7 @@ describe("the Config tab's files", () => {
 
 describe("the editor", () => {
   it("previews the diff the pull request will carry, and opens it as the viewer", () => {
-    const html = editor([{ path: "asf/factory.yaml", original: YAML, text: YAML.replace("2.5", "5") }]);
+    const html = editor([{ path: "asf/factory.yaml", original: YAML, crlf: false, text: YAML.replace("2.5", "5") }]);
 
     expect(html).toContain("<textarea");
     expect(html).toContain('<span class="del">-  max_cost_usd: 2.5   # per session\n</span>');
@@ -68,20 +68,26 @@ describe("the editor", () => {
   });
 
   it("blocks submission with the parse error while the YAML does not parse", () => {
-    const html = editor([{ path: "asf/factory.yaml", original: YAML, text: "limits:\n  max_cost_usd: [5\n" }]);
+    const html = editor([{ path: "asf/factory.yaml", original: YAML, crlf: false, text: "limits:\n  max_cost_usd: [5\n" }]);
 
     expect(html).toMatch(/asf\/factory\.yaml, line \d+, column \d+: /);
     expect(html).toMatch(/<button type="submit"[^>]*disabled=""/);
   });
 
   it("has nothing to submit until something changed, or without a title", () => {
-    const unchanged = editor([{ path: "asf/factory.yaml", original: YAML, text: YAML }]);
+    const unchanged = editor([{ path: "asf/factory.yaml", original: YAML, crlf: false, text: YAML }]);
     expect(unchanged).toContain("Nothing changed yet");
     expect(unchanged).toMatch(/<button type="submit"[^>]*disabled=""/);
 
-    const untitled = editor([{ path: "asf/factory.yaml", original: YAML, text: `${YAML}# more\n` }],
+    const untitled = editor([{ path: "asf/factory.yaml", original: YAML, crlf: false, text: `${YAML}# more\n` }],
                             { asked: { title: "", description: "" } });
     expect(untitled).toMatch(/<button type="submit"[^>]*disabled=""/);
+  });
+
+  it("proposes a CRLF file in its own line endings, though the editor holds it as LF", () => {
+    const draft = { path: "asf/factory.yaml", original: YAML, text: YAML.replace("2.5", "5"), crlf: true };
+    expect(proposedFile(draft)).toEqual({ path: "asf/factory.yaml", content: YAML.replace("2.5", "5").replace(/\n/g, "\r\n") });
+    expect(proposedFile({ ...draft, crlf: false }).content).toBe(draft.text);
   });
 
   it("links the pull request it opened, or says why it did not", () => {

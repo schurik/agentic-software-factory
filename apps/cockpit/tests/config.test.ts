@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { branchFor, editRefusal, provenance, yamlProblem } from "../convex/model/config";
+import {
+  asCommitted, asEdited, branchFor, editRefusal, proposalProblem, provenance, yamlProblem,
+} from "../convex/model/config";
 import { fakeForge, type FakeForge, localMode, type Role } from "./forge";
 import { catchUp, cockpit, type Cockpit, signIn, team } from "./helpers";
 
@@ -99,6 +101,35 @@ describe("the YAML check", () => {
   });
 });
 
+describe("a file's line endings", () => {
+  it("are LF in the editor, and the file's own again when it is committed", () => {
+    expect(asEdited(FACTORY_YAML)).toEqual({ ok: true, text: FACTORY_YAML, crlf: false });
+    const windows = FACTORY_YAML.replace(/\n/g, "\r\n");
+    const edited = asEdited(windows);
+    expect(edited).toEqual({ ok: true, text: FACTORY_YAML, crlf: true });
+    expect(asCommitted(EDITED, true)).toBe(EDITED.replace(/\n/g, "\r\n"));
+    expect(asCommitted(EDITED, false)).toBe(EDITED);
+  });
+
+  it("refuse a file a browser's editor could not give back as it was", () => {
+    // A textarea turns every CR into LF: a file that mixes them would come back rewritten.
+    expect(asEdited("a: 1\r\nb: 2\n")).toEqual({ ok: false, because: expect.stringContaining("mixes") });
+    expect(asEdited("a: 1\rb: 2\r")).toEqual({ ok: false, because: expect.stringContaining("mixes") });
+  });
+});
+
+describe("what blocks a proposal before the forge is asked", () => {
+  it("is the first of: no title, no file, a file twice, outside asf/, YAML that does not parse", () => {
+    const file = { path: "asf/factory.yaml", content: EDITED };
+    expect(proposalProblem([file], "Raise the budget")).toBeNull();
+    expect(proposalProblem([file], "  ")).toBe("a pull request needs a title");
+    expect(proposalProblem([], "Raise the budget")).toBe("no file was edited");
+    expect(proposalProblem([file, file], "Raise the budget")).toBe("asf/factory.yaml is in the proposal twice");
+    expect(proposalProblem([{ path: "README.md", content: "" }], "x")).toMatch(/only the files under `asf\/`/);
+    expect(proposalProblem([{ path: "asf/factory.yaml", content: "a: [1\n" }], "x")).toMatch(/^asf\/factory\.yaml, line /);
+  });
+});
+
 describe("the branch a proposal goes on", () => {
   it("is cockpit/<login>/<slug>, the slug made of the title", () => {
     expect(branchFor("alex", "Raise the budget!")).toBe("cockpit/alex/raise-the-budget");
@@ -192,6 +223,19 @@ describe("proposing a config edit", () => {
     expect(forge.pulls("acme/widgets")).toEqual([expect.objectContaining({ author: "alex", via: "person" })]);
   });
 
+  it("is refused below write in a local cockpit too, whose token may reach what it cannot push to", async () => {
+    const forge = fakeForge();
+    localMode(forge, forge.person("alex"));
+    forge.repo("acme/widgets", { factory: true, roles: { alex: "read" } });
+    committed(forge);
+    const t = cockpit();
+    await catchUp(t);
+
+    expect((await t.query(api.factory.page, { factory: "acme/widgets" }))!.edit).toBe(editRefusal("read"));
+    expect(await t.action(api.config.propose, proposing())).toEqual({ ok: false, because: editRefusal("read") });
+    expect(forge.pulls("acme/widgets")).toEqual([]);
+  });
+
   it("takes the next free branch when the slug is taken", async () => {
     const forge = fakeForge();
     const { t, alex } = await teamWith(forge, "write");
@@ -268,11 +312,33 @@ describe("reading a file to edit", () => {
     const { t, alex } = await teamWith(forge, "read");
 
     expect(await t.action(api.config.read, { factory: "acme/widgets", path: "asf/factory.yaml", ref: BASE, signIn: alex }))
-      .toEqual({ ok: true, text: FACTORY_YAML });
+      .toEqual({ ok: true, text: FACTORY_YAML, crlf: false });
     expect(await t.action(api.config.read, { factory: "acme/widgets", path: "README.md", ref: BASE, signIn: alex }))
       .toEqual({ ok: false, because: expect.stringContaining("only the files under `asf/`") });
     expect(await t.action(api.config.read, { factory: "acme/widgets", path: "asf/factory.yaml", ref: BASE }))
       .toEqual({ ok: false, because: "no such factory among the ones you can read" });
+  });
+});
+
+describe("a file with CRLF line endings", () => {
+  it("is edited as LF and proposed with its own line endings again, every untouched line as it was", async () => {
+    const forge = fakeForge();
+    forge.person("alex");
+    forge.repo("acme/widgets", { factory: true, roles: { alex: "write" } });
+    const windows = FACTORY_YAML.replace(/\n/g, "\r\n");
+    forge.commit("acme/widgets", BASE, { "asf/factory.yaml": windows });
+    const t = cockpit();
+    await team(t, forge);
+    forge.install("acme");
+    await catchUp(t);
+    const alex = await signIn(t, forge, "alex");
+
+    const read = await t.action(api.config.read, { factory: "acme/widgets", path: "asf/factory.yaml", ref: BASE, signIn: alex });
+    expect(read).toEqual({ ok: true, text: FACTORY_YAML, crlf: true });
+    const content = asCommitted(EDITED, true);
+    expect(await t.action(api.config.propose, { ...proposing({ files: [{ path: "asf/factory.yaml", content }] }), signIn: alex }))
+      .toMatchObject({ ok: true });
+    expect(forge.at("acme/widgets", forge.pulls("acme/widgets")[0].head, "asf/factory.yaml")).toBe(EDITED.replace(/\n/g, "\r\n"));
   });
 });
 

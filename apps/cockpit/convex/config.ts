@@ -14,29 +14,26 @@
  */
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { action, type ActionCtx, internalQuery, type QueryCtx } from "./_generated/server";
 import { type Change, repoKey } from "./forge/forge";
-import { ForgeError, RateLimited } from "./forge/github";
-import { open } from "./forge/open";
-import { branchFor, editRefusal, outsideConfig, provenance, yamlProblem } from "./model/config";
+import { ForgeError } from "./forge/github";
+import { forgeSaid, open, UNREADABLE } from "./forge/open";
+import { asEdited, branchFor, type Edited, editRefusal, outsideConfig, proposalProblem, provenance } from "./model/config";
 import { actAs, canRead, roleOn, viewing, type Viewing } from "./viewer";
 
 type Refused = { ok: false; because: string };
 
-/** A config file's text, as the editor opens it. */
-export type Opened = { ok: true; text: string } | Refused;
+/** A config file's bytes, as text, or why they cannot be edited here. */
+type Read = { ok: true; text: string } | Refused;
 
 export type Proposed = { ok: true; number: number; url: string; branch: string; paths: string[] } | Refused;
 
-const UNREADABLE = "no such factory among the ones you can read";
 /** How many branch names a proposal tries — `<slug>`, `<slug>-2`, … — before it says they are taken. */
 const BRANCH_TRIES = 20;
 
-/** What the forge said when it would not do something, as a refusal; anything else is thrown on. */
-function forgeSaid(error: unknown): Refused {
-  if (error instanceof ForgeError || error instanceof RateLimited) return { ok: false, because: error.message };
-  throw error;
+async function repoOf(ctx: QueryCtx, factory: string): Promise<Doc<"repos"> | null> {
+  return await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", repoKey(factory))).unique();
 }
 
 /**
@@ -50,7 +47,7 @@ export async function editing(ctx: QueryCtx, who: Viewing, factory: string): Pro
     return who.mode === "team" ? "sign in to edit the config"
       : "this cockpit holds no forge token to open a pull request with: run `gh auth login`, then `asf up` again";
   }
-  const repo = await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", repoKey(factory))).unique();
+  const repo = await repoOf(ctx, factory);
   if (repo === null || !repo.factory || !repo.defaultBranch) {
     return "the forge does not show this factory, so there is no default branch to propose a change to";
   }
@@ -65,7 +62,7 @@ export const asking = internalQuery({
   }> => {
     const who = await viewing(ctx, signIn);
     const reads = await canRead(ctx, who, factory);
-    const repo = await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", repoKey(factory))).unique();
+    const repo = await repoOf(ctx, factory);
     return {
       reads,
       because: reads || who.viewer === null ? await editing(ctx, who, factory) : UNREADABLE,
@@ -86,7 +83,7 @@ function text(bytes: Uint8Array): string | null {
 }
 
 /** `path` of `factory` at `ref`, as text, read on the cockpit's own credential. */
-async function readAt(ctx: ActionCtx, factory: string, path: string, ref: string): Promise<Opened> {
+async function readAt(ctx: ActionCtx, factory: string, path: string, ref: string): Promise<Read> {
   const opened = await open(ctx);
   if (opened === null) return { ok: false, because: "this cockpit has no forge credential to read the file with" };
   try {
@@ -103,36 +100,25 @@ async function readAt(ctx: ActionCtx, factory: string, path: string, ref: string
 
 /**
  * The text of the config file `path` of `factory` at the commit `ref` — the
- * one the Config tab lists the files at — for a viewer who may read it.
- * Shown and forgotten: the cockpit keeps no file bodies.
+ * one the Config tab lists the files at — for a viewer who may read it, as
+ * the editor holds it (`asEdited`: LF, and whether the file's own endings
+ * are CRLF). Shown and forgotten: the cockpit keeps no file bodies.
  */
 export const read = action({
   args: { factory: v.string(), path: v.string(), ref: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, path, ref, signIn }): Promise<Opened> => {
+  handler: async (ctx, { factory, path, ref, signIn }): Promise<Edited> => {
     const asked: { reads: boolean } = await ctx.runQuery(internal.config.asking, { factory, signIn });
     if (!asked.reads) return { ok: false, because: UNREADABLE };
     const outside = outsideConfig(path);
     if (outside !== null) return { ok: false, because: outside };
-    return await readAt(ctx, factory, path, ref);
+    const read = await readAt(ctx, factory, path, ref);
+    return read.ok ? asEdited(read.text) : read;
   },
 });
 
-/** Why `files` titled `title` cannot be proposed as they stand, or null when they can — nothing asked of the forge. */
-function unproposable(files: Change[], title: string): string | null {
-  if (!title.trim()) return "a pull request needs a title";
-  if (files.length === 0) return "no file was edited";
-  const seen = new Set<string>();
-  for (const { path, content } of files) {
-    if (seen.has(path)) return `${path} is in the proposal twice`;
-    seen.add(path);
-    const problem = outsideConfig(path) ?? yamlProblem(path, content);
-    if (problem !== null) return problem;
-  }
-  return null;
-}
-
 /**
- * Propose `files` — each one's whole new text — as a pull request on
+ * Propose `files` — each one's whole new text, byte for byte as it is to be
+ * committed (`asCommitted` gives a CRLF file its endings back) — as a pull request on
  * `factory`, as the viewer: committed on top of `base`, the commit the
  * editor read them at, on a fresh `cockpit/<login>/<slug>` branch, into the
  * default branch, with a body that says where it came from. What the forge
@@ -154,7 +140,7 @@ export const propose = action({
     const asked: { because: string | null; actor: Id<"viewers"> | null; login: string; into: string } =
       await ctx.runQuery(internal.config.asking, { factory, signIn });
     if (asked.because !== null) return { ok: false, because: asked.because };
-    const problem = unproposable(files, title);
+    const problem = proposalProblem(files, title);
     if (problem !== null) return { ok: false, because: problem };
 
     const changed: Change[] = [];

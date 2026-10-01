@@ -7,8 +7,8 @@
  * factory's to say — its own `asf check`, in the repository's CI — and a file
  * is never parsed in order to be written back: what is committed is the text
  * the person typed, so its comments are theirs to keep. Both the editor and
- * the action that opens the pull request ask this module, so what the page
- * blocks and what the action refuses are the same thing.
+ * the action that opens the pull request ask `proposalProblem`, so what the
+ * page blocks and what the action refuses are the same thing.
  */
 import { parseDocument } from "yaml";
 import { atLeast, type Role } from "../forge/forge";
@@ -32,10 +32,10 @@ export function outsideConfig(path: string): string | null {
 /**
  * What is wrong with the YAML in `text`, the file at `path`, or null when it
  * parses: `path, line L, column C: what`. A `.yaml`/`.yml` file is one YAML
- * document; a Markdown file is checked for the frontmatter the factory reads
- * off its top (`engine/frontmatter.py`); anything else is not YAML. Read the
- * way PyYAML reads it, which lets a later duplicate key win, so nothing the
- * factory would load is blocked here.
+ * document, as `yaml.safe_load` takes it; a Markdown file is checked for the
+ * frontmatter the factory reads off its top (`engine/frontmatter.py`);
+ * anything else is not YAML. A later duplicate key wins, as it does in
+ * PyYAML, rather than block a file the factory would load.
  */
 export function yamlProblem(path: string, text: string): string | null {
   if (/\.ya?ml$/i.test(path)) return parsed(path, text, 0);
@@ -57,6 +57,48 @@ function parsed(path: string, text: string, offset: number): string | null {
   const what = error.code === "MULTIPLE_DOCS" ? "a second YAML document begins here, and the factory reads one"
     : error.message.replace(/ at line \d+, column \d+[\s\S]*$/, "");
   return `${path}, ${where}: ${what}`;
+}
+
+/**
+ * Why `files` titled `title` cannot be proposed as they stand, or null when
+ * they can: nothing here asks the forge. The editor blocks its submit on it,
+ * and the action refuses on it before anything is pushed.
+ */
+export function proposalProblem(files: { path: string; content: string }[], title: string): string | null {
+  if (!title.trim()) return "a pull request needs a title";
+  if (files.length === 0) return "no file was edited";
+  const seen = new Set<string>();
+  for (const { path, content } of files) {
+    if (seen.has(path)) return `${path} is in the proposal twice`;
+    seen.add(path);
+    const problem = outsideConfig(path) ?? yamlProblem(path, content);
+    if (problem !== null) return problem;
+  }
+  return null;
+}
+
+/** A file's text as the editor holds it, and whether its own line endings are CRLF. */
+export type Edited = { ok: true; text: string; crlf: boolean } | { ok: false; because: string };
+
+/**
+ * `text` as a browser's editor can hold it and give back unchanged: with LF
+ * line endings, which is all a textarea keeps — it turns every CR into LF. A
+ * file whose endings are all CRLF is edited as LF and gets its CRLF back on
+ * the way out (`asCommitted`); one that mixes them could not come back as it
+ * was, and is refused.
+ */
+export function asEdited(text: string): Edited {
+  if (!text.includes("\r")) return { ok: true, text, crlf: false };
+  const lines = text.split("\r\n");
+  if (lines.some((line) => /[\r\n]/.test(line))) {
+    return { ok: false, because: "it mixes CRLF and LF line endings, which a browser's editor cannot keep: edit it in a checkout" };
+  }
+  return { ok: true, text: lines.join("\n"), crlf: true };
+}
+
+/** What the editor holds, `text`, with the line endings of the file it came from. */
+export function asCommitted(text: string, crlf: boolean): string {
+  return crlf ? text.replace(/\n/g, "\r\n") : text;
 }
 
 /** The branch a proposal by `login` titled `title` goes on: `cockpit/<login>/<slug>`. */

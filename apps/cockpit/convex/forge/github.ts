@@ -383,7 +383,7 @@ export async function compare(github: GitHub, as: Credential, repo: string, base
 export async function commit(github: GitHub, as: Credential, repo: string, base: string, changes: Change[],
                              message: string): Promise<string> {
   const tree = await github.one(as, `/repos/${repo}/git/commits/${encodeURIComponent(base)}`, (body) =>
-    String(isRecord(body) && isRecord(body.tree) ? body.tree.sha : ""));
+    sha(isRecord(body) ? body.tree : null));
   const made = await github.post(as, `/repos/${repo}/git/trees`, {
     base_tree: tree,
     tree: changes.map(({ path, content }) => ({ path, mode: "100644", type: "blob", content })),
@@ -408,10 +408,10 @@ export async function pull(github: GitHub, as: Credential, repo: string, { head,
   });
 }
 
-/** The `sha` a git database write answers with. */
+/** The `sha` of a git database object the forge answered with. */
 function sha(body: unknown): string {
   if (isRecord(body) && typeof body.sha === "string") return body.sha;
-  throw new ForgeError(0, "the forge answered a write with no sha");
+  throw new ForgeError(0, "the forge named no sha where it names a git object");
 }
 
 export async function refusal(response: Response, path: string): Promise<ForgeError> {

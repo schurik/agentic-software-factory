@@ -322,8 +322,10 @@ station's drift. A factory no CI workflow ever described is **unchecked**, never
 A writer edits those files there, and the edit becomes a pull request opened **as them**
 (`convex/config.ts`). The repository stays the source of truth: the editor is the files' raw text,
 read from the forge at the commit the tab listed them at, and what is typed is committed byte for
-byte — never parsed and written back, so a comment survives. The cockpit checks YAML syntax only
-(`convex/model/config.ts`, as PyYAML reads it: a `.yaml` file whole, a Markdown file's frontmatter),
+byte — never parsed and written back, so a comment survives. A textarea keeps only LF, so a CRLF
+file is edited as LF and committed with its CRLF back, and one that mixes the two is not edited
+here. The cockpit checks YAML syntax only (`convex/model/config.ts`: a `.yaml` file as one
+document, a Markdown file's frontmatter, a later duplicate key winning as it does in PyYAML),
 blocks the submit while it fails with the parse error, and previews the diff the pull request will
 carry. Proposing commits every changed file in one commit on top of that commit, through the forge's
 git database (`commit`, `branch`, `pull` in `convex/forge/forge.ts`, on the person's own token), on
