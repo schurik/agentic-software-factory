@@ -1072,6 +1072,11 @@ def _switch(value: Any) -> Any:
     return value
 
 
+# The closed vocabulary a cockpit can ask a station for (spec #40). Answering a
+# terminal-channel gate is `answer`; `run` starts a prompt workflow.
+CommandVerb = Literal["answer", "abort", "kill", "resume", "run"]
+
+
 class ObservabilityConfig(BaseModel):
     db: str = "asf/data/asf.db"
     poll_ms: int = 500
@@ -1087,9 +1092,17 @@ class CockpitConfig(BaseModel):
     large, it is where a secret an agent read ends up, and it is the one part
     of a session a cockpit lets age out — so it is written only when the
     repository says so, here, in a file that is reviewed.
+
+    `commands` is the other half: which COMMANDS (`CONTEXT.md`) this
+    factory's stations carry out when a cockpit asks. A command bypasses the
+    forge's public record — a kill is not a comment anybody can read — so each
+    verb is opted in here, by pull request, and nothing is obeyed that is not
+    listed. A station still checks every command's `by` against
+    `issues.trusted_authors` (`engine/commands.py`).
     """
 
     transcripts: bool = False
+    commands: list[CommandVerb] = Field(default_factory=list)
 
 
 class IssueStates(BaseModel):
@@ -1857,6 +1870,63 @@ class LocalCockpitRecord(BaseModel):
     repository: str
     token: str
     issued_at: str = ""
+    # The command token it issued this station (`Local.credential`), and to
+    # whom: the person whose forge token the cockpit holds, or "".
+    station: str = ""
+    command_token: str = ""
+    owner: str = ""
+
+
+class StationCredential(BaseModel):
+    """`<data_dir>/station-token.json`: the command token a cockpit issued
+    this station when a person approved its registration — theirs, for this
+    station, and good for nothing but asking that cockpit for commands. Keyed
+    by the cockpit, like `ShipAck`: a token one cockpit issued means nothing
+    to another. A CI station never holds one."""
+
+    cockpit: str
+    station: str                    # the station id it was issued to
+    token: str
+    owner: str = ""                 # the forge login of whoever approved it
+    issued_at: str = ""
+
+
+class StationReport(BaseModel):
+    """What every command poll tells the cockpit about the station, so it can
+    grey out what the station would refuse and say how far its config is from
+    the default branch. Never the config itself.
+
+    `watchers` is None from a run's own shipper, which cannot know what else
+    runs on the checkout: the cockpit keeps what the station loop last said."""
+
+    verbs: list[CommandVerb] = Field(default_factory=list)
+    head: str = ""                  # the commit the checkout has out
+    config_hash: str = ""           # sha256 over the files under asf/, data/ aside
+    watchers: Optional[list[str]] = None
+
+
+class Command(BaseModel):
+    """One command as a cockpit delivers it: typed fields only, never a line
+    to run. `expires_at` is epoch milliseconds — a kill from last week is not
+    carried out by a laptop that just woke up."""
+
+    id: str
+    verb: str                       # not CommandVerb: an unknown verb is refused, not a crash
+    session: str = ""               # the adw_id it names
+    notes: str = ""
+    by: str = ""                    # the forge login of whoever asked
+    issued_at: int = 0
+    expires_at: int = 0
+
+
+class CommandRecord(BaseModel):
+    """`<data_dir>/commands/<id>.json`: what this station did with a command.
+    Written once; a second delivery of the same id finds it and does nothing."""
+
+    command: Command
+    ok: bool
+    detail: str = ""
+    at: str = ""
 
 
 ShipOutcome = Literal["shipped", "unreachable", "unauthorized", "refused"]
@@ -2311,7 +2381,8 @@ class CommandFinished(DomainEvent):
 
 class CommandResult(DomainEvent):
     """What a station did with a command from a cockpit — the cockpit's only
-    source for "done". Nothing emits it until stations take commands."""
+    source for "done" (`engine/commands.py`). Written into the session the
+    command names, so it is shipped with it and told in its story."""
 
     KIND: ClassVar[str] = "command_result"
 

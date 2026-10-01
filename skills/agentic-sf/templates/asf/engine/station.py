@@ -25,6 +25,14 @@ The station loop behind `asf up` is the same `Loop` over every session on the
 station.
 Without ASF_COCKPIT_URL there is no cockpit, no thread and no `shipped.json`:
 the run is the run it was before stations existed.
+
+COMMANDS ride the same loop. A station a person registered (`asf station
+register`, `engine/commands.py`) holds their command token in
+`<data_dir>/station-token.json`, and a `Loop` given a `steering` asks the
+cockpit for commands between shipping rounds: a run's own shipper for its own
+session, the station loop for everything else. Each of those polls is also how
+the cockpit knows the session is attended, or the station online — there is no
+heartbeat besides.
 """
 
 from __future__ import annotations
@@ -42,16 +50,17 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from . import artifacts, events, git_helper
 from .data_types import (Cockpit, EventLine, FactoryConfig, ShipAck, ShipResult, Station,
-                         StationRecord)
+                         StationCredential, StationRecord)
 from .cockpit import forge_host
 from .utils import anchor, engineer_name, ensure_dir, new_id, now_iso, operator_env, write_atomic
 
 STATION_FILE = "station.json"
 SHIPPED_FILE = "shipped.json"
+CREDENTIAL_FILE = "station-token.json"
 
 # What one batch may hold, from the cockpit's wire.ts (MAX_EVENTS,
 # MAX_BATCH_BYTES). Measured here on Python's ASCII-escaped JSON, which is never
@@ -136,6 +145,24 @@ def operator() -> str:
 
 def _host() -> str:
     return socket.gethostname().split(".")[0] or "localhost"
+
+
+def credential(main_root: str | Path, data_dir: str) -> StationCredential | None:
+    """The command token `asf station register` kept, or None: an unregistered
+    station ships all the same, and is simply never asked to do anything."""
+    try:
+        return StationCredential.model_validate_json(
+            (anchor(Path(main_root), data_dir) / CREDENTIAL_FILE).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def keep(main_root: str | Path, data_dir: str, held: StationCredential) -> Path:
+    """Keep a freshly issued command token, replacing whatever was there."""
+    path = anchor(Path(main_root), data_dir) / CREDENTIAL_FILE
+    ensure_dir(path.parent)
+    write_atomic(path, held.model_dump_json(indent=2))
+    return path
 
 
 # ── where it ships ───────────────────────────────────────────────────────────
@@ -315,14 +342,16 @@ def every_session(root: Path) -> list[Path]:
     return sorted(d for d in root.iterdir() if (d / events.EVENTS_FILE).is_file())
 
 
-def start(session_dir: str | Path, transport: Transport = post) -> Loop | None:
+def start(session_dir: str | Path, transport: Transport | None = None,
+          steering: Steering | None = None) -> Loop | None:
     """Ship this session from a background thread for as long as this process
     lives, flushing on the way out — or None, and nothing at all, when no
-    cockpit is configured. Called by every process that owns a session."""
+    cockpit is configured. Called by every process that owns a session; the
+    one that RUNS it also polls for the commands that name it (`steering`)."""
     cockpit = configured()
     if cockpit is None:
         return None
-    shipper = Shipper(session_dir, cockpit, transport).start()
+    shipper = Shipper(session_dir, cockpit, transport or post, steering=steering).start()
     atexit.register(shipper.stop)
     return shipper
 
@@ -347,6 +376,13 @@ class Destination:
     get: Callable[[], Cockpit | None]
     refused: Callable[[Cockpit], bool] = lambda _cockpit: False
     label: str = ""
+
+
+class Steering(Protocol):
+    """The command half of a `Loop` (`engine/commands.py`): asked once a round,
+    after shipping, and polls the cockpit only when its own interval is due."""
+
+    def poll(self, cockpit: Cockpit, transport: Transport) -> None: ...
 
 
 class Loop:
@@ -374,11 +410,13 @@ class Loop:
     """
 
     def __init__(self, sessions: Callable[[], list[Path]], destination: Destination,
-                 transport: Transport = post, interval: float = SHIP_INTERVAL):
+                 transport: Transport = post, interval: float = SHIP_INTERVAL,
+                 steering: Steering | None = None):
         self.sessions = sessions
         self.destination = destination
         self.transport = transport
         self.interval = interval
+        self.steering = steering
         self.say: Callable[[str], None] = lambda text: print(f"station: {text}",
                                                              file=sys.stderr, flush=True)
         self._stopping = threading.Event()
@@ -419,6 +457,13 @@ class Loop:
             if not self._ship(directory, cockpit):
                 return
         self._wait = self.interval
+        # Not on the way out: a command taken now would be carried out by a
+        # process that is leaving, and the cockpit delivers it again anyway.
+        if self.steering is not None and not self._stopping.is_set():
+            try:
+                self.steering.poll(cockpit, self.transport)
+            except Exception as error:     # noqa: BLE001 — steering never takes its host down
+                self._say("steering crashed", f"could not poll for commands: {error!r}")
 
     def _ship(self, directory: Path, cockpit: Cockpit) -> bool:
         """One session; False when the rest of this round is pointless."""
@@ -466,10 +511,13 @@ class Loop:
 
 
 class Shipper(Loop):
-    """One live session's loop, shipping to the configured cockpit."""
+    """One live session's loop, shipping to the configured cockpit — and,
+    given a `steering`, polling for the commands that name its session."""
 
     def __init__(self, session_dir: str | Path, cockpit: Cockpit,
-                 transport: Transport = post, interval: float = SHIP_INTERVAL):
+                 transport: Transport = post, interval: float = SHIP_INTERVAL,
+                 steering: Steering | None = None):
         directory = Path(session_dir)
-        super().__init__(lambda: [directory], Destination(lambda: cockpit), transport, interval)
+        super().__init__(lambda: [directory], Destination(lambda: cockpit), transport, interval,
+                         steering)
         self.adw_id = directory.name

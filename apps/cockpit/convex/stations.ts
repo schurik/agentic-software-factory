@@ -1,0 +1,233 @@
+/**
+ * Stations a person approved to take commands (spec #40).
+ *
+ * Registering is a device flow, so no secret is copy-pasted and no forge
+ * credential reaches the cockpit from a station:
+ *
+ *   1. `asf station register` asks `/station/register` with the factory's
+ *      ingest token — which says which factory the station is — and gets a
+ *      code to show and a device secret to poll with (`request`);
+ *   2. a person signed in to the cockpit, with write on that factory, opens
+ *      the approval page and approves the code (`approve`): the station
+ *      becomes theirs;
+ *   3. the station's next poll of `/station/register/poll` is handed a command
+ *      token — that person's, for this station alone — of which only the
+ *      digest is kept (`handOver`).
+ *
+ * Revoking that token (`revoke`) is what takes a station offline for
+ * commands: its polls are refused, and nothing reaches it. A local cockpit is
+ * one person's, so its station is theirs without a flow at all (`local`).
+ */
+import { v } from "convex/values";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import { internalAction, internalMutation, internalQuery, mutation, type MutationCtx, query, type QueryCtx } from "./_generated/server";
+import { LAPSED_PER_WRITE } from "./handshakes";
+import { normalCode, REGISTRATION_FOR, stationFieldsValidator, writes } from "./model/command";
+import { digest, secret } from "./model/digest";
+import { canRead, roleOn, viewing } from "./viewer";
+
+type Result = { ok: true } | { ok: false; because: string };
+
+/** The station `station` of `factory`, as registered — or null. */
+export async function stationOf(ctx: QueryCtx, factory: string, station: string): Promise<Doc<"stations"> | null> {
+  return await ctx.db
+    .query("stations")
+    .withIndex("by_station", (q) => q.eq("factory", factory).eq("station", station))
+    .unique();
+}
+
+/** Make `factory`'s station `fields` the owner's, holding the token with digest `token`. */
+async function own(ctx: MutationCtx, factory: string, fields: { id: string; name: string; kind: string },
+                   owner: Doc<"viewers"> | null, token: string): Promise<void> {
+  const facts = { name: fields.name, kind: fields.kind, owner: owner?._id ?? null, ownerLogin: owner?.login ?? "", token };
+  const known = await stationOf(ctx, factory, fields.id);
+  if (known === null) await ctx.db.insert("stations", { factory, station: fields.id, ...facts, seenAt: 0, report: null });
+  else await ctx.db.patch(known._id, facts);       // registering again rotates the token
+}
+
+// ── 1. a station asks ────────────────────────────────────────────────────────
+
+/**
+ * Keep a station's request, for the factory whose ingest token digests to
+ * `ingest` — or null when no factory holds that token.
+ */
+export const request = internalMutation({
+  args: { ingest: v.string(), device: v.string(), code: v.string(), station: stationFieldsValidator },
+  returns: v.union(v.null(), v.object({ factory: v.string() })),
+  handler: async (ctx, { ingest, device, code, station }) => {
+    const token = await ctx.db.query("ingestTokens").withIndex("by_digest", (q) => q.eq("digest", ingest)).unique();
+    if (token === null) return null;
+    // Anyone holding an ingest token can ask and walk away: each request
+    // clears out what has run out, so the table holds what is pending.
+    const lapsed = await ctx.db
+      .query("registrations")
+      .withIndex("by_expiry", (q) => q.lt("expiresAt", Date.now()))
+      .take(LAPSED_PER_WRITE);
+    for (const gone of lapsed) await ctx.db.delete(gone._id);
+    await ctx.db.insert("registrations", {
+      device, code, factory: token.factory, station: station.id, name: station.name, kind: station.kind,
+      expiresAt: Date.now() + REGISTRATION_FOR, approvedBy: null,
+    });
+    return { factory: token.factory };
+  },
+});
+
+// ── 2. a person approves ─────────────────────────────────────────────────────
+
+async function pendingBy(ctx: QueryCtx, code: string): Promise<Doc<"registrations"> | null> {
+  const asked = await ctx.db.query("registrations").withIndex("by_code", (q) => q.eq("code", normalCode(code))).first();
+  return asked !== null && Date.now() < asked.expiresAt ? asked : null;
+}
+
+/** Why the viewer may not approve a station of `factory`, or null when they may. */
+async function approvalRefusal(ctx: QueryCtx, signIn: string | undefined, factory: string):
+    Promise<{ because: string } | { viewer: Doc<"viewers"> }> {
+  const who = await viewing(ctx, signIn);
+  if (who.viewer === null) {
+    return { because: who.mode === "team" ? "sign in to approve a station"
+      : "this cockpit holds no forge token, so it cannot say whose station this is: `gh auth login`, then `asf up` again" };
+  }
+  if (who.mode === "local") return { viewer: who.viewer };
+  const role = await roleOn(ctx, who.viewer, factory);
+  if (!writes(role)) {
+    return { because: role === null ? `${factory} is not a repository the forge lets you read`
+      : `a station takes commands for its owner, which needs write on ${factory}; the forge says you have ${role}` };
+  }
+  return { viewer: who.viewer };
+}
+
+/** What the approval page shows for `code`: the station asking, and whether the viewer may approve it. */
+export const pending = query({
+  args: { code: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { code, signIn }) => {
+    const asked = await pendingBy(ctx, code);
+    // A code is not a way to learn which repositories exist.
+    if (asked === null || !(await canRead(ctx, await viewing(ctx, signIn), asked.factory))) return null;
+    const decided = await approvalRefusal(ctx, signIn, asked.factory);
+    return {
+      code: asked.code, factory: asked.factory, name: asked.name, kind: asked.kind, station: asked.station,
+      expiresAt: asked.expiresAt, approved: asked.approvedBy !== null,
+      because: "because" in decided ? decided.because : null,
+    };
+  },
+});
+
+export const approve = mutation({
+  args: { code: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { code, signIn }): Promise<Result> => {
+    const asked = await pendingBy(ctx, code);
+    if (asked === null) return { ok: false, because: "no station is waiting on that code: it may have expired — run `asf station register` again" };
+    const decided = await approvalRefusal(ctx, signIn, asked.factory);
+    if ("because" in decided) return { ok: false, because: decided.because };
+    if (asked.approvedBy !== null && asked.approvedBy !== decided.viewer._id) {
+      return { ok: false, because: "someone else approved this station already" };
+    }
+    await ctx.db.patch(asked._id, { approvedBy: decided.viewer._id });
+    return { ok: true };
+  },
+});
+
+// ── 3. the station is handed its token ───────────────────────────────────────
+
+/** Where the request with this device digest stands. */
+export const registration = internalQuery({
+  args: { device: v.string() },
+  returns: v.union(v.literal("pending"), v.literal("approved"), v.literal("expired")),
+  handler: async (ctx, { device }) => {
+    const asked = await ctx.db.query("registrations").withIndex("by_device", (q) => q.eq("device", device)).unique();
+    if (asked === null || Date.now() >= asked.expiresAt) return "expired";
+    return asked.approvedBy === null ? "pending" : "approved";
+  },
+});
+
+/**
+ * Register the approved station behind `device` as its approver's, holding the
+ * token whose digest is `token`, and spend the request — or say it is still
+ * pending, or gone.
+ */
+export const handOver = internalMutation({
+  args: { device: v.string(), token: v.string() },
+  returns: v.union(
+    v.object({ state: v.literal("approved"), owner: v.string(), station: v.string() }),
+    v.object({ state: v.union(v.literal("pending"), v.literal("expired")) }),
+  ),
+  handler: async (ctx, { device, token }) => {
+    const asked = await ctx.db.query("registrations").withIndex("by_device", (q) => q.eq("device", device)).unique();
+    if (asked === null || Date.now() >= asked.expiresAt) return { state: "expired" as const };
+    if (asked.approvedBy === null) return { state: "pending" as const };
+    const owner = await ctx.db.get(asked.approvedBy);
+    await own(ctx, asked.factory, { id: asked.station, name: asked.name, kind: asked.kind }, owner, token);
+    await ctx.db.delete(asked._id);
+    return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station };
+  },
+});
+
+// ── a local cockpit's own station ────────────────────────────────────────────
+
+/**
+ * Issue `factory`'s station `station` a command token, owned by the person
+ * whose forge token this local cockpit holds — nobody approves it, because the
+ * machine is theirs. Internal, so it runs only with the deployment's admin key,
+ * which is what `asf up` calls it with:
+ *
+ *   ./convex.sh run stations:local '{"factory": "acme/widgets", "station": {…}}'
+ */
+export const local = internalAction({
+  args: { factory: v.string(), station: stationFieldsValidator },
+  returns: v.object({ token: v.string(), owner: v.string() }),
+  handler: async (ctx, { factory, station }): Promise<{ token: string; owner: string }> => {
+    const token = secret("asf_station_");
+    const owner: string = await ctx.runMutation(internal.stations.ownLocally, { factory, station, token: await digest(token) });
+    return { token, owner };
+  },
+});
+
+export const ownLocally = internalMutation({
+  args: { factory: v.string(), station: stationFieldsValidator, token: v.string() },
+  returns: v.string(),
+  handler: async (ctx, { factory, station, token }) => {
+    const owner = await ctx.db.query("viewers").withIndex("by_local", (q) => q.eq("local", true)).first();
+    await own(ctx, factory, station, owner, token);
+    return owner?.login ?? "";
+  },
+});
+
+// ── the owner's stations ─────────────────────────────────────────────────────
+
+/** May the viewer revoke `row`'s token: its owner may, and so may an admin of its repository. */
+async function mayRevoke(ctx: QueryCtx, signIn: string | undefined, row: Doc<"stations">): Promise<boolean> {
+  const who = await viewing(ctx, signIn);
+  if (who.mode === "local") return true;
+  if (who.viewer === null) return false;
+  return row.owner === who.viewer._id || (await roleOn(ctx, who.viewer, row.factory)) === "admin";
+}
+
+/** Every station the viewer owns — on a local cockpit, every station there is. */
+export const mine = query({
+  args: { signIn: v.optional(v.string()) },
+  handler: async (ctx, { signIn }) => {
+    const who = await viewing(ctx, signIn);
+    let rows: Doc<"stations">[];
+    if (who.mode === "local") rows = await ctx.db.query("stations").collect();
+    else if (who.viewer === null) rows = [];
+    else rows = await ctx.db.query("stations").withIndex("by_owner", (q) => q.eq("owner", who.viewer!._id as Id<"viewers">)).collect();
+    return rows.map((row) => ({
+      factory: row.factory, station: row.station, name: row.name, kind: row.kind, owner: row.ownerLogin,
+      registered: row.token !== null, seenAt: row.seenAt, report: row.report,
+    }));
+  },
+});
+
+/** Revoke a station's command token: its polls are refused from now on, and no command reaches it. */
+export const revoke = mutation({
+  args: { factory: v.string(), station: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory, station, signIn }): Promise<Result> => {
+    const row = await stationOf(ctx, factory, station);
+    if (row === null || !(await mayRevoke(ctx, signIn, row))) {
+      return { ok: false, because: "no such station among the ones you own" };
+    }
+    await ctx.db.patch(row._id, { token: null });
+    return { ok: true };
+  },
+});

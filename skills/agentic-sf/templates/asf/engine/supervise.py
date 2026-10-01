@@ -11,6 +11,11 @@ so this is one process that owns every child, prefixes their output, restarts
 what dies, and takes the whole tree down with it. NOT A DAEMON — the terminal
 it runs in is the handle. `asf station` is the same loop without watchers.
 
+The loop also POLLS FOR COMMANDS (`engine/commands.py`) as the station a
+person registered — or, with a local cockpit, as its one person's station —
+and reports the watchers it runs with every poll. That poll is what a cockpit
+reads the station as online by.
+
 `cockpit` is the LOCAL cockpit (`engine/cockpit.py`): the team deployment's
 published images, started through the stamped compose file only when no
 shared cockpit is configured (ASF_COCKPIT_URL unset), and the station ships to
@@ -42,9 +47,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import artifacts, git_helper, issues, preflight, station, worktree
+from . import artifacts, commands, git_helper, issues, preflight, station, worktree
 from . import cockpit as local_cockpit
-from .data_types import FactoryConfig
+from .data_types import FactoryConfig, Station, StationCredential
 from .station import Destination
 from .utils import anchor
 
@@ -245,19 +250,47 @@ def _superseded() -> str:
     return ""
 
 
-def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Destination | None:
+@dataclass
+class Target:
+    """Where the station loop ships, and the command token it polls there with."""
+    destination: Destination
+    credential: Callable[[], StationCredential | None]
+    local: bool
+
+
+def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Target | None:
     """The shared cockpit, the local one this process starts or joined, or None."""
     shared = station.configured()
     if shared is not None:
-        return Destination(lambda: shared, label=f"shared: {shared.url}")
+        return Target(Destination(lambda: shared, label=f"shared: {shared.url}"),
+                      lambda: station.credential(main_root, cfg.defaults.data_dir), local=False)
     if local_cockpit.shared() or local is None:
         return None
     repository = issues.resolve_project(cfg.issues, main_root) or main_root.name
-    cockpit = local_cockpit.Local(anchor(main_root, cfg.defaults.data_dir), repository)
+    cockpit = local_cockpit.Local(anchor(main_root, cfg.defaults.data_dir), repository,
+                                  here=station.identify(main_root, cfg.defaults.data_dir))
     started = ("joined, started by another `asf up`" if local == "join" else
                f"{local_cockpit.version()}; the first start pulls its images")
-    return Destination(cockpit.get, cockpit.refused,
-                       f"{local_cockpit.app_url()}   (local, {started})")
+    return Target(Destination(cockpit.get, cockpit.refused,
+                              f"{local_cockpit.app_url()}   (local, {started})"),
+                  cockpit.credential, local=True)
+
+
+def _commands_line(cfg: FactoryConfig, main_root: Path, here: Station,
+                   target: Target | None) -> str:
+    """What `up` says about commands: which it would obey, and as whose station."""
+    if target is None:
+        return "none — no cockpit to take them from"
+    if here.kind == "ci":
+        return "none — a CI station takes no commands"
+    verbs = commands.obeyed(cfg)
+    obeys = ", ".join(verbs) if verbs else "none opted in (cockpit.commands in asf/factory.yaml)"
+    if target.local:
+        return f"{obeys} — the local cockpit's own station"
+    held = station.credential(main_root, cfg.defaults.data_dir)
+    if held is None or held.cockpit != station.configured().url:
+        return f"{obeys} — not registered with this cockpit: `asf station register`"
+    return f"{obeys} — registered to {held.owner or 'its owner'}"
 
 
 def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
@@ -267,7 +300,8 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     interval = children.interval
     print(f"asf {'up' if children.watchers else 'station'} — {main_root}")
     want = wanted(cfg, children)
-    ships_to = destination(cfg, main_root, check(cfg, want))
+    target = destination(cfg, main_root, check(cfg, want))
+    ships_to = target.destination if target else None
     if not want and ships_to is None:
         print("  ! nothing to start and no cockpit to ship to — see the messages above",
               file=sys.stderr)
@@ -291,17 +325,25 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
                   flush=True)
 
     loop = None
-    if ships_to is not None:
+    started: list[Service] = []
+    if target is not None:
         sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
-        loop = station.Loop(lambda: station.every_session(sessions), ships_to)
+        steering = None
+        if here.kind != "ci":
+            steering = commands.Steering(cfg, main_root, target.credential,
+                                         watchers=lambda: _watching(started))
+            steering.say = lambda text: on_line("station", text)
+        loop = station.Loop(lambda: station.every_session(sessions), target.destination,
+                            steering=steering)
         loop.say = lambda text: on_line("station", text)
         loop.start()
-    started = services(want, config_path, interval, main_root, db)
+    started.extend(services(want, config_path, interval, main_root, db))
     for service in started:
         _spawn(service, on_line)
     print()
     print(f"  station    {here.name} ({here.kind}, {here.id})")
     print(f"  cockpit    {ships_to.label if ships_to else 'none — nothing is shipped'}")
+    print(f"  commands   {_commands_line(cfg, main_root, here, target)}")
     for service in started:
         if service.summary:
             print(f"  {service.summary[0]:<9}  {service.summary[1]}")
@@ -330,6 +372,12 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
             _stop(service)
         print(paint(DIM, "stopped"))
     return 1 if collapsed else 0
+
+
+def _watching(started: list[Service]) -> list[str]:
+    """The watchers alive right now: what the station's report says it runs."""
+    return sorted(service.name for service in started if service.name in WATCHERS
+                  and service.proc is not None and service.proc.poll() is None)
 
 
 def _supervise(started: list[Service], stopping: threading.Event, on_line) -> bool:

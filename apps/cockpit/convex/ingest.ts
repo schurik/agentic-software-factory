@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
+import { settle } from "./commands";
 import { advance, readSummary } from "./model/session";
 import { storedEventFields } from "./model/wire";
 
@@ -52,6 +53,8 @@ export const append = internalMutation({
         q.eq("factory", factory).eq("session", session).gt("seq", before).lte("seq", acked))
       .collect();
     const summary = advance(readSummary(record?.summary), fresh);
+    // A station's `command_result` is what settles a command, never its sending.
+    await settle(ctx, factory, fresh);
     const activity = Date.now();
     const waiting = summary.waitingFor !== null;
     if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting });

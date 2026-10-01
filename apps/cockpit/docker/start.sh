@@ -17,7 +17,9 @@ set -eu
 #   COCKPIT_FORGE_HOST   local mode: the forge that token is for.
 #   COCKPIT_FORGE_TOKEN  local mode: that person's `gh auth token`. Piped in,
 #                        so it is never on a command line.
-for name in COCKPIT_MODE COCKPIT_FORGE_HOST COCKPIT_FORGE_TOKEN; do
+#   COCKPIT_APP_URL      where people open these pages: a station registering
+#                        with this cockpit prints its approval link here.
+for name in COCKPIT_MODE COCKPIT_FORGE_HOST COCKPIT_FORGE_TOKEN COCKPIT_APP_URL; do
   eval "value=\${$name:-}"
   if [ -n "$value" ]; then
     printf '%s' "$value" | ./convex.sh env set "$name" > /dev/null

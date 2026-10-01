@@ -30,6 +30,7 @@ Usage:
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
     uv run asf/asf.py station                    the station loop alone: ships, starts no watcher
     uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
+    uv run asf/asf.py station register           let a shared cockpit send this station commands
 
 `--config asf/factory.yaml` is accepted before or after the subcommand. Run
 from the repository root — every path in factory.yaml is relative to it.
@@ -45,7 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from engine import factory, operate, station, supervise, utils, watch, workflow  # noqa: E402
+from engine import commands, factory, operate, station, supervise, utils, watch, workflow  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
 
@@ -183,6 +184,8 @@ def cmd_station(args) -> int:
     cfg = factory.load(args.config)
     if args.action == "sync":
         return station.sync(cfg)
+    if args.action == "register":
+        return commands.register(cfg)
     return supervise.up(cfg, args.config, supervise.Children(watchers=False))
 
 
@@ -284,14 +287,15 @@ def build_parser() -> argparse.ArgumentParser:
     trees.add_argument("--force", action="store_true",
                        help="also take worktrees holding uncommitted work")
     trees.set_defaults(func=cmd_worktrees)
-    # `register` and the command poll arrive with the tickets that need them (spec #40).
     stations = _config_on(sub.add_parser("station", help="this checkout as a cockpit's station"))
-    stations.add_argument("action", nargs="?", choices=["sync"],
+    stations.add_argument("action", nargs="?", choices=["sync", "register"],
                           help="none: the station loop — `asf up` without watchers, shipping "
-                               "every session (and starting the local cockpit when no shared "
-                               "one is configured). sync: ship every session the cockpit has "
-                               "not acknowledged, once — a CI job's last step; fails only when "
-                               "the cockpit refuses the token")
+                               "every session, polling for commands (and starting the local "
+                               "cockpit when no shared one is configured). sync: ship every "
+                               "session the cockpit has not acknowledged, once — a CI job's last "
+                               "step; fails only when the cockpit refuses the token. register: "
+                               "print a code to approve in the shared cockpit, and keep the "
+                               "command token it then issues")
     stations.set_defaults(func=cmd_station)
     return parser
 

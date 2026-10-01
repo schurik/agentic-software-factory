@@ -20,8 +20,8 @@ import pytest
 import yaml
 
 from engine import cockpit as local_cockpit
-from engine import events, factory, preflight, station, supervise
-from engine.data_types import EVENT_KINDS, Cockpit
+from engine import commands, events, factory, preflight, station, supervise
+from engine.data_types import EVENT_KINDS, Cockpit, Station, StationCredential
 
 from .asf_helpers import asf, fake_roster
 from .fake_cockpit import FakeCockpit
@@ -212,6 +212,43 @@ def test_a_token_the_local_cockpit_refuses_is_replaced_by_a_fresh_one(tmp_path: 
 
     assert local.refused(refused) is True
     assert local.get().token == "asf_ingest_0e50"
+
+
+def test_the_local_cockpit_s_station_is_its_owner_s_without_anyone_approving_it(
+        tmp_path: Path):
+    here = Station(id="st_0a1b2c", name="alex@mbp:widgets")
+    run = minting((0, "asf_ingest_0a1b\n"), (0, '{"owner": "alex", "token": "asf_station_c0de"}\n'))
+    local = local_cockpit.Local(tmp_path / "asf/data", "acme/widgets", run=run, here=here)
+
+    assert local.credential() is None                           # nothing issued: not up yet
+    local.get()
+    held = local.credential()
+
+    assert held is not None and held.cockpit == local_cockpit.site_url()
+    assert (held.station, held.token, held.owner) == ("st_0a1b2c", "asf_station_c0de", "alex")
+    assert "stations:local" in run.calls[1] and any('"st_0a1b2c"' in arg for arg in run.calls[1])
+    again = local_cockpit.Local(tmp_path / "asf/data", "acme/widgets", run=minting(), here=here)
+    assert again.credential() == held                           # kept, not issued again
+
+
+def test_the_station_loop_polls_for_commands_between_shipping_rounds(stamped: Path,
+                                                                     monkeypatch):
+    monkeypatch.chdir(stamped)
+    cfg = factory.load("asf/factory.yaml")
+    cockpit = FakeCockpit()
+    held = StationCredential(cockpit=COCKPIT.url, station="st_0a1b2c",
+                             token=cockpit.admit("st_0a1b2c"))
+    steering = commands.Steering(cfg, stamped, lambda: held, watchers=lambda: ["answers"],
+                                 interval=0.02)
+    loop = station.Loop(on_station(stamped / "asf/data/sessions"),
+                        station.Destination(lambda: COCKPIT), cockpit, interval=0.02,
+                        steering=steering).start()
+    try:
+        assert eventually(lambda: len(cockpit.polls) >= 2)
+    finally:
+        loop.stop()
+    assert {poll.session for poll in cockpit.polls} == {""}     # the loop asks as the station
+    assert cockpit.polls[0].report["watchers"] == ["answers"]
 
 
 # ── the forge credential the local cockpit asks with ─────────────────────────

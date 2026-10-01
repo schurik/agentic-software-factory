@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 from . import artifacts, git_helper, hitl, inputs, issues, journal, preflight, station, worktree
 from . import labels as labels_module
@@ -247,7 +248,9 @@ def _matches(pid: int, recorded: str) -> bool:
     return bool(actual) and head in actual
 
 
-def kill(cfg: FactoryConfig, adw_id: str, force: bool = False) -> int:
+def kill(cfg: FactoryConfig, adw_id: str, force: bool = False,
+         say: Callable[[str], None] = print,
+         before_own_end: Callable[[], None] = lambda: None) -> int:
     """Stop a run: its agent children first, then the workflow itself.
 
     A hung agent emits nothing, which is exactly when you need its pid;
@@ -257,56 +260,71 @@ def kill(cfg: FactoryConfig, adw_id: str, force: bool = False) -> int:
     nothing left to record what it did. SIGTERM first, because the run's own
     handler finalizes its record; `--force` SIGKILLs after the grace period
     and signals pids whose command no longer matches.
+
+    A cockpit's kill can land IN the run it stops — its own shipper is what
+    polls for it (`engine/commands.py`) — and a process cannot wait for itself
+    to die. So when the run is this process, its children are signalled,
+    `before_own_end` says what was done while there is still a process to say
+    it, and the run's own SIGTERM handler takes it from there.
     """
     session_dir = sessions_dir(cfg) / adw_id
     rows = artifacts.live_processes(session_dir)
     if not rows:
         state = artifacts.read_run(session_dir)
         if state is not None and state.status == "waiting":
-            print(f"{adw_id}: waiting at a gate, not running — nothing to kill. "
-                  f"`asf abort {adw_id}` ends it")
+            say(f"{adw_id}: waiting at a gate, not running — nothing to kill. "
+                f"`asf abort {adw_id}` ends it")
         else:
-            print(f"{adw_id}: nothing believed alive — already finished, or never started")
+            say(f"{adw_id}: nothing believed alive — already finished, or never started")
         return 0
     signalled: list[int] = []
+    myself = False
     for row in rows:
         kind, name = row.get("kind", ""), row.get("name", "")
         pid, command = int(row.get("pid") or 0), row.get("command", "")
         label = f"{kind}{'/' + name if name else ''} pid {pid}"
+        if pid == os.getpid():
+            myself = True              # last, below: the parent after its children
+            continue
         if not _alive(pid):
-            print(f"  {label}: already gone")
+            say(f"  {label}: already gone")
             continue
         if not _matches(pid, command) and not force:
-            print(f"  {label}: SKIPPED — no longer the recorded command ({command[:60]!r}); "
-                  f"the pid was recycled. --force overrides")
+            say(f"  {label}: SKIPPED — no longer the recorded command ({command[:60]!r}); "
+                f"the pid was recycled. --force overrides")
             continue
         try:
             os.kill(pid, signal.SIGTERM)
             signalled.append(pid)
-            print(f"  {label}: SIGTERM")
+            say(f"  {label}: SIGTERM")
         except OSError as error:
-            print(f"  {label}: could not signal ({error})")
+            say(f"  {label}: could not signal ({error})")
+    if myself:
+        say(f"{adw_id}: stopping itself — its own handler finalizes the record")
+        before_own_end()
+        os.kill(os.getpid(), signal.SIGTERM)
+        return 0
     if not signalled:
         return 0
     deadline = time.monotonic() + GRACE_SECONDS
     while time.monotonic() < deadline:
         signalled = [pid for pid in signalled if _alive(pid)]
         if not signalled:
-            print(f"{adw_id}: stopped, trace finalized by the run itself")
+            say(f"{adw_id}: stopped, trace finalized by the run itself")
             return 0
         time.sleep(0.2)
     if not force:
-        print(f"{adw_id}: still alive after {GRACE_SECONDS:.0f}s: {signalled} — re-run "
-              f"with --force to SIGKILL")
+        say(f"{adw_id}: still alive after {GRACE_SECONDS:.0f}s: {signalled} — re-run "
+            f"with --force to SIGKILL")
         return 1
     for pid in signalled:
         try:
             os.kill(pid, signal.SIGKILL)
-            print(f"  pid {pid}: SIGKILL")
+            say(f"  pid {pid}: SIGKILL")
         except OSError as error:
-            print(f"  pid {pid}: {error}")
-    print(f"{adw_id}: killed. The session row may still read `running` — SIGKILL leaves "
-          f"no chance to finalize; that is what --force costs")
+            say(f"  pid {pid}: {error}")
+    say(f"{adw_id}: killed. The session row may still read `running` — SIGKILL leaves "
+        f"no chance to finalize; that is what --force costs")
     return 0
 
 
