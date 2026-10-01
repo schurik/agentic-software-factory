@@ -144,6 +144,25 @@ describe("registering a station", () => {
     expect(await t.mutation(api.stations.approve, { code })).toMatchObject({ ok: false });   // nobody signed in
   });
 
+  it("is its owner's to renew: nobody else takes over a station that holds a live token", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write", sam: "write" });
+    const ingestToken = await factory(t, "acme/widgets");
+    const alex = await signIn(t, forge, "alex");
+    const sam = await signIn(t, forge, "sam");
+    const held = await approved(t, ingestToken, alex);
+
+    // A station's id is in every session it ships: anyone with the ingest token can ask under it.
+    const { code } = await register(t, ingestToken);
+    expect(await t.mutation(api.stations.approve, { code, signIn: sam })).toEqual({
+      ok: false, because: "alex@mbp:widgets is alex's station: they register it again, or revoke it first",
+    });
+    expect((await poll(t, held)).status).toBe(200);                 // alex's token still works
+
+    await t.mutation(api.stations.revoke, { factory: "acme/widgets", station: STATION.id, signIn: alex });
+    expect(await t.mutation(api.stations.approve, { code, signIn: sam })).toEqual({ ok: true });
+  });
+
   it("runs out when nobody approves it in time", async () => {
     const forge = fakeForge();
     const t = await teamOf(forge, { alex: "write" });

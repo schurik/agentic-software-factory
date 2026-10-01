@@ -1875,6 +1875,7 @@ class LocalCockpitRecord(BaseModel):
     station: str = ""
     command_token: str = ""
     owner: str = ""
+    command_issued_at: str = ""
 
 
 class StationCredential(BaseModel):

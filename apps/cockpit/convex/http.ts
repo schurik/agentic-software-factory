@@ -2,7 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { signed } from "./forge/app";
-import { isRefusal as isCommandRefusal, parsePoll, parseRegistration, REGISTRATION_FOR, REGISTRATION_POLL, userCode } from "./model/command";
+import { isRefusal as isCommandRefusal, parsePoll, parseRegistration, REGISTRATION_FOR, REGISTRATION_POLL, approvalCode } from "./model/command";
 import { digest, secret } from "./model/digest";
 import { asks } from "./model/webhook";
 import { isRefusal, parseBatch } from "./model/wire";
@@ -51,7 +51,7 @@ http.route({
     const station = parseRegistration(await body(request));
     if (isCommandRefusal(station)) return reply(station.status, { error: station.error });
     const device = secret("asf_device_");
-    const code = userCode(crypto.getRandomValues(new Uint8Array(8)));
+    const code = approvalCode(crypto.getRandomValues(new Uint8Array(8)));
     const asked = await ctx.runMutation(internal.stations.request, {
       ingest: await digest(token), device: await digest(device), code, station,
     });

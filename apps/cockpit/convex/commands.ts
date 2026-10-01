@@ -33,12 +33,15 @@ async function sessionRecord(ctx: QueryCtx, factory: string, session: string) {
     .unique();
 }
 
-async function attendedAt(ctx: QueryCtx, factory: string, session: string): Promise<number | null> {
-  const row = await ctx.db
+async function attendanceOf(ctx: QueryCtx, factory: string, session: string) {
+  return await ctx.db
     .query("attendance")
     .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
     .unique();
-  return row?.at ?? null;
+}
+
+async function attendedAt(ctx: QueryCtx, factory: string, session: string): Promise<number | null> {
+  return (await attendanceOf(ctx, factory, session))?.at ?? null;
 }
 
 /** The newest command of `verb` for a session, whatever became of it. */
@@ -83,10 +86,7 @@ export const poll = internalMutation({
     // A run cannot know what else runs on its checkout: the loop's word stands.
     const reported = { ...report, watchers: watchersKnown ? report.watchers : row.report?.watchers ?? [] };
     if (session) {
-      const seen = await ctx.db
-        .query("attendance")
-        .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
-        .unique();
+      const seen = await attendanceOf(ctx, factory, session);
       if (seen === null) await ctx.db.insert("attendance", { factory, session, station, at: now });
       else await ctx.db.patch(seen._id, { at: now, station });
       // Written only when it says something new: every page showing the station reads this row.

@@ -93,8 +93,7 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
             "registering: it is yours, and owns this station by itself")
         return 1
     say(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}")
-    asked = _ask(transport, f"{cockpit.url}/station/register", cockpit.token,
-                 {"station": here.model_dump(mode="json")}, say)
+    asked = _ask(transport, cockpit, {"station": here.model_dump(mode="json")}, say)
     if asked is None:
         return 1
     device, code = str(asked.get("device", "")), str(asked.get("code", ""))
@@ -133,10 +132,11 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
     return 1
 
 
-def _ask(transport: station.Transport, url: str, token: str, body: dict,
+def _ask(transport: station.Transport, cockpit: Cockpit, body: dict,
          say: Callable[[str], None]) -> dict | None:
+    """The first request of a registration: its answer, or None having said why not."""
     try:
-        status, answer = transport(url, token, body)
+        status, answer = transport(f"{cockpit.url}/station/register", cockpit.token, body)
     except (OSError, ValueError) as error:
         say(f"  could not reach the cockpit: {error}")
         return None
@@ -225,17 +225,17 @@ def carry_out(cfg: FactoryConfig, main_root: Path, command: Command,
         return done
     refused = refusal(cfg, main_root, command, now_ms)
     if refused:
-        return _record(cfg, main_root, command, ok=False, detail=refused)
+        return _record(cfg, main_root, _outcome(command, ok=False, detail=refused))
     said: list[str] = []
     ending: list[CommandRecord] = []
 
     def before_own_end() -> None:
-        ending.append(_record(cfg, main_root, command, ok=True, detail=_detail(said)))
+        ending.append(_record(cfg, main_root, _outcome(command, ok=True, detail=_detail(said))))
 
     code = operate.kill(cfg, command.session, say=said.append, before_own_end=before_own_end)
     if ending:
         return ending[0]
-    return _record(cfg, main_root, command, ok=code == 0, detail=_detail(said))
+    return _record(cfg, main_root, _outcome(command, ok=code == 0, detail=_detail(said)))
 
 
 def refusal(cfg: FactoryConfig, main_root: Path, command: Command,
@@ -266,9 +266,13 @@ def refusal(cfg: FactoryConfig, main_root: Path, command: Command,
 
 
 
-def _record(cfg: FactoryConfig, main_root: Path, command: Command, ok: bool,
-            detail: str) -> CommandRecord:
-    record = CommandRecord(command=command, ok=ok, detail=detail[:DETAIL_CHARS], at=now_iso())
+def _outcome(command: Command, ok: bool, detail: str) -> CommandRecord:
+    return CommandRecord(command=command, ok=ok, detail=detail[:DETAIL_CHARS], at=now_iso())
+
+
+def _record(cfg: FactoryConfig, main_root: Path, record: CommandRecord) -> CommandRecord:
+    """Write the outcome where a second delivery finds it, then tell the session."""
+    command, ok = record.command, record.ok
     path = record_path(main_root, cfg.defaults.data_dir, command.id)
     ensure_dir(path.parent)
     write_atomic(path, record.model_dump_json(indent=2))

@@ -37,13 +37,16 @@ export async function stationOf(ctx: QueryCtx, factory: string, station: string)
     .unique();
 }
 
-/** Make `factory`'s station `fields` the owner's, holding the token with digest `token`. */
-async function own(ctx: MutationCtx, factory: string, fields: { id: string; name: string; kind: string },
-                   owner: Doc<"viewers"> | null, token: string): Promise<void> {
-  const facts = { name: fields.name, kind: fields.kind, owner: owner?._id ?? null, ownerLogin: owner?.login ?? "", token };
-  const known = await stationOf(ctx, factory, fields.id);
-  if (known === null) await ctx.db.insert("stations", { factory, station: fields.id, ...facts, seenAt: 0, report: null });
-  else await ctx.db.patch(known._id, facts);       // registering again rotates the token
+/** A station as it asks to be registered: which factory's, its id, and what it calls itself. */
+type Asking = Pick<Doc<"registrations">, "factory" | "station" | "name" | "kind">;
+
+/** Make the station `asking` describes the owner's, holding the token with digest `token`. */
+async function own(ctx: MutationCtx, asking: Asking, owner: Doc<"viewers"> | null, token: string): Promise<void> {
+  const { factory, station, name, kind } = asking;
+  const facts = { name, kind, owner: owner?._id ?? null, ownerLogin: owner?.login ?? "", token };
+  const known = await stationOf(ctx, factory, station);
+  if (known === null) await ctx.db.insert("stations", { factory, station, ...facts, seenAt: 0, report: null });
+  else await ctx.db.patch(known._id, facts);       // its owner registering again rotates the token
 }
 
 // ── 1. a station asks ────────────────────────────────────────────────────────
@@ -80,8 +83,13 @@ async function pendingBy(ctx: QueryCtx, code: string): Promise<Doc<"registration
   return asked !== null && Date.now() < asked.expiresAt ? asked : null;
 }
 
-/** Why the viewer may not approve a station of `factory`, or null when they may. */
-async function approvalRefusal(ctx: QueryCtx, signIn: string | undefined, factory: string):
+/**
+ * Why the viewer may not approve `asking`, or null when they may. A station
+ * that holds a live token is its owner's: a station's id is no secret (every
+ * session names it), so anyone else approving it would take it over, and
+ * with it the commands its owner sends. Its owner revokes it first.
+ */
+async function approvalRefusal(ctx: QueryCtx, signIn: string | undefined, asking: Asking):
     Promise<{ because: string } | { viewer: Doc<"viewers"> }> {
   const who = await viewing(ctx, signIn);
   if (who.viewer === null) {
@@ -89,10 +97,14 @@ async function approvalRefusal(ctx: QueryCtx, signIn: string | undefined, factor
       : "this cockpit holds no forge token, so it cannot say whose station this is: `gh auth login`, then `asf up` again" };
   }
   if (who.mode === "local") return { viewer: who.viewer };
-  const role = await roleOn(ctx, who.viewer, factory);
+  const role = await roleOn(ctx, who.viewer, asking.factory);
   if (!writes(role)) {
-    return { because: role === null ? `${factory} is not a repository the forge lets you read`
-      : `a station takes commands for its owner, which needs write on ${factory}; the forge says you have ${role}` };
+    return { because: role === null ? `${asking.factory} is not a repository the forge lets you read`
+      : `a station takes commands for its owner, which needs write on ${asking.factory}; the forge says you have ${role}` };
+  }
+  const known = await stationOf(ctx, asking.factory, asking.station);
+  if (known !== null && known.token !== null && known.owner !== who.viewer._id) {
+    return { because: `${known.name} is ${known.ownerLogin || "someone else"}'s station: they register it again, or revoke it first` };
   }
   return { viewer: who.viewer };
 }
@@ -104,7 +116,7 @@ export const pending = query({
     const asked = await pendingBy(ctx, code);
     // A code is not a way to learn which repositories exist.
     if (asked === null || !(await canRead(ctx, await viewing(ctx, signIn), asked.factory))) return null;
-    const decided = await approvalRefusal(ctx, signIn, asked.factory);
+    const decided = await approvalRefusal(ctx, signIn, asked);
     return {
       code: asked.code, factory: asked.factory, name: asked.name, kind: asked.kind, station: asked.station,
       expiresAt: asked.expiresAt, approved: asked.approvedBy !== null,
@@ -118,7 +130,7 @@ export const approve = mutation({
   handler: async (ctx, { code, signIn }): Promise<Result> => {
     const asked = await pendingBy(ctx, code);
     if (asked === null) return { ok: false, because: "no station is waiting on that code: it may have expired — run `asf station register` again" };
-    const decided = await approvalRefusal(ctx, signIn, asked.factory);
+    const decided = await approvalRefusal(ctx, signIn, asked);
     if ("because" in decided) return { ok: false, because: decided.because };
     if (asked.approvedBy !== null && asked.approvedBy !== decided.viewer._id) {
       return { ok: false, because: "someone else approved this station already" };
@@ -157,7 +169,7 @@ export const handOver = internalMutation({
     if (asked === null || Date.now() >= asked.expiresAt) return { state: "expired" as const };
     if (asked.approvedBy === null) return { state: "pending" as const };
     const owner = await ctx.db.get(asked.approvedBy);
-    await own(ctx, asked.factory, { id: asked.station, name: asked.name, kind: asked.kind }, owner, token);
+    await own(ctx, asked, owner, token);
     await ctx.db.delete(asked._id);
     return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station };
   },
@@ -188,7 +200,7 @@ export const ownLocally = internalMutation({
   returns: v.string(),
   handler: async (ctx, { factory, station, token }) => {
     const owner = await ctx.db.query("viewers").withIndex("by_local", (q) => q.eq("local", true)).first();
-    await own(ctx, factory, station, owner, token);
+    await own(ctx, { factory, station: station.id, name: station.name, kind: station.kind }, owner, token);
     return owner?.login ?? "";
   },
 });

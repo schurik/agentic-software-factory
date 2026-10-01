@@ -17,7 +17,7 @@
  * The other end of this wire is `engine/commands.py` in the factory.
  */
 import { type Infer, v } from "convex/values";
-import type { Role } from "../forge/forge";
+import { atLeast, type Role } from "../forge/forge";
 import { isRecord } from "./wire";
 
 export const verbValidator = v.union(
@@ -58,7 +58,7 @@ export const REGISTRATION_POLL = 2;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";     // nothing a person misreads
 
 /** A code a person reads off a terminal and finds again on a page: `ABCD-EF23`. */
-export function userCode(random: Uint8Array): string {
+export function approvalCode(random: Uint8Array): string {
   const letters = Array.from(random.slice(0, 8), (byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]);
   return `${letters.slice(0, 4).join("")}-${letters.slice(4).join("")}`;
 }
@@ -156,11 +156,9 @@ export interface SteeringView {
 
 // ── who may queue a kill ─────────────────────────────────────────────────────
 
-const RANK: Role[] = ["read", "triage", "write", "maintain", "admin"];
-
 /** Whether `role` is write or higher: the bar for any direct command. */
 export function writes(role: Role | null): boolean {
-  return role !== null && RANK.indexOf(role) >= RANK.indexOf("write");
+  return atLeast(role, "write");
 }
 
 export interface StationFacts {

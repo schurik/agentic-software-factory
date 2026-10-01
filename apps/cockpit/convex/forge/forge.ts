@@ -101,6 +101,14 @@ export interface Forge {
 /** Where a factory's config lives: a repository is a factory when its default branch holds this. */
 export const FACTORY_FILE = "asf/factory.yaml";
 
+/** Roles from least to most: what a check for "this or higher" compares by. */
+const RANK: Role[] = ["read", "triage", "write", "maintain", "admin"];
+
+/** Whether `role` is `floor` or higher; null, the forge said nothing, is not. */
+export function atLeast(role: Role | null, floor: Role): boolean {
+  return role !== null && RANK.indexOf(role) >= RANK.indexOf(floor);
+}
+
 /** How the cockpit keys a repository: the forge's names are case-insensitive. */
 export function repoKey(name: string): string {
   return name.toLowerCase();

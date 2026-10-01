@@ -263,12 +263,18 @@ def kill(cfg: FactoryConfig, adw_id: str, force: bool = False,
 
     A cockpit's kill can land IN the run it stops — its own shipper is what
     polls for it (`engine/commands.py`) — and a process cannot wait for itself
-    to die. So when the run is this process, its children are signalled,
-    `before_own_end` says what was done while there is still a process to say
-    it, and the run's own SIGTERM handler takes it from there.
+    to die. So when the run is this process, `before_own_end` says what is
+    about to happen while there is still a process to say it, and only then
+    are its children and itself signalled, back to back: a gap between the
+    two is a gap in which the run sees its agent die and starts another one
+    nobody signals. Its own SIGTERM handler takes it from there.
     """
     session_dir = sessions_dir(cfg) / adw_id
     rows = artifacts.live_processes(session_dir)
+    myself = any(int(row.get("pid") or 0) == os.getpid() for row in rows)
+    if myself:
+        say(f"{adw_id}: stopping itself, children first — its own handler finalizes the record")
+        before_own_end()
     if not rows:
         state = artifacts.read_run(session_dir)
         if state is not None and state.status == "waiting":
@@ -278,14 +284,12 @@ def kill(cfg: FactoryConfig, adw_id: str, force: bool = False,
             say(f"{adw_id}: nothing believed alive — already finished, or never started")
         return 0
     signalled: list[int] = []
-    myself = False
     for row in rows:
         kind, name = row.get("kind", ""), row.get("name", "")
         pid, command = int(row.get("pid") or 0), row.get("command", "")
         label = f"{kind}{'/' + name if name else ''} pid {pid}"
         if pid == os.getpid():
-            myself = True              # last, below: the parent after its children
-            continue
+            continue                   # last, below: the parent after its children
         if not _alive(pid):
             say(f"  {label}: already gone")
             continue
@@ -300,8 +304,6 @@ def kill(cfg: FactoryConfig, adw_id: str, force: bool = False,
         except OSError as error:
             say(f"  {label}: could not signal ({error})")
     if myself:
-        say(f"{adw_id}: stopping itself — its own handler finalizes the record")
-        before_own_end()
         os.kill(os.getpid(), signal.SIGTERM)
         return 0
     if not signalled:

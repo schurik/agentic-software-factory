@@ -326,7 +326,7 @@ class Local:
                 return None
         return StationCredential(cockpit=site_url(), station=record.station,
                                  token=record.command_token, owner=record.owner,
-                                 issued_at=record.issued_at)
+                                 issued_at=record.command_issued_at)
 
     def _issue_command_token(self, record: LocalCockpitRecord) -> LocalCockpitRecord | None:
         now = time.monotonic()
@@ -342,7 +342,8 @@ class Local:
         owner = _OWNER.search(output)
         record = record.model_copy(update={"station": self.here.id,
                                            "command_token": found.group(0),
-                                           "owner": owner.group(1) if owner else ""})
+                                           "owner": owner.group(1) if owner else "",
+                                           "command_issued_at": now_iso()})
         write_atomic(self.path, record.model_dump_json(indent=2))
         return record
 
