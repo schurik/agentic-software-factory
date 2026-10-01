@@ -112,8 +112,8 @@ def start_run(session_dir: Path, started: SessionStarted) -> RunState:
                      command=started.command, pid=started.pid, engineer=started.engineer,
                      status="running", started_at=started.started_at,
                      repo_root=started.repo_root, branch=started.branch,
-                     trigger=started.trigger, issue_url=started.issue_url,
-                     pr_url=started.pr_url)
+                     trigger=started.trigger, triggered_by=started.triggered_by,
+                     issue_url=started.issue_url, pr_url=started.pr_url)
     previous = read_run(session_dir)
     if previous:
         state.workflows = previous.workflows + [

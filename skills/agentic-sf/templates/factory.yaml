@@ -125,6 +125,12 @@ issues:
   # tracker whose labels are not created this way.
   labels_list_command:   ["gh", "label", "list"]
   labels_create_command: ["gh", "label", "create"]
+  # WHO TRIGGERED a labelled run: the watcher reads the issue's `labeled`
+  # events (graphql — `gh issue view` has no timeline) and the run records
+  # whoever last applied its route or queued label as `triggered_by`. A run
+  # started by hand records you, as `gh` knows you. It authorizes nothing: who
+  # may label is the forge's call. Empty = skip, and the run records nobody.
+  labeller_command: ["gh", "api", "graphql"]
   # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
   # AND a label here launches that workflow. `route: {}` means nothing ever
   # launches, whatever `enabled` says.

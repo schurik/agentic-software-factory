@@ -76,9 +76,30 @@ export interface Row {
   workItem: string;               // what asked for the session: `#42 title`, or the prompt
   workflow: string;
   station: string;
-  /** A run this viewer triggered: sorted first, never the only ones shown. */
-  mine: boolean;
+  /** Why this wait is the viewer's own work, if it is: sorted first, never the only ones shown. */
+  forYou: ForYou[];
   blocked: string | null;
+}
+
+/**
+ * Why a wait is for the viewer (spec #40): they triggered the run — labelled
+ * the issue, or ran it — they wrote the issue, or it is assigned to them.
+ */
+export type ForYou = "triggered" | "wrote" | "assigned";
+
+/**
+ * Every reason `summary`'s session is for `login`. A forge's logins are one
+ * person whatever their case, and this is a ranking, not a permission: what
+ * may be answered is `permitted`'s, which compares as the factory does.
+ */
+export function forYou(summary: Summary, login: string | null): ForYou[] {
+  if (login === null) return [];
+  const is = (other: string) => other.toLowerCase() === login.toLowerCase();
+  const reasons: ForYou[] = [];
+  if (is(summary.triggeredBy)) reasons.push("triggered");
+  if (is(summary.issueAuthor)) reasons.push("wrote");
+  if (summary.issueAssignees.some(is)) reasons.push("assigned");
+  return reasons;
 }
 
 export function row(factory: string, session: string, summary: Summary, login: string | null,
@@ -90,14 +111,15 @@ export function row(factory: string, session: string, summary: Summary, login: s
     since: waiting.since, summary: waiting.summary, channel: waiting.channel,
     issueNumber: waiting.issueNumber, issueUrl: summary.issueUrl, workItem: summary.request,
     workflow: summary.workflows.at(-1) ?? "", station: summary.stationName,
-    mine: login !== null && summary.triggeredBy.toLowerCase() === login.toLowerCase(),
+    forYou: forYou(summary, login),
     blocked: blockedBecause,
   };
 }
 
-/** The viewer's own first, then the longest wait. */
+/** The viewer's own first, then the longest wait. A ranking: every row stays. */
 export function ranked(rows: Row[]): Row[] {
-  return [...rows].sort((a, b) => Number(b.mine) - Number(a.mine) || a.since.localeCompare(b.since) ||
+  const mine = (row: Row) => Number(row.forYou.length > 0);
+  return [...rows].sort((a, b) => mine(b) - mine(a) || a.since.localeCompare(b.since) ||
     a.factory.localeCompare(b.factory) || a.session.localeCompare(b.session));
 }
 

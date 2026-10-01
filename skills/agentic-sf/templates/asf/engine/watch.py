@@ -51,9 +51,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from . import artifacts, git_helper, hitl, issues, operate, pull_requests, station, worktree
-from .data_types import (Decision, IssueRef, IssueUpdate, PullRequestRef, PullRequestUpdate,
-                         FactoryConfig, Reply, WaitingFor)
+from . import (artifacts, git_helper, hitl, issues, operate, pull_requests, session, station,
+               worktree)
+from .data_types import (Decision, IssueRef, IssueUpdate, Launch, PullRequestRef,
+                         PullRequestUpdate, FactoryConfig, Reply, WaitingFor)
 from .tracer import watcher_beat as db_beat
 from .utils import anchor, ensure_dir, now_iso, operator_env
 
@@ -142,12 +143,21 @@ def _slug(project: str, number: int) -> str:
     return f"{project.replace('/', '-')}-{number}.lock" if project else f"{number}.lock"
 
 
-def launch(config_path: str, workflow: str, number: int, main_root) -> int:
+def launch(config_path: str, main_root, item: Launch) -> int:
     """One run, to completion, serially. `max_concurrent` bounds how many exist
-    and the honest way to hold that is to wait for the one just started."""
-    argv = [sys.executable, RUNNER, "--config", config_path, "run", workflow, str(number)]
-    print(f"  #{number}: {' '.join(argv[1:])}")
+    and the honest way to hold that is to wait for the one just started.
+
+    Who triggered it travels in the environment, not on the command line: the
+    argv is recorded as what `asf resume` runs again, and a resume is not a
+    second trigger. The run records it once (`session.triggered_by`)."""
+    argv = [sys.executable, RUNNER, "--config", config_path, "run", item.workflow,
+            str(item.number)]
+    by = f" (triggered by {item.triggered_by})" if item.triggered_by else ""
+    print(f"  #{item.number}: {' '.join(argv[1:])}{by}")
     env = {**os.environ, hitl.UNATTENDED_ENV: "1"}
+    env.pop(session.TRIGGERED_BY_ENV, None)
+    if item.triggered_by is not None:
+        env[session.TRIGGERED_BY_ENV] = item.triggered_by
     return subprocess.run(argv, cwd=str(main_root), env=env).returncode
 
 
@@ -266,7 +276,16 @@ def issues_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
                 continue
             beat(cfg, main_root, "issues", "working", project=project, interval=interval,
                  note=f"#{number} {workflow}")
-            code = launch(config_path, workflow, number, main_root)
+            # Whoever made it runnable: the route label, or the queued label
+            # that went on after it. Asked after the claim, so only a run that
+            # is about to start pays for the question.
+            carried = _names(entry.get("labels") or [])
+            labelled = [label for label, routed in cfg.issues.route.items()
+                        if routed == workflow and label in carried]
+            by = issues.labeller(main_root, cfg.issues, IssueRef(number=number, project=project),
+                                 [*labelled, cfg.issues.states.queued])
+            code = launch(config_path, main_root,
+                          Launch(workflow=workflow, number=number, triggered_by=by))
             launched += 1
             if code == EXIT_WAITING:
                 # Left on `running`: true, and only `queued` is dequeued, so it
@@ -305,6 +324,9 @@ def issues_status(cfg: FactoryConfig) -> int:
           f"  (running now: {len(live_runs(cfg, main_root))})")
     print(f"force_pr:       {cfg.issues.force_pr}")
     print(f"trusted:        {', '.join(cfg.issues.trusted_authors) or '(anyone who gets labelled)'}")
+    labeller = ("whoever last applied the route or queued label" if cfg.issues.labeller_command
+                else "(not read — issues.labeller_command is empty)")
+    print(f"triggered by:   {labeller}")
     print("routes:")
     for label, workflow in cfg.issues.route.items():
         print(f"  {label:<16} -> {workflow}")
@@ -699,7 +721,10 @@ def prs_once(cfg: FactoryConfig, config_path: str, only: int = 0, interval: int 
                 continue
             beat(cfg, main_root, "prs", "working", project=project, interval=interval,
                  note=f"#{number} {pr.workflow}")
-            code = launch(config_path, pr.workflow, number, main_root)
+            # No label to read who asked: a session it re-enters keeps its own
+            # trigger, and one it starts fresh records nobody, never this watcher.
+            code = launch(config_path, main_root,
+                          Launch(workflow=pr.workflow, number=number, triggered_by=""))
             launched += 1
             if code == EXIT_WAITING:
                 print(f"  #{number}: stopped for a human at a gate — not marked "

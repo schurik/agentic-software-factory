@@ -79,6 +79,8 @@ describe("the finished session", () => {
     expect(text).toContain("Now All work landed in pull request #9 over 3 chapters");
     expect(text).toContain("Chapter pr-review, round 2");
     expect(text).toContain("Station schurik@mbp:widgets run by asf tests");
+    // Recorded before a factory named who triggered a run: it says nobody, rather than guess.
+    expect(text).toContain("Triggered by —");
     expect(text).toContain("Branch asf/a9f259f0");
     expect(text).toMatch(/Base main at [0-9a-f]{7}/);
     // The outline is the sidebar's first view; the journal is one click away.

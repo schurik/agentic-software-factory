@@ -166,7 +166,7 @@ def fetch(run, config: IssuesConfig, ref: IssueRef) -> IssueContext:
     """Read one issue and write its body into the run's handoff directory."""
     project = ref.project or resolve_project(config, run.main_root)
     payload = _view(config.fetch_command, run.main_root, project, ref.number,
-                    "number,title,body,labels,author,state,url")
+                    "number,title,body,labels,author,assignees,state,url")
 
     labels = [entry.get("name", "") if isinstance(entry, dict) else str(entry)
               for entry in payload.get("labels") or []]
@@ -206,6 +206,8 @@ def fetch(run, config: IssuesConfig, ref: IssueRef) -> IssueContext:
         title=title,
         labels=labels,
         author=(author.get("login", "") if isinstance(author, dict) else str(author)),
+        assignees=[str(entry.get("login", "") if isinstance(entry, dict) else entry)
+                   for entry in payload.get("assignees") or []],
         state=payload.get("state") or "",
         body_path=str(body_path),
         carries_requirements=refined,
@@ -246,6 +248,49 @@ def as_envelope(context: IssueContext, notes: str = HANDOFF_NOTES) -> IssueOutpu
         labels=context.labels,
         author=context.author,
     )
+
+
+# The issue's `labeled` events, newest last. A hundred is far more label
+# changes than an issue sees, and the newest are what is asked about.
+_LABELLED = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      timelineItems(itemTypes: [LABELED_EVENT], last: 100) {
+        nodes { ... on LabeledEvent { createdAt actor { login } label { name } } }
+      }
+    }
+  }
+}"""
+
+
+def labeller(main_root, config: IssuesConfig, ref: IssueRef, labels: list[str]) -> str:
+    """Who last applied any of `labels` to the issue — its login, or "" when
+    the forge will not say. Never raises: not knowing who triggered a run is
+    not a reason to refuse one the forge already let somebody start.
+
+    The watcher asks with the route label AND the queued label, and the later
+    of the two wins: a route label stays on an issue for good, so somebody
+    who queues it again — after a failure, say — is the one who started this
+    run, and `gh issue edit --add-label` on a label the issue already carries
+    adds no event for the first person to have their name taken by.
+    """
+    owner, _, name = ref.project.partition("/")
+    if not config.labeller_command or not owner or not name:
+        return ""
+    argv = [*config.labeller_command, "-f", f"query={_LABELLED}", "-f", f"owner={owner}",
+            "-f", f"name={name}", "-F", f"number={ref.number}"]
+    try:
+        completed = _run(argv, main_root)
+        payload = json.loads(completed.stdout or "{}") if completed.returncode == 0 else {}
+    except (OSError, json.JSONDecodeError):          # no CLI, or no JSON: nobody said
+        payload = {}
+    issue = (((payload.get("data") or {}).get("repository") or {}).get("issue") or {})
+    nodes = (issue.get("timelineItems") or {}).get("nodes") or []
+    for node in reversed(nodes):
+        if ((node or {}).get("label") or {}).get("name") in labels:
+            return str((node.get("actor") or {}).get("login") or "")
+    return ""
 
 
 def trusted(config: IssuesConfig, context: IssueContext) -> bool:

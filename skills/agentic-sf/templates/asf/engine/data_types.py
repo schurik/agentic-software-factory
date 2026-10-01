@@ -1151,6 +1151,14 @@ class IssuesConfig(BaseModel):
     # two paths share one project (see `issues.resolve_project`).
     labels_list_command: list[str] = Field(default_factory=lambda: ["gh", "label", "list"])
     labels_create_command: list[str] = Field(default_factory=lambda: ["gh", "label", "create"])
+    # WHO TRIGGERED a labelled run: the forge's `labeled` events on the issue,
+    # read through graphql because `gh issue view --json` has no timeline. The
+    # watcher asks once per launch and the run records the answer as
+    # `triggered_by` — it authorizes nothing (the forge already decided who may
+    # label) and `trusted_authors` keeps its own meaning. EMPTY MEANS SKIP, for
+    # a tracker whose label history is not read this way: the run then records
+    # nobody rather than guess.
+    labeller_command: list[str] = Field(default_factory=lambda: ["gh", "api", "graphql"])
     # label -> workflow. The watcher routes on this; no workflow knows about it.
     # An empty map launches nothing, whatever `enabled` says.
     route: dict[str, str] = Field(default_factory=lambda: {"asf:ship": "issue"})
@@ -1355,6 +1363,13 @@ class RunState(BaseModel):
     repo_root: str = ""             # the worktree the run works in
     branch: str = ""
     trigger: str = "engineer"       # engineer | issue | pr_review
+    # WHO started the session, by forge login: whoever labelled the issue a
+    # watcher dequeued, else the operator who ran it. Recorded by the session's
+    # first process and kept by every later one — answering a gate, resuming,
+    # joining is not triggering. "" is somebody the forge would not name.
+    # Authorizes nothing: who may label is the forge's call, and whose text an
+    # agent reads is `trusted_authors`'.
+    triggered_by: str = ""
     issue_url: str = ""
     pr_url: str = ""
     # The issue this run answers, as the TRACKER addresses it. `issue_url` is
@@ -1447,6 +1462,22 @@ class IssueRef(BaseModel):
     project: str = ""
 
 
+class Launch(BaseModel):
+    """One run a watcher starts: which workflow, on which work item, and — for
+    an issue — who triggered it.
+
+    `triggered_by` is the forge login of whoever applied the label that made
+    the issue runnable (`issues.labeller`), handed to the run as
+    ASF_TRIGGERED_BY. None is a launcher that never asked, and the run then
+    names its own operator; "" is one that asked and could not tell, which the
+    run records as nobody — never as whoever happens to be running the watcher.
+    """
+
+    workflow: str
+    number: int
+    triggered_by: Optional[str] = None
+
+
 class IssueContext(BaseModel):
     """One fetched issue. What the forge said, plus where the body was written.
 
@@ -1461,6 +1492,7 @@ class IssueContext(BaseModel):
     title: str = ""
     labels: list[str] = Field(default_factory=list)
     author: str = ""
+    assignees: list[str] = Field(default_factory=list)      # logins
     state: str = ""
     body_path: str = ""             # written into context_handoff/
     # Whether the description already carries a requirements block this factory
@@ -1890,9 +1922,9 @@ class SessionStarted(DomainEvent):
 
     Carries what the new `run.json` is built from, plus what only the trace db
     used to know: the base the work branch was cut from, and the station the
-    process runs on (`engine/station.py`). Fields the factory does not know yet
-    (`triggered_by`, the skill version) are empty until the ticket that teaches
-    it each of them.
+    process runs on (`engine/station.py`). `triggered_by` is the session's, as
+    its first process recorded it (`RunState.triggered_by`). The skill version
+    is empty until the ticket that teaches it.
     """
 
     KIND: ClassVar[str] = "session_started"
@@ -1924,9 +1956,15 @@ class ProvenanceRecorded(DomainEvent):
     the rule `artifacts.record_provenance` applies to `run.json`. `request` is
     the one line the trace db used to be the only home of: the prompt of an
     engineer's run, `#42 title` of an issue run.
+
+    v2: who wrote the issue and whom it was assigned to when the run read it
+    — the people besides the one who triggered it (`session_started`) whose
+    work a cockpit ranks first for them. A snapshot: nothing in the session
+    depends on them, so they are carried to the cockpit and not to `run.json`.
     """
 
     KIND: ClassVar[str] = "provenance_recorded"
+    VERSION: ClassVar[int] = 2      # v2: issue_author, issue_assignees
 
     request: str = ""
     trigger: str = ""
@@ -1934,6 +1972,8 @@ class ProvenanceRecorded(DomainEvent):
     issue_number: int = 0
     issue_project: str = ""
     pr_url: str = ""
+    issue_author: str = ""
+    issue_assignees: list[str] = Field(default_factory=list)
 
 
 class WorkflowStarted(DomainEvent):

@@ -46,7 +46,9 @@ export const summaryValidator = v.object({
   branch: v.string(),
   baseRef: v.string(),
   trigger: v.string(),
-  triggeredBy: v.string(),
+  triggeredBy: v.string(),             // the forge login of whoever started it: a labeller, or the operator
+  issueAuthor: v.string(),             // who wrote the issue it answers, when it answers one
+  issueAssignees: v.array(v.string()), // whom that issue was assigned to when the run read it
   issueUrl: v.string(),
   prUrl: v.string(),
   stationName: v.string(),
@@ -70,7 +72,7 @@ const EMPTY_WAITING: WaitingFor = {
 
 export const EMPTY_SUMMARY: Summary = {
   status: "unknown", workflows: [], request: "", branch: "", baseRef: "", trigger: "",
-  triggeredBy: "", issueUrl: "", prUrl: "", stationName: "", skillVersion: "",
+  triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationName: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
   totalTokens: 0, totalCost: 0, unread: 0,
 };
@@ -189,6 +191,12 @@ function learn(summary: Summary, fields: Partial<Summary>): void {
   }
 }
 
+function learnProvenance(summary: Summary, p: Payload): void {
+  learn(summary, { trigger: p.str("trigger"), issueUrl: p.str("issue_url"), prUrl: p.str("pr_url") });
+}
+
+const describeProvenance = (p: Payload) => `provenance: ${p.str("request") || p.str("trigger")}`;
+
 const describePhaseStarted = (p: Payload) =>
   `${p.str("name")} started · ${p.str("kind")}` + (p.str("owner") ? ` ${p.str("owner")}` : "");
 
@@ -228,10 +236,15 @@ const READERS: Record<string, Record<number, Reader>> = {
     },
   },
   provenance_recorded: {
-    1: {
-      fold: ({ summary }, p) =>
-        learn(summary, { trigger: p.str("trigger"), issueUrl: p.str("issue_url"), prUrl: p.str("pr_url") }),
-      describe: (p) => `provenance: ${p.str("request") || p.str("trigger")}`,
+    1: { fold: (state, p) => learnProvenance(state.summary, p), describe: describeProvenance },
+    // v2: who wrote the issue, and whom it was assigned to — what the inbox ranks a viewer's own work by.
+    2: {
+      fold: ({ summary }, p) => {
+        learnProvenance(summary, p);
+        const assignees = p.strs("issue_assignees");
+        learn(summary, { issueAuthor: p.str("issue_author"), ...(assignees.length ? { issueAssignees: assignees } : {}) });
+      },
+      describe: describeProvenance,
     },
   },
   // A chapter: one workflow the session passes through (the story, story.ts).

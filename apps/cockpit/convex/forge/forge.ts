@@ -38,6 +38,23 @@ export const personValidator = v.object({
   avatarUrl: v.string(),
 });
 
+/** A label a repository defines, as its forge describes it. */
+export interface Label {
+  name: string;
+  description: string;
+}
+
+/** An issue as the cockpit needs it before labelling one: what it is, and whether it is still open. */
+export interface Issue {
+  number: number;
+  title: string;
+  open: boolean;
+  /** A pull request, which the forge also serves as an issue. */
+  pull: boolean;
+  url: string;
+  labels: string[];
+}
+
 export type Role = Infer<typeof roleValidator>;
 export type Repository = Infer<typeof repositoryValidator>;
 export type Reach = Infer<typeof reachValidator>;
@@ -69,6 +86,16 @@ export interface Forge {
    * person's comment, checked against its own trust list. The comment's URL.
    */
   comment(repo: string, number: number, body: string): Promise<{ url: string }>;
+  /** Every label `repo` defines, or null when the forge will not show them. */
+  labels(repo: string): Promise<Label[] | null>;
+  /** Issue (or pull request) `number` of `repo`, or null when the forge shows none. */
+  issue(repo: string, number: number): Promise<Issue | null>;
+  /**
+   * Add `labels` to issue `number` of `repo`, AS the person this forge acts
+   * for: the forge's `labeled` event names them, and a factory's watcher
+   * records whoever that names as having triggered the run it starts.
+   */
+  label(repo: string, number: number, labels: string[]): Promise<void>;
 }
 
 /** Where a factory's config lives: a repository is a factory when its default branch holds this. */

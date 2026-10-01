@@ -128,8 +128,35 @@ The home page lists every gate, across every factory, that the viewer is **permi
 they can read its repository, and the factory's trust list for the wait's channel names them or
 nobody. That list is the factory's own word, carried by the `suspended` event (`trusted`, from
 `issues.trusted_authors` for a wait on an issue), so the cockpit offers the answer to exactly the
-people the factory will hear. Runs the viewer triggered are sorted first; the rest wait longest
-first, and a wait older than a day is flagged. The list and the open answer view are live queries.
+people the factory will hear. The rows that are **for the viewer** — a run they triggered, an issue
+they wrote, an issue assigned to them — are marked and sorted first; it is a ranking, never a filter,
+so every row the viewer may answer stays. Who triggered a run is the factory's word
+(`session_started`'s `triggered_by`: whoever labelled the issue, or the operator who ran it), and the
+issue's author and assignees ride on `provenance_recorded` v2. The rest wait longest first, and a
+wait older than a day is flagged. The list and the open answer view are live queries.
+
+## Triggering a workflow
+
+A factory's row on the Factories page has a **Trigger** button: pick a workflow and an issue, and the
+cockpit adds that workflow's route label and the factory's queued label to the issue **as the
+viewer** — on their user access token in a team cockpit, or the local cockpit's `gh auth token`.
+Nothing is started here: the factory's issues watcher dequeues the issue on its next poll, as it
+would one labelled on the forge, and records whoever the forge's `labeled` event names as the run's
+trigger. The button is enabled from **triage** up, which is what the forge asks of a labeller, and
+otherwise disabled with the reason; the forge is what enforces it. A closed issue, a pull request, a
+label that routes nothing, an issue already queued (no new `labeled` event would name the viewer) and
+one a run already has (a run parked at a gate keeps it on `running`; queueing it again would start a
+second) are refused before anything is labelled (`convex/trigger.ts`).
+
+The cockpit never reads a factory's config to learn its routes (#26: only the factory's own code
+does). It finds them on the forge: `asf labels --create` describes each route label as `asf route: a
+person asked for the <workflow> workflow here` and the queued label as `asf: waiting for a watcher to
+claim it`, and `convex/model/trigger.ts` recognises those two descriptions — `tests/golden/labels/`
+holds them (and the running label's), and both suites read it. A label made by hand says nothing,
+and is not offered. The forge's labels are not the factory's config, though: a route removed from
+`issues.route` keeps its label, and is offered until someone deletes it — the watcher then leaves an
+issue carrying only that label queued. The self-description (#57) is where routes belong once a
+factory ships one.
 
 An answer is a **comment on the work item, posted as the viewer**: on their own user access token
 in a team cockpit (GitHub shows it as theirs, made through the App), or with the `gh auth token` a
@@ -297,7 +324,9 @@ the same session to static markup, with no backend and no browser. A phase opens
 for the recorded session, `tests/phasetabs.test.tsx` renders every tab of every phase of it, and
 `tests/artifacts.test.ts` reads repo artifacts from the fake forge. `tests/inbox.test.ts` drives the inbox
 against it — who is permitted, why a row is disabled, the comment posted as whom, the subject at
-the pinned commit — and `tests/answer.test.ts` renders the golden answers.
+the pinned commit — and `tests/answer.test.ts` renders the golden answers. `tests/trigger.test.ts`
+drives the trigger: the routes found by their golden descriptions, the labels added as whom, and
+every refusal, below triage first.
 
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
 cockpit calls it, in memory, installed as `fetch`. It stands in at the wire rather than behind the

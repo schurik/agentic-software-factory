@@ -45,7 +45,11 @@ LIST_LIMIT = "500"
 
 # What each role LOOKS like on the page, for the person who finds the label on a
 # work item months later. The factory only ever matches on the name; everything
-# below this line is for a human reading a tracker.
+# below this line is for a human reading a tracker — and, for `route`, `queued`
+# and `running`, for a cockpit: it finds the labels that trigger a workflow on
+# the forge by these descriptions, and an issue a run already has by the third,
+# so changing any of them is a change to a contract (`tests/golden/labels/`,
+# read by both ends).
 ROLES: dict[str, tuple[str, str]] = {
     "route":   ("5319e7", "asf route: a person asked for the {detail} workflow here"),
     "queued":  ("ededed", "asf: waiting for a watcher to claim it"),

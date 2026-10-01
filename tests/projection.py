@@ -83,7 +83,8 @@ def _started(out: Projection, body: dict) -> None:
            "command": body["command"], "pid": body["pid"], "engineer": body["engineer"],
            "status": "running", "started_at": body["started_at"], "ended_at": "",
            "repo_root": body["repo_root"], "branch": body["branch"],
-           "trigger": body["trigger"], "issue_url": body["issue_url"],
+           "trigger": body["trigger"], "triggered_by": body["triggered_by"],
+           "issue_url": body["issue_url"],
            "pr_url": body["pr_url"], "issue_number": 0, "issue_project": "",
            "waiting_for": None, "total_tokens": 0, "total_cost": 0.0}
     if previous is not None:

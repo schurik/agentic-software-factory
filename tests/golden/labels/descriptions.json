@@ -1,0 +1,15 @@
+{
+  "route": {
+    "name": "asf:ship",
+    "workflow": "issue",
+    "description": "asf route: a person asked for the issue workflow here"
+  },
+  "queued": {
+    "name": "asf:queued",
+    "description": "asf: waiting for a watcher to claim it"
+  },
+  "running": {
+    "name": "asf:running",
+    "description": "asf: a run has this one"
+  }
+}

@@ -184,6 +184,17 @@ a new one. On a tracker that is not the forge, clear `issues.labels_list_command
 and `issues.labels_create_command` — empty means skip, and skipping is honest
 where `gh label` has no equivalent.
 
+A run records **who triggered it** (`triggered_by` in its `run.json` and on
+`session_started`): for a labelled issue, whoever last applied its route or
+queued label, which the watcher reads from the issue's `labeled` events
+(`issues.labeller_command`, `gh api graphql` as stamped); for anything else,
+the operator, as `gh` knows them on this machine. A cockpit ranks those runs
+first for that person, and its Trigger button applies the two labels as them —
+it finds them by the descriptions `just labels --create` writes, so a
+hand-made route label is not offered there. It authorizes nothing: the forge
+decides who may label, and `trusted_authors` still decides whose text the
+agents read.
+
 ## Removing it again
 
 [uninstall.md](uninstall.md). The skill is never touched by either direction.

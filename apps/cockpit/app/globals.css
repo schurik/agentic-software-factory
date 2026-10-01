@@ -94,6 +94,7 @@ main { padding: 1.25rem 1rem; max-width: 72rem; margin: 0 auto; }
   white-space: nowrap;
 }
 .tag-wait { color: var(--wait); border-color: currentColor; }
+.tag-mine { color: var(--fg); border-color: var(--accent); font-weight: 600; }
 
 .card { max-width: 40rem; margin: 2rem auto; }
 .card h1 { margin-bottom: 0.75rem; }
@@ -120,7 +121,7 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent); fon
 .form { display: grid; gap: 1rem; margin-top: 1.5rem; }
 .form label { display: grid; gap: 0.25rem; font-weight: 600; }
 .form small { font-weight: 400; color: var(--muted); }
-.form input {
+.form input, .form select {
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -130,6 +131,7 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent); fon
   font-weight: 400;
 }
 .form .button { justify-self: start; }
+.trigger-form { max-width: 32rem; margin: 0.5rem 0 1rem; }
 
 /* ── the session page: top bar, sidebar, now, chapters ───────────────────── */
 

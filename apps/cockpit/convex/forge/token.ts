@@ -28,5 +28,8 @@ export function tokenForge(github: GitHub, token: string): Forge {
     file: (repo, path, ref) => github.file(as, repo, path, ref),
     compare: (repo, base, head) => compare(github, as, repo, base, head),
     comment: (repo, number, body) => github.comment(as, repo, number, body),
+    labels: (repo) => github.labels(as, repo),
+    issue: (repo, number) => github.issue(as, repo, number),
+    label: (repo, number, labels) => github.label(as, repo, number, labels),
   };
 }

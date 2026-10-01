@@ -16,11 +16,14 @@ the one that keeps the NEXT added label from repeating it.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from engine import factory, labels, preflight
 
 from .asf_helpers import asf, forge, forge_calls, forge_data, set_config
+
+GOLDEN = Path(__file__).resolve().parent / "golden" / "labels"
 
 # What the shipped defaults name, and therefore the least a gh repo must define.
 SHIPPED = ["asf:ship", "asf:refine", "asf:refine-ship", "asf:queued", "asf:running",
@@ -156,6 +159,23 @@ def test_create_defines_exactly_the_missing_labels_with_a_colour_and_a_reason(st
     assert "--color" in call and "--description" in call
     assert "requirements were settled" in call[call.index("--description") + 1]
     assert call[call.index("--repo") + 1] == "acme/widgets"
+
+
+def test_a_route_and_the_queued_label_are_described_as_the_cockpit_recognises_them(
+        stamped: Path):
+    """A cockpit offers to trigger a workflow by finding its route label on the
+    forge by the description written here (`apps/cockpit/convex/model/trigger.ts`),
+    and refuses an issue a run already has by the running label's — so those
+    descriptions are a contract: `tests/golden/labels/` holds them, and the
+    cockpit's tests read the same file."""
+    golden = json.loads((GOLDEN / "descriptions.json").read_text())
+    tracked(stamped, defined=[], route={golden["route"]["name"]: golden["route"]["workflow"]})
+    assert asf(stamped, "labels", "--create").returncode == 0
+    said = {call[1]: call[call.index("--description") + 1]
+            for call in forge_calls(stamped) if call[0] == "label-create"}
+    assert said[golden["route"]["name"]] == golden["route"]["description"]
+    assert said[golden["queued"]["name"]] == golden["queued"]["description"]
+    assert said[golden["running"]["name"]] == golden["running"]["description"]
 
 
 def test_create_is_a_no_op_once_the_forge_defines_them_all(stamped: Path):

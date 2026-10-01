@@ -209,7 +209,8 @@ class Run:
         request = f"#{context.number} {context.title}"
         artifacts.record_provenance(self.session_dir, ProvenanceRecorded(
             request=request, trigger="issue", issue_url=context.url,
-            issue_number=context.number, issue_project=context.project))
+            issue_number=context.number, issue_project=context.project,
+            issue_author=context.author, issue_assignees=context.assignees))
         self.tracer.session_request(self.adw_id, request)
 
     def record_pull_request(self, context) -> None:

@@ -1,16 +1,19 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { Fragment, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { PENDING_SHOWN } from "@/convex/model/progress";
 import { useCockpit } from "./Shell";
 import { formatTime } from "./format";
 import { useSignIn } from "./signIn";
+import { TriggerButton, TriggerForm } from "./trigger/Trigger";
 
 export function FactoriesList() {
   const signIn = useSignIn();
-  const { mode, forge } = useCockpit();
+  const { mode, forge, viewer } = useCockpit();
   const list = useQuery(api.factories.list, { signIn });
+  const [triggering, setTriggering] = useState<string | null>(null);
   if (list === undefined) return <p className="muted">Loading…</p>;
   if (list === null) return null;       // signed out between two renders: the shell is about to say so
   const { factories, discovery } = list;
@@ -60,22 +63,38 @@ export function FactoriesList() {
               <th>You can</th>
               <th>Stations</th>
               <th>Last activity</th>
+              <th>Trigger</th>
             </tr>
           </thead>
           <tbody>
             {factories.map((factory) => (
-              <tr key={factory.repo}>
-                <td>
-                  {factory.onForge
-                    ? <a href={`https://${forge.host}/${factory.repo}`}>{factory.repo}</a>
-                    : factory.repo}
-                  {factory.private ? <> <span className="tag">private</span></> : null}
-                  {!factory.onForge ? <> <span className="tag tag-wait">not found on the forge</span></> : null}
-                </td>
-                <td>{factory.role ?? "—"}</td>
-                <td>{factory.reporting ? "reporting" : <span className="tag tag-wait">no station yet</span>}</td>
-                <td>{factory.lastActivity === null ? "—" : formatTime(new Date(factory.lastActivity).toISOString())}</td>
-              </tr>
+              <Fragment key={factory.repo}>
+                <tr>
+                  <td>
+                    {factory.onForge
+                      ? <a href={`https://${forge.host}/${factory.repo}`}>{factory.repo}</a>
+                      : factory.repo}
+                    {factory.private ? <> <span className="tag">private</span></> : null}
+                    {!factory.onForge ? <> <span className="tag tag-wait">not found on the forge</span></> : null}
+                  </td>
+                  <td>{factory.role ?? "—"}</td>
+                  <td>{factory.reporting ? "reporting" : <span className="tag tag-wait">no station yet</span>}</td>
+                  <td>{factory.lastActivity === null ? "—" : formatTime(new Date(factory.lastActivity).toISOString())}</td>
+                  <td>
+                    {factory.onForge ? (
+                      <TriggerButton role={factory.role} open={triggering === factory.repo}
+                                     onToggle={() => setTriggering(triggering === factory.repo ? null : factory.repo)} />
+                    ) : "—"}
+                  </td>
+                </tr>
+                {triggering === factory.repo ? (
+                  <tr>
+                    <td colSpan={5}>
+                      <TriggerForm factory={factory.repo} signIn={signIn} as={viewer?.login ?? ""} />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             ))}
           </tbody>
         </table>

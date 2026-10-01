@@ -1,6 +1,6 @@
 """Fixtures for agentic-sf's own tests.
 
-Two things every test here needs and nothing else provides:
+Three things every test here needs and nothing else provides:
 
   * `engine` on the path. The modules under test are TEMPLATES — stamped into a
     target repo as `asf/engine/` — so they are not an installed package.
@@ -11,6 +11,8 @@ Two things every test here needs and nothing else provides:
     resolves stages, agents and workflows relative to `asf/factory.yaml` — so
     the tests run against a real install into a tmp_path, not against a mock
     of one.
+  * A `gh` that knows nobody (`no_one_s_gh`), so no test depends on whose
+    machine it runs on.
 
 Helpers live in `asf_helpers.py`; `__init__.py` says why this directory is a
 package, and why it sits beside the skill rather than inside it.
@@ -32,6 +34,18 @@ if str(TEMPLATES) not in sys.path:
     sys.path.insert(0, str(TEMPLATES))
 
 from .asf_helpers import new_repo, stamp  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def no_one_s_gh(tmp_path_factory, monkeypatch):
+    """Every test's `gh` reads an empty config, never the developer's (and no
+    CI job's actor is in the environment): a run
+    started by hand records the login `gh` is logged in as (`station.operator`),
+    and a suite that recorded whoever ran it would differ from machine to
+    machine — and put their login into a recorded golden session. A test that
+    wants a login puts a `gh` of its own on PATH."""
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path_factory.mktemp("gh-config")))
+    monkeypatch.delenv("GITHUB_ACTOR", raising=False)          # ...nor whose CI job
 
 
 @pytest.fixture

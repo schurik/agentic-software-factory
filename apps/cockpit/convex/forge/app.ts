@@ -333,9 +333,21 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       if (installation === undefined) return null;
       return compare(github, await asInstallation(installation), repo, base, head);
     },
+    labels: async (repo) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return github.labels(await asInstallation(installation), repo);
+    },
+    issue: async (repo, number) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return github.issue(await asInstallation(installation), repo, number);
+    },
     person: () => github.one(asUser(), "/user", readPerson),
     // On the person's own token, so the comment is theirs — and GitHub shows it was made through the App.
     comment: (repo, number, body) => github.comment(asUser(), repo, number, body),
+    // The same for a label: the forge's `labeled` event is what the factory records as the trigger.
+    label: (repo, number, labels) => github.label(asUser(), repo, number, labels),
     reach: async () => {
       // GitHub's own answer to "where can this person go through this App", with their role on each.
       const as = asUser();

@@ -36,7 +36,7 @@ const ROW: Row = {
   factory: "acme/widgets", session: "a9f259f0", gate: "plan", round: 2, kind: "gate", questions: 0,
   since: "2026-10-01T11:30:00.000Z", summary: "the plan now names the module", channel: "issue", issueNumber: 42,
   issueUrl: "https://github.com/acme/widgets/issues/42", workItem: "#42 Resolve relative due dates",
-  workflow: "issue", station: "schurik@mbp:widgets", mine: false, blocked: null,
+  workflow: "issue", station: "schurik@mbp:widgets", forYou: [], blocked: null,
 };
 const GATE: Gate = {
   row: ROW, subjectDigest: "6151fe4319d06427379e4ef96b3898549880d60e220f8868b7376e5cecfe3a78", notes: "",
@@ -66,6 +66,14 @@ describe("the inbox list", () => {
     expect(html).toContain("waiting 2d");                       // stale: flagged
     expect(html).toContain("started from a prompt, with no work item to answer on");
     expect(html).toMatch(/<li role="option" aria-selected="true" class="inbox-row open">/);
+    expect(html).not.toContain("for you");
+  });
+
+  it("says why a row is the viewer's own", () => {
+    const html = renderToStaticMarkup(<InboxList now={NOW} selected={null} onSelect={() => undefined} rows={[
+      { ...ROW, forYou: ["triggered", "assigned"] },
+    ]} />);
+    expect(html).toContain("for you: you triggered it, assigned to you");
   });
 });
 
