@@ -29,11 +29,6 @@ export function periodOf(kind: PeriodKind, now: number, timeZone: string): Perio
   return { from: midnight(year, month, 1, timeZone), to: midnight(year, month + 1, 1, timeZone) };
 }
 
-/** The viewer's own timezone, as their browser has it. */
-export function viewersTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
-
 interface Wall {
   year: number;
   /** 1–12 */

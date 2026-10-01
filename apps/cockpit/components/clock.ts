@@ -11,3 +11,8 @@ export function useClock(): number {
   }, []);
   return now;
 }
+
+/** The viewer's own timezone, as their browser has it: what a period of spend is a calendar period of. */
+export function viewersTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}

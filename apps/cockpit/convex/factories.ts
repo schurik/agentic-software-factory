@@ -6,6 +6,7 @@ import { reporting } from "./factory";
 import { repoKey, type Role } from "./forge/forge";
 import type { Facts } from "./model/attention";
 import type { Period } from "./model/period";
+import type { Spend } from "./model/spend";
 import { roleOn, viewing, type Viewing } from "./viewer";
 
 export interface FactoryRow {
@@ -24,7 +25,7 @@ export interface FactoryRow {
   /** When each of its stations' loop last polled, 0 for never: the page says which are online, by its clock. */
   seen: number[];
   /** What its agent calls cost in the period asked for, list-price equivalent; null when none was. */
-  spend: { cost: number; tokens: number } | null;
+  spend: Spend | null;
   /** What needs attention is read from, as the Factory page's Activity reads it (`model/attention.ts`). */
   facts: Facts;
 }
@@ -64,13 +65,13 @@ export const list = query({
       const role = viewer === null ? null : await roleOn(ctx, viewer, repo.key);
       if (mode === "team" && role === null) continue;
       const names = [repo.name, ...(shippedAs.get(repo.key) ?? [])];
-      factories.push({ repo: repo.name, role, private: repo.private, onForge: true, ...(await summed(ctx, who, names, period)) });
+      factories.push({ repo: repo.name, role, private: repo.private, onForge: true, ...(await standing(ctx, who, names, period)) });
     }
     if (mode === "local") {
       const shown = new Set(found.map((repo) => repo.key));
       for (const [key, names] of shippedAs) {
         if (shown.has(key)) continue;
-        const shipped = await summed(ctx, who, names, period);
+        const shipped = await standing(ctx, who, names, period);
         if (shipped.reporting) factories.push({ repo: names[0], role: null, private: null, onForge: false, ...shipped });
       }
     }
@@ -86,7 +87,7 @@ export const list = query({
  * needs attention go by its own name, as its Factory page does; spend and
  * whether it reported, by every spelling.
  */
-async function summed(ctx: QueryCtx, who: Viewing, names: string[], period: Period | undefined):
+async function standing(ctx: QueryCtx, who: Viewing, names: string[], period: Period | undefined):
     Promise<Omit<FactoryRow, "repo" | "role" | "private" | "onForge">> {
   const [factory] = names;
   const known = await recentOf(ctx, factory);
@@ -100,8 +101,8 @@ async function summed(ctx: QueryCtx, who: Viewing, names: string[], period: Peri
 }
 
 /** What the factory known as `names` spent in `period`. */
-async function spentOn(ctx: QueryCtx, names: string[], { from, to }: Period): Promise<{ cost: number; tokens: number }> {
-  const spend = { cost: 0, tokens: 0 };
+async function spentOn(ctx: QueryCtx, names: string[], { from, to }: Period): Promise<Spend> {
+  const spend: Spend = { cost: 0, tokens: 0 };
   for (const factory of new Set(names)) {
     const buckets = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", factory).gte("at", from).lt("at", to));
     for await (const bucket of buckets) {

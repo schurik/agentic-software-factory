@@ -7,6 +7,7 @@
  * (`model/attention.ts`), whose facts each row carries: a failure stops
  * ranking its factory first a day after it ended, with nothing new arriving.
  */
+import { repoKey } from "../forge/forge";
 import { type Attention, type Facts, needsAttention } from "./attention";
 import { liveness } from "./command";
 import type { Mode } from "./mode";
@@ -37,7 +38,7 @@ export function rank<R extends Rankable>(rows: R[], now: number, order: Order): 
     online: row.seen.filter((seenAt) => liveness(seenAt, null, now).online).length,
   }));
   const byName = (a: Ranked<R>, b: Ranked<R>) => {
-    const [x, y] = [a.row.repo.toLowerCase(), b.row.repo.toLowerCase()];
+    const [x, y] = [repoKey(a.row.repo), repoKey(b.row.repo)];
     return x < y ? -1 : x > y ? 1 : 0;
   };
   if (order === "name") return ranked.sort(byName);

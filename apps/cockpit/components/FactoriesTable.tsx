@@ -68,7 +68,7 @@ export function FactoriesTable({ rows, now, host, period, triggering, onTrigger,
                 )}
               </td>
               <td>
-                <span className="flags">{attention.filter((item) => item.kind !== "gates").map((item, at) => (
+                <span className="flags">{attention.map((item, at) => (
                   <Flag key={`${item.kind}-${at}`} item={item} />
                 ))}</span>
               </td>
@@ -91,7 +91,7 @@ export function FactoriesTable({ rows, now, host, period, triggering, onTrigger,
 function Flag({ item }: { item: Attention }) {
   switch (item.kind) {
     case "gates":
-      return null;
+      return null;                      // its own column
     case "failed":
       return <span className="tag tag-bad">{item.sessions.length} failed in 24 h</span>;
     case "claim":

@@ -109,7 +109,7 @@ describe("a row of the Factories list", () => {
     expect(row.facts.gates).toEqual({ mine: 1, total: 2 });
   });
 
-  it("says when each of its stations last polled, for the page to say which are online", async () => {
+  it("says when each of its stations last polled, and the page which are online by its clock", async () => {
     const t = await teamOf(forge, { alex: "write" });
     const ingestToken = await factory(t, "acme/widgets");
     const alex = await signIn(t, forge, "alex");
@@ -117,7 +117,10 @@ describe("a row of the Factories list", () => {
     await approved(t, ingestToken, alex, bob);                       // registered, never polled
     await poll(t, await approved(t, ingestToken, alex), {});
 
-    expect((await rowOf(t, alex)).seen.sort()).toEqual([0, NOW]);
+    const row = await rowOf(t, alex);
+    expect(row.seen.sort()).toEqual([0, NOW]);
+    expect(rank([row], NOW + 2_000, "attention")[0].online).toBe(1);
+    expect(rank([row], NOW + 60_000, "attention")[0].online).toBe(0);         // its loop went quiet
   });
 
   it("leaves spend out when no period is asked for", async () => {

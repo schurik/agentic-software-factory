@@ -11,11 +11,15 @@ import type { StoredEvent } from "./wire";
 
 export const BUCKET = 15 * 60_000;
 
-export interface Spent {
-  /** The quarter hour it was spent in: its start, epoch ms. */
-  at: number;
+/** What was spent: list-price equivalent in USD, and the tokens it bought. */
+export interface Spend {
   cost: number;
   tokens: number;
+}
+
+export interface Spent extends Spend {
+  /** The quarter hour it was spent in: its start, epoch ms. */
+  at: number;
 }
 
 /**
