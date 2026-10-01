@@ -121,7 +121,7 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent); fon
 .form { display: grid; gap: 1rem; margin-top: 1.5rem; }
 .form label { display: grid; gap: 0.25rem; font-weight: 600; }
 .form small { font-weight: 400; color: var(--muted); }
-.form input, .form select {
+.form input, .form select, .form textarea {
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -132,6 +132,8 @@ button.link { border: 0; padding: 0; background: none; color: var(--accent); fon
 }
 .form .button { justify-self: start; }
 .trigger-form { max-width: 32rem; margin: 0.5rem 0 1rem; }
+.run-form { max-width: 40rem; }
+.run-form .runs { padding-left: 1.1rem; display: grid; gap: 0.3rem; }
 
 /* ── the session page: top bar, sidebar, now, chapters ───────────────────── */
 

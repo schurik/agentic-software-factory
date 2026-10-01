@@ -173,11 +173,14 @@ moved on since the view opened.
 The answer view reads the subject from the forge at the commit the question was asked about
 (`head_sha`), never the branch tip: the files, which it hashes the factory's way to say whether they
 are still what was asked about, or — for a subject the station alone holds, such as the integrate
-gate's diff — the forge's comparison of `base_commit` with `head_sha`. Rows that cannot be answered
-here stay, disabled, with the reason: a run started from a prompt (no work item), a wait on a pull
-request (nothing reads those yet), a subject not on the forge (`worktree.publish: on_integrate`),
-a gate being asked at the station's terminal, an answer already given. Keys: `j`/`k` next and
-previous, `a` approve (at a question round, take every recommendation), `r` reject.
+gate's diff — the forge's comparison of `base_commit` with `head_sha`. A wait on no work item — a
+run started from a prompt, on the terminal channel — is answered by a **command** to its station
+instead (see below): the view says so ("sends a command to `alex@mbp` as you") and whether the
+station is listening ("resumes when `alex@mbp` is back online"). Rows that cannot be answered here
+stay, disabled, with the reason: a wait on a pull request (nothing reads those yet), a subject not
+on the forge (`worktree.publish: on_integrate`), a gate on an issue being asked at the station's
+terminal, an answer already given, a station that takes no answers. Keys: `j`/`k` next and previous, `a` approve
+(at a question round, take every recommendation), `r` reject.
 
 ## The ingest wire
 
@@ -234,7 +237,7 @@ echo "ASF_COCKPIT_TOKEN=asf_ingest_…" >> .env
 uv run asf/asf.py run quick "add a health check"   # appears on :3000 within seconds
 ```
 
-## Commands: register a station, and kill from the session page
+## Commands: register a station; kill, resume, answer and run
 
 A station takes commands — the steering the forge cannot carry — once a person approved it. In a
 stamped checkout, with `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` set:
@@ -252,10 +255,26 @@ cockpit issues its station that token itself (`stations:local`, through `docker 
 The station loop and every run's own shipper then `POST /commands` every few seconds with it
 (`convex/commands.ts`). Each poll says what the station would obey and where its checkout stands,
 and is all the liveness there is: a session is attended while its run polls, a station online while
-its loop does. A kill queued from the session page goes to the run while it is attended and to the
-loop otherwise, waits for an offline station until it expires, and is done only when the station's
-`command_result` arrives through `/ingest`. Revoking a token under Stations makes its polls `401`.
-The factory's half is `engine/commands.py`.
+its loop does. A command goes to the run while it is attended and to the loop otherwise, waits for an
+offline station as long as its verb's TTL (`TTL` in `convex/model/command.ts`; a cron expires what
+nobody took), and is done only when the station's `command_result` arrives — through `/ingest` in
+the session it names, or, for a run, which names none, in the `results` of the station's next poll,
+which settles only that station's own commands. Revoking a token under Stations makes its polls
+`401`. The factory's half is `engine/commands.py`.
+
+- **kill** a running session and **resume** a failed one, from the session page's top bar, on the
+  station that holds it. A session that ran in CI (`session_started` v2's `station_kind`) has no
+  station to resume it: "ran in CI: re-trigger from the forge".
+- **answer** (approve, reject, a question round's answers) and **abort** a gate on no work item,
+  from the inbox. The command names the gate, round and subject digest the person was shown, and
+  the station refuses it once the session has moved past them or the round has a decision.
+- **run** a prompt workflow, from `/run` (the Factory page, Workflows tab and a palette will open
+  the same form): only on one of the asking person's own stations — their most recently seen by
+  default, another of theirs on request — and the station takes it only from the person it is
+  registered to.
+
+Each verb is the station's to obey: its `asf/factory.yaml` lists it under `cockpit.commands` (`run`
+is off unless listed), and the cockpit greys out what the station's report says it would refuse.
 
 ## Local mode, and the published images
 

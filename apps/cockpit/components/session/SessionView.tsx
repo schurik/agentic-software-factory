@@ -6,7 +6,7 @@ import type { SessionView as View } from "@/convex/model/session";
 import type { Item, Story } from "@/convex/model/story";
 import { Status } from "../Status";
 import { formatAgo, formatCost, formatDuration, formatTime, pretty } from "../format";
-import { actionFor } from "./action";
+import { actionFor, type Command } from "./action";
 import { Chapter, chapterAnchor, phaseAnchor } from "./Chapter";
 import { channelWords, glyphOf, toneOf } from "./words";
 
@@ -26,7 +26,7 @@ export function SessionView({ page, now, steering, onCommand }: {
   /** The station's side of it (commands.steering): undefined while it is asked for. */
   steering?: SteeringView | null;
   /** Queue the command the top bar's button names. */
-  onCommand?: (command: "kill") => void;
+  onCommand?: (command: Command) => void;
 }) {
   const { summary, story, session, factory } = page;
   const action = actionFor(factory, session, summary, story, steering, now);

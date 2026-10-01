@@ -46,8 +46,27 @@ export type StationFields = Infer<typeof stationFieldsValidator>;
 export const ATTENDED_FOR = 10_000;
 /** A station's loop polled within this: the station is online. */
 export const ONLINE_FOR = 10_000;
-/** How long a kill waits for a station: minutes, so a laptop waking up tomorrow never acts on it. */
-export const KILL_FOR = 5 * 60_000;
+/**
+ * How long each verb waits for a station before it expires. A kill is for a
+ * run that is live now, so minutes: a laptop that wakes up tomorrow never acts
+ * on it. A run waits long enough to notice it is queued for a station that is
+ * offline and pick another. A resume, an hour. An answer waits days for a
+ * laptop that went to sleep — "resumes when it is back online" — and is
+ * safe to: the station still refuses one whose gate, round or subject the
+ * session is past, or whose round is already decided.
+ */
+export const TTL: Record<Verb, number> = {
+  kill: 5 * 60_000,
+  run: 15 * 60_000,
+  resume: 60 * 60_000,
+  answer: 7 * 24 * 3600_000,
+  abort: 7 * 24 * 3600_000,
+};
+
+/** Whether a command is still on its way: queued or delivered, and not past its TTL by `now`. */
+export function pending(command: { state: CommandState; expiresAt: number }, now: number): boolean {
+  return (command.state === "queued" || command.state === "delivered") && now <= command.expiresAt;
+}
 /** A command delivered and never answered goes out again after this; the station's record makes it act once. */
 export const REDELIVER_AFTER = 30_000;
 /** How long a registration's code may wait for a person. */
@@ -88,15 +107,21 @@ export function parseRegistration(body: unknown): StationFields | Refusal {
   return { id: station.id as string, name: station.name || (station.id as string), kind };
 }
 
+/** A station's word on what it did with a command: a `command_result` payload, as the cockpit keeps it. */
+export const resultValidator = v.object({ commandId: v.string(), ok: v.boolean(), detail: v.string(), adwId: v.string() });
+export type Result = Infer<typeof resultValidator>;
+
 export interface PollBody {
   station: string;
   session: string;                    // "" from the station loop
   report: Report;
   /** False when the poll could not know what watchers run: a run's own shipper. */
   watchersKnown: boolean;
+  /** Results with no session of the station's to travel in — a run's, which starts its session. */
+  results: Result[];
 }
 
-/** A command poll's body: `{station, session?, report: {verbs, head, config_hash, watchers}}`. */
+/** A command poll's body: `{station, session?, report: {verbs, head, config_hash, watchers}, results?}`. */
 export function parsePoll(body: unknown): PollBody | Refusal {
   if (!isRecord(body) || !text(body.station)) return { status: 400, error: "a poll names its station" };
   const report = isRecord(body.report) ? body.report : {};
@@ -111,6 +136,14 @@ export function parsePoll(body: unknown): PollBody | Refusal {
       watchers: strings(report.watchers),
     },
     watchersKnown: Array.isArray(report.watchers),
+    results: (Array.isArray(body.results) ? body.results : []).flatMap((raw) => {
+      if (!isRecord(raw) || !text(raw.command_id) || typeof raw.ok !== "boolean") return [];
+      return [{
+        commandId: raw.command_id as string, ok: raw.ok,
+        detail: typeof raw.detail === "string" ? raw.detail.slice(0, 2000) : "",
+        adwId: typeof raw.adw_id === "string" ? raw.adw_id : "",
+      }];
+    }),
   };
 }
 
@@ -138,6 +171,15 @@ export function liveness(seenAt: number, attendedAt: number | null, now: number)
 
 // ── what the session page is told ────────────────────────────────────────────
 
+/** A command as a page shows it: what became of it, by whom, and until when it waits. */
+export interface CommandView {
+  state: CommandState;
+  by: string;
+  issuedAt: number;
+  expiresAt: number;
+  detail: string;
+}
+
 /** The steering side of a session (commands.steering): timestamps, which the page reads against its clock. */
 export interface SteeringView {
   station: null | {
@@ -149,12 +191,14 @@ export interface SteeringView {
     verbs: string[] | null;
   };
   attendedAt: number | null;
-  kill: null | { state: CommandState; by: string; issuedAt: number; expiresAt: number; detail: string };
+  kill: CommandView | null;
   /** Why the viewer may not queue a kill, or null when they may. */
   killRefused: string | null;
+  resume: CommandView | null;
+  resumeRefused: string | null;
 }
 
-// ── who may queue a kill ─────────────────────────────────────────────────────
+// ── who may queue a command ──────────────────────────────────────────────────
 
 /** Whether `role` is write or higher: the bar for any direct command. */
 export function writes(role: Role | null): boolean {
@@ -179,11 +223,14 @@ export function commandRefusal(verb: Verb, role: Role | null, station: StationFa
       : `commands need write or higher on this repository, and the forge says you have ${role}`;
   }
   if (station === null) return "no station has said it holds this session";
-  if (station.kind === "ci") return "it ran in CI, and a CI station takes no commands";
+  if (station.kind === "ci") {
+    return verb === "resume" ? "ran in CI: re-trigger from the forge" : "it ran in CI, and a CI station takes no commands";
+  }
   if (!station.registered) return `${station.name} takes no commands: run \`asf station register\` on it`;
   if (station.verbs === null) return `${station.name} has never polled for commands`;
   if (!station.verbs.includes(verb)) {
-    return `${station.name} does not take ${verb}: its asf/factory.yaml's cockpit.commands does not list it`;
+    return `${station.name} does not take ${verb}: its asf/factory.yaml's cockpit.commands does not list it` +
+      (verb === "run" ? " — run is off unless it is listed" : "");
   }
   return null;
 }

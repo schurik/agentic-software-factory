@@ -136,7 +136,7 @@ describe("a session on its way", () => {
 describe("killing a live session", () => {
   const working = upTo("tool_called");
   const station = { name: "schurik@mbp:widgets", kind: "local", owner: "schurik", registered: true, seenAt: 0, verbs: ["kill"] };
-  const attended: SteeringView = { station, attendedAt: LATER - 2000, kill: null, killRefused: null };
+  const attended: SteeringView = { station, attendedAt: LATER - 2000, kill: null, killRefused: null, resume: null, resumeRefused: null };
   const killButton = (steering: SteeringView) =>
     renderToStaticMarkup(<SessionView page={page(working)} now={LATER} steering={steering} onCommand={() => {}} />)
       .match(/<button class="button"[^>]*>Kill session<\/button>/)![0];
@@ -179,6 +179,35 @@ describe("killing a live session", () => {
   it("says so when the station's token was revoked", () => {
     const revoked = { ...attended, station: { ...station, registered: false } };
     expect(shown(working, revoked)).toContain("○ takes no commands: its token was revoked");
+  });
+});
+
+describe("resuming a failed session", () => {
+  const working = upTo("tool_called");
+  const failed = [...working, fixture("session_finished", working.length + 1)];
+  const station = { name: "schurik@mbp:widgets", kind: "local", owner: "schurik", registered: true, seenAt: LATER - 2000, verbs: ["resume"] };
+  const online: SteeringView = { station, attendedAt: null, kill: null, killRefused: null, resume: null, resumeRefused: null };
+  const resumeButton = (steering: SteeringView) =>
+    renderToStaticMarkup(<SessionView page={page(failed)} now={LATER} steering={steering} onCommand={() => {}} />)
+      .match(/<button class="button"[^>]*>Resume<\/button>/)![0];
+
+  it("is offered on the station that holds it", () => {
+    expect(resumeButton(online)).not.toContain("disabled");
+  });
+
+  it("is disabled for a session that ran in CI, saying to re-trigger it from the forge", () => {
+    const ci = { ...online, station: null, resumeRefused: "ran in CI: re-trigger from the forge" };
+    expect(resumeButton(ci)).toContain("disabled");
+    expect(shown(failed, ci)).toContain("ran in CI: re-trigger from the forge");
+  });
+
+  it("shows a queued resume as queued — station offline — and a done one as what the station said", () => {
+    const resume = { state: "queued" as const, by: "alex", issuedAt: LATER - 1000, expiresAt: LATER + 3_600_000, detail: "" };
+    const away = { ...online, station: { ...station, seenAt: LATER - 5 * 60_000 }, resume };
+    expect(resumeButton(away)).toContain("disabled");
+    expect(shown(failed, away)).toContain("queued, station offline: schurik@mbp:widgets takes it when it is back");
+    expect(shown(failed, { ...online, resume: { ...resume, state: "done", detail: "relaunched a9f259f0" } }))
+      .toContain("resumed by alex: relaunched a9f259f0");
   });
 });
 

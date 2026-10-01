@@ -13,4 +13,9 @@ const crons = cronJobs();
 // minute is out.
 crons.interval("forge catch-up", { minutes: 1 }, internal.discovery.catchUp, {});
 
+// Commands nobody took within their verb's TTL (model/command.ts). A poll
+// expires its own station's lapsed commands as it goes; this catches the ones
+// whose station never polls again, so a page stops saying "queued".
+crons.interval("command expiry", { minutes: 1 }, internal.commands.expire, {});
+
 export default crons;

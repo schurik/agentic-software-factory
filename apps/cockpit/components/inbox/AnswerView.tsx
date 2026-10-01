@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { Answer } from "@/convex/model/answer";
-import type { Question } from "@/convex/model/inbox";
+import { type Question, stationWords } from "@/convex/model/inbox";
 import { formatCost, sessionHref } from "../format";
 import { keyed } from "./keys";
 import { asks, workItem } from "./InboxList";
@@ -29,11 +29,20 @@ export function unanswerable(gate: Gate, read: Read | null): string | null {
   return null;
 }
 
-/** Where the answer lands, said before it is given: nothing done here is invisible on the forge. */
-export function lands(gate: Gate): { text: string; url: string } {
+/**
+ * Where the answer lands, said before it is given: nothing done here is
+ * invisible on the forge — and an answer with no work item to land on is a
+ * command to the station, which says whether it is listening.
+ */
+export function lands(gate: Gate, now: number): { text: string; url: string; then: string } {
   const { row, forge, as } = gate;
+  if (row.via === "command") {
+    return { text: `Sends a command to ${row.station} as ${as ?? "you"}`, url: "",
+             then: `${stationWords(row, now)}, and records it as your decision` };
+  }
   const url = row.issueUrl || (forge && row.issueNumber ? `${forge}/${row.factory}/issues/${row.issueNumber}` : "");
-  return { text: `Posts a comment on issue #${row.issueNumber} as ${as ?? "you"}`, url };
+  return { text: `Posts a comment on issue #${row.issueNumber} as ${as ?? "you"}`, url,
+           then: "the factory's answers watcher picks it up" };
 }
 
 /**
@@ -43,9 +52,10 @@ export function lands(gate: Gate): { text: string; url: string } {
  * station and session last. Holds only what is being typed;
  * `onAnswer` posts it. `a` and `r` answer from the keyboard.
  */
-export function AnswerView({ gate, read, posting, problem, onAnswer }: {
+export function AnswerView({ gate, read, now, posting, problem, onAnswer }: {
   gate: Gate;
   read: Read | null;
+  now: number;
   posting: boolean;
   problem: string;
   onAnswer: (answer: Answer) => void;
@@ -58,9 +68,12 @@ export function AnswerView({ gate, read, posting, problem, onAnswer }: {
   const notesBox = useRef<HTMLTextAreaElement>(null);
   const cannot = unanswerable(gate, read);
   const off = cannot !== null || posting;
+  // A station may take one kind of answer and not the other: `answer` and `abort` are opted in apart.
+  const refusedFor = (verdict: Answer["verdict"]) => (verdict === "abort" ? row.refused?.abort : row.refused?.answer) ?? null;
+  const offFor = (verdict: Answer["verdict"]) => off || refusedFor(verdict) !== null;
 
   const give = (verdict: Answer["verdict"]) => {
-    if (off) return;
+    if (offFor(verdict)) return;
     if (verdict === "reject" && !notes.trim()) {
       setHint("A reject needs notes: they are what the agent revises from.");
       notesBox.current?.focus();
@@ -92,7 +105,8 @@ export function AnswerView({ gate, read, posting, problem, onAnswer }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [questions]);
 
-  const landing = lands(gate);
+  const landing = lands(gate, now);
+  const refusedOne = refusedFor("answer") ?? refusedFor("abort");
   return (
     <article className="answer-view">
       <div className="muted small">
@@ -134,8 +148,10 @@ export function AnswerView({ gate, read, posting, problem, onAnswer }: {
       <div className={`lands${cannot ? " blocked" : ""}`}>
         {cannot ? <>Cannot be answered here: {cannot}.</> : (
           <>{landing.url ? <a href={landing.url} target="_blank" rel="noreferrer">{landing.text}</a> : landing.text}
-            ; the factory&apos;s answers watcher picks it up.</>
+            ; {landing.then}.</>
         )}
+        {!cannot && refusedOne ? <div className="small">Not all of it: {refusedOne}.</div> : null}
+        {row.note ? <div className="small">{row.note}.</div> : null}
         <div className="small"><Digest gate={gate} read={read} /></div>
       </div>
 
@@ -148,21 +164,21 @@ export function AnswerView({ gate, read, posting, problem, onAnswer }: {
       <div className="verdicts">
         {questions ? (
           <>
-            <button type="button" className="button" disabled={off} onClick={() => give("answer")}>Send answers</button>
-            <button type="button" className="button secondary" disabled={off} onClick={() => give("approve")}>
+            <button type="button" className="button" disabled={offFor("answer")} onClick={() => give("answer")}>Send answers</button>
+            <button type="button" className="button secondary" disabled={offFor("approve")} onClick={() => give("approve")}>
               Take all recommendations <kbd>a</kbd>
             </button>
           </>
         ) : (
           <>
-            <button type="button" className="button ok" disabled={off} onClick={() => give("approve")}>Approve <kbd>a</kbd></button>
-            <button type="button" className="button bad" disabled={off} onClick={() => give("reject")}>Reject <kbd>r</kbd></button>
+            <button type="button" className="button ok" disabled={offFor("approve")} onClick={() => give("approve")}>Approve <kbd>a</kbd></button>
+            <button type="button" className="button bad" disabled={offFor("reject")} onClick={() => give("reject")}>Reject <kbd>r</kbd></button>
           </>
         )}
-        <button type="button" className="button quiet" disabled={off} onClick={() => give("abort")}>Abort run</button>
+        <button type="button" className="button quiet" disabled={offFor("abort")} onClick={() => give("abort")}>Abort run</button>
       </div>
       {hint ? <p className="error small">{hint}</p> : null}
-      {problem ? <p className="error small">Not posted: {problem}.</p> : null}
+      {problem ? <p className="error small">Not {row.via === "command" ? "sent" : "posted"}: {problem}.</p> : null}
 
 
       <dl className="facts small">

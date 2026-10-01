@@ -53,6 +53,7 @@ export const summaryValidator = v.object({
   prUrl: v.string(),
   stationId: v.string(),               // the station that holds it: where its commands go
   stationName: v.string(),
+  stationKind: v.string(),             // local | ci; "" from a factory before session_started v2
   skillVersion: v.string(),
   startedAt: v.string(),
   endedAt: v.string(),
@@ -73,7 +74,7 @@ const EMPTY_WAITING: WaitingFor = {
 
 export const EMPTY_SUMMARY: Summary = {
   status: "unknown", workflows: [], request: "", branch: "", baseRef: "", trigger: "",
-  triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", skillVersion: "",
+  triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", stationKind: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
   totalTokens: 0, totalCost: 0, unread: 0,
 };
@@ -214,28 +215,31 @@ const ANSWERING: Record<string, string> = { issue: "an issue", pr: "a pull reque
 const money = (cost: number) => `$${cost.toFixed(4)}`;
 const gateRound = (p: Payload | null) => (p ? `${p.str("gate")} round ${p.num("round")}` : "a gate");
 
+/** A new session, or a process joining one (a resume, an answer): the record re-opens and keeps what the session already learned. */
+const sessionStarted: Reader = {
+  fold: ({ summary }, p) => {
+    const workflow = p.str("workflow");
+    if (workflow && !summary.workflows.includes(workflow)) summary.workflows.push(workflow);
+    summary.status = "running";
+    summary.endedAt = "";
+    learn(summary, {
+      request: p.str("request"), branch: p.str("branch"), baseRef: p.str("base_ref"),
+      trigger: p.str("trigger"), triggeredBy: p.str("triggered_by"),
+      issueUrl: p.str("issue_url"), prUrl: p.str("pr_url"),
+      stationId: p.str("station_id"), stationName: p.str("station_name"), stationKind: p.str("station_kind"),
+      skillVersion: p.str("skill_version"),
+      startedAt: summary.startedAt ? "" : p.str("started_at"),
+    });
+  },
+  describe: (p) => `session started: ${p.str("workflow")}` +
+    (p.str("station_name") ? ` on ${p.str("station_name")}` : ""),
+};
+
 const READERS: Record<string, Record<number, Reader>> = {
   session_started: {
-    1: {
-      // A new session, or a process joining one (a resume, an answer): the
-      // record re-opens and keeps what the session already learned.
-      fold: ({ summary }, p) => {
-        const workflow = p.str("workflow");
-        if (workflow && !summary.workflows.includes(workflow)) summary.workflows.push(workflow);
-        summary.status = "running";
-        summary.endedAt = "";
-        learn(summary, {
-          request: p.str("request"), branch: p.str("branch"), baseRef: p.str("base_ref"),
-          trigger: p.str("trigger"), triggeredBy: p.str("triggered_by"),
-          issueUrl: p.str("issue_url"), prUrl: p.str("pr_url"),
-          stationId: p.str("station_id"), stationName: p.str("station_name"),
-          skillVersion: p.str("skill_version"),
-          startedAt: summary.startedAt ? "" : p.str("started_at"),
-        });
-      },
-      describe: (p) => `session started: ${p.str("workflow")}` +
-        (p.str("station_name") ? ` on ${p.str("station_name")}` : ""),
-    },
+    1: sessionStarted,
+    // v2: station_kind — a session that ran in CI has no station to resume it.
+    2: sessionStarted,
   },
   provenance_recorded: {
     1: { fold: (state, p) => learnProvenance(state.summary, p), describe: describeProvenance },
