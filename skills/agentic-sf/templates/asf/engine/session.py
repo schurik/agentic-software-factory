@@ -129,14 +129,14 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
         branch=workspace.branch, base_ref=workspace.base_ref,
         base_commit=workspace.base_commit, trigger=run.trigger, triggered_by=triggered_by,
         issue_url=run.issue_url, pr_url=run.pr_url, request=spec.request, station_id=here.id,
-        station_name=here.name))
+        station_name=here.name, station_kind=here.kind))
     artifacts.open_chapter(run.session_dir, workflow, spec.input, resume)
     # And from here every event this process appends is on its way to the
     # cockpit, when there is one — from a thread, so nothing below waits on it.
     # The same thread asks for the commands that name this session, so a kill
     # from the cockpit reaches the run itself, with no daemon running.
     station.start(run.session_dir, steering=commands.Steering(
-        cfg, main_root, lambda: station.credential(main_root, cfg.defaults.data_dir),
+        commands.Here(cfg, main_root), lambda: station.credential(main_root, cfg.defaults.data_dir),
         session=adw_id))
     # This process is the run. Record it before any phase opens, so a run that
     # hangs in its first agent call is still killable by adw_id.

@@ -330,8 +330,8 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
         sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
         steering = None
         if here.kind != "ci":
-            steering = commands.Steering(cfg, main_root, target.credential,
-                                         watchers=lambda: _watching(started))
+            steering = commands.Steering(commands.Here(cfg, main_root, config_path),
+                                         target.credential, watchers=lambda: _watching(started))
             steering.say = lambda text: on_line("station", text)
         loop = station.Loop(lambda: station.every_session(sessions), target.destination,
                             steering=steering)

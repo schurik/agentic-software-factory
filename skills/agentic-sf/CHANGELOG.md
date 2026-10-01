@@ -134,15 +134,36 @@ before — `None` when there are none, never omitted.
   watchers it runs. Those polls are how a cockpit knows a session is **attended** and a station
   **online**; the session page shows both, with when it was last seen.
 - `cockpit.commands` in `asf/factory.yaml` opts verbs in, from `answer`, `abort`, `kill`, `resume`
-  and `run` (this release carries out `kill`; a fresh stamp lists `[kill]`). A station refuses a
-  verb that is not listed, a command whose `by` fails `issues.trusted_authors`, and one past its
-  expiry; it records each outcome in `asf/data/commands/<id>.json`, so a command delivered twice
-  acts once, and reports it as a `command_result` — the cockpit's only source for "done".
+  and `run`; a fresh stamp lists `[answer, abort, kill, resume]`, and `run` is off unless listed. A
+  station refuses a verb that is not listed, a command whose `by` fails `issues.trusted_authors`,
+  and one past its expiry; it records each outcome in `asf/data/commands/<id>.json`, so a command
+  delivered twice acts once, and reports it as a `command_result` — the cockpit's only source for
+  "done". A result with no session of the station's to travel in (a `run`'s) goes back with the
+  station's next poll, as the same payload.
 - **Kill from the session page.** A running session's kill goes to the run itself while it is
   attended — it stops through its own SIGTERM handler, children first — and to the station loop
   otherwise; a station that is offline gets it when it is back, until it expires (minutes). The
   button is disabled, with the reason, for a reader, for a station nobody registered, and for one
   whose report says it does not take `kill`.
+- **Resume from the session page.** A failed session's resume goes only to the station that holds
+  it, which relaunches it detached through `asf resume` — refused, in `asf resume`'s own words, for
+  a session still running or waiting on an unanswered gate. A session that ran in CI is disabled:
+  "ran in CI: re-trigger from the forge". `session_started` is **v2**: it carries `station_kind`,
+  which is how a cockpit tells.
+- **A gate on no work item is answerable from the inbox.** A prompt run's gate (the terminal
+  channel) is answered by command: `answer` carries approve, reject or a question round's answers,
+  `abort` ends the run, each opted in on its own. The station refuses an answer whose gate, round or
+  subject digest the session is past, or whose round already has a decision, and one for a gate on
+  any other channel — an issue's is answered on the issue; otherwise it records the decision as the person's (`channel: cockpit`) and relaunches
+  the run, or leaves it to a run asking in place, which takes it at once.
+- **Run a prompt workflow from the cockpit** (`/run`, linked from Stations), off by default. A run
+  goes only to one of the asking person's own stations — their most recently seen, or another of
+  theirs they pick — and the station takes it only from the person it is registered to. It starts
+  `asf run <workflow> <prompt>` detached and unattended, recorded as triggered by that person,
+  after checking the workflow takes a prompt.
+- Each verb waits for an offline station as long as its TTL — kill 5 minutes, run 15, resume an
+  hour, an answer or abort 7 days — showing "queued, station offline" until then, and the cockpit
+  expires what nobody took every minute.
 
 ### Upgrade
 
@@ -158,9 +179,11 @@ then add `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` to `.env` by hand, because th
 rewrites an existing `.env` (a re-stamped `.env.sample` names both). A CI job that ships ends with
 `uv run asf/asf.py station sync`, with both set from the job's secrets.
 
-To kill runs from a cockpit, add `commands: [kill]` under `cockpit:` in `asf/factory.yaml` (a
-`--force` re-stamp never edits it), commit it, and run `asf station register` once per checkout
-against a shared cockpit; a local cockpit needs no registering. Nothing is obeyed until then.
+To steer runs from a cockpit, add `commands: [answer, abort, kill, resume]` under `cockpit:` in
+`asf/factory.yaml` (a `--force` re-stamp never edits it; the `.new` beside it shows the block), and
+`run` too if people may start prompt workflows on their own stations from it; commit it, and run
+`asf station register` once per checkout against a shared cockpit; a local cockpit needs no
+registering. Nothing is obeyed until then.
 
 The same `--force` re-stamp brings `asf/cockpit/` and the station loop. After it, `just up` starts
 a local cockpit unless `.env` names a shared one; install Docker for it, or accept the warning. The

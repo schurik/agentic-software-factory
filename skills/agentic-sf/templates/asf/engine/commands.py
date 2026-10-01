@@ -41,24 +41,31 @@ by itself (`engine/cockpit.py`).
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
+import os
 import re
 import subprocess
 import sys
+import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, get_args
 
-from . import artifacts, events, git_helper, operate, station
+from . import artifacts, events, git_helper, hitl, operate, station
 from .data_types import (Cockpit, Command, CommandRecord, CommandResult, CommandVerb,
-                         FactoryConfig, StationCredential, StationReport)
-from .utils import anchor, ensure_dir, now_iso, write_atomic
+                         FactoryConfig, Reply, StationCredential, StationReport)
+from .factory import DEFAULT_CONFIG
+from .utils import anchor, ensure_dir, new_id, now_iso, write_atomic
 
 VOCABULARY = get_args(CommandVerb)
 # What this release of the factory can carry out. A verb opted in that is not
 # here is refused, and left out of the report so the cockpit never offers it.
-CARRIED_OUT = ("kill",)
+CARRIED_OUT = VOCABULARY
+# What an `answer` may say; `abort` is a verb of its own, opted in on its own.
+ANSWER_VERDICTS = ("approve", "reject", "answer")
 COMMANDS_DIR = "commands"
 POLL_INTERVAL = 2.5             # seconds between command polls, per poller
 REPORT_EVERY = 30.0             # how long the commit and config hash are trusted
@@ -194,6 +201,49 @@ def _head(main_root: Path) -> str:
 
 # ── carrying one out ─────────────────────────────────────────────────────────
 
+# `(argv, env, cwd, log) -> pid`: how a station starts a run it will not wait
+# for. The default is `detached`; a test hands in one that records instead.
+Launcher = Callable[[list[str], dict[str, str], Path, Path], int]
+
+
+def detached(argv: list[str], env: dict[str, str], cwd: Path, log: Path) -> int:
+    """Start `argv` apart from this process — its own session, its output to
+    `log` — and return its pid without waiting for it.
+
+    A resume or a run takes minutes, and the loop that took the command has
+    shipping and polling to get on with; a run it started also outlives an
+    `asf up` that is stopped, as one typed at a terminal outlives that
+    terminal. It is reaped by a daemon thread all the same: an exited child
+    nobody waited for is a zombie, which answers `kill -0` as if it were alive,
+    and a run that looks alive is one `asf resume` refuses to touch.
+    """
+    ensure_dir(log.parent)
+    with open(log, "ab") as out:
+        child = subprocess.Popen(argv, cwd=cwd, env={**os.environ, **env},
+                                 stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                 start_new_session=True)
+    threading.Thread(target=child.wait, name=f"reap-{child.pid}", daemon=True).start()
+    return child.pid
+
+
+@dataclass
+class Here:
+    """The station a command is carried out on, as one value.
+
+    `config_path` is what a launched `asf resume`/`asf run` is pointed at.
+    `owner` is the forge login of the person the station is registered to —
+    its command token's — and the only person a `run` is taken from: a
+    teammate never starts an agent with write tools on someone else's machine
+    or budget. "" when the station cannot say, and then no run is taken.
+    """
+
+    cfg: FactoryConfig
+    main_root: Path
+    config_path: str = DEFAULT_CONFIG
+    owner: str = ""
+    launch: Launcher = detached
+
+
 def record_path(main_root: Path, data_dir: str, command_id: str) -> Path:
     return anchor(main_root, data_dir) / COMMANDS_DIR / f"{command_id}.json"
 
@@ -206,42 +256,31 @@ def recorded(main_root: Path, data_dir: str, command_id: str) -> CommandRecord |
         return None
 
 
-def carry_out(cfg: FactoryConfig, main_root: Path, command: Command,
-              now_ms: int | None = None) -> CommandRecord | None:
+def carry_out(here: Here, command: Command, now_ms: int | None = None) -> CommandRecord | None:
     """Decide on one delivered command, act on it, and record what happened.
 
     The record — `commands/<id>.json`, and a `command_result` in the session
     it names — is written before this returns, or, when the command stops the
-    very process carrying it out, before that process signals itself. A
-    command already recorded is not acted on again: its record is returned.
-    None for an id no file can be named after, which is nothing a cockpit
-    issues.
+    very process carrying it out, before that process signals itself. One that
+    starts a process is kept on file BEFORE the process is started, so a
+    second delivery finds it and starts nothing. A command already recorded is
+    not acted on again: its record is returned. None for an id no file can be
+    named after, which is nothing a cockpit issues.
     """
     if not _ID.fullmatch(command.id):
         return None
-    data_dir = cfg.defaults.data_dir
-    done = recorded(main_root, data_dir, command.id)
+    done = recorded(here.main_root, here.cfg.defaults.data_dir, command.id)
     if done is not None:
         return done
-    refused = refusal(cfg, main_root, command, now_ms)
+    refused = refusal(here, command, now_ms)
     if refused:
-        return _record(cfg, main_root, _outcome(command, ok=False, detail=refused))
-    said: list[str] = []
-    ending: list[CommandRecord] = []
-
-    def before_own_end() -> None:
-        ending.append(_record(cfg, main_root, _outcome(command, ok=True, detail=_detail(said))))
-
-    code = operate.kill(cfg, command.session, say=said.append, before_own_end=before_own_end)
-    if ending:
-        return ending[0]
-    return _record(cfg, main_root, _outcome(command, ok=code == 0, detail=_detail(said)))
+        return _record(here, _outcome(command, ok=False, detail=refused))
+    return _ACTS[command.verb](here, command)
 
 
-def refusal(cfg: FactoryConfig, main_root: Path, command: Command,
-            now_ms: int | None = None) -> str:
+def refusal(here: Here, command: Command, now_ms: int | None = None) -> str:
     """Why this station will not carry `command` out, or "" when it will."""
-    verb = command.verb
+    cfg, verb = here.cfg, command.verb
     if verb not in VOCABULARY:
         return f"{verb!r} is not a command: the vocabulary is {', '.join(VOCABULARY)}"
     if verb not in cfg.cockpit.commands:
@@ -259,33 +298,224 @@ def refusal(cfg: FactoryConfig, main_root: Path, command: Command,
     if trusted and command.by.casefold() not in {login.casefold() for login in trusted}:
         return (f"{command.by} is not in issues.trusted_authors, which this station holds "
                 f"every command's author to")
-    if not command.session or not (_session_dir(cfg, main_root, command.session)
-                                   / artifacts.RUN_FILE).is_file():
+    if verb == "run":
+        return _run_refusal(here, command)
+    if not carried(here, command):
         return f"no session {command.session or '(none named)'} on this station"
+    if verb == "resume":
+        return operate.unresumable(cfg, command.session)
+    if verb in ("answer", "abort"):
+        return _answer_refusal(here, command)
     return ""
 
 
+def _answer_refusal(here: Here, command: Command) -> str:
+    """An answer is held to what a reply on a work item is held to: it names the
+    wait it was written about, and a wait the run has moved past — another
+    gate, another round, a subject that changed, a round already decided —
+    is not the one it answers."""
+    adw_id = command.session
+    if command.verb == "answer" and command.verdict not in ANSWER_VERDICTS:
+        return (f"an answer names its verdict — {', '.join(ANSWER_VERDICTS)} — and this one "
+                f"named {command.verdict or 'none'}")
+    session_dir = _session_dir(here, adw_id)
+    state = artifacts.read_run(session_dir)
+    waiting = state.waiting_for if state is not None else None
+    if waiting is None:
+        return f"{adw_id} is not waiting at a gate"
+    if waiting.channel == "issue" and waiting.issue_number:
+        return (f"{adw_id} waits on issue #{waiting.issue_number}: it is answered there, on the "
+                f"forge's record, never by a command")
+    if waiting.channel != "terminal":
+        return (f"{adw_id} waits on the {waiting.channel} channel: a command answers only a gate "
+                f"on no work item, a prompt run's")
+    if (waiting.gate, waiting.round) != (command.gate, command.round):
+        return (f"{adw_id} is no longer waiting at {command.gate} round {command.round}: it "
+                f"waits at {waiting.gate} round {waiting.round}")
+    if waiting.subject_digest != command.digest:
+        return (f"the {waiting.gate} changed since it was shown: the answer was about a "
+                f"subject the run no longer has in front of it")
+    if hitl.read_decision(session_dir, waiting.gate, waiting.round) is not None:
+        return (f"a decision is already recorded for {waiting.gate} round {waiting.round}, and "
+                f"the run acts on that one")
+    return ""
 
-def _outcome(command: Command, ok: bool, detail: str) -> CommandRecord:
-    return CommandRecord(command=command, ok=ok, detail=detail[:DETAIL_CHARS], at=now_iso())
+
+def _run_refusal(here: Here, command: Command) -> str:
+    """A run goes to its own person's station only, and starts a workflow that
+    takes a prompt — the only kind a cockpit can start without a work item."""
+    from . import workflow       # here, not above: workflow → session → this module
+
+    if not here.owner:
+        return ("this station cannot say whose it is, and a run is taken only from the person "
+                "it is registered to: `asf station register` again")
+    if command.by.casefold() != here.owner.casefold():
+        return (f"{command.by} asked to run on {here.owner}'s station, and a run is taken only "
+                f"from the person a station is registered to")
+    if not command.prompt.strip():
+        return "the run names no prompt"
+    names = [name for name, _ in workflow.available(here.config_path)]
+    if command.workflow not in names:
+        return (f"no workflow {command.workflow!r} on this station: `asf list` names "
+                f"{', '.join(names) or 'none'}")
+    try:
+        loaded = workflow.load(command.workflow, here.config_path)
+    except SystemExit as error:
+        return f"{command.workflow} does not load on this station: {error}"
+    if loaded.input != "prompt":
+        return (f"{command.workflow} takes input: {loaded.input}, and a run from the cockpit "
+                f"starts a workflow that takes a prompt")
+    return ""
 
 
-def _record(cfg: FactoryConfig, main_root: Path, record: CommandRecord) -> CommandRecord:
-    """Write the outcome where a second delivery finds it, then tell the session."""
-    command, ok = record.command, record.ok
-    path = record_path(main_root, cfg.defaults.data_dir, command.id)
-    ensure_dir(path.parent)
-    write_atomic(path, record.model_dump_json(indent=2))
-    session = _session_dir(cfg, main_root, command.session) if command.session else None
-    if session is not None and (session / artifacts.RUN_FILE).is_file():
-        events.emit(session, CommandResult(command_id=command.id, verb=command.verb,
-                                           adw_id=command.session, by=command.by, ok=ok,
-                                           detail=record.detail))
+# ── the verbs ────────────────────────────────────────────────────────────────
+
+def _kill(here: Here, command: Command) -> CommandRecord:
+    said: list[str] = []
+    ending: list[CommandRecord] = []
+
+    def before_own_end() -> None:
+        ending.append(_record(here, _outcome(command, ok=True, detail=_detail(said))))
+
+    code = operate.kill(here.cfg, command.session, say=said.append,
+                        before_own_end=before_own_end)
+    if ending:
+        return ending[0]
+    return _record(here, _outcome(command, ok=code == 0, detail=_detail(said)))
+
+
+def _resume(here: Here, command: Command) -> CommandRecord:
+    """`asf resume`, which replays what the session recorded and lands its label."""
+    return _launched(here, command, Launch(
+        ["resume", command.session],
+        f"relaunched {command.session} on this station: it picks up from what it recorded"))
+
+
+def _answer(here: Here, command: Command) -> CommandRecord:
+    """The decision a person gave in the cockpit, recorded as theirs — then the
+    run is brought back to act on it, as `asf approve` would. A run asking in
+    place at its own terminal is polling for the same file and needs nothing."""
+    verdict = "abort" if command.verb == "abort" else command.verdict
+    session_dir = _session_dir(here, command.session)
+    try:
+        hitl.answer(session_dir, Reply(verdict=verdict, notes=command.notes, by=command.by,
+                                       channel="cockpit"))
+    except RuntimeError as error:
+        return _record(here, _outcome(command, ok=False, detail=str(error)))
+    state = artifacts.read_run(session_dir)
+    if state is not None and operate.still_running(state):
+        return _record(here, _outcome(command, ok=True, detail=(
+            f"{verdict} recorded for {command.gate} round {command.round}: the run is asking "
+            f"in place and takes it at once")))
+    return _launched(here, command, Launch(
+        ["resume", command.session], f"{verdict} recorded for {command.gate} round "
+        f"{command.round}, and {command.session} relaunched to act on it"))
+
+
+def _run(here: Here, command: Command) -> CommandRecord:
+    """`asf run <workflow> <prompt>` for the station's own person, recorded as
+    triggered by them, and unattended — its gates wait for the cockpit's inbox.
+
+    The prompt goes in a file beside the record rather than on the command
+    line, where a prompt that happens to name a file in the repository would
+    be read as that file (`utils.resolve_prompt`)."""
+    from .session import TRIGGERED_BY_ENV       # here, not above: session imports this module
+
+    adw_id = new_id(8)
+    prompt = _beside(here, command.id, ".prompt.md")
+    ensure_dir(prompt.parent)
+    write_atomic(prompt, command.prompt)
+    return _launched(here, command, Launch(
+        ["run", command.workflow, str(prompt), "--adw-id", adw_id],
+        f"started session {adw_id} ({command.workflow}) on this station",
+        env={TRIGGERED_BY_ENV: command.by}, started=adw_id))
+
+
+@dataclass
+class Launch:
+    """One `asf <args>` a command starts, and what its record says it did:
+    `detail`, and for a run, the session it `started`."""
+
+    args: list[str]
+    detail: str
+    env: dict[str, str] = dataclasses.field(default_factory=dict)
+    started: str = ""
+
+
+def _launched(here: Here, command: Command, launch: Launch) -> CommandRecord:
+    """Keep the record, start `asf <args>` detached, then say so in the session.
+
+    Kept first, so a second delivery finds the record and starts nothing,
+    even when this process dies between the two; a launch that fails replaces
+    the record before anything has been said about it.
+    """
+    record = _outcome(command, ok=True, detail=launch.detail, started=launch.started)
+    _keep(here, record)
+    argv = [sys.executable, operate.RUNNER, "--config", here.config_path, *launch.args]
+    try:
+        here.launch(argv, {hitl.UNATTENDED_ENV: "1", **launch.env}, here.main_root,
+                    _beside(here, command.id, ".log"))
+    except OSError as error:
+        record = _outcome(command, ok=False,
+                          detail=f"could not launch `asf {launch.args[0]}`: {error}")
+        _keep(here, record)
+    _tell(here, record)
     return record
 
 
-def _session_dir(cfg: FactoryConfig, main_root: Path, adw_id: str) -> Path:
-    return artifacts.sessions_root(main_root, cfg.defaults.data_dir) / Path(adw_id).name
+def _beside(here: Here, command_id: str, suffix: str) -> Path:
+    """A file kept next to a command's record: its prompt, its launch's output."""
+    return record_path(here.main_root, here.cfg.defaults.data_dir, command_id).with_suffix(suffix)
+
+
+_ACTS: dict[str, Callable[[Here, Command], CommandRecord]] = {
+    "kill": _kill, "resume": _resume, "answer": _answer, "abort": _answer, "run": _run}
+
+
+# ── the record ───────────────────────────────────────────────────────────────
+
+def _outcome(command: Command, ok: bool, detail: str, started: str = "") -> CommandRecord:
+    return CommandRecord(command=command, ok=ok, detail=detail[:DETAIL_CHARS], at=now_iso(),
+                         started=started)
+
+
+def _record(here: Here, record: CommandRecord) -> CommandRecord:
+    _keep(here, record)
+    _tell(here, record)
+    return record
+
+
+def _keep(here: Here, record: CommandRecord) -> None:
+    """Write the outcome where a second delivery of the same id finds it."""
+    path = record_path(here.main_root, here.cfg.defaults.data_dir, record.command.id)
+    ensure_dir(path.parent)
+    write_atomic(path, record.model_dump_json(indent=2))
+
+
+def _tell(here: Here, record: CommandRecord) -> None:
+    """Tell the session the command names, which ships it to the cockpit. A
+    command naming no session here — a run, or one refused for naming a
+    session this station does not hold — has its result carried by the next
+    poll instead (`Steering`)."""
+    if carried(here, record.command):
+        events.emit(_session_dir(here, record.command.session), _result(record))
+
+
+def carried(here: Here, command: Command) -> bool:
+    """Whether `command`'s result travels in a session of this station's."""
+    return bool(command.session) and (_session_dir(here, command.session)
+                                      / artifacts.RUN_FILE).is_file()
+
+
+def _result(record: CommandRecord) -> CommandResult:
+    command = record.command
+    return CommandResult(command_id=command.id, verb=command.verb,
+                         adw_id=record.started or command.session, by=command.by,
+                         ok=record.ok, detail=record.detail)
+
+
+def _session_dir(here: Here, adw_id: str) -> Path:
+    return artifacts.sessions_root(here.main_root, here.cfg.defaults.data_dir) / Path(adw_id).name
 
 
 def _detail(said: list[str]) -> str:
@@ -306,21 +536,23 @@ class Steering:
     station loop, asking for the rest, and the sign the station is online.
     `watchers` is what the station loop runs; a run cannot know, and says None.
 
+    A result with no session of this station's to travel in — a run, which
+    starts its session rather than naming one — goes with the next poll, as
+    the same `command_result` payload, and again whenever the cockpit delivers
+    that command again, until a poll that carried it was answered.
+
     A cockpit that refuses the token (revoked, or issued by another cockpit's
     database) is not asked again by this process — commands stop, shipping
     goes on, and it is said once.
     """
 
-    def __init__(self, cfg: FactoryConfig, main_root: Path,
-                 credential: Callable[[], StationCredential | None], session: str = "",
-                 watchers: Callable[[], list[str]] | None = None,
-                 interval: float = POLL_INTERVAL):
-        self.cfg = cfg
-        self.main_root = Path(main_root)
+    def __init__(self, here: Here, credential: Callable[[], StationCredential | None],
+                 session: str = "", watchers: Callable[[], list[str]] | None = None):
+        self.here = dataclasses.replace(here, main_root=Path(here.main_root))
         self.credential = credential
         self.session = session
         self.watchers = watchers
-        self.interval = interval
+        self.interval = POLL_INTERVAL      # seconds between polls; a test sets 0
         self.say: Callable[[str], None] = lambda text: print(f"station: {text}",
                                                              file=sys.stderr, flush=True)
         self.revoked = False
@@ -328,6 +560,7 @@ class Steering:
         self._report: StationReport | None = None
         self._reported_at = 0.0
         self._said: set[str] = set()
+        self._results: dict[str, dict] = {}      # command id -> its result, until a poll took it
 
     def poll(self, cockpit: Cockpit, transport: station.Transport) -> None:
         now = time.monotonic()
@@ -340,6 +573,9 @@ class Steering:
         body = {"station": held.station, "report": self.report().model_dump(mode="json")}
         if self.session:
             body["session"] = self.session
+        sending = dict(self._results)
+        if sending:
+            body["results"] = list(sending.values())
         try:
             status, answer = transport(f"{cockpit.url}/commands", held.token, body)
         except (OSError, ValueError):
@@ -354,16 +590,21 @@ class Steering:
             self._say(f"poll {status}", f"the cockpit refused a command poll: HTTP {status}: "
                                         f"{answer.get('error') or 'no reason given'}")
             return
+        for command_id in sending:
+            self._results.pop(command_id, None)
+        here = dataclasses.replace(self.here, owner=held.owner)
         for raw in answer.get("commands") or []:
-            self._carry(raw)
+            self._carry(here, raw)
 
-    def _carry(self, raw: object) -> None:
+    def _carry(self, here: Here, raw: object) -> None:
         try:
             command = Command.model_validate(raw)
         except ValueError as error:
             self._say("malformed", f"the cockpit sent a command this station cannot read: {error}")
             return
-        record = carry_out(self.cfg, self.main_root, command)
+        record = carry_out(here, command)
+        if record is not None and not carried(here, command):
+            self._results[command.id] = _result(record).model_dump(mode="json")
         if record is not None:
             self.say(f"{command.verb} {command.session} by {command.by or 'nobody'}: "
                      f"{'done' if record.ok else 'refused'}"
@@ -372,9 +613,9 @@ class Steering:
     def report(self) -> StationReport:
         now = time.monotonic()
         if self._report is None or now - self._reported_at > REPORT_EVERY:
-            self._report = StationReport(
-                verbs=obeyed(self.cfg), head=_head(self.main_root),
-                config_hash=config_hash(self.main_root, self.cfg.defaults.data_dir))
+            cfg, main_root = self.here.cfg, self.here.main_root
+            self._report = StationReport(verbs=obeyed(cfg), head=_head(main_root),
+                                         config_hash=config_hash(main_root, cfg.defaults.data_dir))
             self._reported_at = now
         watchers = self.watchers() if self.watchers is not None else None
         return self._report.model_copy(update={"watchers": watchers})

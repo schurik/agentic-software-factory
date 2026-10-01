@@ -161,6 +161,12 @@ def _alive(pid: int) -> bool:
         return True
 
 
+def still_running(state) -> bool:
+    """Whether the process `run.json` names is alive: a record that says
+    `running` outlives a process that was SIGKILLed or lost its machine."""
+    return state.status == "running" and bool(state.pid) and _alive(state.pid)
+
+
 def rebuild(command: list[str], adw_id: str, config_path: str) -> list[str]:
     """The recorded argv, re-pointed at this session and told to replay.
 
@@ -188,29 +194,40 @@ def rebuild(command: list[str], adw_id: str, config_path: str) -> list[str]:
     return [sys.executable, RUNNER, "--config", config_path, *rest, "--adw-id", adw_id, "--resume"]
 
 
+def unresumable(cfg: FactoryConfig, adw_id: str) -> str:
+    """Why `adw_id` cannot be resumed right now, or "" when it can.
+
+    Asked by `relaunch` and by a station before it obeys a cockpit's resume
+    (`engine/commands.py`), so both refuse in the same words.
+    """
+    session_dir = sessions_dir(cfg) / adw_id
+    state = artifacts.read_run(session_dir)
+    if state is None:
+        return (f"{adw_id}: no session recorded at {session_dir} — `asf sessions` lists "
+                f"what this repo has run")
+    if still_running(state):
+        return f"{adw_id}: still running as pid {state.pid} — nothing to resume"
+    if state.status == "waiting" and state.waiting_for is not None:
+        waiting = state.waiting_for
+        if hitl.read_decision(session_dir, waiting.gate, waiting.round) is None:
+            return (f"{adw_id}: waiting at gate {waiting.gate} (round {waiting.round}) with no "
+                    f"decision recorded — {_answer_hint(adw_id)} first; resuming now would "
+                    f"stop at the same gate")
+    if not state.command:
+        return (f"{adw_id}: the session recorded no invocation, so there is nothing to "
+                f"repeat. Re-run the workflow by hand with --adw-id {adw_id} --resume")
+    return ""
+
+
 def relaunch(cfg: FactoryConfig, config_path: str, adw_id: str, dry_run: bool = False,
              passthrough: tuple[str, ...] = ()) -> int:
     """Re-launch the workflow that recorded `adw_id`, with `--resume`."""
     session_dir = sessions_dir(cfg) / adw_id
+    refused = unresumable(cfg, adw_id)
+    if refused:
+        print(refused)
+        return 1
     state = artifacts.read_run(session_dir)
-    if state is None:
-        print(f"{adw_id}: no session recorded at {session_dir} — `asf sessions` lists "
-              f"what this repo has run")
-        return 1
-    if state.status == "running" and state.pid and _alive(state.pid):
-        print(f"{adw_id}: still running as pid {state.pid} — nothing to resume")
-        return 1
-    if state.status == "waiting" and state.waiting_for is not None:
-        waiting = state.waiting_for
-        if hitl.read_decision(session_dir, waiting.gate, waiting.round) is None:
-            print(f"{adw_id}: waiting at gate {waiting.gate} (round {waiting.round}) with no "
-                  f"decision recorded — {_answer_hint(adw_id)} first; resuming now would "
-                  f"stop at the same gate")
-            return 1
-    if not state.command:
-        print(f"{adw_id}: the session recorded no invocation, so there is nothing to "
-              f"repeat. Re-run the workflow by hand with --adw-id {adw_id} --resume")
-        return 1
     argv = rebuild(state.command, adw_id, config_path) + list(passthrough)
     if state.status == "success":
         print(f"note: {adw_id} ended in success — resuming replays it and re-runs what "
