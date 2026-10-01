@@ -49,7 +49,9 @@ _Avoid_: agent, runner, node, host
 **Claim**:
 One station's exclusive right, granted by a shared cockpit, to start a session for one work item.
 It is what keeps two stations' watchers from both starting the same issue; without a shared cockpit
-there is no claim, only the rule of one watcher per repository.
+there is no claim, only the rule of one watcher per repository. Held by that session until it
+finishes or is aborted — kept on failure and while its station is offline — and otherwise freed only
+by a writer's **release**, which requeues the item and **abandons** the session.
 _Avoid_: lock, lease, assignment
 
 **Viewer**:

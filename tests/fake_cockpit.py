@@ -12,6 +12,11 @@ answering with the queued commands for it — a run's own poll gets the ones
 naming its session, the station loop's the rest. A command is done when a
 `command_result` naming it is ingested, never when it was sent — or, for one
 that names no session the station holds (a `run`), when a poll carries it.
+CLAIMS (`claims.ts`): asked with the ingest token, keyed on (repo, kind,
+number), granted to the first session that asks and to that session on that
+station again, refused (409) to any other and to a session a writer abandoned; held until that session's events say it finished
+or was aborted — a failure keeps it — and given back by its station only for a
+session that never started. `release` is a writer freeing one in the cockpit.
 
 It is called exactly as `engine.station`'s transport is — `(url, token, body)
 -> (status, body)` — and raises `ConnectionRefusedError` while it is `down`,
@@ -51,6 +56,16 @@ class Queued:
 
 
 @dataclass
+class Claim:
+    station: str
+    name: str
+    session: str
+    since: int = 0
+    aborted: bool = False
+    requeue: dict = field(default_factory=dict)
+
+
+@dataclass
 class Poll:
     station: str
     session: str
@@ -70,6 +85,10 @@ class FakeCockpit:
         self.polls: list[Poll] = []
         self.results: dict[str, dict] = {}           # command id -> the command_result payload
         self.redeliver = False                       # a station that never answered gets it again
+        self.claims: dict[tuple[str, str, int], Claim] = {}   # (repo, kind, number) -> held
+        self.freed: list[dict] = []                  # every claim let go: which, why, by whom
+        self.grants_claims = True                    # False: a cockpit older than claims (404)
+        self.abandoned: dict[str, str] = {}          # session -> the writer who released its claim
 
     def __call__(self, url: str, token: str, body: dict) -> tuple[int, dict]:
         if self.hold is not None:
@@ -77,7 +96,8 @@ class FakeCockpit:
         if self.down:
             raise ConnectionRefusedError(f"{url}: connection refused")
         for path, route in (("/ingest", self._ingest), ("/station/register/poll", self._handed),
-                            ("/station/register", self._register), ("/commands", self._poll)):
+                            ("/station/register", self._register), ("/commands", self._poll),
+                            ("/claims", self._claim)):
             if url.endswith(path):
                 return route(token, body)
         raise AssertionError(f"no such route on the fake cockpit: {url}")
@@ -96,6 +116,7 @@ class FakeCockpit:
             if event["seq"] not in session and event["kind"] == "command_result":
                 self.results[event["payload"]["command_id"]] = event["payload"]
             session.setdefault(event["seq"], event)
+        self._settle_claims(body["session"])
         return 200, {"acked": self.acked(body["session"])}
 
     def acked(self, session: str) -> int:
@@ -175,3 +196,68 @@ class FakeCockpit:
         return 200, {"commands": [{"id": c.id, "verb": c.verb, "session": c.session,
                                    "notes": c.notes, "by": c.by, "expires_at": c.expires_at,
                                    **c.fields} for c in due]}
+
+    # ── claims ───────────────────────────────────────────────────────────────
+
+    def _claim(self, token: str, body: dict) -> tuple[int, dict]:
+        if not self.grants_claims:
+            return 404, {}
+        if token != self.token:
+            return 401, {"error": "this ingest token is not one the cockpit issued"}
+        key = (body.get("repo") or "acme/widgets").lower(), body["kind"], int(body["number"])
+        station = body["station"]
+        held = self.claims.get(key)
+        if body.get("op") == "drop":
+            mine = held is not None and (held.station, held.session) == (station["id"],
+                                                                         body["session"])
+            if mine:
+                self._free(key, "never started")
+            return 200, {"dropped": mine}
+        if body["session"] in self.abandoned:
+            return 409, {"granted": False, "abandoned": {"session": body["session"],
+                                                         "by": self.abandoned[body["session"]]}}
+        if held is None:
+            self.claims[key] = Claim(station=station["id"], name=station["name"],
+                                     session=body["session"], since=int(body.get("since") or 0),
+                                     requeue=body.get("requeue") or {})
+        elif (held.station, held.session) != (station["id"], body["session"]):
+            return 409, {"granted": False, "held": {"station": held.station, "name": held.name,
+                                                    "session": held.session}}
+        return 200, {"granted": True}
+
+    def _settle_claims(self, session: str) -> None:
+        """What a session's events say about the claims it holds, in seq order."""
+        stored = self.stored.get(session, {})
+        for key, claim in list(self.claims.items()):
+            if claim.session != session:
+                continue
+            for seq in range(claim.since + 1, self.acked(session) + 1):
+                event = stored[seq]
+                payload = event["payload"]
+                if (event["kind"] == "decision_recorded"
+                        and (payload.get("decision") or {}).get("verdict") == "abort"):
+                    claim.aborted = True
+                if event["kind"] == "session_finished" and (payload.get("status") == "success"
+                                                            or claim.aborted):
+                    self._free(key, "aborted" if claim.aborted else "finished")
+                    break
+
+    def _free(self, key: tuple[str, str, int], why: str, by: str = "") -> None:
+        claim = self.claims.pop(key)
+        self.freed.append({"repo": key[0], "kind": key[1], "number": key[2],
+                           "session": claim.session, "why": why, "by": by})
+
+    def taken(self, kind: str, number: int, session: str, station: str = "st_elsewhere",
+             name: str = "bob@laptop:widgets", repo: str = "acme/widgets") -> None:
+        """A claim another station took earlier."""
+        self.claims[(repo, kind, number)] = Claim(station=station, name=name, session=session)
+
+    def release(self, kind: str, number: int, by: str, repo: str = "acme/widgets") -> None:
+        """A writer's Release claim, in the cockpit: the session is abandoned."""
+        self.abandoned[self.claims[(repo, kind, number)].session] = by
+        self._free((repo, kind, number), "released", by)
+
+    def holder(self, kind: str, number: int, repo: str = "acme/widgets") -> str:
+        """The session holding a claim, or ""."""
+        held = self.claims.get((repo, kind, number))
+        return held.session if held else ""

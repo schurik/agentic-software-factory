@@ -158,6 +158,10 @@ issues:
     "asf:ship": issue
     "asf:refine": refine
     "asf:refine-ship": refine-ship
+  # The label is the queue, NOT a lock: two watchers that listed the same queued
+  # issue both flip it. With a shared cockpit (ASF_COCKPIT_URL) a watcher asks
+  # it for a claim first, and exactly one station starts the issue; without
+  # one, run ONE issues watcher per repository.
   states:                          # the label state machine
     queued:  "asf:queued"
     running: "asf:running"

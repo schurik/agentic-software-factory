@@ -161,6 +161,23 @@ before — `None` when there are none, never omitted.
   theirs they pick — and the station takes it only from the person it is registered to. It starts
   `asf run <workflow> <prompt>` detached and unattended, recorded as triggered by that person,
   after checking the workflow takes a prompt.
+- **Claims: a shared cockpit decides which station starts a work item** (ADR 0003). The forge
+  label is not a lock — two watchers that listed the same queued issue both flip it — so with
+  `ASF_COCKPIT_URL` set, the issues watcher, the pull-request watcher and `asf run <workflow>
+  <number>` each ask the cockpit for a claim on the item before they touch a label, and exactly one
+  station is granted it; the others leave it as it is and say who holds it. `asf run … --force`
+  starts a run by hand without asking. A claim is held until its session finishes or is aborted,
+  and kept when it fails (so `asf resume` still works) and while its station is offline; a station
+  gives back only a claim no session used (its label would not flip, or its run never started). A
+  writer frees one on the session page with **Release claim**, which relabels the item
+  `asf:queued` (a pull request loses `asf:pr-failed`) as them, abandons the session, and keeps who
+  did it. A resume asks too, and is refused for a session a writer abandoned — so it cannot carry
+  on beside the run that took its item afresh — but goes on when the cockpit does not answer, since
+  its session holds the claim already. Without a shared cockpit there are no claims, and `asf issues once|loop` warns as it
+  starts that only one issues watcher per repository is safe; a shared cockpit too old to grant
+  claims is treated the same, and said once.
+- A watcher that holds a claim launches its run as the session the claim names (`--adw-id`), and
+  tells it so (`ASF_CLAIMED`), so the run does not ask again.
 - Each verb waits for an offline station as long as its TTL — kill 5 minutes, run 15, resume an
   hour, an answer or abort 7 days — showing "queued, station offline" until then, and the cockpit
   expires what nobody took every minute.
@@ -209,6 +226,12 @@ to push a branch and open nothing) and set `worktree.publish` to say when it is 
 Gates answered on the work item and the inbox come with the same `--force` re-stamp: `just answers`
 (or `just up`) then hears `/approve`, `/reject …` and `/abort` replies. A reply whose first line
 already began that way was discussion before and is a verdict now.
+
+Claims come with the same `--force` re-stamp and need nothing in `asf/factory.yaml`; they apply
+once `ASF_COCKPIT_URL` names a shared cockpit new enough to grant them — upgrade the team's cockpit
+first. From then on a failed issue run keeps its claim: requeueing the issue by hand no longer
+starts it again on another station — resume the session, or Release claim in the cockpit, which
+requeues it. Without a shared cockpit, run one issues watcher per repository.
 
 Who triggered a run comes with the same re-stamp, and needs nothing in `asf/factory.yaml`: the
 default `issues.labeller_command` applies without the key (the `.new` beside it shows it). Set it

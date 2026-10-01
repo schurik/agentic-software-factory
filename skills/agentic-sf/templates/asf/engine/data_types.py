@@ -1106,11 +1106,15 @@ class CockpitConfig(BaseModel):
 
 
 class IssueStates(BaseModel):
-    """The label state machine. The flip from `queued` IS the lock.
+    """The label state machine: what a person sees of a work item's progress.
 
-    No queue and no state file: the watcher claims an issue by moving its label,
-    which is atomic at the forge and visible to humans in the place they already
-    look. Two watchers racing the same issue means one of them loses the flip.
+    No queue and no state file: the label is the queue, and moving it is
+    visible to humans in the place they already look. It is NOT a lock. The
+    forge has no conditional label edit, so two watchers that listed the same
+    queued issue both flip it and both come back ok (ADR 0003). With a shared
+    cockpit, a watcher asks it for a claim before it touches the label, and
+    exactly one is granted (`engine/claims.py`); without one, the rule is one
+    issues watcher per repository, which the watcher says when it starts.
     """
 
     queued: str = "asf:queued"
@@ -1199,8 +1203,10 @@ class IssuesConfig(BaseModel):
 class PullRequestStates(BaseModel):
     """The one label this path needs, and why it is not a state machine.
 
-    An issue is claimed by moving a label, because nothing else at the forge
-    records that a run took it. A review thread already carries that state:
+    An issue's progress is told by moving a label, because nothing else at the
+    forge records that a run took it — though which station takes it is a
+    shared cockpit's claim, not the label (ADR 0003). A review thread already
+    carries that state:
     unresolved means outstanding, resolved means handled, and both are visible
     to the reviewer who wrote it. So there is no `queued`/`running`/`done` here.
 
@@ -1441,6 +1447,17 @@ class SessionSpec(BaseModel):
     input: ChapterInput = "issue"
 
 
+class Invocation(BaseModel):
+    """`asf run <workflow> <request>` as typed, for `workflow.run`: the
+    request (a prompt, or a work item's number) and the flags beside it."""
+
+    request: str
+    adw_id: Optional[str] = None    # --adw-id: join or pin a session
+    resume: bool = False            # --resume: replay what the session recorded
+    hitl: str = ""                  # --hitl
+    force: bool = False             # --force: start a work item without asking for its claim
+
+
 # ── Integration (landing a run's branch) ─────────────────────────────────────
 
 class IntegrationRequest(BaseModel):
@@ -1475,6 +1492,44 @@ class IssueRef(BaseModel):
     project: str = ""
 
 
+# ── Claims (engine/claims.py) ────────────────────────────────────────────────
+
+ClaimKind = Literal["issue", "pr"]
+
+
+class ClaimAsk(BaseModel):
+    """One work item a starter asks a shared cockpit for, before it touches a
+    label (ADR 0003): which item, and the session that will hold it.
+
+    `repo` is the work item's repository (`owner/name`), "" for the factory's
+    own. `session` is the adw_id the run will have: minted by the starter for
+    an issue, named by the branch for a pull request.
+    """
+
+    kind: ClaimKind
+    number: int
+    repo: str = ""
+    session: str
+
+
+ClaimOutcome = Literal["granted", "held", "abandoned", "alone", "unreachable", "refused"]
+
+
+class ClaimAnswer(BaseModel):
+    """What asking for a claim came to. `alone` is no shared cockpit to ask:
+    there are no claims then, and the starter goes ahead as it always did.
+    `held` and `abandoned` are the cockpit's word — another session has it, or
+    a writer released this one's — and `unreachable` and `refused` are no word
+    at all. `detail` is the sentence a person reads."""
+
+    outcome: ClaimOutcome
+    detail: str = ""
+
+    @property
+    def granted(self) -> bool:
+        return self.outcome in ("granted", "alone")
+
+
 class Launch(BaseModel):
     """One run a watcher starts: which workflow, on which work item, and — for
     an issue — who triggered it.
@@ -1489,6 +1544,9 @@ class Launch(BaseModel):
     workflow: str
     number: int
     triggered_by: Optional[str] = None
+    # The claim a shared cockpit granted for this launch: the run starts as the
+    # session it names, and is told it is already claimed. None without one.
+    claim: Optional[ClaimAsk] = None
 
 
 class IssueContext(BaseModel):

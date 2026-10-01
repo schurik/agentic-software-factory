@@ -152,7 +152,7 @@ IN_PLACE_ALLOWED = {
     # exactly what an agent's own tools do, and what permissions.py then diffs.
     ("engine/harnesses/fake.py", "_apply"),
     # An flock target. It holds no content; the handle is the lock.
-    ("engine/watch.py", "claim"),
+    ("engine/watch.py", "local_lock"),
     # A private temp file, hard-linked into place whole. `write_atomic`'s
     # `os.replace` would overwrite a racing process's station id; a link fails
     # instead, and the loser reads the winner's.

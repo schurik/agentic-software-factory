@@ -11,7 +11,9 @@ Usage:
     uv run asf/asf.py labels [--create]          the forge labels this config names
     uv run asf/asf.py run <workflow> "<prompt or path/to/prompt.md>"
                         [--adw-id a1b2c3d4] [--resume] [--hitl all|none|every|plan]
-    uv run asf/asf.py run <workflow> <number>    for a workflow with input: issue | pr
+    uv run asf/asf.py run <workflow> <number> [--force]
+                                                 for a workflow with input: issue | pr;
+                                                 --force starts it without a claim
 
     uv run asf/asf.py pending                    runs stopped at a gate, waiting for you
     uv run asf/asf.py show <adw_id>              what a waiting run wants you to read
@@ -47,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from engine import commands, factory, operate, station, supervise, utils, watch, workflow  # noqa: E402
+from engine.data_types import Invocation  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
 
@@ -97,7 +100,8 @@ def cmd_run(args) -> int:
     loaded = workflow.load(args.workflow, args.config)
     # A prompt may be a path to a file; an issue or pull request number is not.
     request = args.prompt if loaded.input != "prompt" else utils.resolve_prompt(args.prompt)
-    return workflow.run(loaded, request, args.adw_id, args.resume, args.hitl)
+    return workflow.run(loaded, Invocation(request=request, adw_id=args.adw_id, resume=args.resume,
+                                           hitl=args.hitl, force=args.force))
 
 
 def cmd_pending(args) -> int:
@@ -132,6 +136,7 @@ def cmd_issues(args) -> int:
         return watch.issues_status(cfg)
     _watched_workflows(args.config, cfg.issues.route.values(), "issue")
     if args.action == "once":
+        watch.warn_alone()
         return watch.issues_once(cfg, args.config)
     return watch.issues_loop(cfg, args.config, args.interval)
 
@@ -226,6 +231,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--hitl", default="",
                      help="which gates stop for you: all | none | every | gate,names "
                           "— over the workflow's and factory.yaml's say")
+    run.add_argument("--force", action="store_true",
+                     help="start an issue or pull request run without asking the shared cockpit "
+                          "for its claim — for recovering by hand")
     run.set_defaults(func=cmd_run)
 
     _config_on(sub.add_parser("pending", help="runs stopped at a gate")
