@@ -61,6 +61,26 @@ export interface Distance {
   behind: number;
 }
 
+/** A file as a commit should hold it: its path from the repository's root, and its whole text. */
+export interface Change {
+  path: string;
+  content: string;
+}
+
+/** A pull request to open: from branch `head` into branch `base`. */
+export interface Proposal {
+  head: string;
+  base: string;
+  title: string;
+  body: string;
+}
+
+/** A pull request as the forge opened it. */
+export interface Pull {
+  number: number;
+  url: string;
+}
+
 export type Role = Infer<typeof roleValidator>;
 export type Repository = Infer<typeof repositoryValidator>;
 export type Reach = Infer<typeof reachValidator>;
@@ -121,6 +141,20 @@ export interface Forge {
    * for. A label the issue does not carry is already off: not an error.
    */
   unlabel(repo: string, number: number, label: string): Promise<void>;
+  /**
+   * A commit on top of commit `base` of `repo` in which each of `changes`
+   * holds exactly its text and every other file is as `base` has it — made
+   * AS the person this forge acts for, who is its author. It is on no branch
+   * yet (`branch`). Its sha.
+   */
+  commit(repo: string, base: string, changes: Change[], message: string): Promise<string>;
+  /**
+   * Branch `name` of `repo`, made at commit `sha` AS the person this forge
+   * acts for. False, and nothing made, when a branch of that name exists.
+   */
+  branch(repo: string, name: string, sha: string): Promise<boolean>;
+  /** A pull request on `repo`, opened AS the person this forge acts for: its author is them, never the cockpit. */
+  pull(repo: string, proposal: Proposal): Promise<Pull>;
 }
 
 /** Where a factory's config lives: a repository is a factory when its default branch holds this. */

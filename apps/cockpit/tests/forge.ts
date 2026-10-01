@@ -37,6 +37,35 @@ interface Repo {
   issues: Map<number, Issue>;
   /** Each issue's label additions, by its number, in order. */
   labelled: Map<number, Labelled[]>;
+  /** Its branches other than the default one: name → the sha it is at. */
+  branches: Map<string, string>;
+  /** Each tree the git database holds, by its sha: what a file holds in it. */
+  treeObjects: Map<string, Map<string, string>>;
+  /** Each commit's tree's sha, by the commit's sha. */
+  treeOf: Map<string, string>;
+  /** The commits made through the git database, by their sha. */
+  made: Map<string, Made>;
+  /** Its pull requests, in the order they were opened. */
+  pulls: Pull[];
+}
+
+/** A commit made through the git database: by whom, through which kind of token, on what. */
+export interface Made {
+  author: string;
+  via: "person" | "user" | "installation";
+  message: string;
+  parents: string[];
+}
+
+/** A pull request as opened: by whom, through which kind of token. */
+export interface Pull {
+  number: number;
+  title: string;
+  body: string;
+  head: string;
+  base: string;
+  author: string;
+  via: "person" | "user" | "installation";
 }
 
 interface Issue {
@@ -245,6 +274,11 @@ export class FakeForge {
       labels: new Map(),
       issues: new Map(),
       labelled: new Map(),
+      branches: new Map(),
+      treeObjects: new Map(),
+      treeOf: new Map(),
+      made: new Map(),
+      pulls: [],
     });
   }
 
@@ -286,8 +320,37 @@ export class FakeForge {
     for (const [path, content] of Object.entries(files)) tree.set(path, content);
     repo.trees.set(sha, tree);
     repo.parents.set(sha, repo.tip);
+    repo.treeOf.set(sha, sha40(`tree ${sha}`));
+    repo.treeObjects.set(sha40(`tree ${sha}`), tree);
     repo.tip = sha;
     for (const path of Object.keys(files)) repo.files.add(path);
+  }
+
+  /** Branch `branch` of `name`, at `sha`. */
+  branch(name: string, branch: string, sha: string): void {
+    this.known(name).branches.set(branch, sha);
+  }
+
+  /** The branches of `name` other than its default one. */
+  branches(name: string): string[] {
+    return [...this.known(name).branches.keys()];
+  }
+
+  /** The pull requests opened on `name`. */
+  pulls(name: string): Pull[] {
+    return [...this.known(name).pulls];
+  }
+
+  /** What `path` holds on `name` at `ref` — a branch or a commit — or undefined when it holds nothing there. */
+  at(name: string, ref: string, path: string): string | undefined {
+    const repo = this.known(name);
+    return repo.trees.get(repo.branches.get(ref) ?? ref)?.get(path);
+  }
+
+  /** The commit made through the git database that `ref` — a branch or a commit — is at. */
+  commitOf(name: string, ref: string): Made | undefined {
+    const repo = this.known(name);
+    return repo.made.get(repo.branches.get(ref) ?? ref);
   }
 
   /** A push to the default branch that adds or removes files. */
@@ -469,6 +532,25 @@ export class FakeForge {
       issue.labels = issue.labels.filter((name) => name !== label);
       return this.reply(request, token, 200, issue.labels.map((name) => ({ name })));
     }
+    const gitCommit = /^\/repos\/([^/]+\/[^/]+)\/git\/commits\/([^/]+)$/.exec(path);
+    if (gitCommit && method === "GET" && !as("app")) {
+      const repo = this.repos.get(gitCommit[1].toLowerCase());
+      const tree = repo?.treeOf.get(gitCommit[2]);
+      if (!repo || !this.reads(bearer, repo) || !tree) return this.reply(request, token, 404, { message: "Not Found" });
+      return this.reply(request, token, 200, { sha: gitCommit[2], tree: { sha: tree } });
+    }
+    const writing = /^\/repos\/([^/]+\/[^/]+)\/(git\/trees|git\/commits|git\/refs|pulls)$/.exec(path);
+    if (writing && method === "POST" && bearer.kind !== "app") {
+      // The git database, refs and pull requests take write — unlike commenting and labelling.
+      const repo = this.repos.get(writing[1].toLowerCase());
+      if (!repo || !this.reads(bearer, repo)) return this.reply(request, token, 404, { message: "Not Found" });
+      if (bearer.kind !== "installation" && RANK.indexOf(repo.roles[bearer.login]) < RANK.indexOf("write")) {
+        return this.reply(request, token, 403, { message: "Resource not accessible by integration" });
+      }
+      const author = bearer.kind === "installation" ? `${this.app?.slug ?? "app"}[bot]` : bearer.login;
+      return this.reply(request, token, ...this.write(repo, writing[2], (await request.json()) as Record<string, unknown>,
+                                                       author, bearer.kind));
+    }
     const comparing = /^\/repos\/([^/]+\/[^/]+)\/compare\/([^/.]+)\.\.\.([^/.]+)$/.exec(path);
     if (comparing && method === "GET" && !as("app")) {
       const repo = this.repos.get(comparing[1].toLowerCase());
@@ -486,11 +568,11 @@ export class FakeForge {
     const branch = /^\/repos\/([^/]+\/[^/]+)\/branches\/(.+)$/.exec(path);
     if (branch && method === "GET" && !as("app")) {
       const repo = this.repos.get(branch[1].toLowerCase());
-      // Only the default branch is ever committed to here, and only once a test commits.
-      if (!repo || !this.reads(bearer, repo) || decodeURIComponent(branch[2]) !== repo.defaultBranch || repo.tip === null) {
-        return this.reply(request, token, 404, { message: "Branch not found" });
-      }
-      return this.reply(request, token, 200, { name: repo.defaultBranch, commit: { sha: repo.tip } });
+      // The default branch, once a test commits, and any branch made since.
+      const name = decodeURIComponent(branch[2]);
+      const at = repo && (name === repo.defaultBranch ? repo.tip : repo.branches.get(name) ?? null);
+      if (!repo || !this.reads(bearer, repo) || !at) return this.reply(request, token, 404, { message: "Branch not found" });
+      return this.reply(request, token, 200, { name, commit: { sha: at } });
     }
     const trees = /^\/repos\/([^/]+\/[^/]+)\/git\/trees\/([^/]+)$/.exec(path);
     if (trees && method === "GET" && !as("app")) {
@@ -518,6 +600,48 @@ export class FakeForge {
       return this.reply(request, token, 200, { type: "file", path });
     }
     return this.reply(request, token, 404, { message: `the fake forge has no ${method} ${path} for ${bearer.kind}` });
+  }
+
+  /** A write to `repo`'s git database, a ref or a pull request: the status and body GitHub answers it with. */
+  private write(repo: Repo, what: string, body: Record<string, unknown>, author: string,
+                via: Made["via"]): [number, unknown] {
+    const invalid: [number, unknown] = [422, { message: "Validation Failed" }];
+    if (what === "git/trees") {
+      const base = repo.treeObjects.get(String(body.base_tree));
+      if (!base || !Array.isArray(body.tree)) return invalid;
+      const tree = new Map(base);
+      for (const entry of body.tree as Record<string, unknown>[]) {
+        if (typeof entry.path !== "string" || typeof entry.content !== "string" || entry.type !== "blob") return invalid;
+        tree.set(entry.path, entry.content);
+      }
+      const sha = sha40(`tree ${repo.treeObjects.size} ${[...tree].join()}`);
+      repo.treeObjects.set(sha, tree);
+      return [201, { sha }];
+    }
+    if (what === "git/commits") {
+      const tree = repo.treeObjects.get(String(body.tree));
+      const parents = Array.isArray(body.parents) ? body.parents.map(String) : [];
+      if (!tree || typeof body.message !== "string" || parents.some((parent) => !repo.trees.has(parent))) return invalid;
+      const sha = sha40(`commit ${repo.trees.size} ${body.tree} ${parents.join()}`);
+      repo.trees.set(sha, tree);
+      repo.treeOf.set(sha, String(body.tree));
+      repo.parents.set(sha, parents[0] ?? null);
+      repo.made.set(sha, { author, via, message: body.message, parents });
+      return [201, { sha, html_url: `https://${this.host}/${repo.name}/commit/${sha}` }];
+    }
+    if (what === "git/refs") {
+      const ref = /^refs\/heads\/(.+)$/.exec(String(body.ref));
+      if (!ref || !repo.trees.has(String(body.sha))) return invalid;
+      if (ref[1] === repo.defaultBranch || repo.branches.has(ref[1])) return [422, { message: "Reference already exists" }];
+      repo.branches.set(ref[1], String(body.sha));
+      return [201, { ref: body.ref, object: { sha: body.sha, type: "commit" } }];
+    }
+    const [head, base] = [String(body.head), String(body.base)];
+    if (!repo.branches.has(head) || base !== repo.defaultBranch || typeof body.title !== "string" || !body.title) return invalid;
+    const number = Math.max(0, ...repo.issues.keys()) + 1;
+    repo.issues.set(number, { title: body.title, state: "open", pull: true, labels: [] });
+    repo.pulls.push({ number, title: body.title, body: String(body.body ?? ""), head, base, author, via });
+    return [201, { number, html_url: `https://${this.host}/${repo.name}/pull/${number}`, user: { login: author } }];
   }
 
   /** Who `token` is, or null when it is nobody's, or has expired. */
@@ -714,6 +838,11 @@ function hash(text: string): string {
   let value = 5381;
   for (let index = 0; index < text.length; index += 1) value = ((value * 33) ^ text.charCodeAt(index)) >>> 0;
   return value.toString(16);
+}
+
+/** A sha of forty hex digits, the same for the same `seed`. */
+function sha40(seed: string): string {
+  return [0, 1, 2, 3, 4].map((at) => hash(`${at} ${seed}`).padStart(8, "0")).join("");
 }
 
 /** `sha` and every commit before it on `repo`. */

@@ -205,6 +205,12 @@ before — `None` when there are none, never omitted.
   branch, the check's result, and each station's drift from it ("3 commits behind", "local edits")
   from the HEAD and config hash its polls report. A factory with no CI workflow is "unchecked", not
   broken. A local cockpit with one factory opens straight onto its page.
+- **Config edits become pull requests opened as the person**: a writer edits the files under `asf/`
+  as text in the Config tab, with a diff preview, and the cockpit commits exactly what was typed —
+  comments included — on a `cockpit/<login>/<slug>` branch and opens the pull request into the
+  default branch as them, with a body saying where it came from. It checks YAML syntax only and
+  blocks the submit with the parse error; the repository's CI and branch protection do the rest.
+  Disabled, with the reason, below write.
 
 ### Upgrade
 

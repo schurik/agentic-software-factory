@@ -7,7 +7,7 @@ import type { ActionCtx } from "../_generated/server";
 import { localHost, localToken, mode } from "../model/mode";
 import { appForge } from "./app";
 import type { Forge } from "./forge";
-import { GitHub, Memory } from "./github";
+import { ForgeError, GitHub, Memory, RateLimited } from "./github";
 import { tokenForge } from "./token";
 
 export interface Opened {
@@ -42,3 +42,12 @@ export async function open(ctx: ActionCtx, { reserve = 0, user }: Asking = {}): 
     },
   };
 }
+
+/** What the forge said when it would not do something, as a refusal; anything else is thrown on. */
+export function forgeSaid(error: unknown): { ok: false; because: string } {
+  if (error instanceof ForgeError || error instanceof RateLimited) return { ok: false, because: error.message };
+  throw error;
+}
+
+/** What a viewer is told of a factory the mirror does not let them read: no more than that it is not theirs to see. */
+export const UNREADABLE = "no such factory among the ones you can read";

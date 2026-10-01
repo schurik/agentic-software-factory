@@ -1,21 +1,28 @@
+import type { ReactNode } from "react";
 import type { Look } from "@/convex/factory";
 import type { Drift } from "@/convex/model/drift";
 import { formatAgo } from "../format";
 import { type Page, short } from "./view";
 
 /**
- * The Config tab, read-only: the factory's config as the default branch holds
- * it (the files under `asf/`, linked to the forge), what the last `asf check
- * --json` there said, and each station's drift from it. Pure: the page's
- * query, the forge look and the drifts come in as props.
+ * The Config tab: the factory's config as the default branch holds it (the
+ * files under `asf/`, linked to the forge, each with an Edit that a writer
+ * may press and anyone else sees disabled with the reason), the editor when
+ * one is open, what the last `asf check --json` there said, and each
+ * station's drift from it. Pure: the page's query, the forge look, the drifts
+ * and the editor come in as props.
  */
-export function ConfigTab({ page, look, drifts, forge, now }: {
+export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor }: {
   page: Page;
   look: Look | null;
   drifts: Map<string, Drift>;
   /** The forge's web origin, e.g. https://github.com. */
   forge: string;
   now: number;
+  /** Open `path` in the editor. Without it the files are listed only. */
+  onEdit?: (path: string) => void;
+  /** The editor, when a file is open in it. */
+  editor?: ReactNode;
 }) {
   const { check } = page;
   const tip = look?.ok ? look.tip : null;
@@ -31,15 +38,24 @@ export function ConfigTab({ page, look, drifts, forge, now }: {
           : !look.ok ? <p className="notice small">{look.because}</p>
             : look.files === null ? <p className="muted">The forge does not show this factory&apos;s files.</p>
               : (
-                <ul className="files small">
-                  {look.files.map((path) => (
-                    <li key={path}>
-                      <a href={`${forge}/${page.repo}/blob/${tip}/${path}`}><code>{path}</code></a>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="files small">
+                    {look.files.map((path) => (
+                      <li key={path}>
+                        <a href={`${forge}/${page.repo}/blob/${tip}/${path}`}><code>{path}</code></a>
+                        {onEdit ? (
+                          <> <button type="button" className="button quiet" disabled={page.edit !== null}
+                                     title={page.edit ?? undefined} onClick={() => onEdit(path)}>Edit</button></>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {onEdit && page.edit !== null ? <p className="muted small">Editing is disabled: {page.edit}.</p> : null}
+                </>
               )}
       </section>
+
+      {editor}
 
       <section>
         <h2>asf check</h2>

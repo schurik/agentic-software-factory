@@ -316,8 +316,24 @@ it is measured against.
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
 branch's commit, the check's state, flags, and Run a prompt — and two tabs. **Workflows** renders the
 description from the default branch, with Run in place for a workflow that takes a prompt.
-**Config** is read-only: the files under `asf/` on the default branch, what the check said, and each
+**Config** lists the files under `asf/` on the default branch, what the check said, and each
 station's drift. A factory no CI workflow ever described is **unchecked**, never broken.
+
+A writer edits those files there, and the edit becomes a pull request opened **as them**
+(`convex/config.ts`). The repository stays the source of truth: the editor is the files' raw text,
+read from the forge at the commit the tab listed them at, and what is typed is committed byte for
+byte — never parsed and written back, so a comment survives. A textarea keeps only LF, so a CRLF
+file is edited as LF and committed with its CRLF back, and one that mixes the two is not edited
+here. The cockpit checks YAML syntax only (`convex/model/config.ts`: a `.yaml` file as one
+document, a Markdown file's frontmatter, a later duplicate key winning as it does in PyYAML),
+blocks the submit while it fails with the parse error, and previews the diff the pull request will
+carry. Proposing commits every changed file in one commit on top of that commit, through the forge's
+git database (`commit`, `branch`, `pull` in `convex/forge/forge.ts`, on the person's own token), on
+a `cockpit/<login>/<slug>` branch named for the title (`-2`, `-3`… when taken), into the default
+branch, with a body that says who proposed it from where and what was and was not checked. The
+repository's CI — `asf check`, where it is stamped — and its branch protection decide the rest. The
+editor is enabled for write or higher, as the forge last said, in a local cockpit too; anyone else
+sees it disabled with the reason.
 
 Drift is the cockpit's arithmetic, never the station's (`convex/model/drift.ts`): each station's
 command polls report the commit it has out and a hash over its `asf/` files; the page's `look`

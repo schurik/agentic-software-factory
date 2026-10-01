@@ -4,7 +4,10 @@
  * Enterprise Server is `https://HOST/api/v3`.
  */
 import { isRecord } from "../model/wire";
-import { type Distance, FACTORY_FILE, type Issue, type Label, type Person, type Repository, type Role } from "./forge";
+import {
+  type Change, type Distance, FACTORY_FILE, type Issue, type Label, type Person, type Proposal, type Pull, type Repository,
+  type Role,
+} from "./forge";
 
 export interface Credential {
   token: string;
@@ -369,6 +372,46 @@ export async function compare(github: GitHub, as: Credential, repo: string, base
   if (response.ok) return await response.text();
   if (UNSHOWN.has(response.status)) return null;
   throw await refusal(response, where);
+}
+
+/**
+ * A commit of `changes` on top of `base` in `repo`, as `as`, on no branch:
+ * its sha. Through the forge's git database, so that one commit carries every
+ * file: the base's tree, the changed files' text over it, a commit of that.
+ * A changed file's mode is a plain file's — config is never executable.
+ */
+export async function commit(github: GitHub, as: Credential, repo: string, base: string, changes: Change[],
+                             message: string): Promise<string> {
+  const tree = await github.one(as, `/repos/${repo}/git/commits/${encodeURIComponent(base)}`, (body) =>
+    sha(isRecord(body) ? body.tree : null));
+  const made = await github.post(as, `/repos/${repo}/git/trees`, {
+    base_tree: tree,
+    tree: changes.map(({ path, content }) => ({ path, mode: "100644", type: "blob", content })),
+  }, sha);
+  return await github.post(as, `/repos/${repo}/git/commits`, { message, tree: made, parents: [base] }, sha);
+}
+
+/** Branch `name` of `repo` at `at`, as `as`; false when one of that name exists already. */
+export async function branch(github: GitHub, as: Credential, repo: string, name: string, at: string): Promise<boolean> {
+  const where = `/repos/${repo}/git/refs`;
+  const response = await github.send(as, "POST", github.api + where, {}, JSON.stringify({ ref: `refs/heads/${name}`, sha: at }));
+  if (response.ok) return true;
+  if (response.status === 422 && /already exists/i.test(await response.clone().text())) return false;
+  throw await refusal(response, where);
+}
+
+/** A pull request on `repo`, as `as`. */
+export async function pull(github: GitHub, as: Credential, repo: string, { head, base, title, body }: Proposal): Promise<Pull> {
+  return await github.post(as, `/repos/${repo}/pulls`, { head, base, title, body }, (answer) => {
+    const opened = isRecord(answer) ? answer : {};
+    return { number: Number(opened.number), url: typeof opened.html_url === "string" ? opened.html_url : "" };
+  });
+}
+
+/** The `sha` of a git database object the forge answered with. */
+function sha(body: unknown): string {
+  if (isRecord(body) && typeof body.sha === "string") return body.sha;
+  throw new ForgeError(0, "the forge named no sha where it names a git object");
 }
 
 export async function refusal(response: Response, path: string): Promise<ForgeError> {

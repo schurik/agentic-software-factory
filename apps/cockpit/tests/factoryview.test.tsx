@@ -21,7 +21,7 @@ const FORGE = "https://github.com";
 
 function page(fields: Partial<Page> = {}): Page {
   return {
-    repo: "acme/widgets", onForge: true, private: false, defaultBranch: "main", role: "write",
+    repo: "acme/widgets", onForge: true, private: false, defaultBranch: "main", role: "write", edit: null,
     check: {
       ref: "main", head: TIP, configHash: DESCRIPTION.checked.configHash, ok: false, at: NOW - 60_000,
       station: "runner@fv-az1:widgets", description: DESCRIPTION,

@@ -19,8 +19,8 @@ import { type Infer, v } from "convex/values";
 import { isRecord } from "../model/wire";
 import type { Forge, Reach, Repository } from "./forge";
 import {
-  compare, type Credential, distance, ForgeError, type GitHub, items, type Memory, paths, readPerson, readRepository,
-  readRole, refusal, tip,
+  branch, commit, compare, type Credential, distance, ForgeError, type GitHub, items, type Memory, paths, pull, readPerson,
+  readRepository, readRole, refusal, tip,
 } from "./github";
 
 /** A registered App: what GitHub hands back when a manifest is converted. */
@@ -366,6 +366,11 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
     // The same for a label: the forge's `labeled` event is what the factory records as the trigger.
     label: (repo, number, labels) => github.label(asUser(), repo, number, labels),
     unlabel: (repo, number, label) => github.unlabel(asUser(), repo, number, label),
+    // A config edit, too: the commit, its branch and the pull request are the person's, and
+    // the forge refuses them to anyone it would not let push — write, which the editor mirrors.
+    commit: (repo, base, changes, message) => commit(github, asUser(), repo, base, changes, message),
+    branch: (repo, name, sha) => branch(github, asUser(), repo, name, sha),
+    pull: (repo, proposal) => pull(github, asUser(), repo, proposal),
     reach: async () => {
       // GitHub's own answer to "where can this person go through this App", with their role on each.
       const as = asUser();

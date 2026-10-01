@@ -12,8 +12,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, type ActionCtx, internalQuery } from "./_generated/server";
-import { ForgeError, RateLimited } from "./forge/github";
-import { open } from "./forge/open";
+import { ForgeError } from "./forge/github";
+import { forgeSaid, open, UNREADABLE } from "./forge/open";
 import { refusal, type Route, type Routes, routesOf, unoffered, unready } from "./model/trigger";
 import { actAs, canRead, roleOn, viewing } from "./viewer";
 
@@ -23,14 +23,6 @@ type Refused = { ok: false; because: string };
 export type Offered = { ok: true; routes: Route[]; queued: string; running: string | null } | Refused;
 
 export type Triggered = { ok: true; workflow: string; title: string; url: string } | Refused;
-
-const UNREADABLE = "no such factory among the ones you can read";
-
-/** What the forge said when it would not do something, as a refusal; anything else is thrown on. */
-function forgeSaid(error: unknown): Refused {
-  if (error instanceof ForgeError || error instanceof RateLimited) return { ok: false, because: error.message };
-  throw error;
-}
 
 /** Who is asking, and whether the forge lets them read `factory` and label its issues. */
 export const asking = internalQuery({
