@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as activity from "../activity.js";
 import type * as artifacts from "../artifacts.js";
 import type * as auth from "../auth.js";
 import type * as claims from "../claims.js";
@@ -29,6 +30,7 @@ import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
 import type * as ingest from "../ingest.js";
 import type * as model_answer from "../model/answer.js";
+import type * as model_attention from "../model/attention.js";
 import type * as model_claim from "../model/claim.js";
 import type * as model_command from "../model/command.js";
 import type * as model_config from "../model/config.js";
@@ -61,6 +63,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  activity: typeof activity;
   artifacts: typeof artifacts;
   auth: typeof auth;
   claims: typeof claims;
@@ -82,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   inbox: typeof inbox;
   ingest: typeof ingest;
   "model/answer": typeof model_answer;
+  "model/attention": typeof model_attention;
   "model/claim": typeof model_claim;
   "model/command": typeof model_command;
   "model/config": typeof model_config;

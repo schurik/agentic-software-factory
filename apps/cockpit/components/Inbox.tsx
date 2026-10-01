@@ -1,13 +1,14 @@
 "use client";
 
 import { useAction, useQuery } from "convex/react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Answer } from "@/convex/model/answer";
 import type { Row } from "@/convex/model/inbox";
 import { useClock } from "./clock";
 import { AnswerView, type Read } from "./inbox/AnswerView";
-import { InboxList, keyOf } from "./inbox/InboxList";
+import { InboxList, keyOf, onlyOf } from "./inbox/InboxList";
 import { keyed } from "./inbox/keys";
 import { said } from "./Shell";
 import { useSignIn } from "./signIn";
@@ -16,15 +17,16 @@ import { useSignIn } from "./signIn";
  * The home page: every gate the viewer is permitted to answer, across every
  * factory, a list on the left and the open one's answer view on the right.
  * Both are live queries, so a gate that opens appears and one the factory
- * acted on goes, with nothing to reload.
+ * acted on goes, with nothing to reload. `factory` narrows it to one
+ * factory's waits: what that factory's page links to.
  */
-export function Inbox({ open }: { open?: string }) {
+export function Inbox({ open, factory }: { open?: string; factory?: string }) {
   const signIn = useSignIn();
   const inbox = useQuery(api.inbox.list, { signIn });
   const now = useClock();
   const [selected, setSelected] = useState<string | null>(open ?? null);
   const [posted, setPosted] = useState<{ what: string; url: string; to: string } | null>(null);
-  const rows = useMemo(() => inbox?.rows ?? [], [inbox]);
+  const rows = useMemo(() => onlyOf(inbox?.rows ?? [], factory), [inbox, factory]);
   const current = rows.find((row) => keyOf(row) === selected) ?? rows[0] ?? null;
   const at = current ? rows.indexOf(current) : -1;
 
@@ -47,7 +49,8 @@ export function Inbox({ open }: { open?: string }) {
     return (
       <>
         <h1>Inbox</h1>
-        <p className="muted">Nothing is waiting on you. A gate any factory you can see suspends at, and that you may answer, appears here.</p>
+        {factory ? <p className="muted">Nothing at {factory} is waiting on you. <Link href="/">Every factory&apos;s waits</Link></p>
+          : <p className="muted">Nothing is waiting on you. A gate any factory you can see suspends at, and that you may answer, appears here.</p>}
       </>
     );
   }
@@ -61,7 +64,8 @@ export function Inbox({ open }: { open?: string }) {
     <>
       <div className="inbox-head">
         <h1>Inbox</h1>
-        <span className="muted small">{rows.length} waiting · <kbd>j</kbd>/<kbd>k</kbd> next/previous · <kbd>a</kbd> approve · <kbd>r</kbd> reject</span>
+        <span className="muted small">
+          {factory ? <>only {factory} (<Link href="/">all</Link>) · </> : null}{rows.length} waiting · <kbd>j</kbd>/<kbd>k</kbd> next/previous · <kbd>a</kbd> approve · <kbd>r</kbd> reject</span>
       </div>
       {posted?.url ? (
         <p className="notice small">

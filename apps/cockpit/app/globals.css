@@ -329,3 +329,9 @@ kbd { font: 0.75rem ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px 
                           white-space: pre-wrap; word-break: break-word; max-height: 32rem; overflow: auto; }
 .config-editor .diff .add { color: var(--ok); }
 .config-editor .diff .del { color: var(--bad); }
+.activity section, .stations > .card { margin: 1.25rem 0 1.75rem; }
+.activity h3 { font-size: 0.9rem; margin: 1rem 0 0.4rem; }
+.attention { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+.attention li { padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-left: 3px solid var(--wait); border-radius: 6px; }
+.stations tr[aria-selected="true"] td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.stations h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 1.25rem 0 0.4rem; }

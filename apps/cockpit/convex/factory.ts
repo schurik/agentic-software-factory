@@ -23,7 +23,7 @@ import { editing } from "./config";
 import { canRead, viewing } from "./viewer";
 
 /** The repository row of `factory`, when the forge shows one. */
-async function repoOf(ctx: QueryCtx, factory: string): Promise<Doc<"repos"> | null> {
+export async function repoOf(ctx: QueryCtx, factory: string): Promise<Doc<"repos"> | null> {
   return await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", repoKey(factory))).unique();
 }
 
@@ -32,7 +32,7 @@ async function repoOf(ctx: QueryCtx, factory: string): Promise<Doc<"repos"> | nu
  * not show (a local cockpit's checkout with no remote) has no default branch
  * to ask about, and goes by whichever check came last.
  */
-async function defaultCheck(ctx: QueryCtx, factory: string, defaultBranch: string | null): Promise<Doc<"checks"> | null> {
+export async function defaultCheck(ctx: QueryCtx, factory: string, defaultBranch: string | null): Promise<Doc<"checks"> | null> {
   if (defaultBranch !== null) {
     return await ctx.db.query("checks").withIndex("by_ref", (q) => q.eq("factory", factory).eq("ref", defaultBranch)).unique();
   }
@@ -40,7 +40,7 @@ async function defaultCheck(ctx: QueryCtx, factory: string, defaultBranch: strin
 }
 
 /** Every station of `factory` that has reported where it stands — never a CI job, which leaves a check instead. */
-async function reporting(ctx: QueryCtx, factory: string): Promise<Doc<"stations">[]> {
+export async function reporting(ctx: QueryCtx, factory: string): Promise<Doc<"stations">[]> {
   const rows = await ctx.db.query("stations").withIndex("by_station", (q) => q.eq("factory", factory)).collect();
   return rows.filter((row) => row.kind !== "ci");
 }

@@ -247,13 +247,18 @@ export class GitHub {
     const response = await this.send(as, "GET", this.api + where);
     if (UNSHOWN.has(response.status)) return null;
     if (!response.ok) throw await refusal(response, where);
-    const body: unknown = await response.json();
-    const issue = isRecord(body) ? body : {};
-    return {
-      number, title: typeof issue.title === "string" ? issue.title : "", open: issue.state === "open",
-      pull: isRecord(issue.pull_request), url: typeof issue.html_url === "string" ? issue.html_url : "",
-      labels: items(issue.labels).map((label) => String(label.name)),
-    };
+    return readIssue(await response.json(), number);
+  }
+
+  /** Every open issue of `repo` carrying `label`, as `as` is shown them, or null when they are not. */
+  async labelled(as: Credential, repo: string, label: string): Promise<Issue[] | null> {
+    try {
+      return await this.list(as, `/repos/${repo}/issues?state=open&labels=${encodeURIComponent(label)}&per_page=100`,
+        (body) => items(body).map((issue) => readIssue(issue, Number(issue.number))));
+    } catch (error) {
+      if (error instanceof ForgeError && UNSHOWN.has(error.status)) return null;
+      throw error;
+    }
   }
 
   /** Every page of a listing, in order. `read` takes one page's body to its items. */
@@ -322,6 +327,16 @@ export class GitHub {
     if (UNSHOWN.has(response.status)) return null;
     throw await refusal(response, where);
   }
+}
+
+/** Issue `number` as the forge's body for it describes it. */
+function readIssue(body: unknown, number: number): Issue {
+  const issue = isRecord(body) ? body : {};
+  return {
+    number, title: typeof issue.title === "string" ? issue.title : "", open: issue.state === "open",
+    pull: isRecord(issue.pull_request), url: typeof issue.html_url === "string" ? issue.html_url : "",
+    labels: items(issue.labels).map((label) => String(label.name)),
+  };
 }
 
 /**

@@ -129,15 +129,25 @@ export function consequence(claim: { kind: ClaimKind; number: number; session: s
   return `${done} and abandons session ${claim.session}`;
 }
 
-/** A claim as the session page shows it (claims.ofSession). */
+/** A claim as a page shows it: the session page's (claims.ofSession), and its station's on the Factory page. */
 export interface ClaimView {
   id: string;
   kind: ClaimKind;
   number: number;
   repo: string;
-  /** The holding station's name, and when its loop last polled: 0 for never. */
+  /** The session it is for, and the station holding it: its id and name, and when its loop last polled — 0 for never. */
+  session: string;
+  station: string;
   stationName: string;
   seenAt: number;
+  /**
+   * When the holding station was last heard of at all, epoch ms: its loop's
+   * poll, the session's own shipper polling for it, or — a station that never
+   * registered polls for nothing — its asking for this claim. What "offline
+   * 2 d" counts from, so it can say more than a station's "last seen", which
+   * is its loop's alone.
+   */
+  heardAt: number;
   grantedAt: number;
   released: Released | null;
   /** What releasing it does, for the confirmation. */

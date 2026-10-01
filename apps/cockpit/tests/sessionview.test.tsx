@@ -216,7 +216,8 @@ describe("a claim the session holds", () => {
   const working = upTo("tool_called");
   const failed = [...working, fixture("session_finished", working.length + 1)];
   const held: ClaimView = {
-    id: "k1", kind: "issue", number: 42, repo: "acme/widgets", stationName: "alex@mbp:widgets", seenAt: LATER - 2 * 86_400_000,
+    id: "k1", kind: "issue", number: 42, repo: "acme/widgets", session: "a9f259f0", station: "st_7f3a9c",
+    stationName: "alex@mbp:widgets", seenAt: LATER - 2 * 86_400_000, heardAt: LATER - 2 * 86_400_000,
     grantedAt: LATER - 3 * 86_400_000, released: null, refused: null,
     consequence: "relabels #42 `asf:queued` and abandons session a9f259f0",
   };

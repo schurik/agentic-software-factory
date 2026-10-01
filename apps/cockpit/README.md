@@ -102,6 +102,9 @@ wrong account.
   repositories with ETags — a `304` costs nothing against the rate limit — and asks a repository
   whether it holds a factory only when it was pushed to since the last look. A repository the forge
   will not show the cockpit (gone, blocked, behind an organization's SSO) is not a factory here.
+  Then it asks every factory which of its open issues carry the queued label and a route label —
+  the work an issues watcher would start (`discovery:queues`) — every round, since a label changes
+  no push, and with ETags, so a round where nothing was labelled is all `304`s.
 - **Rate limits** are read from the response headers, never assumed: an Enterprise Server has them
   off unless its admin turned them on. The poll leaves a quarter of a budget untouched, stops when
   it gets there, and carries on when the limit resets; the Factories page says so meanwhile.
@@ -300,7 +303,7 @@ leaves the claim released, and the page says to relabel by hand.
 A local cockpit is one person's and grants nothing: a factory claims only from a shared one
 (`ASF_COCKPIT_URL`). The factory's end is `engine/claims.py`.
 
-## The Factory page: a factory's self-description, and its stations' drift
+## The Factory page: what needs attention, who runs what, and the factory's own self-description
 
 The cockpit never reads a factory's workflow files. What it shows of them is the factory's own
 **self-description**: what `asf check --json` prints (`engine/describe.py`) — every workflow's
@@ -314,8 +317,29 @@ kind is not `ci` is refused with a 403 — a checkout's own edits are what drift
 it is measured against.
 
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
-branch's commit, the check's state, flags, and Run a prompt — and two tabs. **Workflows** renders the
-description from the default branch, with Run in place for a workflow that takes a prompt.
+branch's commit, the check's state, flags, and Run a prompt — and four tabs.
+
+**Activity**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
+that the viewer may answer (a link into the inbox, `/?factory=<owner>/<repo>`), the sessions that
+failed in the last day, each claim whose station has not been heard of for over a day — "held by
+`alex@mbp`, offline 2 d", never orphaned, with Release claim — the stations whose config drifted, a
+failing check, and **nobody watching**: issues queued for a route while no station online runs an
+issues watcher. `activity:attention` is the one query that reads those facts, for this page and for
+the Factories list to rank by; which of them are news is read against the page's clock
+(`convex/model/attention.ts`), so a failure stops being news without anything new arriving. Then
+**Running now** — the live and suspended sessions, by the workflow each is in, naming its station —
+and **Recent**, the last finished ones.
+
+**Workflows** renders the description from the default branch, with Run in place for a workflow
+that takes a prompt.
+
+**Stations** lists every station that is registered or holds a session or a claim — a station that
+never registered still runs sessions — with its owner, kind, when its loop last polled and its
+drift. Opened, a station shows what it obeys, the commit it has out, the watchers its loop runs,
+the sessions it holds (live, suspended, or failed and so its to resume) and the claims it holds,
+each with Release claim. Every CI job is one **CI** entry: the sessions that ran in CI and the
+checks CI pushed.
+
 **Config** lists the files under `asf/` on the default branch, what the check said, and each
 station's drift. A factory no CI workflow ever described is **unchecked**, never broken.
 

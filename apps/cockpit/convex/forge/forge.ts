@@ -128,6 +128,12 @@ export interface Forge {
   comment(repo: string, number: number, body: string): Promise<{ url: string }>;
   /** Every label `repo` defines, or null when the forge will not show them. */
   labels(repo: string): Promise<Label[] | null>;
+  /**
+   * Every open issue of `repo` carrying `label` — pull requests among them,
+   * as the forge serves those as issues too — or null when the forge will not
+   * show them. What the cockpit reads to tell queued work nobody watches.
+   */
+  labelled(repo: string, label: string): Promise<Issue[] | null>;
   /** Issue (or pull request) `number` of `repo`, or null when the forge shows none. */
   issue(repo: string, number: number): Promise<Issue | null>;
   /**

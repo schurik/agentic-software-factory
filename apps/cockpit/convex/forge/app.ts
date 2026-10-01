@@ -355,6 +355,11 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       if (installation === undefined) return null;
       return github.labels(await asInstallation(installation), repo);
     },
+    labelled: async (repo, label) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return github.labelled(await asInstallation(installation), repo, label);
+    },
     issue: async (repo, number) => {
       const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
       if (installation === undefined) return null;

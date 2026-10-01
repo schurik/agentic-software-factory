@@ -33,6 +33,16 @@ export function formatDuration(seconds: number | null): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** "1 job", "3 jobs". */
+export function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** How long ago `at` (epoch ms) was, as of `now`. */
+export function formatAgoAt(at: number, now: number): string {
+  return formatAgo(new Date(at).toISOString(), now);
+}
+
 /** How long ago `ts` was, as of `now` (epoch ms). */
 export function formatAgo(ts: string, now: number): string {
   const then = Date.parse(ts);

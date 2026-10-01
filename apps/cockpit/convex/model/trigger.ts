@@ -63,6 +63,20 @@ export function unready(issue: Issue, found: Routes): string | null {
   return null;
 }
 
+/**
+ * The open issues among `issues` a watcher would start: they carry the queued
+ * label and a route label, by number. [] for a repository whose labels the
+ * factory never made — nothing there is queued for a route.
+ */
+export function queuedFor(issues: Issue[], found: Routes): number[] {
+  if (found.queued === null) return [];
+  const routed = new Set(found.routes.map((route) => route.label));
+  return issues
+    .filter((issue) => issue.open && !issue.pull && issue.labels.includes(found.queued!) && issue.labels.some((label) => routed.has(label)))
+    .map((issue) => issue.number)
+    .sort((a, b) => a - b);
+}
+
 /** Why a repository's routes cannot be offered, or null when they can. */
 export function unoffered({ routes, queued }: Routes): string | null {
   if (routes.length && queued !== null) return null;
