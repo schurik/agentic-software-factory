@@ -352,16 +352,19 @@ function withPhase(fold: (phase: PhaseState, p: Payload, at: At) => void): Telle
   };
 }
 
+const tellStarted: Teller = (state, p) => {
+  state.workflow ||= p.str("workflow");
+  state.resumed = null;             // a new process: whatever it replays, it says so itself
+  state.station = { id: p.str("station_id") || state.station.id,
+                    name: p.str("station_name") || state.station.name,
+                    runBy: p.str("engineer") || state.station.runBy };
+  state.baseCommit = p.str("base_commit") || state.baseCommit;
+};
+
 const TELLERS: Record<string, Record<number, Teller>> = {
   session_started: {
-    1: (state, p) => {
-      state.workflow ||= p.str("workflow");
-      state.resumed = null;         // a new process: whatever it replays, it says so itself
-      state.station = { id: p.str("station_id") || state.station.id,
-                        name: p.str("station_name") || state.station.name,
-                        runBy: p.str("engineer") || state.station.runBy };
-      state.baseCommit = p.str("base_commit") || state.baseCommit;
-    },
+    1: tellStarted,
+    2: tellStarted,                 // v2 adds station_kind, which the story has no use for
   },
   workflow_started: {
     1: (state, p, { ts }) => {

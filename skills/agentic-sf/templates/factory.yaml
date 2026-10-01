@@ -40,14 +40,21 @@ observability:
 # an agent read, and it is off until this says otherwise.
 #
 # `commands` is which COMMANDS this factory's stations carry out when a cockpit
-# asks — steering the forge cannot carry, from the closed set answer, abort,
-# kill, resume, run. Nothing is obeyed that is not listed here, and a station
-# still holds every command's author to issues.trusted_authors. A station takes
-# commands once a person approved it (`asf station register`; a local cockpit's
-# station is its owner's already).
+# asks — steering the forge cannot carry, from the closed set:
+#   kill     stop a live run
+#   resume   relaunch a failed session on the station that holds it
+#   answer   approve, reject or answer a gate that waits on no work item (a
+#            prompt run's) — one on an issue is answered on the issue
+#   abort    end a run at such a gate
+#   run      start a workflow that takes a prompt — only ever on a station of
+#            the person asking, and off unless listed here
+# Nothing is obeyed that is not listed here, and a station still holds every
+# command's author to issues.trusted_authors. A station takes commands once a
+# person approved it (`asf station register`; a local cockpit's station is its
+# owner's already).
 cockpit:
   transcripts: false
-  commands: [kill]
+  commands: [answer, abort, kill, resume]
 
 # Every run gets its own git worktree on its own branch, cut from a base ref
 # pinned at run start. The engineer's working tree is never touched.

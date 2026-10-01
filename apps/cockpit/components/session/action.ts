@@ -1,4 +1,4 @@
-import { liveness, type SteeringView } from "@/convex/model/command";
+import { liveness, pending, type SteeringView } from "@/convex/model/command";
 import type { Summary } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
 import { formatClock, inboxHref } from "../format";
@@ -12,10 +12,12 @@ import { formatClock, inboxHref } from "../format";
 export interface Action {
   label: string;
   href: string | null;              // a link that works, or null for a verb
-  command: "kill" | null;           // the command the button queues, when it is one
+  command: Command | null;          // the command the button queues, when it is one
   disabledBecause: string;          // "" when it can be used
   note: string;                     // what the person should know before pressing it, or ""
 }
+
+export type Command = "kill" | "resume";
 
 const verb = (label: string, disabledBecause: string, command: Action["command"] = null, note = ""): Action =>
   ({ label, href: null, command, disabledBecause, note });
@@ -26,14 +28,13 @@ export function actionFor(factory: string, session: string, summary: Summary, st
   const at = name ? ` on ${name}` : " on its station";
   switch (summary.status) {
     case "running":
-      return killAction(session, at, steering, now);
+      return commandAction("kill", { session, at }, steering, now);
     // The inbox is where answering happens, and it says there whether this
     // wait can be answered from the cockpit and, if not, why not.
     case "waiting":
       return { label: "Answer in inbox", href: inboxHref(factory, session), command: null, disabledBecause: "", note: "" };
     case "fail":
-      return verb("Resume", `resuming from the cockpit arrives with the rest of the station commands — ` +
-                            `for now, \`asf resume ${session}\`${at}`);
+      return commandAction("resume", { session, at }, steering, now);
     case "success":
       return summary.prUrl ? { label: "Open pull request", href: summary.prUrl, command: null, disabledBecause: "", note: "" } : null;
     default:
@@ -41,28 +42,34 @@ export function actionFor(factory: string, session: string, summary: Summary, st
   }
 }
 
+const WORDS: Record<Command, { label: string; cli: string; awaited: string; done: string; going: string }> = {
+  kill: { label: "Kill session", cli: "asf kill", awaited: "say it stopped", done: "killed", going: "the run is stopping" },
+  resume: { label: "Resume", cli: "asf resume", awaited: "say it relaunched", done: "resumed", going: "the run goes on" },
+};
+
 /**
- * Kill: queued for the station holding the session, carried out by the run
- * itself while it is attended and by the station loop otherwise, and done
- * only when the station says so. A station that is offline gets it when it is
- * back — until the kill expires.
+ * Kill a running session, or resume a failed one: queued for the station
+ * holding it — carried out by the run itself while it is attended and by the
+ * station loop otherwise — and done only when the station says so. A station
+ * that is offline gets it when it is back, until the command expires.
  */
-function killAction(session: string, at: string, steering: SteeringView | null | undefined, now: number): Action {
-  const label = "Kill session";
-  if (!steering) return verb(label, `the cockpit has not heard from this session's station — \`asf kill ${session}\`${at}`);
-  if (steering.killRefused !== null) return verb(label, steering.killRefused);
+function commandAction(command: Command, { session, at }: { session: string; at: string },
+                       steering: SteeringView | null | undefined, now: number): Action {
+  const { label, cli, awaited, done, going } = WORDS[command];
+  if (!steering) return verb(label, `the cockpit has not heard from this session's station — \`${cli} ${session}\`${at}`);
+  const refused = command === "kill" ? steering.killRefused : steering.resumeRefused;
+  if (refused !== null) return verb(label, refused);
   const station = steering.station?.name ?? "the station";
   const live = liveness(steering.station?.seenAt ?? 0, steering.attendedAt, now);
   const reachable = live.attended || live.online;
-  const kill = steering.kill;
-  const open = kill !== null && (kill.state === "queued" || kill.state === "delivered") && now <= kill.expiresAt;
-  if (kill !== null && open) {
-    if (kill.state === "delivered") return verb(label, `sent to ${station} by ${kill.by}: waiting for it to say it stopped`);
-    return verb(label, reachable ? `queued by ${kill.by}: ${station} takes it within seconds`
-      : `queued, station offline: ${station} takes it when it is back, until ${formatClock(new Date(kill.expiresAt).toISOString())}`);
+  const last = command === "kill" ? steering.kill : steering.resume;
+  if (last !== null && pending(last, now)) {
+    if (last.state === "delivered") return verb(label, `sent to ${station} by ${last.by}: waiting for it to ${awaited}`);
+    return verb(label, reachable ? `queued by ${last.by}: ${station} takes it within seconds`
+      : `queued, station offline: ${station} takes it when it is back, until ${formatClock(new Date(last.expiresAt).toISOString())}`);
   }
-  if (kill?.state === "done") return verb(label, `killed by ${kill.by}: ${kill.detail || "the run is stopping"}`);
-  const note = kill?.state === "refused" ? `${station} refused the last kill: ${kill.detail}`
-    : reachable ? "" : `${station} is offline: a kill waits for it, and expires if it does not come back in time`;
-  return verb(label, "", "kill", note);
+  if (last?.state === "done") return verb(label, `${done} by ${last.by}: ${last.detail || going}`);
+  const note = last?.state === "refused" ? `${station} refused the last ${command}: ${last.detail}`
+    : reachable ? "" : `${station} is offline: a ${command} waits for it, and expires if it does not come back in time`;
+  return verb(label, "", command, note);
 }

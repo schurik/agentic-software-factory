@@ -33,7 +33,7 @@ export function Stations() {
           : <>The stations you approved. A station takes commands from the cockpit for you; run{" "}
               <code>asf station register</code> in a checkout to add one.</>}
       </p>
-      <p><Link href="/stations/approve">Approve a station by its code…</Link></p>
+      <p><Link href="/stations/approve">Approve a station by its code…</Link> · <Link href="/run">Run a prompt on one of them…</Link></p>
       {problem ? <p className="notice">{problem}</p> : null}
       {stations.length === 0 ? <p className="muted">No stations yet.</p> : (
         <table className="table">

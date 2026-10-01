@@ -10,7 +10,8 @@ with the device secret. COMMANDS (`commands.ts`): a poll with the command
 token or 401 (`revoke`), recording the station's report and who polled, and
 answering with the queued commands for it — a run's own poll gets the ones
 naming its session, the station loop's the rest. A command is done when a
-`command_result` naming it is ingested, never when it was sent.
+`command_result` naming it is ingested, never when it was sent — or, for one
+that names no session the station holds (a `run`), when a poll carries it.
 
 It is called exactly as `engine.station`'s transport is — `(url, token, body)
 -> (status, body)` — and raises `ConnectionRefusedError` while it is `down`,
@@ -45,6 +46,7 @@ class Queued:
     by: str
     notes: str = ""
     expires_at: int = 0
+    fields: dict = field(default_factory=dict)   # verdict, gate, round, digest, workflow, prompt
     delivered: int = 0                  # how many polls it went out on
 
 
@@ -149,9 +151,10 @@ class FakeCockpit:
 
     # ── commands ─────────────────────────────────────────────────────────────
 
-    def queue(self, verb: str, session: str, by: str = "alex", expires_at: int = 0) -> str:
-        command = Queued(id=f"cmd{len(self.queued) + 1}", verb=verb, session=session, by=by,
-                         expires_at=expires_at)
+    def queue(self, verb: str, session: str, by: str = "alex", expires_at: int = 0,
+              notes: str = "", id: str = "", **fields) -> str:
+        command = Queued(id=id or f"cmd{len(self.queued) + 1}", verb=verb, session=session,
+                         by=by, notes=notes, expires_at=expires_at, fields=fields)
         self.queued.append(command)
         return command.id
 
@@ -161,6 +164,8 @@ class FakeCockpit:
             return 401, {"error": "this command token is not one the cockpit issued, or it was revoked"}
         session = body.get("session", "")
         self.polls.append(Poll(station=station, session=session, report=body.get("report", {})))
+        for result in body.get("results") or []:
+            self.results.setdefault(result["command_id"], result)
         attended = {poll.session for poll in self.polls if poll.session}
         due = [command for command in self.queued if command.id not in self.results
                and (self.redeliver or not command.delivered)
@@ -168,5 +173,5 @@ class FakeCockpit:
         for command in due:
             command.delivered += 1
         return 200, {"commands": [{"id": c.id, "verb": c.verb, "session": c.session,
-                                   "notes": c.notes, "by": c.by, "expires_at": c.expires_at}
-                                  for c in due]}
+                                   "notes": c.notes, "by": c.by, "expires_at": c.expires_at,
+                                   **c.fields} for c in due]}

@@ -238,8 +238,9 @@ def test_the_station_loop_polls_for_commands_between_shipping_rounds(stamped: Pa
     cockpit = FakeCockpit()
     held = StationCredential(cockpit=COCKPIT.url, station="st_0a1b2c",
                              token=cockpit.admit("st_0a1b2c"))
-    steering = commands.Steering(cfg, stamped, lambda: held, watchers=lambda: ["answers"],
-                                 interval=0.02)
+    steering = commands.Steering(commands.Here(cfg, stamped), lambda: held,
+                                 watchers=lambda: ["answers"])
+    steering.interval = 0.02
     loop = station.Loop(on_station(stamped / "asf/data/sessions"),
                         station.Destination(lambda: COCKPIT), cockpit, interval=0.02,
                         steering=steering).start()

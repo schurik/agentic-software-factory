@@ -9,6 +9,8 @@
  * everyone else; the factory's answers watcher is still what checks it, so a
  * row offered wrongly is a comment the factory ignores, never a decision.
  */
+import type { Role } from "../forge/forge";
+import { commandRefusal, type CommandState, liveness, type StationFacts } from "./command";
 import { Payload } from "./payload";
 import type { Summary, WaitingFor } from "./session";
 import type { StoredEvent } from "./wire";
@@ -33,22 +35,58 @@ export interface Sent {
 }
 
 /**
+ * Whether a wait is answered by a COMMAND to its station rather than a comment:
+ * it waits on the terminal channel — a prompt run's, with no work item to
+ * answer on. Anywhere else the forge's public record is the way (a pull
+ * request's, once something reads it), and a station refuses the command.
+ */
+export function byCommand(waiting: WaitingFor): boolean {
+  return waiting.channel === "terminal";
+}
+
+/** The newest answer queued by command for the wait in front of the run. */
+export interface Commanded {
+  by: string;
+  verdict: string;
+  state: CommandState;
+  detail: string;
+  /** Still on its way: queued or delivered, and not past its TTL. */
+  pending: boolean;
+}
+
+/** What weighing an answer by command takes: who asks, as what, of which station, and what was queued already. */
+export interface Commanding {
+  /** Why the viewer cannot ask any station for anything, or null. */
+  anonymous: string | null;
+  role: Role | null;
+  station: StationFacts | null;
+  last: Commanded | null;
+}
+
+/** Why the station would not take each kind of answer: `answer` covers approve, reject and answer; `abort` is its own verb. */
+export interface Refused {
+  answer: string | null;
+  abort: string | null;
+}
+
+export function refusedVerdicts({ role, station }: Commanding): Refused {
+  return { answer: commandRefusal("answer", role, station), abort: commandRefusal("abort", role, station) };
+}
+
+/**
  * Why this wait cannot be answered from the inbox, or null when it can. The
  * row stays either way: a stuck run hidden from the inbox is a stuck run
  * nobody notices (spec #40). `ready` is whether the cockpit holds a forge
- * credential to post with at all.
+ * credential to post with at all; `commanding` is what a wait answered by
+ * command is weighed by instead, null for one answered by comment.
  */
-export function blocked(summary: Summary, sent: Sent | null, ready: boolean): string | null {
+export function blocked(summary: Summary, sent: Sent | null, ready: boolean, commanding: Commanding | null = null): string | null {
   const waiting = summary.waitingFor!;
-  if (summary.status !== "waiting") {
+  const command = byCommand(waiting);
+  // A run asking at its terminal polls for the decision file a command writes;
+  // the forge it reads only once it has suspended.
+  if (!command && summary.status !== "waiting") {
     return "being asked at the station's terminal right now: the factory reads the forge once the run has suspended";
-  }
-  if (waiting.channel === "terminal") {
-    return "started from a prompt, with no work item to answer on: it is answered at the station's terminal";
-  }
-  if (waiting.channel !== "issue" || !waiting.issueNumber) {
-    const where = waiting.channel === "pr" ? "a pull request" : `the ${waiting.channel} channel`;
-    return `the factory reads no answers on ${where} yet: it is answered at the station's terminal`;
   }
   if (waiting.published === false) {
     return "subject not on the forge: the station keeps this session's branch to itself (worktree.publish: on_integrate)";
@@ -56,9 +94,30 @@ export function blocked(summary: Summary, sent: Sent | null, ready: boolean): st
   if (waiting.answered) {
     return `answered by ${waiting.answered.by} (${waiting.answered.verdict}): the run goes on when the factory next looks`;
   }
+  if (command) {
+    if (commanding === null) return "it is answered at the station's terminal";
+    if (commanding.last?.pending) return `answered by ${commanding.last.by} in the cockpit (${commanding.last.verdict})`;
+    if (commanding.anonymous !== null) return commanding.anonymous;
+    const refused = refusedVerdicts(commanding);
+    return refused.answer !== null && refused.abort !== null ? refused.answer : null;
+  }
+  if (waiting.channel !== "issue" || !waiting.issueNumber) {
+    const where = waiting.channel === "pr" ? "a pull request" : `the ${waiting.channel} channel`;
+    return `the factory reads no answers on ${where} yet: it is answered at the station's terminal`;
+  }
   if (sent) return `answered by ${sent.by} in the cockpit (${sent.verdict}): waiting for the factory's answers watcher`;
   if (!ready) return "this cockpit has no forge credential to post an answer with";
   return null;
+}
+
+/** What became of the last answer by command, when the station turned it down or never took it: "" otherwise. */
+export function lastWord(commanding: Commanding | null): string {
+  const last = commanding?.last;
+  const name = commanding?.station?.name ?? "the station";
+  if (!last || last.pending) return "";
+  if (last.state === "refused") return `${name} refused the last answer: ${last.detail}`;
+  if (last.state === "expired") return `the last answer expired before ${name} took it`;
+  return "";
 }
 
 export interface Row {
@@ -79,6 +138,25 @@ export interface Row {
   /** Why this wait is the viewer's own work, if it is: sorted first, never the only ones shown. */
   forYou: ForYou[];
   blocked: string | null;
+  /** How an answer reaches the factory: a comment on the work item, or a command to the station. */
+  via: "comment" | "command";
+  /** A command row's: why the station would not take each kind of answer. Null on a comment row. */
+  refused: Refused | null;
+  /** A command row's answer already on its way, if there is one. */
+  queued: { by: string; verdict: string } | null;
+  /** When the station's loop and the run's own shipper last polled: whether it is listening, by the page's clock. */
+  stationSeenAt: number;
+  attendedAt: number | null;
+  /** What became of an earlier answer that did not land, or "". */
+  note: string;
+}
+
+/** What weighing a wait found, beside the summary: what blocks it and, answered by command, the station's side. */
+export interface Judged {
+  blocked: string | null;
+  commanding: Commanding | null;
+  stationSeenAt: number;
+  attendedAt: number | null;
 }
 
 /**
@@ -102,18 +180,35 @@ export function forYou(summary: Summary, login: string | null): ForYou[] {
   return reasons;
 }
 
-export function row(factory: string, session: string, summary: Summary, login: string | null,
-                    blockedBecause: string | null): Row {
+export function row({ factory, session }: { factory: string; session: string }, summary: Summary,
+                    login: string | null, judged: Judged): Row {
   const waiting: WaitingFor = summary.waitingFor!;
+  const { commanding } = judged;
+  const last = commanding?.last;
   return {
     factory, session,
     gate: waiting.gate, round: waiting.round, kind: waiting.kind, questions: waiting.questions,
     since: waiting.since, summary: waiting.summary, channel: waiting.channel,
     issueNumber: waiting.issueNumber, issueUrl: summary.issueUrl, workItem: summary.request,
-    workflow: summary.workflows.at(-1) ?? "", station: summary.stationName,
+    workflow: summary.workflows.at(-1) ?? "", station: commanding?.station?.name ?? summary.stationName,
     forYou: forYou(summary, login),
-    blocked: blockedBecause,
+    blocked: judged.blocked,
+    via: byCommand(waiting) ? "command" : "comment",
+    refused: commanding ? refusedVerdicts(commanding) : null,
+    queued: last?.pending ? { by: last.by, verdict: last.verdict } : null,
+    stationSeenAt: judged.stationSeenAt,
+    attendedAt: judged.attendedAt,
+    note: lastWord(commanding),
   };
+}
+
+/**
+ * Whether a command row's station is listening by the page's clock, and what
+ * that means for an answer sent to it, in the words the inbox says it in.
+ */
+export function stationWords(row: Pick<Row, "station" | "stationSeenAt" | "attendedAt">, now: number): string {
+  const live = liveness(row.stationSeenAt, row.attendedAt, now);
+  return live.attended || live.online ? `${row.station} takes it within seconds` : `resumes when ${row.station} is back online`;
 }
 
 /** The viewer's own first, then the longest wait. A ranking: every row stays. */

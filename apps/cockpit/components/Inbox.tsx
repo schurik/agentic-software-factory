@@ -23,7 +23,7 @@ export function Inbox({ open }: { open?: string }) {
   const inbox = useQuery(api.inbox.list, { signIn });
   const now = useClock();
   const [selected, setSelected] = useState<string | null>(open ?? null);
-  const [posted, setPosted] = useState<{ what: string; url: string } | null>(null);
+  const [posted, setPosted] = useState<{ what: string; url: string; to: string } | null>(null);
   const rows = useMemo(() => inbox?.rows ?? [], [inbox]);
   const current = rows.find((row) => keyOf(row) === selected) ?? rows[0] ?? null;
   const at = current ? rows.indexOf(current) : -1;
@@ -52,7 +52,7 @@ export function Inbox({ open }: { open?: string }) {
     );
   }
   const answered = (row: Row, url: string) => {
-    setPosted({ what: `${row.gate} round ${row.round} of ${row.factory}`, url });
+    setPosted({ what: `${row.gate} round ${row.round} of ${row.factory}`, url, to: row.station });
     // On to the next wait that can still be answered; the one just answered stays, saying so.
     const after = [...rows.slice(at + 1), ...rows.slice(0, at)].find((each) => each.blocked === null);
     if (after) setSelected(keyOf(after));
@@ -63,24 +63,29 @@ export function Inbox({ open }: { open?: string }) {
         <h1>Inbox</h1>
         <span className="muted small">{rows.length} waiting · <kbd>j</kbd>/<kbd>k</kbd> next/previous · <kbd>a</kbd> approve · <kbd>r</kbd> reject</span>
       </div>
-      {posted ? (
+      {posted?.url ? (
         <p className="notice small">
           Answered {posted.what}: <a href={posted.url} target="_blank" rel="noreferrer">the comment</a>. It goes on
           when the factory&apos;s answers watcher picks it up.
         </p>
+      ) : posted ? (
+        <p className="notice small">
+          Answered {posted.what}: sent to {posted.to}. It goes on once the station records it as your decision.
+        </p>
       ) : null}
       <div className="inbox">
         <InboxList rows={rows} selected={current && keyOf(current)} now={now} onSelect={setSelected} />
-        {current ? <Answering key={keyOf(current)} row={current} signIn={signIn} onAnswered={answered} /> : null}
+        {current ? <Answering key={keyOf(current)} row={current} signIn={signIn} now={now} onAnswered={answered} /> : null}
       </div>
     </>
   );
 }
 
 /** One wait's answer view, with the subject read from the forge as it opens and the answer posted from it. */
-function Answering({ row, signIn, onAnswered }: {
+function Answering({ row, signIn, now, onAnswered }: {
   row: Row;
   signIn: string | undefined;
+  now: number;
   onAnswered: (row: Row, url: string) => void;
 }) {
   const where = { factory: row.factory, session: row.session, signIn };
@@ -116,5 +121,5 @@ function Answering({ row, signIn, onAnswered }: {
       setPosting(false);
     }
   };
-  return <AnswerView gate={gate} read={read} posting={posting} problem={problem} onAnswer={(given) => void give(given)} />;
+  return <AnswerView gate={gate} read={read} now={now} posting={posting} problem={problem} onAnswer={(given) => void give(given)} />;
 }

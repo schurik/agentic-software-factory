@@ -37,6 +37,7 @@ const ROW: Row = {
   since: "2026-10-01T11:30:00.000Z", summary: "the plan now names the module", channel: "issue", issueNumber: 42,
   issueUrl: "https://github.com/acme/widgets/issues/42", workItem: "#42 Resolve relative due dates",
   workflow: "issue", station: "schurik@mbp:widgets", forYou: [], blocked: null,
+  via: "comment", refused: null, queued: null, stationSeenAt: 0, attendedAt: null, note: "",
 };
 const GATE: Gate = {
   row: ROW, subjectDigest: "6151fe4319d06427379e4ef96b3898549880d60e220f8868b7376e5cecfe3a78", notes: "",
@@ -49,7 +50,7 @@ const READ = { ok: true as const, headSha: GATE.subject.headSha, diff: null, cur
                files: [{ path: "docs/asf/spec/plan.md", content: "# Plan\n", truncated: false, binary: false }] };
 
 function answerView(gate: Gate, read: Parameters<typeof AnswerView>[0]["read"]): string {
-  return renderToStaticMarkup(<AnswerView gate={gate} read={read} posting={false} problem="" onAnswer={() => undefined} />);
+  return renderToStaticMarkup(<AnswerView gate={gate} read={read} now={NOW} posting={false} problem="" onAnswer={() => undefined} />);
 }
 
 describe("the inbox list", () => {

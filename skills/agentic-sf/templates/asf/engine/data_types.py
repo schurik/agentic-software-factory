@@ -1909,7 +1909,14 @@ class StationReport(BaseModel):
 class Command(BaseModel):
     """One command as a cockpit delivers it: typed fields only, never a line
     to run. `expires_at` is epoch milliseconds — a kill from last week is not
-    carried out by a laptop that just woke up."""
+    carried out by a laptop that just woke up.
+
+    `answer` and `abort` name the wait the person was shown — its `gate`,
+    `round` and subject `digest` — and are refused once the session is past
+    it, exactly as a reply on a work item is (`watch.reply_to`). `verdict` is
+    `answer`'s: approve, reject, or answer at a question round. `run` names a
+    `workflow` that takes a prompt, and the `prompt`; it names no session,
+    because the session is what it starts."""
 
     id: str
     verb: str                       # not CommandVerb: an unknown verb is refused, not a crash
@@ -1918,6 +1925,12 @@ class Command(BaseModel):
     by: str = ""                    # the forge login of whoever asked
     issued_at: int = 0
     expires_at: int = 0
+    verdict: str = ""
+    gate: str = ""
+    round: int = 0
+    digest: str = ""
+    workflow: str = ""
+    prompt: str = ""
 
 
 class CommandRecord(BaseModel):
@@ -1928,6 +1941,7 @@ class CommandRecord(BaseModel):
     ok: bool
     detail: str = ""
     at: str = ""
+    started: str = ""               # the session a `run` started
 
 
 ShipOutcome = Literal["shipped", "unreachable", "unauthorized", "refused"]
@@ -1995,10 +2009,13 @@ class SessionStarted(DomainEvent):
     used to know: the base the work branch was cut from, and the station the
     process runs on (`engine/station.py`). `triggered_by` is the session's, as
     its first process recorded it (`RunState.triggered_by`). The skill version
-    is empty until the ticket that teaches it.
+    is empty until the ticket that teaches it. `station_kind` is what a cockpit
+    tells a session that ran in CI by: there is no station to send a command
+    to, so a failed one is re-triggered from the forge, never resumed.
     """
 
     KIND: ClassVar[str] = "session_started"
+    VERSION: ClassVar[int] = 2      # v2: station_kind
 
     adw_id: str
     workflow: str
@@ -2018,6 +2035,7 @@ class SessionStarted(DomainEvent):
     station_id: str = ""
     station_name: str = ""
     skill_version: str = ""
+    station_kind: str = ""          # local | ci; "" from a factory before v2
 
 
 class ProvenanceRecorded(DomainEvent):

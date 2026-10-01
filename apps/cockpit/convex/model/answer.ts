@@ -59,6 +59,16 @@ export function refusal(asked: Asked, answer: Answer): string | null {
   return null;
 }
 
+/**
+ * What the person said, without the comment's mark or footer: the notes a
+ * terminal-channel answer carries to the station as a command, where the
+ * station itself checks which wait it answers. A question round's answers are
+ * the same prose the comment would hold.
+ */
+export function spoken(asked: Asked, answer: Answer): string {
+  return answer.verdict === "answer" ? words(asked, answer) : answer.notes.trim();
+}
+
 /** The comment's body. Call `refusal` first: this renders whatever it is given. */
 export function render(asked: Asked, answer: Answer): string {
   const said = answer.verdict === "answer" ? words(asked, answer) : verdict(answer);

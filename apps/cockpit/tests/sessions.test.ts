@@ -38,6 +38,7 @@ const DESCRIBED: Record<string, string> = {
   "session_finished/v1.json": "session finished: fail — the run's acceptance criterion was not met",
   "session_resumed/v1.json": "resumed chapter 1: ship",
   "session_started/v1.json": "session started: ship on alex@mbp:widgets",
+  "session_started/v2.json": "session started: ship on alex@mbp:widgets",
   "suspended/v1.json": "suspended at plan round 2",
   "suspended/v2.json": "suspended at requirements round 1",
   "tool_called/v1.json": "planner called bash: failed after 1840ms",
@@ -66,7 +67,8 @@ describe("the golden corpus", () => {
     const t = cockpit();
     const token = await factory(t);
     const event = corpus[name];
-    const rest = event.kind === "session_started" ? [] : [{ ...event, seq: 2 }];
+    // A session's first event is a session_started: a later version of it is a process joining the session.
+    const rest = name === "session_started/v1.json" ? [] : [{ ...event, seq: 2 }];
     expect(await ship(t, token, [fixture("session_started", 1), ...rest])).toEqual({
       acked: 1 + rest.length,
     });
@@ -115,6 +117,7 @@ describe("a session told by its events", () => {
           issueUrl: "https://github.com/acme/widgets/issues/42",
           prUrl: "https://github.com/acme/widgets/pull/9",
           stationId: "st_7f3a9c", stationName: "alex@mbp:widgets",
+          stationKind: "",              // a v1 `session_started` does not say
           skillVersion: "1.1.0",
           startedAt: "2026-09-29T11:58:00.000+00:00",
           endedAt: "",

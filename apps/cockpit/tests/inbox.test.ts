@@ -130,8 +130,9 @@ describe("a wait the inbox cannot answer", () => {
     expect(await inboxOf(t, await signIn(t, forge, "alex"))).toEqual([
       { factory: "acme/widgets", session: "c1c1c1c1",
         blocked: "being asked at the station's terminal right now: the factory reads the forge once the run has suspended" },
+      // No work item to answer on: answered by command, which this station takes none of yet.
       { factory: "acme/widgets", session: "c2c2c2c2",
-        blocked: "started from a prompt, with no work item to answer on: it is answered at the station's terminal" },
+        blocked: "alex@mbp:widgets takes no commands: run `asf station register` on it" },
       { factory: "acme/widgets", session: "c3c3c3c3",
         blocked: "the factory reads no answers on a pull request yet: it is answered at the station's terminal" },
       { factory: "acme/widgets", session: "c4c4c4c4",
@@ -263,7 +264,7 @@ describe("answering from the inbox", () => {
     expect(await t.action(api.inbox.answer, { ...answering("f2f2f2f2"), signIn: await signIn(t, forge, "dana") }))
       .toEqual(refused("no such wait among the ones you may answer"));
     expect(await t.action(api.inbox.answer, { ...answering("f3f3f3f3"), signIn: alex }))
-      .toEqual(refused("started from a prompt, with no work item to answer on: it is answered at the station's terminal"));
+      .toEqual(refused("alex@mbp:widgets takes no commands: run `asf station register` on it"));
     expect(forge.comments("acme/widgets", 42)).toEqual([]);
   });
 

@@ -227,12 +227,15 @@ export default defineSchema({
   }).index("by_session", ["factory", "session"]),
 
   // A command a person queued for a station. Never "done" because it was
-  // sent: only the station's own `command_result`, ingested, settles it
-  // (ingest.ts), and a command nobody took by `expiresAt` expires.
+  // sent: only the station's own `command_result` settles it — ingested with
+  // the session it names (ingest.ts), or carried by a poll when it names none
+  // (a run) — and a command nobody took by `expiresAt` expires (crons.ts).
+  // The fields after `detail` are what a verb names besides a session, absent
+  // from a command an older cockpit queued.
   commands: defineTable({
     factory: v.string(),
     station: v.string(),
-    session: v.string(),
+    session: v.string(),              // "" for a run: the session is what it starts
     verb: verbValidator,
     notes: v.string(),
     by: v.string(),                   // the forge login of whoever queued it
@@ -241,9 +244,17 @@ export default defineSchema({
     state: commandStateValidator,
     deliveredAt: v.union(v.null(), v.number()),
     detail: v.string(),               // what the station said it did, or why it would not
+    verdict: v.optional(v.string()),  // answer: approve | reject | answer; abort: abort
+    gate: v.optional(v.string()),     // answer, abort: the wait the person was shown
+    round: v.optional(v.number()),
+    digest: v.optional(v.string()),
+    workflow: v.optional(v.string()), // run
+    prompt: v.optional(v.string()),
+    started: v.optional(v.string()),  // run: the session it started, once the station said
   })
     .index("by_station_state", ["factory", "station", "state"])
-    .index("by_session", ["factory", "session"]),
+    .index("by_session", ["factory", "session"])
+    .index("by_state_expiry", ["state", "expiresAt"]),
 
   // How the catch-up poll is doing: one document, read as a `Progress`
   // (model/progress.ts), which says what each field is.

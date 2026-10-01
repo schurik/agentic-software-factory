@@ -2,7 +2,13 @@
  * The inbox: every gate the viewer is permitted to answer, across every
  * factory they can see, answerable in place (spec #40).
  *
- * An answer is a comment on the session's work item, posted AS THE VIEWER —
+ * A wait on no work item — a prompt run's, at its terminal — is answered by a
+ * COMMAND to the station that holds it instead (commands.answer), when the
+ * viewer may command it: write on the repository, and a registered station
+ * that opted in to `answer` (approve, reject, answer) or `abort`. The station
+ * holds the answer to the gate, round and subject it names before it acts.
+ *
+ * On a work item, an answer is a comment on it, posted AS THE VIEWER —
  * through the team's App on their own user access token, or with the token a
  * local cockpit holds — in the form the factory's answers watcher reads
  * (`model/answer.ts`). So it passes the factory's `trusted_authors` with no
@@ -18,9 +24,13 @@ import { shown as readable } from "./artifacts";
 import { ForgeError, RateLimited } from "./forge/github";
 import { credentialed, forgeWeb } from "./forge/memory";
 import { open } from "./forge/open";
-import { refusal, render, type Asked as Answering } from "./model/answer";
+import { anonymous, answerFor, attendedAt, holderOf, roleOf } from "./commands";
+import { pending } from "./model/command";
+import { refusal, render, spoken, type Asked as Answering } from "./model/answer";
 import { subjectDigest } from "./model/digest";
-import { asked, blocked, permitted, ranked, row, type Row, type Sent, type Subject } from "./model/inbox";
+import {
+  asked, blocked, byCommand, type Commanding, type Judged, permitted, ranked, row, type Row, type Sent, type Subject,
+} from "./model/inbox";
 import { readSummary, view, type Summary } from "./model/session";
 import { storedSession } from "./sessions";
 import { actAs, canRead, viewing, type Viewing } from "./viewer";
@@ -56,7 +66,29 @@ async function waitOf(ctx: QueryCtx, who: Viewing, factory: string, session: str
     .unique();
   const shown = stored && record && (await rowOf(ctx, who, record, ready));
   if (!stored || !record || !shown) return null;
-  return { stored, row: shown, waiting: readSummary(record.summary).waitingFor! };
+  const summary = readSummary(record.summary);
+  return { stored, row: shown, waiting: summary.waitingFor!, stationId: summary.stationId };
+}
+
+/** The station's side of a wait answered by command: who may ask it, and what was asked already. */
+async function judgedByCommand(ctx: QueryCtx, who: Viewing, record: Doc<"sessions">, summary: Summary,
+                               ready: boolean): Promise<Judged> {
+  const { factory, session } = record;
+  const waiting = summary.waitingFor!;
+  const holder = await holderOf(ctx, factory, summary);
+  const last = await answerFor(ctx, factory, session, { gate: waiting.gate, round: waiting.round, digest: waiting.subjectDigest });
+  const commanding: Commanding = {
+    anonymous: anonymous(who, "answer"),
+    role: await roleOf(ctx, who, factory),
+    station: holder.facts,
+    last: last && {
+      by: last.by, verdict: last.verdict ?? last.verb, state: last.state, detail: last.detail, pending: pending(last, Date.now()),
+    },
+  };
+  return {
+    blocked: blocked(summary, null, ready, commanding), commanding,
+    stationSeenAt: holder.row?.seenAt ?? 0, attendedAt: await attendedAt(ctx, factory, session),
+  };
 }
 
 /** The row for one waiting session, or null when the viewer is not permitted to answer it. */
@@ -67,8 +99,11 @@ async function rowOf(ctx: QueryCtx, who: Viewing, record: Doc<"sessions">, ready
   // A local cockpit that does not know whose it is cannot check a trust list,
   // and cannot post either: it shows every wait, each saying why not.
   if (!(who.mode === "local" && login === null) && !permitted(summary.waitingFor.trusted, login)) return null;
-  const sent = await sentFor(ctx, record.factory, record.session, summary);
-  return row(record.factory, record.session, summary, login, blocked(summary, sent, ready));
+  const judged = byCommand(summary.waitingFor) ? await judgedByCommand(ctx, who, record, summary, ready) : {
+    blocked: blocked(summary, await sentFor(ctx, record.factory, record.session, summary), ready),
+    commanding: null, stationSeenAt: 0, attendedAt: null,
+  };
+  return row(record, summary, login, judged);
 }
 
 export const list = query({
@@ -228,13 +263,16 @@ const answerArgs = {
   signIn: v.optional(v.string()),
 };
 
-/** What an answer needs, once the cockpit has checked it may be posted. */
+/** What an answer needs, once the cockpit has checked it may be given. */
 interface Ready {
   asked: Answering;
   issueNumber: number;
   /** Whom the team's App acts as; null in a local cockpit, whose token is the person's own. */
   actor: Id<"viewers"> | null;
   by: string;
+  /** A comment on the work item, or a command to `station`. */
+  via: Row["via"];
+  station: string;
 }
 
 /**
@@ -243,12 +281,12 @@ interface Ready {
  */
 export const ready = internalQuery({
   args: answerArgs,
-  handler: async (ctx, { factory, session, gate, round, digest, signIn }): Promise<Ready | { because: string }> => {
+  handler: async (ctx, { factory, session, gate, round, digest, verdict, signIn }): Promise<Ready | { because: string }> => {
     const who = await viewing(ctx, signIn);
     if (who.mode === "team" && who.viewer === null) return { because: "sign in to answer" };
     const wait = await waitOf(ctx, who, factory, session, signIn, await credentialed(ctx));
     if (wait === null) return { because: "no such wait among the ones you may answer" };
-    const { stored, row: shown, waiting } = wait;
+    const { stored, row: shown, waiting, stationId } = wait;
     if (shown.gate !== gate || shown.round !== round) {
       return { because: `the session is no longer waiting at ${gate} round ${round}` };
     }
@@ -256,6 +294,8 @@ export const ready = internalQuery({
       return { because: `the ${gate} changed since you opened it: read it again before you answer` };
     }
     if (shown.blocked !== null) return { because: shown.blocked };
+    const refused = shown.refused && (verdict === "abort" ? shown.refused.abort : shown.refused.answer);
+    if (refused) return { because: refused };
     return {
       asked: {
         session, gate, round, kind: shown.kind, subject_digest: waiting.subjectDigest,
@@ -264,15 +304,19 @@ export const ready = internalQuery({
       issueNumber: shown.issueNumber,
       actor: who.mode === "team" ? who.viewer!._id : null,
       by: loginOf(who) ?? "",
+      via: shown.via,
+      station: stationId,
     };
   },
 });
 
 /**
  * Answer a wait: post the comment the factory's answers watcher reads, on the
- * work item, as the viewer. What the factory would refuse is refused here
- * first, and nothing is posted then. Done means the comment is on the forge,
- * never that the run has moved: that is for the session's own events to say.
+ * work item, as the viewer — or, for a wait on no work item, queue the answer
+ * for its station (`url` is then ""). What the factory would refuse is refused
+ * here first, and nothing is sent then. Done means the comment is on the
+ * forge, or the command queued, never that the run has moved: that is for the
+ * session's own events to say.
  */
 export const answer = action({
   args: answerArgs,
@@ -282,6 +326,13 @@ export const answer = action({
     const given = { verdict: args.verdict, notes: args.notes, answers: args.answers };
     const refused = refusal(checked.asked, given);
     if (refused !== null) return { ok: false, because: refused };
+    if (checked.via === "command") {
+      await ctx.runMutation(internal.commands.answer, {
+        factory: args.factory, session: args.session, station: checked.station, gate: args.gate, round: args.round,
+        digest: args.digest, verdict: args.verdict, notes: spoken(checked.asked, given), by: checked.by,
+      });
+      return { ok: true, url: "" };
+    }
     let user: string | undefined;
     try {
       if (checked.actor !== null) user = await actAs(ctx, checked.actor);

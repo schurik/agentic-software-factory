@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { ATTENDED_FOR, KILL_FOR, liveness, REDELIVER_AFTER } from "../convex/model/command";
-import { fakeForge, type FakeForge, localMode, type Role } from "./forge";
-import { catchUp, cockpit, type Cockpit, factory, fixture, ingest, signIn, team, type WireEvent } from "./helpers";
+import { ATTENDED_FOR, liveness, REDELIVER_AFTER, TTL } from "../convex/model/command";
+import { fakeForge, type FakeForge, type Role } from "./forge";
+import { factory, fixture, ingest, signIn } from "./helpers";
+import {
+  approved, handed, json, localOf, poll, post, register, REPORT, running, SESSION, STATION, steerable, teamOf,
+} from "./station";
 
 // Stations a person can steer (spec #40, #54): a station registers by a device
 // flow a person approves while signed in, polls for its commands with the
@@ -11,72 +14,6 @@ import { catchUp, cockpit, type Cockpit, factory, fixture, ingest, signIn, team,
 // shipper while it is attended and to the station loop otherwise, and settled
 // only by the station's `command_result`. The factory's end of this wire is
 // tests/test_asf_commands.py, against tests/fake_cockpit.py.
-
-const STATION = { id: "st_7f3a9c", name: "alex@mbp:widgets", kind: "local" };
-const SESSION = "5c0075aa";
-
-async function post(t: Cockpit, path: string, token: string | null, body: unknown): Promise<Response> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token !== null) headers.Authorization = `Bearer ${token}`;
-  return await t.fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
-}
-
-async function json(response: Response): Promise<Record<string, unknown>> {
-  return await response.json() as Record<string, unknown>;
-}
-
-/** `asf station register`'s first request: the code and the device secret. */
-async function register(t: Cockpit, ingestToken: string, station = STATION) {
-  const response = await post(t, "/station/register", ingestToken, { station });
-  expect(response.status).toBe(200);
-  return await json(response) as { device: string; code: string; url: string; interval: number; expires_in: number };
-}
-
-async function handed(t: Cockpit, device: string) {
-  return await post(t, "/station/register/poll", null, { device });
-}
-
-/** A station `owner` approved: its command token. */
-async function approved(t: Cockpit, ingestToken: string, holding?: string): Promise<string> {
-  const { device, code } = await register(t, ingestToken);
-  expect(await t.mutation(api.stations.approve, { code, signIn: holding })).toEqual({ ok: true });
-  const answer = await json(await handed(t, device));
-  expect(answer.status).toBe("approved");
-  return answer.token as string;
-}
-
-const REPORT = { verbs: ["kill"], head: "89abcdef", config_hash: "c0ffee", watchers: ["issues", "answers"] };
-
-async function poll(t: Cockpit, token: string, body: Record<string, unknown> = {}) {
-  return await post(t, "/commands", token, { station: STATION.id, report: REPORT, ...body });
-}
-
-/** A session that started on STATION and is running. */
-function running(session = SESSION): WireEvent[] {
-  const started = fixture("session_started", 1);
-  Object.assign(started.payload, { adw_id: session });
-  return [started];
-}
-
-/** A team on acme/widgets, the people in `roles` holding those roles there. */
-async function teamOf(forge: FakeForge, roles: Record<string, Role>): Promise<Cockpit> {
-  for (const login of Object.keys(roles)) forge.person(login);
-  forge.repo("acme/widgets", { factory: true, roles });
-  const t = cockpit();
-  await team(t, forge);
-  forge.install("acme");
-  await catchUp(t);
-  return t;
-}
-
-/** A local cockpit holding alex's token, its factory, and its viewer known. */
-async function localOf(forge: FakeForge): Promise<{ t: Cockpit; ingestToken: string }> {
-  localMode(forge, forge.person("alex"));
-  forge.repo("acme/widgets", { factory: true, roles: { alex: "admin" } });
-  const t = cockpit();
-  await catchUp(t);
-  return { t, ingestToken: await factory(t, "acme/widgets") };
-}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -241,14 +178,9 @@ describe("a station's command poll", () => {
 // ── kill ─────────────────────────────────────────────────────────────────────
 
 /** A team where alex may command, with acme/widgets' session running on alex's approved station. */
-async function killable(forge: FakeForge, roles: Record<string, Role> = { alex: "write" }, report = REPORT) {
-  const t = await teamOf(forge, roles);
-  const ingestToken = await factory(t, "acme/widgets");
-  const alex = await signIn(t, forge, "alex");
-  await ingest(t, ingestToken, { session: SESSION, events: running() });
-  const token = await approved(t, ingestToken, alex);
-  await poll(t, token, { report });
-  return { t, ingestToken, alex, token };
+async function killable(forge: FakeForge, roles: Record<string, Role> = { alex: "write" },
+                        report: Record<string, unknown> = REPORT) {
+  return await steerable(forge, running(), roles, report);
 }
 
 const asked = (holding?: string) => ({ factory: "acme/widgets", session: SESSION, signIn: holding });
@@ -351,7 +283,7 @@ describe("killing a session from the cockpit", () => {
     vi.advanceTimersByTime(REDELIVER_AFTER + 1000);
     expect((await json(await poll(t, token))).commands).toHaveLength(1);       // never answered: again
 
-    vi.advanceTimersByTime(KILL_FOR);
+    vi.advanceTimersByTime(TTL.kill);
     expect((await json(await poll(t, token))).commands).toHaveLength(0);
     expect((await t.query(api.commands.steering, asked(alex)))?.kill?.state).toBe("expired");
     expect(await t.mutation(api.commands.kill, asked(alex))).toEqual({ ok: true });      // a fresh one may go

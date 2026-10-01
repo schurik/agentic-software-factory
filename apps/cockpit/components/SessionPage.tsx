@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useClock } from "./clock";
 import { said } from "./Shell";
+import type { Command } from "./session/action";
 import { SessionView } from "./session/SessionView";
 import { useSignIn } from "./signIn";
 
@@ -20,6 +21,7 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   // not re-tell the whole story each time.
   const steering = useQuery(api.commands.steering, { factory, session, signIn });
   const kill = useMutation(api.commands.kill);
+  const resume = useMutation(api.commands.resume);
   const [problem, setProblem] = useState("");
   const now = useClock();
   if (page === undefined) return <p className="muted">Loading…</p>;
@@ -30,10 +32,9 @@ export function SessionPage({ factory, session }: { factory: string; session: st
       </p>
     );
   }
-  const onCommand = (command: "kill") => {
-    if (command !== "kill") return;
+  const onCommand = (command: Command) => {
     setProblem("");
-    void kill({ factory, session, signIn })
+    void (command === "kill" ? kill : resume)({ factory, session, signIn })
       .then((queued) => { if (!queued.ok) setProblem(queued.because); })
       .catch((error: unknown) => setProblem(said(error)));
   };

@@ -1,4 +1,4 @@
-import type { ForYou, Row } from "@/convex/model/inbox";
+import { type ForYou, type Row, stationWords } from "@/convex/model/inbox";
 import { formatAgo } from "../format";
 
 /** A wait older than this is flagged: a day is long enough for a run to be noticed missing. */
@@ -56,7 +56,9 @@ export function InboxList({ rows, selected, now, onSelect }: {
                 {stale ? <span className="tag tag-bad">waiting {formatAgo(row.since, now).replace(/ ago$/, "")}</span> : null}
               </span>
               <span className="work small">{workItem(row)}</span>
-              {row.blocked ? <span className="why small">{row.blocked}</span> : null}
+              {row.blocked ? (
+                <span className="why small">{row.blocked}{row.queued ? `: ${stationWords(row, now)}` : ""}</span>
+              ) : null}
             </button>
           </li>
         );

@@ -96,6 +96,7 @@ def test_a_session_names_the_station_it_started_on_and_the_station_stays_out_of_
     assert started.kind == "session_started"
     assert started.payload["station_id"] == recorded["id"]
     assert started.payload["station_name"].endswith(f":{stamped.name}")
+    assert started.payload["station_kind"] == "local"     # a cockpit resumes it; CI's it would not
     assert not (session_dir(stamped, adw_id) / station.SHIPPED_FILE).exists()   # no cockpit
     assert "station.json" not in git(stamped, "status", "--porcelain", "--ignored=no")
     git(stamped, "check-ignore", "-q", f"{DATA_DIR}/station.json")    # raises when not ignored
