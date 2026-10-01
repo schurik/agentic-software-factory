@@ -40,6 +40,10 @@ from .runner import Run
 from .tracer import Tracer
 from .utils import anchor, engineer_name, new_id, now_iso
 
+# Who triggered a run, from the launcher that started it: a watcher sets it to
+# the issue's labeller (`watch.launch`), "" when the forge would not say.
+TRIGGERED_BY_ENV = "ASF_TRIGGERED_BY"
+
 
 def _finalize_when_killed(run: Run) -> None:
     """A killed run still closes its own trace, and still keeps its worktree.
@@ -108,6 +112,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     recorded = artifacts.read_run(run.session_dir)
     if recorded:
         run.adopt_provenance(recorded.trigger, recorded.issue_url, recorded.pr_url)
+    triggered_by = recorded.triggered_by if recorded else _launched_by()
     tracer.session_workspace(adw_id, workspace)
     # The same fact in the session's OWN directory, and the only place it is
     # written whole: `command` is the argv as a list, so `just resume` can launch
@@ -122,8 +127,9 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
         adw_id=adw_id, workflow=workflow, command=command, pid=os.getpid(),
         engineer=run.engineer, started_at=now_iso(), repo_root=str(workspace.repo_root),
         branch=workspace.branch, base_ref=workspace.base_ref,
-        base_commit=workspace.base_commit, trigger=run.trigger, issue_url=run.issue_url,
-        pr_url=run.pr_url, request=spec.request, station_id=here.id, station_name=here.name))
+        base_commit=workspace.base_commit, trigger=run.trigger, triggered_by=triggered_by,
+        issue_url=run.issue_url, pr_url=run.pr_url, request=spec.request, station_id=here.id,
+        station_name=here.name))
     artifacts.open_chapter(run.session_dir, workflow, spec.input, resume)
     # And from here every event this process appends is on its way to the
     # cockpit, when there is one — from a thread, so nothing below waits on it.
@@ -150,6 +156,15 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     if run.hitl.override or cfg.hitl.default or any(cfg.hitl.gates.values()):
         run.console.note(run.hitl.summary())
     return run
+
+
+def _launched_by() -> str:
+    """Who triggered a session this process is the first to take: the login
+    its launcher named (a watcher, for a labelled issue — "" when the forge
+    would not say, which is nobody, not the watcher's operator), else the
+    operator running it."""
+    named = os.environ.get(TRIGGERED_BY_ENV)
+    return named.strip() if named is not None else station.operator()
 
 
 def _workspace_line(workspace) -> str:

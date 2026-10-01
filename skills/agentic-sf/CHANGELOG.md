@@ -109,6 +109,21 @@ before — `None` when there are none, never omitted.
   question round's `questions`, and names whose reply on the wait's channel the factory will hear
   (`trusted`: `issues.trusted_authors` on an issue, empty for anyone). A cockpit's **inbox** offers
   the answer to those people only, and posts it as the person signed in.
+- **A run records who triggered it**, as `triggered_by` in `run.json` and on `session_started`: for
+  an issue the watcher dequeued, whoever last applied its route or queued label (read from the
+  issue's `labeled` events through the new `issues.labeller_command`, `gh api graphql` by default;
+  empty records nobody); for a session the review watcher starts, nobody; for any other run, the
+  operator's forge login as `gh config get -h <host> user` reads it — no network — else
+  `GITHUB_ACTOR` in a GitHub Actions job, else `ENGINEER_NAME` / git's `user.name`. The session's
+  first process records it and every later one keeps it: answering, resuming or joining is not
+  triggering. It authorizes nothing; `trusted_authors` keeps its meaning.
+- `provenance_recorded` is **v2**: an issue run also says who wrote the issue and whom it was
+  assigned to. A cockpit's inbox marks and sorts first what is **for you** — a run you triggered, an
+  issue you wrote, an issue assigned to you — and hides nothing else you may answer.
+- A cockpit can **trigger** a workflow on an issue from the Factories page: it adds the route and
+  queued labels as you, from triage up, and refuses an issue already queued or one a run already
+  has. It finds those labels by the descriptions `asf labels --create` writes (route, queued and
+  running), which are now a contract (`tests/golden/labels/`).
 
 ### Upgrade
 
@@ -148,6 +163,13 @@ to push a branch and open nothing) and set `worktree.publish` to say when it is 
 Gates answered on the work item and the inbox come with the same `--force` re-stamp: `just answers`
 (or `just up`) then hears `/approve`, `/reject …` and `/abort` replies. A reply whose first line
 already began that way was discussion before and is a verdict now.
+
+Who triggered a run comes with the same re-stamp, and needs nothing in `asf/factory.yaml`: the
+default `issues.labeller_command` applies without the key (the `.new` beside it shows it). Set it
+to `[]` on a tracker that is not the forge. Sessions started before keep an empty `triggered_by`.
+For the cockpit's Trigger button, run `just labels --create` once more if your route and queued
+labels were made by hand: it creates only missing labels, so give an existing one its description
+on the forge (`gh label edit <name> --description …`, the text `just labels` would have written).
 
 ## 1.0.0
 

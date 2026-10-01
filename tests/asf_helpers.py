@@ -202,7 +202,8 @@ def phase_names(repo: Path, adw_id: str) -> list[str]:
 #
 # The forge commands are config, so a python script standing in for `gh` is a
 # supported deployment, not a mock. It answers `view` from issue.json, `list`
-# from listing.json, `label-list` from labels.json, `graphql` from pr.json,
+# from listing.json, `label-list` from labels.json, `graphql` from pr.json (or,
+# asked for an issue's timeline, from timeline.json, and logged),
 # prints a url for `pr-create`, and appends every other call to calls.json —
 # `label-create` among them, so a test reads back which labels were defined.
 # `refuse.json` names verbs it refuses with exit 1, the way a real one does
@@ -230,6 +231,10 @@ elif verb == "graphql":
     if "addPullRequestReviewThreadReply" in query or "resolveReviewThread" in query:
         entries.append([verb, *argv])
         print(json.dumps({"data": {}}))
+    elif "timelineItems" in query:
+        entries.append([verb, *argv])
+        timeline = home / "timeline.json"
+        print(timeline.read_text() if timeline.exists() else json.dumps({"data": {}}))
     else:
         print((home / "pr.json").read_text())
 elif verb == "pr-create":
@@ -277,13 +282,15 @@ def with_origin(repo: Path) -> Path:
 
 
 def issue_json(number: int = 42, author: str = "someone", labels=("asf:queued", "asf:ship"),
-               body: str = "The /health endpoint returns 500.\n", comments=()) -> dict:
+               body: str = "The /health endpoint returns 500.\n", comments=(),
+               assignees=()) -> dict:
     """One issue as the forge returns it. `comments` needs no support in the
     stand-in above: `gh issue view --json comments` answers out of the same
     payload `view` already prints, so a conversation is a key on this dict."""
     return {"number": number, "title": f"health check broken (#{number})", "body": body,
             "labels": [{"name": name} for name in labels], "author": {"login": author},
             "state": "OPEN", "url": f"https://forge/acme/widgets/issues/{number}",
+            "assignees": [{"login": login} for login in assignees],
             "comments": [dict(entry) for entry in comments]}
 
 
