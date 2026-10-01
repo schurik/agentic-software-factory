@@ -10,7 +10,7 @@ const RELEASED_WHY: Record<string, string> = {
 };
 
 /** How long a claim's station has been away, in words: "online", or "offline 2 d" — never "orphaned". */
-export function awayWords(claim: Pick<ClaimView, "heardAt">, now: number): string {
+function awayWords(claim: Pick<ClaimView, "heardAt">, now: number): string {
   const away = now - claim.heardAt;
   return away < ONLINE_FOR ? "online" : `offline ${formatSpan(away)}`;
 }

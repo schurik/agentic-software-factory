@@ -38,8 +38,8 @@ export function FactoryPage({ factory }: { factory: string }) {
   const ask = useAction(api.factory.look);
   const [look, setLook] = useState<Look | null>(null);
   const facts = useQuery(api.activity.attention, { factory, signIn });
-  const floor = useQuery(api.activity.page, { factory, signIn });
-  const held = useQuery(api.activity.stations, { factory, signIn });
+  const happening = useQuery(api.activity.page, { factory, signIn });
+  const stations = useQuery(api.activity.stations, { factory, signIn });
   const release = useAction(api.claims.release);
   const [released, setReleased] = useState("");
   const [station, setStation] = useState<string | null>(null);
@@ -61,7 +61,12 @@ export function FactoryPage({ factory }: { factory: string }) {
   }, [ask, factory, signIn, heads]);
 
   const measured = useMemo(() => (page ? drifts(page, look) : new Map()), [page, look]);
-  const attention = useMemo(() => (facts ? needsAttention(facts, now) : undefined), [facts, now]);
+  // Drift as the header measures it, against the forge's tip, once the look has measured anything.
+  const drifted = useMemo(() => (page && look?.ok ? page.stations.flatMap((row) => {
+    const each = measured.get(row.station);
+    return each?.drifted ? [{ station: row.station, name: row.name, badges: each.badges }] : [];
+  }) : undefined), [page, look, measured]);
+  const attention = useMemo(() => (facts ? needsAttention(facts, now, drifted) : undefined), [facts, now, drifted]);
   if (page === undefined) return <p className="muted">Loading…</p>;
   if (page === null) return <p className="notice">{factory} is not a factory you can read. <Link href="/factories">All factories</Link></p>;
   const web = `https://${forge.host}`;
@@ -89,7 +94,7 @@ export function FactoryPage({ factory }: { factory: string }) {
       </div>
       {released ? <p className="notice">{released}</p> : null}
       <div hidden={tab !== "activity"}>
-        <ActivityTab factory={factory} forge={web} now={now} attention={attention} page={floor} onRelease={onRelease} />
+        <ActivityTab factory={factory} forge={web} now={now} attention={attention} page={happening} onRelease={onRelease} />
       </div>
       <div hidden={tab !== "workflows"}>
         <WorkflowsTab check={page.check} running={running?.workflow ?? null}
@@ -99,7 +104,7 @@ export function FactoryPage({ factory }: { factory: string }) {
                       )} />
       </div>
       <div hidden={tab !== "stations"}>
-        {held ? <StationsTab stations={held.stations} ci={held.ci} drifts={measured} now={now} factory={factory}
+        {stations ? <StationsTab stations={stations.stations} ci={stations.ci} drifts={measured} now={now} factory={factory}
                              selected={station} onSelect={setStation} onRelease={onRelease} />
           : <p className="muted">Loading…</p>}
       </div>

@@ -142,8 +142,10 @@ export interface ClaimView {
   seenAt: number;
   /**
    * When the holding station was last heard of at all, epoch ms: its loop's
-   * poll, the run's own, or — a station that never registered polls for
-   * nothing — its asking for this claim. What "offline 2 d" counts from.
+   * poll, the session's own shipper polling for it, or — a station that never
+   * registered polls for nothing — its asking for this claim. What "offline
+   * 2 d" counts from, so it can say more than a station's "last seen", which
+   * is its loop's alone.
    */
   heardAt: number;
   grantedAt: number;

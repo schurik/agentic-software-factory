@@ -4,10 +4,11 @@
  * depends on a station is shown under it: the watchers it runs, the sessions
  * it holds and the claims it holds. CI jobs, which come and go, are one entry.
  *
- * `attention` is the one query both the Factory page and the Factories list
- * read what needs attention by. It returns the facts — what the cockpit was
- * told, with their timestamps — and `model/attention.ts` says which of them
- * are worth a person's attention against the page's own clock.
+ * `attention` is the one query what needs attention is read by: the Factory
+ * page's, and the one the Factories list is to rank by (#60). It returns the
+ * facts — what the cockpit was told, with their timestamps — and
+ * `model/attention.ts` says which of them are worth a person's attention
+ * against the page's own clock.
  */
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
@@ -30,14 +31,14 @@ const FAILURES = 20;
 const RECENT = 10;
 
 /** A session's record with its summary read: what every list here is made of. */
-interface Known {
+interface Recorded {
   session: string;
   activity: number;
   summary: Summary;
 }
 
 /** `factory`'s most recently active sessions, newest first. */
-async function recentOf(ctx: QueryCtx, factory: string): Promise<Known[]> {
+async function recentOf(ctx: QueryCtx, factory: string): Promise<Recorded[]> {
   const records: Doc<"sessions">[] = await ctx.db
     .query("sessions")
     .withIndex("by_factory_activity", (q) => q.eq("factory", factory))
@@ -47,7 +48,7 @@ async function recentOf(ctx: QueryCtx, factory: string): Promise<Known[]> {
 }
 
 /** When a session ended, epoch ms: its finish, else its last event, else when the cockpit last heard of it. */
-export function endedAt({ summary, activity }: Known): number {
+function endedAt({ summary, activity }: Recorded): number {
   for (const ts of [summary.endedAt, summary.lastEventAt]) {
     const at = Date.parse(ts);
     if (ts && !Number.isNaN(at)) return at;
@@ -56,7 +57,7 @@ export function endedAt({ summary, activity }: Known): number {
 }
 
 /** The workflow a session is in now, or ended in: its last chapter's. */
-export function workflowOf(summary: Summary): string {
+function workflowOf(summary: Summary): string {
   return summary.workflows.at(-1) ?? "";
 }
 
@@ -66,7 +67,7 @@ export interface SessionRow {
   workflow: string;
   /** running | waiting | success | fail */
   status: string;
-  /** The station holding it, by name and kind; "" for a factory that did not say. */
+  /** The station holding it — its name — and its kind; "" for a factory that did not say. */
   station: string;
   stationKind: string;
   /** The gate it waits at, as "plan round 1"; "" when it waits at none. */
@@ -77,7 +78,7 @@ export interface SessionRow {
   endedAt: number;
 }
 
-export function rowOf(known: Known): SessionRow {
+function rowOf(known: Recorded): SessionRow {
   const { summary } = known;
   const waiting = summary.waitingFor;
   return {
@@ -89,20 +90,20 @@ export function rowOf(known: Known): SessionRow {
 }
 
 /** Whether a session is live or suspended: what Running now shows. */
-function open({ summary }: Known): boolean {
+function open({ summary }: Recorded): boolean {
   return summary.status === "running" || summary.status === "waiting";
 }
 
-function finished({ summary }: Known): boolean {
+function finished({ summary }: Recorded): boolean {
   return summary.status === "success" || summary.status === "fail";
 }
 
 /** Whether a station still holds a session: live, suspended, or failed — which only it can resume. */
-function held(known: Known): boolean {
+function held(known: Recorded): boolean {
   return open(known) || known.summary.status === "fail";
 }
 
-function failures(known: Known[]): Failed[] {
+function failures(known: Recorded[]): Failed[] {
   return known
     .filter((each) => each.summary.status === "fail")
     .map((each) => ({ session: each.session, workflow: workflowOf(each.summary), station: each.summary.stationName, endedAt: endedAt(each) }))
@@ -133,11 +134,12 @@ async function gatesOf(ctx: QueryCtx, who: Viewing, factory: string): Promise<Fa
  * compare, when it stands on another commit. The Factory page's header
  * measures the same stations against the forge's tip (`factory.look`).
  */
-async function checkOf(ctx: QueryCtx, factory: string, repo: Doc<"repos"> | null): Promise<Pick<Facts, "check" | "drifted">> {
+async function checkOf(ctx: QueryCtx, factory: string, repo: Doc<"repos"> | null, stations: Doc<"stations">[]):
+    Promise<Pick<Facts, "check" | "drifted">> {
   const check = await defaultCheck(ctx, factory, repo?.defaultBranch || null);
   const reference = { head: check?.head ?? null, configHash: check?.configHash ?? null };
   const drifted: Drifted[] = [];
-  for (const row of await reporting(ctx, factory)) {
+  for (const row of stations) {
     const measured = drift({ head: row.report?.head ?? "", configHash: row.report?.configHash ?? "" }, reference, undefined);
     if (measured.drifted) drifted.push({ station: row.station, name: row.name, badges: measured.badges });
   }
@@ -148,11 +150,12 @@ async function checkOf(ctx: QueryCtx, factory: string, repo: Doc<"repos"> | null
 export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string): Promise<Facts> {
   const known = await recentOf(ctx, factory);
   const repo = await repoOf(ctx, factory);
-  const watchers = (await reporting(ctx, factory))
+  const stations = await reporting(ctx, factory);
+  const watchers = stations
     .filter((row) => row.report?.watchers.includes("issues"))
     .map((row) => ({ station: row.station, name: row.name, seenAt: row.seenAt }));
   return { gates: await gatesOf(ctx, who, factory), failed: failures(known), claims: await heldOn(ctx, who, factory),
-           ...(await checkOf(ctx, factory, repo)), queued: repo?.queued ?? null, watchers };
+           ...(await checkOf(ctx, factory, repo, stations)), queued: repo?.queued ?? null, watchers };
 }
 
 export const attention = query({
@@ -224,8 +227,7 @@ export const stations = query({
       shown.set(station, Object.assign(found, facts));
       return found;
     };
-    for (const row of await ctx.db.query("stations").withIndex("by_station", (q) => q.eq("factory", factory)).collect()) {
-      if (row.kind === "ci") continue;
+    for (const row of await reporting(ctx, factory)) {
       detail(row.station, {
         name: row.name, kind: row.kind, owner: row.ownerLogin, registered: row.token !== null, seenAt: row.seenAt, report: row.report,
       });

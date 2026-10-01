@@ -3,7 +3,7 @@ import type { ClaimView } from "@/convex/model/claim";
 import { liveness } from "@/convex/model/command";
 import type { Drift } from "@/convex/model/drift";
 import { ClaimRow } from "../ClaimRow";
-import { formatAgo } from "../format";
+import { formatAgoAt, plural } from "../format";
 import { Sessions } from "./ActivityTab";
 import { short } from "./view";
 
@@ -16,15 +16,14 @@ export interface Ci {
 /** What the CI entry is selected as. */
 export const CI = "ci";
 
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
 function seenWords(station: StationDetail, now: number): string {
   if (!station.registered) {
-    return station.seenAt === 0 ? "never polled" : `revoked · last seen ${formatAgo(new Date(station.seenAt).toISOString(), now)}`;
+    return station.seenAt === 0 ? "never polled" : `revoked · last seen ${formatAgoAt(station.seenAt, now)}`;
   }
   const live = liveness(station.seenAt, null, now);
   if (live.lastSeen === null) return "never polled";
-  return `${live.online ? "● online" : "○ offline"} · ${formatAgo(new Date(live.lastSeen).toISOString(), now)}`;
+  return `${live.online ? "● online" : "○ offline"} · ${formatAgoAt(live.lastSeen, now)}`;
 }
 
 /** A station's drift badges: the page's measure when it has one, else what its report allows. */
@@ -144,7 +143,7 @@ function CiOpen({ ci, factory, now }: { ci: Ci; factory: string; now: number }) 
                 <td><code>{short(check.head)}</code></td>
                 <td><span className={`tag ${check.ok ? "tag-ok" : "tag-bad"}`}>{check.ok ? "passing" : "failing"}</span></td>
                 <td>{check.station}</td>
-                <td>{formatAgo(new Date(check.at).toISOString(), now)}</td>
+                <td>{formatAgoAt(check.at, now)}</td>
               </tr>
             ))}
           </tbody>

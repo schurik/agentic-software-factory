@@ -324,8 +324,8 @@ that the viewer may answer (a link into the inbox, `/?factory=<owner>/<repo>`), 
 failed in the last day, each claim whose station has not been heard of for over a day — "held by
 `alex@mbp`, offline 2 d", never orphaned, with Release claim — the stations whose config drifted, a
 failing check, and **nobody watching**: issues queued for a route while no station online runs an
-issues watcher. `activity:attention` is the one query that reads those facts, for this page and the
-Factories list alike; which of them are news is read against the page's clock
+issues watcher. `activity:attention` is the one query that reads those facts, for this page and for
+the Factories list to rank by; which of them are news is read against the page's clock
 (`convex/model/attention.ts`), so a failure stops being news without anything new arriving. Then
 **Running now** — the live and suspended sessions, by the workflow each is in, naming its station —
 and **Recent**, the last finished ones.

@@ -4,9 +4,10 @@ import type { Attention } from "@/convex/model/attention";
 import type { ClaimView } from "@/convex/model/claim";
 import { ClaimRow } from "../ClaimRow";
 import { Status } from "../Status";
-import { formatAgo, formatCost, sessionHref } from "../format";
+import { formatAgoAt as ago, formatCost, plural, sessionHref } from "../format";
 
-export interface Floor {
+/** What runs now, by workflow, and what finished last (activity.page). */
+export interface Happening {
   running: { workflow: string; sessions: SessionRow[] }[];
   recent: SessionRow[];
 }
@@ -16,8 +17,6 @@ export function inboxOf(factory: string): string {
   return `/?factory=${encodeURIComponent(factory)}`;
 }
 
-const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
-const ago = (at: number, now: number) => formatAgo(new Date(at).toISOString(), now);
 
 /**
  * One factory's Activity (spec #40): what needs attention — each with where
@@ -30,7 +29,7 @@ export function ActivityTab({ factory, forge, now, attention, page, onRelease }:
   forge: string;
   now: number;
   attention: Attention[] | undefined;
-  page: Floor | null | undefined;
+  page: Happening | null | undefined;
   onRelease?: (claim: ClaimView) => void;
 }) {
   return (

@@ -329,10 +329,7 @@ export class GitHub {
   }
 }
 
-/**
- * The commit `branch` of `repo` is at, as `as` is shown it, or null when it
- * is not. Never remembered: a branch moves, and it is asked to measure by.
- */
+/** Issue `number` as the forge's body for it describes it. */
 function readIssue(body: unknown, number: number): Issue {
   const issue = isRecord(body) ? body : {};
   return {
@@ -342,6 +339,10 @@ function readIssue(body: unknown, number: number): Issue {
   };
 }
 
+/**
+ * The commit `branch` of `repo` is at, as `as` is shown it, or null when it
+ * is not. Never remembered: a branch moves, and it is asked to measure by.
+ */
 export async function tip(github: GitHub, as: Credential, repo: string, branch: string): Promise<string | null> {
   const where = `/repos/${repo}/branches/${branch.split("/").map(encodeURIComponent).join("/")}`;
   const body = await shown(github, as, where);

@@ -246,6 +246,19 @@ describe("needs attention", () => {
     ]);
   });
 
+  it("goes by the drift a page measured against the forge's tip, when it has one, over the last check's", async () => {
+    const t = await teamOf(forge, { alex: "write" });
+    const token = await factory(t, "acme/widgets");
+    const alex = await signIn(t, forge, "alex");
+    await poll(t, await approved(t, token, alex), { report: { ...REPORT, config_hash: "beef" } });
+    const facts = (await t.query(api.activity.attention, { factory: "acme/widgets", signIn: alex }))!;
+    expect(needsAttention(facts, NOW)).toEqual([]);                       // no check: nothing to measure by here
+
+    const measured = [{ station: ALEX.id, name: ALEX.name, badges: ["3 commits behind"] }];
+    expect(needsAttention(facts, NOW, measured)).toEqual([{ kind: "drift", stations: measured }]);
+    expect(needsAttention(facts, NOW, [])).toEqual([]);
+  });
+
   it("says nobody is watching when issues are queued for a route and no station runs an issues watcher", async () => {
     const t = await teamOf(forge, { alex: "write" });
     const token = await factory(t, "acme/widgets");
