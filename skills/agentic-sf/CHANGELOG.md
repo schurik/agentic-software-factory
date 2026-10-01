@@ -188,8 +188,9 @@ before — `None` when there are none, never omitted.
   over `asf/` a station's report carries). It has its own format version (`SelfDescription.FORMAT`)
   and a golden fixture per version under `tests/golden/self-description/`. A workflow that does not
   load is listed under `problems`, the others are still described, and the exit code is `check`'s.
-  `--ship` sends it to `ASF_COCKPIT_URL` with the ingest token as this checkout's station; it fails
-  only on a refused token, and ships nothing without a token (a fork's pull request).
+  `--ship` sends it to `ASF_COCKPIT_URL` with the ingest token as a CI station; it fails only on a
+  refused token, and ships nothing without a token (a fork's pull request) or outside CI — the
+  default branch's description is what stations' drift is measured against.
 - A stage may name the gate it places (`GATE`, and `GATE_KIND = "questions"` for a question round):
   `plan`, `integrate` and `refine` do, and the self-description shows them.
 - **An optional CI workflow**: `install.py --ci` (or yes when asked on a terminal) stamps

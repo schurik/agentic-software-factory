@@ -51,11 +51,12 @@ export function FactoryPage({ factory }: { factory: string }) {
 
   return (
     <div className="factory">
-      <FactoryHeader page={page} look={look} drifts={measured} forge={web} running={running !== null}
-                     onRun={() => setRunning(running ? null : {})} />
-      {running ? (
+      <FactoryHeader page={page} look={look} drifts={measured} forge={web}
+                     running={running !== null && running.workflow === undefined}
+                     onRun={() => setRunning(running && running.workflow === undefined ? null : {})} />
+      {running && running.workflow === undefined ? (
         <section className="run-here">
-          <RunPanel factory={page.repo} workflow={running.workflow} workflows={promptWorkflows(page.check)} />
+          <RunPanel factory={page.repo} workflows={promptWorkflows(page.check)} />
         </section>
       ) : null}
       <div className="tabs" role="tablist">
@@ -64,7 +65,11 @@ export function FactoryPage({ factory }: { factory: string }) {
         ))}
       </div>
       {tab === "workflows"
-        ? <WorkflowsTab check={page.check} onRun={(workflow) => setRunning({ workflow })} />
+        ? <WorkflowsTab check={page.check} running={running?.workflow ?? null}
+                        onRun={(workflow) => setRunning(running?.workflow === workflow ? null : { workflow })}
+                        runner={(workflow) => (
+                          <RunPanel factory={page.repo} workflow={workflow} workflows={promptWorkflows(page.check)} />
+                        )} />
         : <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} />}
     </div>
   );

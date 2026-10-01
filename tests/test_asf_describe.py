@@ -126,12 +126,16 @@ def test_the_writer_matches_the_golden_fixture_for_the_current_format():
 
 
 def test_the_stamped_factory_s_description_has_the_golden_fixture_s_shape(stamped: Path):
-    """Every field the writer emits is one the current fixture holds, at every
-    depth — so a field added without a format bump fails here, not in a cockpit."""
+    """The writer, run on a real stamp (one workflow broken, so a problem is
+    described too), emits exactly the fields the current fixture holds, at
+    every depth — so a field added or dropped without a format bump fails
+    here, not in a cockpit."""
+    spec = stamped / "asf" / "workflows" / "quick" / "workflow.yaml"
+    spec.write_text(spec.read_text().replace("{agent: builder}", "{agent: nobody}", 1))
     _, raw = described(stamped)
     golden = json.loads((GOLDEN / f"v{SelfDescription.FORMAT}.json").read_text())
 
-    assert fields(raw) - fields(golden) == set()
+    assert fields(raw) == fields(golden)
 
 
 def fields(value, at: str = "") -> set[str]:
@@ -189,6 +193,17 @@ def test_a_cockpit_that_is_down_or_a_job_without_the_token_ships_nothing_and_pas
     monkeypatch.setenv("ASF_COCKPIT_TOKEN", "")          # a pull request from a fork
     assert describe.ship(describe.build(), factory.load(), shared) == 0
     assert shared.descriptions == [] and "no ASF_COCKPIT_TOKEN" in capsys.readouterr().err
+
+
+def test_a_local_checkout_does_not_ship_the_description(shared, monkeypatch, capsys):
+    """What the default branch's description says is what every station's
+    drift is measured against — a laptop's edits must not become it."""
+    monkeypatch.delenv("CI")
+
+    assert describe.ship(describe.build(), factory.load(), shared) == 0
+
+    assert shared.descriptions == []
+    assert "CI workflow" in capsys.readouterr().err
 
 
 def test_check_json_ship_prints_the_description_ships_it_and_exits_as_check_does(

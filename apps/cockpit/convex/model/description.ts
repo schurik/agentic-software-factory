@@ -126,7 +126,7 @@ export interface Describing {
 }
 
 export interface Refusal {
-  status: 400 | 413;
+  status: 400 | 403 | 413;
   error: string;
 }
 
@@ -136,6 +136,11 @@ export function parseDescribing(body: unknown): Describing | Refusal {
   const { station, description } = body;
   if (!isRecord(station) || !["id", "name", "kind"].every((key) => typeof station[key] === "string" && station[key] !== "")) {
     return { status: 400, error: "`station` names its id, name and kind" };
+  }
+  // The default branch's description is what every station's config drift is
+  // measured against: a checkout's own edits must not become it.
+  if (station.kind !== "ci") {
+    return { status: 403, error: "a self-description is pushed by a CI station — the factory's CI workflow — never a local checkout" };
   }
   if (!isRecord(description) || !Number.isInteger(description.format) || (description.format as number) < 1
       || !isRecord(description.checked)) {

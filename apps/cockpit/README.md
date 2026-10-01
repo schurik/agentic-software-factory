@@ -309,7 +309,9 @@ budget — pushed by the optional CI workflow a stamp carries with `install.py -
 with the factory's ingest token, `{station: {id, name, kind}, description}`, keeps the latest one per
 branch (`convex/describe.ts`), as the JSON text it arrived as; `convex/model/description.ts` reads
 it, every format ever written (`tests/golden/self-description/v<N>.json`), and says when one is newer
-than it. The answer is `200 {}`: an ingest token can add, and read nothing back.
+than it. The answer is `200 {}`: an ingest token can add, and read nothing back. A station whose
+kind is not `ci` is refused with a 403 — a checkout's own edits are what drift measures, never what
+it is measured against.
 
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
 branch's commit, the check's state, flags, and Run a prompt — and two tabs. **Workflows** renders the
@@ -321,7 +323,7 @@ Drift is the cockpit's arithmetic, never the station's (`convex/model/drift.ts`)
 command polls report the commit it has out and a hash over its `asf/` files; the page's `look`
 action asks the forge where the default branch is and how far each station's commit is behind it
 (`3 commits behind`), and a hash that differs from the one the default branch's check carried at that
-very commit is `local edits`. A station behind whose config hashes the same is said to be behind,
+very commit is `local edits`, and without such a check it is `config not measured`, never current. A station behind whose config hashes the same is said to be behind,
 and not drifted: what it runs is what the repository says.
 
 ## Local mode, and the published images

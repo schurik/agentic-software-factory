@@ -55,6 +55,15 @@ describe("the Workflows tab", () => {
     expect(html.match(/>Run<\/button>/g)?.length).toBe(DESCRIPTION.workflows.filter((w) => w.input === "prompt").length);
   });
 
+  it("runs a prompt workflow in place, inside its own About", () => {
+    const html = renderToStaticMarkup(
+      <WorkflowsTab check={page().check} onRun={() => {}} running="quick" runner={(name) => <p>run form for {name}</p>} />);
+
+    const quick = html.slice(html.indexOf('id="workflow-quick"'));
+    expect(quick.slice(0, quick.indexOf("<section", 1))).toContain("run form for quick");
+    expect(html.match(/run form for/g)?.length).toBe(1);
+  });
+
   it("says a factory without a description is unchecked, and how to check it", () => {
     const html = renderToStaticMarkup(<WorkflowsTab check={null} />);
 

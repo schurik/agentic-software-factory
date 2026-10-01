@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { DescribedWorkflow } from "@/convex/model/description";
 import { budgetWords, type Check } from "./view";
 
@@ -21,15 +21,25 @@ export function triggerWords(workflow: DescribedWorkflow): string {
  * who plays each, where it may stop for a person — and the agents with what
  * they may touch. Everything comes from the factory's own self-description.
  */
-export function WorkflowAbout({ workflow, onRun }: { workflow: DescribedWorkflow; onRun?: () => void }) {
+export function WorkflowAbout({ workflow, onRun, run }: {
+  workflow: DescribedWorkflow;
+  onRun?: () => void;
+  /** The run form, open in place under its heading, when Run was pressed here. */
+  run?: ReactNode;
+}) {
   return (
     <section className="workflow" id={`workflow-${workflow.name}`}>
       <div className="ch-head">
         <h2>{workflow.name}</h2>
         <span className="tag">{workflow.input}</span>
         <span className="grow" />
-        {workflow.input === "prompt" && onRun ? <button type="button" className="button small" onClick={onRun}>Run</button> : null}
+        {workflow.input === "prompt" && onRun ? (
+          <button type="button" className="button small" aria-expanded={run !== undefined} onClick={onRun}>
+            {run !== undefined ? "Close" : "Run"}
+          </button>
+        ) : null}
       </div>
+      {run !== undefined ? <div className="run-here">{run}</div> : null}
       <p>{workflow.description}</p>
       <p className="muted small">Started by {triggerWords(workflow)}.</p>
       <ol className="chain" aria-label="stages">
@@ -76,7 +86,14 @@ function GateTag({ workflow, name }: { workflow: DescribedWorkflow; name: string
  * branch described, the configured per-session budget, and — for a factory
  * with no CI workflow — why there is nothing to show yet.
  */
-export function WorkflowsTab({ check, onRun }: { check: Check | null; onRun?: (workflow: string) => void }) {
+export function WorkflowsTab({ check, onRun, running = null, runner }: {
+  check: Check | null;
+  onRun?: (workflow: string) => void;
+  /** The workflow whose run form is open, if any. */
+  running?: string | null;
+  /** The run form for a workflow: the live one on the page, anything in a test. */
+  runner?: (workflow: string) => ReactNode;
+}) {
   if (check === null) {
     return (
       <div className="notice">
@@ -103,7 +120,8 @@ export function WorkflowsTab({ check, onRun }: { check: Check | null; onRun?: (w
         </div>
       ))}
       {description.workflows.map((workflow) => (
-        <WorkflowAbout key={workflow.name} workflow={workflow} onRun={onRun && (() => onRun(workflow.name))} />
+        <WorkflowAbout key={workflow.name} workflow={workflow} onRun={onRun && (() => onRun(workflow.name))}
+                       run={running === workflow.name && runner ? runner(workflow.name) : undefined} />
       ))}
     </>
   );

@@ -133,7 +133,10 @@ def ship(description: SelfDescription, cfg: FactoryConfig,
     follows `asf station sync`'s rule: non-zero ONLY when the cockpit refuses
     the token, because a check that goes red while the cockpit restarts
     teaches people to delete the step. No cockpit, or no token (a pull request
-    from a fork is given no secrets), ships nothing and says so.
+    from a fork is given no secrets), ships nothing and says so — and nor does
+    a checkout outside CI: the default branch's description is what every
+    station's config drift is measured against, and a laptop's edits must not
+    become it.
     """
     cockpit = station.configured()
     if cockpit is None:
@@ -144,6 +147,10 @@ def ship(description: SelfDescription, cfg: FactoryConfig,
              "fork is given no secrets, and that is all this is")
         return 0
     here = station.identify(git_helper.main_root(), cfg.defaults.data_dir)
+    if here.kind != "ci":
+        _say(f"{here.name} is a local station — --ship is the CI workflow's step "
+             f"(.github/workflows/asf-check.yml); the description was not shipped")
+        return 0
     body = {"station": here.model_dump(mode="json"),
             "description": description.model_dump(mode="json")}
     try:

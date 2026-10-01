@@ -716,7 +716,6 @@ function hash(text: string): string {
   return value.toString(16);
 }
 
-/** A forge the cockpit's `fetch` reaches for the rest of the test. */
 /** `sha` and every commit before it on `repo`. */
 function ancestry(repo: Repo, sha: string): Set<string> {
   const seen = new Set<string>();
@@ -724,6 +723,7 @@ function ancestry(repo: Repo, sha: string): Set<string> {
   return seen;
 }
 
+/** A forge the cockpit's `fetch` reaches for the rest of the test. */
 export function fakeForge(host?: string): FakeForge {
   const forge = new FakeForge(host);
   vi.stubGlobal("fetch", forge.fetch);

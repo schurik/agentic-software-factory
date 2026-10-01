@@ -12,6 +12,7 @@
  * hashes like the default branch's still says so, but is not drifted: what it
  * runs is what the repository says. What it cannot know, it says.
  */
+import type { Distance } from "../forge/forge";
 
 /** Where a station's checkout stands, as its last report put it. */
 export interface Standing {
@@ -25,20 +26,21 @@ export interface Reference {
   configHash: string | null;
 }
 
-/** The forge's word on station head vs default branch; null when it would not say, undefined when not asked. */
-export type Distance = { ahead: number; behind: number } | null | undefined;
+/** The forge's word on a station's commit against the default branch's: null when it would not say, undefined when not asked. */
+export type Measured = Distance | null | undefined;
 
 export interface Drift {
   badges: string[];
   drifted: boolean;
 }
 
-export function drift(standing: Standing, reference: Reference, distance: Distance): Drift {
+export function drift(standing: Standing, reference: Reference, distance: Measured): Drift {
   if (!standing.head) return { badges: ["no report yet"], drifted: false };
   if (!reference.head) return { badges: ["default branch unknown"], drifted: false };
   const sameConfig = reference.configHash && standing.configHash ? reference.configHash === standing.configHash : null;
   if (standing.head === reference.head) {
-    return sameConfig === false ? { badges: ["local edits"], drifted: true } : { badges: [], drifted: false };
+    if (sameConfig === null) return { badges: ["config not measured"], drifted: false };
+    return sameConfig ? { badges: [], drifted: false } : { badges: ["local edits"], drifted: true };
   }
   if (distance === undefined) return { badges: [`on ${standing.head.slice(0, 7)}`], drifted: sameConfig !== true };
   if (distance === null) return { badges: ["on a commit the forge does not show"], drifted: sameConfig !== true };

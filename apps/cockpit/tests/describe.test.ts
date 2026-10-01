@@ -114,6 +114,10 @@ describe("a self-description pushed by a CI station", () => {
     expect((await post(t, "/describe", ingestToken, { station: CI })).status).toBe(400);
     expect((await ship(t, ingestToken, { format: "one" })).status).toBe(400);
     expect((await ship(t, ingestToken, described(), { id: "", name: "x", kind: "ci" })).status).toBe(400);
+    // A checkout's own config is what drift measures, never what it is measured against.
+    const local = await ship(t, ingestToken, described(), { id: "st_mine", name: "alex@mbp:widgets", kind: "local" });
+    expect(local.status).toBe(403);
+    expect((await json(local)).error).toMatch(/CI station/);
     const taken = await ship(t, ingestToken, described());
     expect(taken.status).toBe(200);
     expect(await json(taken)).toEqual({});
@@ -181,6 +185,9 @@ describe("a station's drift from the default branch", () => {
     expect(drift({ head: "", configHash: "" }, reference, undefined)).toEqual({ badges: ["no report yet"], drifted: false });
     expect(drift({ head: TIP, configHash: "beef" }, { head: null, configHash: null }, undefined))
       .toEqual({ badges: ["default branch unknown"], drifted: false });
+    // At the default branch's commit, but no check measured its config there: never "current".
+    expect(drift({ head: TIP, configHash: "beef" }, { head: TIP, configHash: null }, undefined))
+      .toEqual({ badges: ["config not measured"], drifted: false });
     expect(drift({ head: "b".repeat(40), configHash: "beef" }, reference, null))
       .toEqual({ badges: ["on a commit the forge does not show"], drifted: true });
   });
