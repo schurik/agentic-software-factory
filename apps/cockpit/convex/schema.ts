@@ -55,6 +55,20 @@ export default defineSchema({
     .index("by_waiting", ["waiting", "activity"])
     .index("by_factory_waiting", ["factory", "waiting"]),
 
+  // What a session's agent calls cost in one quarter hour (model/spend.ts),
+  // added to by ingest as each `usage` event becomes contiguous — so once.
+  // What spend in a period is summed from: a period in any timezone starts on
+  // a quarter hour, so it takes whole rows.
+  spend: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    at: v.number(),                   // the quarter hour's start, epoch ms
+    cost: v.number(),                 // list-price equivalent, USD
+    tokens: v.number(),
+  })
+    .index("by_session_at", ["factory", "session", "at"])
+    .index("by_factory_at", ["factory", "at"]),
+
   // An answer a viewer posted from the inbox: the comment on the work item,
   // which is the answer itself — this only remembers that it was sent, so the
   // row says so until the factory's answers watcher picks it up and the
