@@ -19,6 +19,7 @@ import { ForgeError, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
 import { readDescription } from "./model/description";
 import { roleOf } from "./commands";
+import { editing } from "./config";
 import { canRead, viewing } from "./viewer";
 
 /** The repository row of `factory`, when the forge shows one. */
@@ -58,6 +59,8 @@ export const page = query({
       private: repo?.private ?? null,
       defaultBranch,
       role: await roleOf(ctx, who, factory),
+      // Why the Config tab's editor is disabled for this viewer, or null when it is not.
+      edit: await editing(ctx, who, factory),
       // null: no CI workflow has pushed one — the factory is unchecked, not broken.
       check: check && {
         ref: check.ref, head: check.head, configHash: check.configHash, ok: check.ok, at: check.at,

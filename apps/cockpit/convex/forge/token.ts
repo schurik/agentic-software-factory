@@ -7,7 +7,9 @@
  * answers both `repositories()` and `reach()`.
  */
 import type { Forge, Reach, Repository } from "./forge";
-import { compare, distance, type GitHub, items, paths, readPerson, readRepository, readRole, tip } from "./github";
+import {
+  branch, commit, compare, distance, type GitHub, items, paths, pull, readPerson, readRepository, readRole, tip,
+} from "./github";
 
 export function tokenForge(github: GitHub, token: string): Forge {
   const as = { token, scope: "token" };
@@ -35,5 +37,8 @@ export function tokenForge(github: GitHub, token: string): Forge {
     issue: (repo, number) => github.issue(as, repo, number),
     label: (repo, number, labels) => github.label(as, repo, number, labels),
     unlabel: (repo, number, label) => github.unlabel(as, repo, number, label),
+    commit: (repo, base, changes, message) => commit(github, as, repo, base, changes, message),
+    branch: (repo, name, sha) => branch(github, as, repo, name, sha),
+    pull: (repo, proposal) => pull(github, as, repo, proposal),
   };
 }

@@ -1,0 +1,112 @@
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ConfigEditorView, type Draft } from "../components/factory/ConfigEditor";
+import { ConfigTab } from "../components/factory/ConfigTab";
+import { unified } from "../components/factory/diff";
+import type { Page } from "../components/factory/view";
+import type { Look } from "../convex/factory";
+import { editRefusal } from "../convex/model/config";
+
+// The Config tab's editor, rendered to static markup with no backend (spec
+// #40, #58): disabled with the reason wherever the forge would refuse the
+// push, a diff preview of what the pull request will carry, and a submit that
+// YAML which does not parse blocks, with the parse error.
+
+const BASE = "b".repeat(40);
+const FORGE = "https://github.com";
+const NOW = Date.parse("2026-10-01T12:00:00.000Z");
+const YAML = "# the budget\nlimits:\n  max_cost_usd: 2.5   # per session\n";
+
+function page(fields: Partial<Page> = {}): Page {
+  return {
+    repo: "acme/widgets", onForge: true, private: false, defaultBranch: "main", role: "write", edit: null,
+    check: null, stations: [], ...fields,
+  };
+}
+
+const LOOK: Look = { ok: true, tip: BASE, files: ["asf/factory.yaml", "asf/agents/planner/agent.md"], distances: {} };
+
+function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorView>[0]> = {}): string {
+  return renderToStaticMarkup(
+    <ConfigEditorView base={BASE} into="main" as="alex" drafts={drafts} open={drafts[0]?.path ?? null} loading={null}
+                      asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
+                      onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
+                      onChange={() => undefined} onSubmit={() => undefined} {...given} />);
+}
+
+describe("the Config tab's files", () => {
+  it("can each be edited by a writer", () => {
+    const html = renderToStaticMarkup(
+      <ConfigTab page={page()} look={LOOK} drifts={new Map()} forge={FORGE} now={NOW} onEdit={() => undefined} />);
+
+    expect(html.match(/<button[^>]*>Edit<\/button>/g)?.length).toBe(2);
+    expect(html).not.toContain("disabled");
+  });
+
+  it("cannot be edited without write access, and say why", () => {
+    const because = editRefusal("triage")!;
+    const html = renderToStaticMarkup(
+      <ConfigTab page={page({ edit: because })} look={LOOK} drifts={new Map()} forge={FORGE} now={NOW}
+                 onEdit={() => undefined} />);
+
+    expect(html.match(/<button[^>]*disabled=""[^>]*>Edit<\/button>/g)?.length).toBe(2);
+    expect(html).toContain(because);
+  });
+});
+
+describe("the editor", () => {
+  it("previews the diff the pull request will carry, and opens it as the viewer", () => {
+    const html = editor([{ path: "asf/factory.yaml", original: YAML, text: YAML.replace("2.5", "5") }]);
+
+    expect(html).toContain("<textarea");
+    expect(html).toContain('<span class="del">-  max_cost_usd: 2.5   # per session\n</span>');
+    expect(html).toContain('<span class="add">+  max_cost_usd: 5   # per session\n</span>');
+    expect(html).toContain("cockpit/alex/raise-the-budget");
+    expect(html).toContain(`<code>main</code> at <code>${BASE.slice(0, 7)}</code>`);
+    expect(html).toMatch(/<button type="submit"[^>]*>Open pull request as alex<\/button>/);
+    expect(html).not.toMatch(/<button type="submit"[^>]*disabled/);
+  });
+
+  it("blocks submission with the parse error while the YAML does not parse", () => {
+    const html = editor([{ path: "asf/factory.yaml", original: YAML, text: "limits:\n  max_cost_usd: [5\n" }]);
+
+    expect(html).toMatch(/asf\/factory\.yaml, line \d+, column \d+: /);
+    expect(html).toMatch(/<button type="submit"[^>]*disabled=""/);
+  });
+
+  it("has nothing to submit until something changed, or without a title", () => {
+    const unchanged = editor([{ path: "asf/factory.yaml", original: YAML, text: YAML }]);
+    expect(unchanged).toContain("Nothing changed yet");
+    expect(unchanged).toMatch(/<button type="submit"[^>]*disabled=""/);
+
+    const untitled = editor([{ path: "asf/factory.yaml", original: YAML, text: `${YAML}# more\n` }],
+                            { asked: { title: "", description: "" } });
+    expect(untitled).toMatch(/<button type="submit"[^>]*disabled=""/);
+  });
+
+  it("links the pull request it opened, or says why it did not", () => {
+    expect(editor([], {
+      outcome: { ok: true, number: 7, url: "https://github.com/acme/widgets/pull/7", branch: "cockpit/alex/raise-the-budget",
+                 paths: ["asf/factory.yaml"] },
+    })).toContain('<a href="https://github.com/acme/widgets/pull/7" target="_blank" rel="noreferrer">#7</a>');
+    expect(editor([], { outcome: { ok: false, because: "the forge answered 403" } }))
+      .toContain("Not opened: the forge answered 403.");
+  });
+});
+
+describe("the diff preview", () => {
+  it("is a unified diff of the changed lines, with three lines of context", () => {
+    const before = ["a", "b", "c", "d", "e", "f", "g", "h", "i", ""].join("\n");
+    const after = before.replace("e\n", "E\n");
+
+    expect(unified("asf/x.yaml", before, after)).toBe([
+      "--- a/asf/x.yaml", "+++ b/asf/x.yaml", "@@ -2,7 +2,7 @@", " b", " c", " d", "-e", "+E", " f", " g", " h", "",
+    ].join("\n"));
+  });
+
+  it("is empty when nothing changed, and says when the last line lost its newline", () => {
+    expect(unified("asf/x.yaml", "a\n", "a\n")).toBe("");
+    expect(unified("asf/x.yaml", "a\n", "a")).toBe(
+      ["--- a/asf/x.yaml", "+++ b/asf/x.yaml", "@@ -1 +1 @@", "-a", "+a", "\\ No newline at end of file", ""].join("\n"));
+  });
+});
