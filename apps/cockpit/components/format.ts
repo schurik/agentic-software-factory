@@ -94,3 +94,16 @@ export function pretty(raw: string): string {
     return raw;
   }
 }
+
+/** "3 Oct 2026": the day `ts` fell on, in UTC, so every viewer reads the same day. */
+export function formatDay(ts: string): string {
+  const date = new Date(ts);
+  if (!ts || Number.isNaN(date.getTime())) return "an unknown day";
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/** What became of a pruned body (`model/retention.ts`): "transcript aged out on 3 Oct 2026", "content purged on … by alex". */
+export function formatPruned(what: string, pruned: { on: string; reason: string; by: string }): string {
+  const done = pruned.reason === "purged" ? "purged" : "aged out";
+  return `${what} ${done} on ${formatDay(pruned.on)}${pruned.by ? ` by ${pruned.by}` : ""}`;
+}

@@ -14,6 +14,7 @@
 import { v, type Infer } from "convex/values";
 import { Payload } from "./payload";
 import { beginDetail, detail, finishDetail, type DetailState, type PhaseDetail } from "./phase";
+import { prunedOf } from "./retention";
 import { begin, finish, tell, type Story, type StoryState } from "./story";
 import { isRecord, type StoredEvent } from "./wire";
 
@@ -63,6 +64,10 @@ export const summaryValidator = v.object({
   totalTokens: v.number(),
   totalCost: v.number(),
   unread: v.number(),                 // events no reader here could read: time to upgrade the cockpit
+  // How many days after it finished factory.yaml lets a cockpit keep the
+  // session's transcript (`session_started` v3): the lowest any of its
+  // processes ran under, 0 when none set one and the deployment's own applies.
+  transcriptDays: v.number(),
 });
 
 export type Summary = Infer<typeof summaryValidator>;
@@ -77,7 +82,7 @@ export const EMPTY_SUMMARY: Summary = {
   status: "unknown", workflows: [], workflow: "", request: "", branch: "", baseRef: "", trigger: "",
   triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", stationKind: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
-  totalTokens: 0, totalCost: 0, unread: 0,
+  totalTokens: 0, totalCost: 0, unread: 0, transcriptDays: 0,
 };
 
 // ── the session page ─────────────────────────────────────────────────────────
@@ -218,6 +223,8 @@ const describePhaseStarted = (p: Payload) =>
  * file is here whole, cut at the factory's cap, or (not text) not sent at all. */
 function travelled(p: Payload): string {
   if (p.str("location") === "repo") return "in the repository";
+  const pruned = prunedOf(p);
+  if (pruned !== null) return `${pruned.reason === "purged" ? "purged" : "aged out"} since`;
   if (!p.bool("truncated")) return "inline";
   return p.str("content") === "" ? "not text, not sent" : "inline, cut at the cap";
 }
@@ -247,11 +254,23 @@ const sessionStarted: Reader = {
     (p.str("station_name") ? ` on ${p.str("station_name")}` : ""),
 };
 
+/** v3: the transcript retention the process ran under, which can only shorten what the session already had. */
+const sessionStartedWithRetention: Reader = {
+  fold: (state, p) => {
+    sessionStarted.fold!(state, p);
+    const days = p.num("transcript_retention_days");
+    const { summary } = state;
+    if (days > 0 && (summary.transcriptDays === 0 || days < summary.transcriptDays)) summary.transcriptDays = days;
+  },
+  describe: sessionStarted.describe,
+};
+
 const READERS: Record<string, Record<number, Reader>> = {
   session_started: {
     1: sessionStarted,
     // v2: station_kind — a session that ran in CI has no station to resume it.
     2: sessionStarted,
+    3: sessionStartedWithRetention,
   },
   provenance_recorded: {
     1: { fold: (state, p) => learnProvenance(state.summary, p), describe: describeProvenance },

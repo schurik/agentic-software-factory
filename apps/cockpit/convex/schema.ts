@@ -12,6 +12,18 @@ export const expiringValidator = v.object({ token: v.string(), expiresAt: v.unio
 export const purposeValidator = v.union(v.literal("setup code"), v.literal("setup"), v.literal("sign-in"));
 
 export default defineSchema({
+  // Every purge of a session's bodies, or of a whole factory's: who asked,
+  // what, when and why (retention.ts). Written as the purge is decided, and
+  // never deleted — a purge removes bodies, not the record that it happened.
+  purges: defineTable({
+    factory: v.string(),
+    session: v.string(),              // "" for the whole factory
+    by: v.string(),                   // the forge login of who asked; "" from the deployment's CLI
+    via: v.union(v.literal("cockpit"), v.literal("deployment")),
+    reason: v.string(),
+    at: v.number(),
+  }).index("by_factory_at", ["factory", "at"]),
+
   // A factory-scoped, append-only credential: it can add events to its own
   // factory's sessions and nothing else — no read, no command. Only a digest is
   // kept, so the table leaking is not every station's secret leaking.
@@ -48,8 +60,16 @@ export default defineSchema({
     // reads by (inbox.ts). Written with the summary on every ingest; unset on
     // a session stored before it existed, until the next event folds in.
     waiting: v.optional(v.boolean()),
+    // Whether the session holds transcript bodies not yet aged out, and — once
+    // it has finished — when they age out, epoch ms (model/retention.ts). Both
+    // unset on a session stored before retention existed, until the backfill
+    // (retention.ts) has looked at its events.
+    transcripts: v.optional(v.boolean()),
+    transcriptsDue: v.optional(v.number()),
   })
     .index("by_session", ["factory", "session"])
+    .index("by_transcripts", ["transcripts"])
+    .index("by_transcripts_due", ["transcriptsDue"])
     .index("by_activity", ["activity"])
     .index("by_factory_activity", ["factory", "activity"])
     .index("by_waiting", ["waiting", "activity"])

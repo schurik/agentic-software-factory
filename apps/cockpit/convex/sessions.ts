@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { find, type Limits, STATUSES } from "./model/filter";
 import { periodValidator } from "./model/period";
 import type { StoredEvent } from "./model/wire";
+import { roleOf } from "./commands";
 import { defaultCheck, repoOf } from "./factory";
 import { forgeWeb } from "./forge/memory";
 import { readDescription } from "./model/description";
@@ -73,7 +74,9 @@ export const get = query({
     const page = view(stored.events, stored.acked);
     const check = await defaultCheck(ctx, stored.factory, (await repoOf(ctx, stored.factory))?.defaultBranch || null);
     const budget = check && readDescription(check.description).budget;
-    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), budget, ...page };
+    // Whether the viewer may purge its bodies (retention.ts): an admin of its repository.
+    const mayPurge = (await roleOf(ctx, await viewing(ctx, signIn), stored.factory)) === "admin";
+    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), budget, mayPurge, ...page };
   },
 });
 

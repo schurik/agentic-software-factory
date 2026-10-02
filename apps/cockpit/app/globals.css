@@ -340,3 +340,8 @@ kbd { font: 0.75rem ui-monospace, SFMono-Regular, Menlo, monospace; border: 1px 
 .attention li { padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-left: 3px solid var(--wait); border-radius: 6px; }
 .stations tr[aria-selected="true"] td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .stations h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 1.25rem 0 0.4rem; }
+
+/* A purge (components/Purge.tsx): out of the way until opened, and never one click. */
+.purge { margin-top: 1rem; }
+.purge summary { cursor: pointer; }
+.purge input { margin-left: 0.3rem; min-width: 14rem; }

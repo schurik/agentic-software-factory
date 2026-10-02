@@ -67,6 +67,16 @@ before — `None` when there are none, never omitted.
 - **Transcripts are opt-in.** With `cockpit: {transcripts: true}` in `asf/factory.yaml`, a session
   also writes every prompt its agents were sent (`prompt_rendered`) and the harness's raw output in
   chunks (`harness_output`). Without it, neither is ever written.
+- **Transcripts age out; bodies can be purged.** A cockpit keeps a finished session's transcript for
+  30 days — its operator's `COCKPIT_TRANSCRIPT_DAYS`, or on a local cockpit `ASF_COCKPIT_TRANSCRIPT_DAYS`
+  in `.env` — then replaces each transcript event's body with a `pruned` marker, keeping the event,
+  and its Transcript tab says "transcript aged out on <date>". `transcript_retention_days` under
+  `cockpit:` in `asf/factory.yaml` can only shorten that; `check` refuses a value that is not a whole
+  number of days from 1. `session_started` is **v3**: it carries the retention the process ran under.
+  A repository's admin can purge one session's bodies (artifact contents, command output, the
+  transcript) from the cockpit, and an owner of its account the whole factory's — or the deployment,
+  with `retention:purgeFactoryFromDeployment` — each with an audit line. Core events, and so cost,
+  are never purged, and nothing is purged on its own.
 - A stage that commits does it through `run.commit(ph.phase, message)`, which is what appends
   `committed`.
 - The write boundary reads paths as they are on disk. A file whose name git would quote (any
@@ -258,7 +268,9 @@ The same re-stamp brings the new events; a session started before it keeps its e
 chapters from its next run. Transcripts stay off: to send them, add `cockpit: {transcripts: true}`
 to `asf/factory.yaml` by hand (the installer never rewrites that file; the `.new` beside it shows
 the block). A stage of your own that calls `git_helper.commit_all` still commits, but says nothing
-to a cockpit until it calls `run.commit(ph.phase, message)` instead.
+to a cockpit until it calls `run.commit(ph.phase, message)` instead. A cockpit keeps a transcript
+for 30 days after its session finishes; to keep it for less, add `transcript_retention_days: <days>`
+under `cockpit:` by hand. A session started before the re-stamp is kept for the cockpit's maximum.
 
 Once a cockpit is configured, a re-stamped factory pushes each session's branch as it is created. To
 keep branches on the machine until they are integrated, add `publish: on_integrate` under

@@ -69,6 +69,10 @@ services:
       - COCKPIT_FORGE_HOST=${ASF_COCKPIT_FORGE_HOST:-github.com}
       - COCKPIT_FORGE_TOKEN=${ASF_COCKPIT_FORGE_TOKEN:-}
       - COCKPIT_APP_URL=http://localhost:${ASF_COCKPIT_APP_PORT:-3000}
+      # How long a finished session's transcript is kept, in days: the same
+      # default a team's cockpit has, which this machine's owner may raise
+      # (ASF_COCKPIT_TRANSCRIPT_DAYS in .env). factory.yaml can only shorten it.
+      - COCKPIT_TRANSCRIPT_DAYS=${ASF_COCKPIT_TRANSCRIPT_DAYS:-30}
     depends_on:
       keygen:
         condition: service_completed_successfully

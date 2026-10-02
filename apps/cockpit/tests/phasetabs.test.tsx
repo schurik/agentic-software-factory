@@ -156,3 +156,29 @@ describe("the other tabs", () => {
     expect(text).toContain('"tool": "grep"');
   });
 });
+
+describe("a pruned body", () => {
+  const pruned = (kinds: string[], marker: Record<string, string>) => RECORDED.map((event) =>
+    kinds.includes(event.kind) ? { ...event, payload: { phase_id: event.payload.phase_id, pruned: marker } } : event);
+
+  it("Transcript: says when the transcript aged out", () => {
+    const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "aged_out" });
+    const text = tab("a9f259f0_05_plan_revise_1", "transcript", events);
+    expect(text).toContain("transcript aged out on 1 Nov 2026");
+    expect(text).not.toContain("Transcripts are off");
+  });
+
+  it("Transcript: says who purged it, and when", () => {
+    const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" });
+    expect(tab("a9f259f0_05_plan_revise_1", "transcript", events)).toContain("transcript purged on 1 Nov 2026 by alex");
+  });
+
+  it("Artifacts: says a handoff file's content was purged", () => {
+    const events = RECORDED.map((event) => event.kind === "artifact_written"
+      ? { ...event, payload: { ...event.payload, content: undefined, pruned: { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" } } }
+      : event);
+    const text = tab("a9f259f0_02_scout", "artifacts", events);
+    expect(text).toContain("content purged on 1 Nov 2026 by alex");
+    expect(text).not.toContain("# Findings");
+  });
+});

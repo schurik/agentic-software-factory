@@ -129,7 +129,8 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
         branch=workspace.branch, base_ref=workspace.base_ref,
         base_commit=workspace.base_commit, trigger=run.trigger, triggered_by=triggered_by,
         issue_url=run.issue_url, pr_url=run.pr_url, request=spec.request, station_id=here.id,
-        station_name=here.name, station_kind=here.kind))
+        station_name=here.name, station_kind=here.kind,
+        transcript_retention_days=cfg.cockpit.transcript_retention_days or 0))
     artifacts.open_chapter(run.session_dir, workflow, spec.input, resume)
     # And from here every event this process appends is on its way to the
     # cockpit, when there is one — from a thread, so nothing below waits on it.

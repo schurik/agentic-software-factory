@@ -1099,9 +1099,17 @@ class CockpitConfig(BaseModel):
     verb is opted in here, by pull request, and nothing is obeyed that is not
     listed. A station still checks every command's `by` against
     `issues.trusted_authors` (`engine/commands.py`).
+
+    `transcript_retention_days` is how long a cockpit may keep a session's
+    transcript once the session has finished. It can only SHORTEN what the
+    cockpit's deployment allows (30 days unless its operator changed that):
+    the cockpit keeps the lower of the two. Unset leaves it to the cockpit.
+    Each session carries the value it ran under (`SessionStarted`), so the
+    limit holds wherever the session's events go.
     """
 
     transcripts: bool = False
+    transcript_retention_days: int | None = Field(default=None, ge=1)
     commands: list[CommandVerb] = Field(default_factory=list)
 
 
@@ -2175,7 +2183,7 @@ class SessionStarted(DomainEvent):
     """
 
     KIND: ClassVar[str] = "session_started"
-    VERSION: ClassVar[int] = 2      # v2: station_kind
+    VERSION: ClassVar[int] = 3      # v2: station_kind; v3: transcript_retention_days
 
     adw_id: str
     workflow: str
@@ -2196,6 +2204,9 @@ class SessionStarted(DomainEvent):
     station_name: str = ""
     skill_version: str = ""
     station_kind: str = ""          # local | ci; "" from a factory before v2
+    # `cockpit.transcript_retention_days` as this process ran under it; 0 when
+    # factory.yaml sets none, and the cockpit's own maximum applies.
+    transcript_retention_days: int = 0
 
 
 class ProvenanceRecorded(DomainEvent):

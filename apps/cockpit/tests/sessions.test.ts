@@ -39,6 +39,7 @@ const DESCRIBED: Record<string, string> = {
   "session_resumed/v1.json": "resumed chapter 1: ship",
   "session_started/v1.json": "session started: ship on alex@mbp:widgets",
   "session_started/v2.json": "session started: ship on alex@mbp:widgets",
+  "session_started/v3.json": "session started: ship on alex@mbp:widgets",
   "suspended/v1.json": "suspended at plan round 2",
   "suspended/v2.json": "suspended at requirements round 1",
   "tool_called/v1.json": "planner called bash: failed after 1840ms",
@@ -131,6 +132,7 @@ describe("a session told by its events", () => {
           totalTokens: 5400,
           totalCost: 0.0742,
           unread: 0,
+          transcriptDays: 0,
         },
       },
     ]);

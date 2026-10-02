@@ -87,7 +87,10 @@ or a collaborator — through the App's installations. So a public repository is
 who have access to it, not to everyone with a GitHub account who signs in.
 
 The App asks for what the cockpit does as the signed-in person (spec #40): `contents`, `issues` and
-`pull_requests` write, and `metadata` read. A user access token can do only what both the person
+`pull_requests` write, and `metadata` and `members` read — the last so the forge can say whether a
+person owns the organization a factory is in, which purging a whole factory takes. An App registered
+before that was asked for has no `members` permission: add *Organization permissions → Members: read*
+in the App's settings on GitHub, or purge a factory from the deployment's CLI (below). A user access token can do only what both the person
 and the App may, so the App's permissions are a ceiling, never a grant. Registering again with a
 fresh setup code replaces the App and signs everyone out — the way out of a registration under the
 wrong account.
@@ -352,6 +355,44 @@ money and in tokens — or says the ceiling is unknown when no `asf check` reach
 
 A local cockpit that knows one factory skips the list and opens its Factory page; a second factory
 brings the list back. A team's cockpit always shows the list.
+
+## Retention: what is kept, and for how long
+
+Every event a station ships is one of three weights (`convex/model/retention.ts`): **core** — phases,
+gates, decisions, spend, commits — kept forever; **handoff** bodies — an artifact's content, a
+command's output tail — kept until someone purges them; and the **transcript** — `prompt_rendered`
+and `harness_output`, which a factory sends only when it opted in — which **ages out**. Aging out and
+purging both replace an event's body with `pruned: {on, reason: aged_out | purged, by?}`; the event
+and its seq stay, so every view but the Transcript tab rebuilds exactly as before
+(`tests/pruned.test.ts` holds the cockpit to that), and the Transcript tab says "transcript aged out
+on 3 Oct 2026".
+
+A transcript ages out once its session has been finished for `COCKPIT_TRANSCRIPT_DAYS` days (30
+when unset; `docker compose` passes it through). A factory's `cockpit.transcript_retention_days` can
+only shorten that: each session carries the value it ran under (`session_started` v3), and the lower
+of the two applies. The clock starts when the session finishes, and a resume stops it. An hourly
+cron prunes what is due (`convex/retention.ts`); `docker/start.sh` re-dates every held transcript as
+the deployment starts, so a changed `COCKPIT_TRANSCRIPT_DAYS` takes effect with the restart that
+sets it. A local cockpit has the same default, which its owner raises with
+`ASF_COCKPIT_TRANSCRIPT_DAYS` in the factory's `.env`.
+
+Purging is always somebody's decision, and nothing is purged on its own — not when a repository is
+deleted, not when the App is uninstalled:
+
+| purge | who | where |
+|---|---|---|
+| a session's bodies — every artifact's content, command output and transcript | an admin of its repository, as the forge says (the permission mirror) | the session page's sidebar |
+| a whole factory's bodies | an owner of the account its repository belongs to, asked of the forge as the person | the Factory page's Config tab |
+| the same, with no forge permission left | whoever holds the deployment's admin key | the CLI, below |
+
+```bash
+docker compose exec app ./convex.sh run retention:purgeFactoryFromDeployment \
+  '{"factory": "acme/widgets", "reason": "the repository was deleted"}'
+```
+
+On a local cockpit its one person holds everything already, and may do both. Each one writes an
+audit line to `purges` — who, what, when and why — which the Config tab lists.
+Core events are never purged, so a factory's cost history holds.
 
 ## The Factory page: what needs attention, who runs what, and the factory's own self-description
 

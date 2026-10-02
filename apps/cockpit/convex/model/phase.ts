@@ -8,6 +8,7 @@
  * has no reason to carry.
  */
 import { Payload } from "./payload";
+import { prunedOf, type Pruned } from "./retention";
 import type { Row } from "./session";
 import type { At } from "./story";
 
@@ -26,6 +27,7 @@ export interface Artifact {
   digest: string;         // sha256 of the whole file
   content: string;        // a handoff file, as shipped; "" for a repo file, read from the forge
   truncated: boolean;
+  pruned: Pruned | null;  // its content purged (retention.ts): the file was here, and is no longer
   // A repo file only: the commit whose tree holds this version — the first one
   // after it was written — or, when another phase wrote the file again before
   // anything committed it, that phase: this version never reached the forge.
@@ -68,6 +70,7 @@ export interface Command {
   exitCode: number;
   durationSeconds: number;
   outputTail: string;
+  pruned: Pruned | null;  // its output tail purged
 }
 
 /** A tool call: its name, whether it worked and how long it took — the factory sends nothing more. */
@@ -130,11 +133,14 @@ export interface TranscriptRun {
 /**
  * `on` is whether the session shipped any transcript at all. A factory writes
  * one for every prompt it sends once `cockpit.transcripts` is on, so a session
- * with none has it off — not a transcript that went missing.
+ * with none has it off — not a transcript that went missing. `pruned` says
+ * when this phase's transcript aged out or was purged (retention.ts): its
+ * events are still here, and their bodies are not.
  */
 export interface Transcript {
   on: boolean;
   runs: TranscriptRun[];
+  pruned: Pruned | null;
 }
 
 export interface PhaseDetail {
@@ -194,6 +200,7 @@ export interface DetailState {
   commits: CommitMade[];               // this phase's own
   walks: Walk[];
   transcripts: boolean;             // whether the session shipped any transcript event
+  pruned: Pruned | null;            // whether this phase's transcript has been pruned, and how
   artifacts: Artifact[];
   checks: GateCheck[];
   rejections: Rejection[];
@@ -209,7 +216,7 @@ export interface DetailState {
 
 export function beginDetail(phaseId: string): DetailState {
   return { phaseId, name: "", kind: "", owner: "", description: "", task: "", promptDigest: "", status: "",
-           error: "", envelope: null, commits: [], walks: [], transcripts: false,
+           error: "", envelope: null, commits: [], walks: [], transcripts: false, pruned: null,
            artifacts: [], checks: [], rejections: [], commands: [], tools: [], usage: [],
            phaseNames: new Map(), repoWrites: [], sessionCommits: [] };
 }
@@ -266,7 +273,7 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
       state.artifacts.push({
         seq, at: ts, path: p.str("path"), role: p.str("role"), location: p.str("location"),
         size: p.num("size"), digest: p.str("digest"), content: p.str("content"), truncated: p.bool("truncated"),
-        committed: null, rewritten: null, changedLater: null,
+        pruned: prunedOf(p), committed: null, rewritten: null, changedLater: null,
       });
     },
   },
@@ -290,6 +297,7 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
     1: (state, p, { seq, ts }) => {
       state.transcripts = true;
       if (!mine(state, p)) return;
+      state.pruned ??= prunedOf(p);
       walk(state).sends.push({ seq, at: ts, send: p.num("send"), digest: p.str("digest"), system: p.str("system"),
                                prompt: p.str("prompt"), truncated: p.bool("truncated") });
     },
@@ -297,7 +305,9 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
   harness_output: {
     1: (state, p) => {
       state.transcripts = true;
-      if (mine(state, p)) walk(state).chunks.push({ chunk: p.num("chunk"), text: p.str("text") });
+      if (!mine(state, p)) return;
+      state.pruned ??= prunedOf(p);
+      walk(state).chunks.push({ chunk: p.num("chunk"), text: p.str("text") });
     },
   },
   gate_result: {
@@ -316,7 +326,8 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
   command_finished: {
     1: own((state, p, { seq, ts }) => {
       state.commands.push({ seq, at: ts, name: p.str("name"), argv: p.strs("argv"), exitCode: p.num("exit_code"),
-                            durationSeconds: p.num("duration_seconds"), outputTail: p.str("output_tail") });
+                            durationSeconds: p.num("duration_seconds"), outputTail: p.str("output_tail"),
+                            pruned: prunedOf(p) });
     }),
   },
   tool_called: {
@@ -395,7 +406,7 @@ export function finishDetail(state: DetailState, rows: Row[]): PhaseDetail | nul
     phaseId: state.phaseId, name: state.name, kind: state.kind, owner: state.owner,
     description: state.description, task: state.task, promptDigest: state.promptDigest,
     status: state.status, error: state.error, envelope: state.envelope, commits: state.commits,
-    transcript: { on: state.transcripts, runs },
+    transcript: { on: state.transcripts, runs, pruned: state.pruned },
     events: rows.filter((row) => isAbout(row, state.phaseId)),
     artifacts: state.artifacts.map((artifact) => locate(state, artifact)),
     checks: state.checks, rejections: state.rejections, commands: state.commands,

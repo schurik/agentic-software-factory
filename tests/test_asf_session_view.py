@@ -482,3 +482,37 @@ def test_a_factory_that_opts_in_ships_the_prompts_sent_and_the_harness_output_in
     assert len(output) >= 3 and all(len(each["text"]) <= 64_000 for each in output)
     assert {(each["phase_id"], each["agent"]) for each in output} == {
         (built["phase_id"], "builder")}
+
+
+# ── how long a cockpit keeps them: the deployment's maximum, or less ─────────
+
+def test_a_session_carries_the_transcript_retention_its_factory_set(stamped: Path):
+    set_config(stamped, cockpit={"transcripts": True, "transcript_retention_days": 7})
+    fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
+    write_workflow(stamped, "kept", {
+        "description": "build and commit, with a transcript kept a week",
+        "stages": [{"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "kept", "add app.py")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    started = [line for line in events.read(session_dir(stamped, adw_id_of(result)))
+               if line.kind == "session_started"]
+    assert [line.payload["transcript_retention_days"] for line in started] == [7]
+
+
+def test_a_session_whose_factory_sets_no_retention_leaves_it_to_the_cockpit(told: Path):
+    started = lines_of(told, "session_started")
+    assert started and {line.payload["transcript_retention_days"] for line in started} == {0}
+
+
+@pytest.mark.parametrize("days", [0, -3, "a month", 1.5])
+def test_check_refuses_a_transcript_retention_that_is_not_a_whole_number_of_days(
+        stamped: Path, days):
+    set_config(stamped, cockpit={"transcripts": True, "transcript_retention_days": days})
+
+    checked = asf(stamped, "check")
+
+    assert checked.returncode != 0
+    assert "transcript_retention_days" in checked.stdout + checked.stderr

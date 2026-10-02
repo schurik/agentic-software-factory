@@ -95,6 +95,9 @@ services:
       # Where people open the cockpit: `asf station register` prints its
       # approval link here. Set it to the address a browser reaches it at.
       - COCKPIT_APP_URL=${COCKPIT_APP_URL:-http://localhost:${APP_PORT:-3000}}
+      # How many days a finished session's transcript is kept before it ages
+      # out: 30 unless set. A factory's factory.yaml can only shorten it.
+      - COCKPIT_TRANSCRIPT_DAYS
     depends_on:
       keygen:
         condition: service_completed_successfully
