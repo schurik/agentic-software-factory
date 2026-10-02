@@ -198,21 +198,25 @@ describe("a factory a cockpit stored under two spellings, before it kept to one"
 });
 
 describe("a period too long to sum at once", () => {
-  it("is said to be, rather than summed in part", async () => {
+  // Heavy by nature — it stores one row past the cap — so it is given longer than the default.
+  it("is said to be, rather than summed in part, and summed whole up to the cap", { timeout: 30_000 }, async () => {
     const forge = fakeForge();
     const { t } = await localOf(forge);
+    const QUARTER = 15 * 60_000;
     await t.run(async (ctx) => {
       for (let row = 0; row <= SUMMED; row += 1) {
-        await ctx.db.insert("spend", { factory: "acme/widgets", session: `s${row}`, at: SEPTEMBER.from + row * 15 * 60_000,
-                                       cost: 0.01, tokens: 10, workflow: "ship", station: "", stationName: "", person: "" });
+        await ctx.db.insert("spend", { factory: "acme/widgets", session: "5c0075aa", at: SEPTEMBER.from + row * QUARTER,
+                                       cost: 0.01, tokens: 1, workflow: "ship", station: "", stationName: "", person: "" });
       }
     });
+    const past = { from: SEPTEMBER.from, to: SEPTEMBER.from + (SUMMED + 1) * QUARTER };
+    const upTo = { from: SEPTEMBER.from, to: SEPTEMBER.from + SUMMED * QUARTER };
 
     for (const factory of [undefined, "acme/widgets"]) {
-      expect(await t.query(api.cost.rollup, { factory, period: { from: SEPTEMBER.from, to: at("2027-01-01T00:00:00Z") } }))
+      expect(await t.query(api.cost.rollup, { factory, period: past }))
         .toMatchObject({ cut: true, total: { cost: 0, tokens: 0 }, sessions: [] });
     }
-    expect(await t.query(api.cost.rollup, { factory: "acme/widgets", period: SEPTEMBER }))
-      .toMatchObject({ cut: false, total: { tokens: 28_800 } });
+    expect(await t.query(api.cost.rollup, { factory: "acme/widgets", period: upTo }))
+      .toMatchObject({ cut: false, total: { tokens: SUMMED } });
   });
 });
