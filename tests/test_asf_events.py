@@ -28,7 +28,7 @@ from engine import events
 from engine.data_types import EVENT_KINDS, DomainEvent
 
 from . import projection
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, db_rows, envelope, fake_roster,
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster,
                           forge, forge_data, issue_json, run_state, session_dir, set_config,
                           wire, write_workflow)
 
@@ -152,7 +152,7 @@ def test_a_run_writes_only_typed_events_numbered_without_gaps_and_the_db_still_f
                  "command_finished"):
         assert kind in kinds, kind
 
-    # What only the trace db used to hold now travels in the events.
+    # What the session is about travels in the events.
     started = typed[0]
     assert started.base_ref == "main" and len(started.base_commit) == 40
     assert started.request == "add app.py" and started.workflow == "sdlc"
@@ -162,12 +162,10 @@ def test_a_run_writes_only_typed_events_numbered_without_gaps_and_the_db_still_f
     verify = next(e for e in typed if e.KIND == "command_finished")
     assert verify.name == "test" and verify.exit_code == 0 and verify.argv == PY_CHECK
 
-    # ...and the SQLite half the visualizer polls is exactly as full as before.
-    assert db_rows(stamped, f"select request, base_ref from sessions where adw_id='{adw_id}'") \
-        == [("add app.py", "main")]
-    types = {row[0] for row in db_rows(stamped, f"select type from events where adw_id='{adw_id}'")}
-    assert {"phase_start", "phase_end", "agent_start", "agent_end", "handoff", "log",
-            "gate_pass"} <= types
+    # ...and they are the whole record: the session directory is all a run
+    # writes, with no database file beside it.
+    assert not [path for path in (stamped / "asf" / "data").rglob("*")
+                if path.suffix == ".db" or ".db-" in path.name]
 
 
 # ── the projection: the events rebuild the session's files ───────────────────

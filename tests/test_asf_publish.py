@@ -391,12 +391,15 @@ def test_on_create_without_a_remote_warns_and_runs_anyway(stamped: Path, tmp_pat
     assert "~" in line and "no remote named 'origin'" in line
 
 
-# ── `integration: none` is on its way out ────────────────────────────────────
+# ── `integration: none` is refused, with what replaces it ────────────────────
 
-def test_integration_none_warns_wherever_the_config_is_loaded_and_names_what_replaces_it(
+POINTER = ("`mode: pr`", "`open_pr: false`", "`worktree.publish: on_integrate`",
+           "`integrate` stage")
+
+
+def test_integration_none_is_refused_wherever_the_config_is_loaded_and_names_what_replaces_it(
         stamped: Path, tmp_path: Path):
     fake_roster(stamped)
-    assert "integration.mode: none" not in asf(stamped, "check").stderr     # nothing to say yet
     set_config(stamped, worktree={"integration": {"mode": "none"}})
 
     loaded, checked, examined = (asf(stamped, "pending"), asf(stamped, "check"),
@@ -404,17 +407,24 @@ def test_integration_none_warns_wherever_the_config_is_loaded_and_names_what_rep
 
     for result in (loaded, checked, examined):
         said = result.stdout + result.stderr
-        assert result.returncode == 0, said                  # a warning in 1.1, never a refusal
-        assert "worktree.integration.mode: none" in said and "refused from 1.2" in said
-        assert "`mode: pr`" in said and "`worktree.publish: on_integrate`" in said
-    # Once per command, however many workflows load the config.
-    assert checked.stderr.count("worktree.integration.mode: none") == 1
-    # `doctor` counts it among the things to fix, with the fix beside it.
-    line = finding(examined, "integration")
-    assert "~" in line and "none" in line
+        assert result.returncode != 0, said                  # refused, never remapped
+        assert "worktree.integration.mode: none" in said and "is refused" in said
+        assert all(part in said for part in POINTER), said
+    assert checked.stdout.count("is refused") == 1          # once, not once per workflow
 
 
-def test_check_warns_about_a_workflow_whose_integrate_stage_says_none(stamped: Path):
+def test_an_old_observability_block_still_loads_and_is_ignored(stamped: Path):
+    """The key a 1.1 config may still carry: nothing reads it, nothing refuses it."""
+    fake_roster(stamped)
+    set_config(stamped, observability={"db": "asf/data/asf.db", "poll_ms": 500})
+
+    checked = asf(stamped, "check")
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert "observability" not in checked.stdout + checked.stderr
+
+
+def test_check_refuses_a_workflow_whose_integrate_stage_says_none(stamped: Path):
     fake_roster(stamped)
     write_workflow(stamped, "keeps", {
         "description": "builds, and lands nothing",
@@ -423,33 +433,8 @@ def test_check_warns_about_a_workflow_whose_integrate_stage_says_none(stamped: P
 
     checked = asf(stamped, "check", "keeps")
 
-    assert checked.returncode == 0, checked.stdout + checked.stderr
-    assert "✓ keeps:" in checked.stdout
-    warning = next(line for line in checked.stdout.splitlines() if "~" in line)
-    assert "integrate: {mode: none}" in warning and "refused from 1.2" in warning
-    assert "~" not in asf(stamped, "check", "ship").stdout           # and only there
-
-
-def test_on_create_is_honoured_under_integration_none_when_the_config_says_so(stamped: Path):
-    """`none` alone keeps every branch on this machine, cockpit or not. Asking
-    for `on_create` beside it is the repository saying otherwise, deliberately."""
-    origin = gated(stamped, "on_create")
-    set_config(stamped, worktree={"publish": "on_create", "integration": {"mode": "none"}})
-    commit_all(stamped)
-
-    adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
-
-    waiting = suspended(stamped, adw_id)
-    assert remote_tip(origin, f"asf/{adw_id}") == waiting["head_sha"]
-    assert git(origin, "show", f"{waiting['head_sha']}:{PLAN}") == "# Plan"
-
-
-def test_integration_none_keeps_a_branch_here_even_with_a_cockpit_configured(
-        stamped: Path, tmp_path: Path):
-    fake_roster(stamped)
-    with_origin(stamped)
-    set_config(stamped, worktree={"integration": {"mode": "none"}})
-
-    said = publishing(stamped, tmp_path, ASF_COCKPIT_URL=COCKPIT)
-
-    assert "on_integrate" in said and "integration.mode: none" in said
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "✗ keeps" in checked.stdout
+    assert "integrate: {mode: none}" in checked.stdout and "is refused" in checked.stdout
+    assert all(part in checked.stdout for part in POINTER), checked.stdout
+    assert asf(stamped, "check", "ship").returncode == 0              # and only there

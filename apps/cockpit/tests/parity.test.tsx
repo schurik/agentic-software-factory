@@ -6,14 +6,13 @@ import { SessionView, type Page } from "../components/session/SessionView";
 import { phaseView, view } from "../convex/model/session";
 import { recorded, type WireEvent } from "./helpers";
 
-// The visualizer-parity test: the gate for deleting the visualizer.
+// The parity test: the gate the legacy trace UI was deleted behind, in 1.2.
 //
-// The visualizer showed one factory's runs from its trace db. Before it goes
-// (with the trace db, in 1.2), the cockpit must show everything it showed, for
-// a real session: the one the corpus recorded under the old factory, an issue
+// That UI showed one factory's runs from a local database. The cockpit shows
+// everything it showed, for a real session: the one the corpus recorded under the old factory, an issue
 // and then two rounds of pull-request review (provenance beside it, in
 // tests/golden/sessions/issue-then-two-reviews/provenance.md). Each test below
-// is one item of the visualizer's session view, the checklist:
+// is one item of that UI's session view, the checklist:
 //
 //   phases · gates · envelopes · cost and context · tool-call timing ·
 //   events · the pull request and issue links
@@ -89,7 +88,7 @@ function ran(phaseId: string): number {
   return seconds;
 }
 
-describe("visualizer parity, over the session recorded under the old factory", () => {
+describe("parity with the legacy trace UI, over the session recorded under the old factory", () => {
   it("phases: every phase the session entered, once, in order, with what it was for, who ran it and how it ended", () => {
     const html = sessionHtml();
     const anchors = [...html.matchAll(/ id="phase-([^"]+)"/g)].map((match) => match[1]);

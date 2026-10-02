@@ -112,10 +112,10 @@ def _issue_comment(run, accepted: bool) -> str:
     else:
         lines += [f"Branch `{run.workspace.branch}`", ""]
     if not accepted:
-        lines += ["A stage stopped the run before the work was accepted; the trace says "
+        lines += ["A stage stopped the run before the work was accepted; its record says "
                   "which. Whatever was committed before it stands on the branch.", ""]
     lines += [f"<sub>Resume or inspect with `--adw-id {run.adw_id}`; "
-              f"phases: `just phases {run.adw_id}`</sub>"]
+              f"events: `just tail {run.adw_id}`</sub>"]
     return "\n".join(lines)
 
 
@@ -258,7 +258,7 @@ def _write_back(run, cfg: FactoryConfig, context, threads, outcome: str, reason:
         lines += ["The checks never came back clean, so nothing was committed and no "
                   "thread was resolved. The threads stay open.", ""]
     lines += [f"<sub>Resume or inspect with `--adw-id {run.adw_id}`; "
-              f"phases: `just phases {run.adw_id}`</sub>"]
+              f"events: `just tail {run.adw_id}`</sub>"]
     summary = pull_requests.comment(run.main_root, config, PullRequestUpdate(
         number=context.number, project=context.project, comment="\n".join(lines)))
     notes += summary.notes
@@ -267,10 +267,11 @@ def _write_back(run, cfg: FactoryConfig, context, threads, outcome: str, reason:
 
 def quoted(text: str, limit: int = 700) -> str:
     """An agent's words as a blockquote, line by line so its own markdown cannot
-    break out and read as the factory's voice. Clipped: the trace has the rest."""
+    break out and read as the factory's voice. Clipped: the session's record
+    has the rest."""
     full = (text or "").strip()
     if not full:
-        return "> (the builder gave no reason — `just phases` has the envelope)"
+        return "> (the builder gave no reason — its envelope is in the session's record)"
     clipped = full[:limit].rstrip() + (" […]" if len(full) > limit else "")
     return "\n".join(f"> {line}" for line in clipped.splitlines())
 

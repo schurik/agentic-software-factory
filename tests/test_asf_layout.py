@@ -151,7 +151,7 @@ def test_review_and_document_need_a_build_to_work_on(factory_repo):
     write_workflow(factory_repo, "ok", {"description": "x",
                                         "stages": [{"implement": {}}, {"document": {}},
                                                    {"commit": {"of": "document"}},
-                                                   {"integrate": {"mode": "none"}}]})
+                                                   {"integrate": {"mode": "pr"}}]})
     assert [s.stage.name for s in workflow.load("ok").steps] == ["implement", "document",
                                                                  "commit", "integrate"]
     write_workflow(factory_repo, "bad3", {"description": "x",

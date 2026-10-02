@@ -14,7 +14,7 @@ So the checks live here, in one module, and they are asked in two places:
   * `everything(cfg)` — the full sweep, which is what `just doctor` prints.
     It includes the checks that are too slow, too situational or too noisy to
     put in front of every run: harness reachability, the forge CLI, the quality
-    blocks, Docker and the local cockpit's images, the trace UI's port.
+    blocks, Docker and the local cockpit's images.
 
 Two rules for anything added here:
 
@@ -26,11 +26,9 @@ Two rules for anything added here:
    command that ends it just moves the search earlier; the point of asking now
    is that the answer is actionable while nothing has been spent.
 
-Nothing here knows what a phase is, nothing here writes to the trace, and
-nothing here READS the trace db — the same rule the rest of the factory follows
-(`tracer.py`). Every answer comes from the config, the filesystem, the
-environment, or the harness itself, so these checks work identically on a repo
-whose db has been deleted and on one whose events go somewhere else entirely.
+Nothing here knows what a phase is, and nothing here writes to a session's
+record. Every answer comes from the config, the filesystem, the environment,
+or the harness itself.
 """
 
 from __future__ import annotations
@@ -38,20 +36,14 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import socket
 import subprocess
 from pathlib import Path
 
 from . import cockpit as local_cockpit
-from . import factory, git_helper, harnesses, publish
+from . import git_helper, harnesses, publish
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
 from .utils import anchor, write_atomic
-
-# The trace UI's two ports, mirrored from scripts/up.py — checked here so
-# `doctor` and `up` answer the same question the same way.
-API_PORT = int(os.environ.get("PORT", "4600"))
-
 
 # ── git: the tree a run cuts from ────────────────────────────────────────────
 
@@ -151,44 +143,31 @@ def publishing(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
 # ── runtime: where the record is written ─────────────────────────────────────
 
 def runtime(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
-    """Whether the session's own directory, and the trace mirror, can be written.
+    """Whether the session's own directory can be written.
 
-    Anchored to the MAIN checkout, exactly as `session.ensure` anchors them, so
-    this asks the same question about the same directories. `data_dir` is the
-    one that matters: it holds `sessions/<adw_id>/`, and with it `run.json`,
+    Anchored to the MAIN checkout, exactly as `session.ensure` anchors it, so
+    this asks the same question about the same directory. `data_dir` holds
+    `sessions/<adw_id>/`, and with it `run.json`, `events.jsonl`,
     `processes.jsonl`, `context_handoff/` and every envelope — the record every
     other command in the factory reads back (`artifacts.py`). Unwritable, the
     session dies at its first event, after the first agent has been spawned.
 
-    The db's directory is checked for the same reason and no other: `Tracer`
-    opens the file at session start, so it has to exist and be writable for a
-    run to begin. **Nothing here opens the db, and nothing in the factory ever
-    reads it** — it is a write-only mirror (see `tracer.py`), and the day the
-    events go to a hosted API this check is the only line that has to go.
-
-    Both are probed by creating the directory if missing and writing a file that
-    is then removed — the same two things the run itself would do a moment
-    later, which is the only way to answer honestly. Nothing else is touched.
+    Probed by creating the directory if missing and writing a file that is then
+    removed — the same two things the run itself would do a moment later, which
+    is the only way to answer honestly. Nothing else is touched.
     """
-    findings: list[Finding] = []
-    for label, target in (("data_dir", anchor(main_root, cfg.defaults.data_dir)),
-                          ("trace mirror", anchor(main_root, cfg.observability.db).parent)):
-        try:
-            target.mkdir(parents=True, exist_ok=True)
-            probe = target / ".asf-write-probe"
-            write_atomic(probe, "")
-            probe.unlink()
-        except OSError as error:
-            findings.append(Finding(
-                check="runtime", level="fatal",
-                detail=f"{label} {target} cannot be written: {error}",
-                fix=f"fix the permissions on {target}, or point "
-                    f"{'defaults.data_dir' if label == 'data_dir' else 'observability.db'} "
-                    f"somewhere writable"))
-    if findings:
-        return findings
-    return [Finding(check="runtime",
-                    detail=f"the record is written to {anchor(main_root, cfg.defaults.data_dir)}")]
+    target = anchor(main_root, cfg.defaults.data_dir)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".asf-write-probe"
+        write_atomic(probe, "")
+        probe.unlink()
+    except OSError as error:
+        return [Finding(check="runtime", level="fatal",
+                        detail=f"data_dir {target} cannot be written: {error}",
+                        fix=f"fix the permissions on {target}, or point defaults.data_dir "
+                            f"somewhere writable")]
+    return [Finding(check="runtime", detail=f"the record is written to {target}")]
 
 
 # ── credentials: the key the model needs ─────────────────────────────────────
@@ -380,7 +359,7 @@ def labels(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
         fix="uv run asf/asf.py labels --create  (adds exactly these, nothing else)")]
 
 
-# ── the skill, and the UI that ships with it ─────────────────────────────────
+# ── the skill this factory was stamped from ──────────────────────────────────
 
 def stamped_version(main_root: Path) -> list[Finding]:
     """Which release stamped this factory, against the release the skill is.
@@ -452,8 +431,8 @@ def skill() -> list[Finding]:
     if not raw:
         return [Finding(
             check="ASF_SKILL", level="warn",
-            detail="unset — `just obs` and `just up --with obs` start without the legacy "
-                   "trace UI, and re-installing or upgrading the factory cannot find the skill",
+            detail="unset — `just uninstall`, and re-installing or upgrading the factory, "
+                   "cannot find the skill",
             fix="re-run install.py from the target repo root; it writes the path "
                 "into .env. A repo cloned without its (gitignored) .env lands here")]
     root = Path(raw).expanduser()
@@ -465,67 +444,6 @@ def skill() -> list[Finding]:
             fix="set ASF_SKILL in .env to this machine's skill directory, or "
                 "re-run install.py from the target repo root")]
     return [Finding(check="ASF_SKILL", detail=str(root))]
-
-
-def port_free(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            probe.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
-
-
-def visualizer_dir() -> Path | None:
-    """Where the trace UI lives, or None when this repo cannot reach it.
-
-    The visualizer ships with the SKILL, not with the stamp, so both `up` and
-    `doctor` find it through the `ASF_SKILL` the installer wrote into `.env` —
-    and a repo cloned without that (gitignored) `.env` cannot. It lives here,
-    not in `supervise.py`, so that `doctor` asks the identical question `up`
-    acts on; asking a cheaper one is how doctor came to print a ✓ for a UI that
-    could not start.
-    """
-    skill_root = os.environ.get("ASF_SKILL", "").strip()
-    if not skill_root:
-        return None
-    home = Path(skill_root).expanduser() / "apps" / "visualizer"
-    return home if (home / "server" / "index.ts").is_file() else None
-
-
-def trace_ui() -> list[Finding]:
-    """Whether `just obs` / `up --with obs` could start the trace UI over the trace db.
-
-    The legacy view, started only on request since the cockpit replaced it,
-    and asked about until it is removed. Reachability first: `up` drops the UI
-    and keeps going whenever the
-    visualizer cannot be found, and a green check that only means "bun is
-    installed" points the operator away from the one thing that is wrong.
-    """
-    home = visualizer_dir()
-    if home is None:
-        raw = os.environ.get("ASF_SKILL", "").strip()
-        return [Finding(
-            check="trace UI", level="warn",
-            detail=("ASF_SKILL is unset, so `just obs` and `just up --with obs` start "
-                    "without the legacy trace UI — the rest runs, the UI is skipped") if not raw
-                   else (f"no visualizer under {Path(raw).expanduser() / 'apps' / 'visualizer'} "
-                         f"— ASF_SKILL does not point at the skill directory, so `just obs` "
-                         f"and `just up --with obs` start without the legacy trace UI"),
-            fix="re-run install.py from the target repo root, or set ASF_SKILL in .env to "
-                "the skill directory (the visualizer is its apps/visualizer)")]
-    if not shutil.which("bun"):
-        return [Finding(check="trace UI", level="warn",
-                        detail="bun is not on PATH — `just obs` cannot start the trace UI",
-                        fix="install bun (https://bun.sh), or run without the UI")]
-    if not port_free(API_PORT):
-        return [Finding(
-            check="trace UI", level="warn",
-            detail=f"something already listens on :{API_PORT} — another trace UI, or "
-                   f"an api server orphaned by an older `just obs`",
-            fix=f"lsof -ti :{API_PORT} | xargs kill")]
-    return [Finding(check="trace UI", detail=f"{home}, bun present, :{API_PORT} free")]
 
 
 # ── the cockpit `asf up` starts ──────────────────────────────────────────────
@@ -621,4 +539,4 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
             + forge(cfg) + labels(cfg, root) + stamped_version(root) + cockpit()
-            + publishing(cfg, root) + factory.retiring(cfg) + skill() + trace_ui())
+            + publishing(cfg, root) + skill())

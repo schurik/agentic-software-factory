@@ -34,7 +34,7 @@ verdict is usually an amendment to the request, and it has to outlive the round
 that heard it — `_consume` files it as a `Remark` on the run's journal, which
 engine/journal.py puts in front of every agent the run calls afterwards.
 
-Files only. The trace db mirrors the events; nothing here reads it.
+Files only: the session directory is the record.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ from typing import Optional
 
 from . import artifacts, events, issues, journal
 from . import publish as publishing       # `publish` here is asking the questions
-from .data_types import (Decision, DecisionRecorded, EnvelopeBase, EventRecord, Gate,
+from .data_types import (Decision, DecisionRecorded, EnvelopeBase, Gate,
                          HitlConfig, IssueRef,
                          IssueUpdate, Phase, PhaseParams, Remark, Reply, Subject,
                          WaitingFor)
@@ -453,9 +453,6 @@ def _consume(run, phase: Phase, decision: Decision, kind: str = "gate") -> Decis
         decision.consumed_at = now_iso()
     record(run.session_dir, decision, consumed=True)
     _remember(run, phase, decision, kind)
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="decision", name=decision.gate,
-                                 payload=decision.model_dump()))
     run.console.decided(decision)
     return decision
 
@@ -711,9 +708,5 @@ def _pass_by_policy(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
                         channel="auto", subject_digest=digest(paths), decided_at=stamp,
                         consumed_at=stamp)
     record(run.session_dir, decision)
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id,
-                                 phase_id=run.phases[-1].phase_id if run.phases else "",
-                                 type="decision", name=gate.name,
-                                 payload=decision.model_dump()))
     run.console.note(f"gate {gate.name}: passed by policy (hitl is off for it)")
     return envelope

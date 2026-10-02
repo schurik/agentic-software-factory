@@ -1,13 +1,10 @@
 """The runtime directory IS the record. This module reads and writes it.
 
-`asf/data/sessions/<adw_id>/` already holds everything a run produced —
+`asf/data/sessions/<adw_id>/` holds everything a run produced —
 `events.jsonl`, each agent's `envelope.json`, its compiled `prompts/`, the raw
-harness stream, `agent_map.json`, `context_handoff/`. The trace db is the
-queryable MIRROR of the same events, kept for the visualizer to poll; nothing
-the factory does at runtime depends on it. So anything that needs to know what
-a session has already done reads these files, never sqlite: a run works when
-the db is missing, when it has been deleted to reclaim disk, or when the
-visualizer is holding it — and the record travels with the session directory.
+harness stream, `agent_map.json`, `context_handoff/`. There is no other copy:
+anything that needs to know what a session has already done reads these files,
+and the record travels with the session directory.
 
 Three artifacts are written here that the rest of the record could not supply:
 
@@ -40,14 +37,11 @@ declared or code wrote as a request, already has its file: `record_artifacts`
 is where a cockpit is told what that file holds.
 
 The same rule covers the two watchers, whose liveness is not a session at all:
-`watchers/<kind>.json` is what `just status` reads. The heartbeat is still
-written to the db as well, because the trace UI renders those badges — a WRITE
-is fine, and the db is where the visualizer looks.
+`watchers/<kind>.json` is what `just status` reads.
 
-**Nothing here reads sqlite, and nothing in the factory should.** The db is the
-event log the visualizer polls; the day the events go to a hosted API instead,
-there is no db on this machine to query and every answer below still works,
-because every answer below is a file this session wrote.
+A cockpit receives the events; it is never asked. Every answer below is a file
+this session wrote, so every one of them works on a machine that has never
+seen a cockpit.
 """
 
 from __future__ import annotations
@@ -96,7 +90,7 @@ def start_run(session_dir: Path, started: SessionStarted) -> RunState:
     """Record that a process has taken this session, keeping what came before.
 
     A joined session is worked by more than one ADW, and `workflows` is the list
-    of them in order — the same story `sessions.adw_name` tells in the db. The
+    of them in order — `issue + pr-review` as `RunState.adw_name` says it. The
     command and the pid are the NEWEST process's, because they answer "what
     would running this again mean", and the newest process is the one that was
     working when the session stopped.
@@ -143,8 +137,8 @@ def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
     """Close the session's record. Never raises: a run must not die reporting.
 
     Called from `run.finish()`, from a failed phase, from the SIGTERM handler
-    and from a watcher aborting a run at its gate, so the file agrees with the
-    db about how the session ended even when the ending was not the happy one.
+    and from a watcher aborting a run at its gate, so the file says how the
+    session ended even when the ending was not the happy one.
     Whichever of them it is, the chapter the session was in ends with it.
     """
     from .utils import now_iso
@@ -375,7 +369,7 @@ def phase_identities(session_dir: Path, adw_id: str) -> dict[str, tuple[int, str
     before the failure replay from the record or, when code owns them, run
     again for real — and under fresh numbers each of those walks writes a
     SECOND row for a phase that already has one: two `plan`s after the first
-    resume, three after the next, and a visualizer drawing the same stage once
+    resume, three after the next, and a cockpit drawing the same stage once
     per recovery. Keyed by name because that is what a resumed chain matches on
     (`engine/replay.py`), and because `PhaseParams` already requires a name to
     be unique within a run.
@@ -401,9 +395,9 @@ def phase_identities(session_dir: Path, adw_id: str) -> dict[str, tuple[int, str
 def _phase_ids(session_dir: Path, adw_id: str) -> list[tuple[int, str]]:
     """(seq, phase_id) for every phase id this session emitted, in event order.
 
-    The seq is read out of the id rather than out of a column, for the reason
-    the rest of this module exists: a run whose db was deleted must still number
-    its phases correctly, and the number is right there in every phase id the
+    The seq is read out of the id, for the reason the rest of this module
+    exists: the session's own files are the whole record, and the number is
+    right there in every phase id the
     session wrote to its own event log (`<adw_id>_<seq>_<name>`, so the prefix
     comes off and the digits are next).
     """
@@ -534,13 +528,12 @@ def sessions_root(main_root, data_dir: str) -> Path:
 def scan(sessions_dir: Path) -> dict[str, RunState]:
     """{adw_id: RunState} for every session on disk. {} when there are none.
 
-    What the four `SELECT ... FROM sessions` readers in `tracer.py` used to do,
-    against the files instead: the maintenance tools — the watchers deciding how
-    many runs are in flight, `just worktrees` labelling a directory, `just
-    status` — ask about sessions they did not run, and a db is not required to
-    answer. A session directory with no `run.json` (recorded before this file
-    existed) is absent from the result, and every caller already renders that as
-    "unknown" rather than guessing.
+    The maintenance tools — the watchers deciding how many runs are in flight,
+    `just worktrees` labelling a directory, `just status`, `asf sessions` — ask
+    about sessions they did not run, and these files answer. A session
+    directory with no `run.json` (recorded before this file existed) is absent
+    from the result, and every caller already renders that as "unknown" rather
+    than guessing.
     """
     directory = Path(sessions_dir)
     if not directory.is_dir():

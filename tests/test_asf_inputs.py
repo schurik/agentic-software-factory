@@ -131,7 +131,6 @@ def test_an_untrusted_reporter_costs_nothing_and_a_failed_run_still_reports(stam
 
     # A trusted reporter whose build never goes green hears where it stopped.
     forge_data(stamped, "issue.json", issue_json(43, author="alice"))
-    set_config(stamped, worktree={"integration": {"mode": "none"}})
     failed = asf(stamped, "run", "issue", "43", "--adw-id", ID2, "--hitl", "none")
     assert failed.returncode == 1, failed.stdout + failed.stderr
     names = phase_names(stamped, ID2)

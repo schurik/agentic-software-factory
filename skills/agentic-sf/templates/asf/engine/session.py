@@ -22,8 +22,8 @@ opt-in.
 
 The order below matters. `main_root` is resolved first — from the git common
 dir, so it is the engineer's checkout even when an ADW is launched from inside
-a worktree — and the trace db and session dir are anchored to it. One db for
-every concurrent run, and a record that outlives the worktree it describes.
+a worktree — and the session dir is anchored to it. One data_dir for every
+concurrent run, and a record that outlives the worktree it describes.
 """
 
 from __future__ import annotations
@@ -46,22 +46,20 @@ TRIGGERED_BY_ENV = "ASF_TRIGGERED_BY"
 
 
 def _finalize_when_killed(run: Run) -> None:
-    """A killed run still closes its own trace, and still keeps its worktree.
+    """A killed run still closes its own record, and still keeps its worktree.
 
     Python's default SIGTERM handling exits without unwinding, so `just kill`
-    (or any `kill <pid>`) would leave the session reading `running` forever and
-    its process rows open — the trace would claim work is in flight that is
-    already dead. Turning the signal into SystemExit both finalizes here and
-    lets the phase context manager record the phase as failed on the way out.
+    (or any `kill <pid>`) would leave the session reading `running` forever —
+    its record would claim work is in flight that is already dead. Turning the
+    signal into SystemExit both finalizes here and lets the phase context
+    manager record the phase as failed on the way out.
 
     Nothing here touches the worktree. A killed run is exactly the one whose
     tree you want to open afterwards, and `run.finish()` — the only place that
     releases one — is never reached on this path.
     """
     def handler(signum, _frame):
-        run.tracer.session_finish(run.adw_id, ok=False)   # also closes process rows
-        artifacts.finish_run(run.session_dir, "fail",     # and the session's own record
-                             reason=f"stopped by signal {signum}")
+        artifacts.finish_run(run.session_dir, "fail", reason=f"stopped by signal {signum}")
         raise SystemExit(128 + signum)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -71,7 +69,7 @@ def _finalize_when_killed(run: Run) -> None:
 def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     """Pin or create the session and return the Run.
 
-    `spec.name` is what the trace and the UI call this workflow. The runner
+    `spec.name` is what the record and a cockpit call this workflow. The runner
     passes the workflow's name; without one the script's own name is used,
     which is what a hand-written script wants.
     """
@@ -79,7 +77,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     workflow = spec.name or Path(sys.argv[0]).stem
     if resume and not adw_id:
         raise SystemExit("--resume needs --adw-id: there is nothing to resume without "
-                         "the session that recorded it. `just sessions` lists them.")
+                         "the session that recorded it. `asf sessions` lists them.")
     adw_id = adw_id or new_id(8)
     main_root = git_helper.main_root()          # the engineer's checkout, always
     # BEFORE the worktree, this session's run.json and its process record exist.
@@ -99,11 +97,9 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     workspace = worktree.ensure(WorktreeRequest(
         main_root=main_root, adw_id=adw_id, config=cfg.worktree,
         publish_on_create=publish.mode(cfg, main_root) == publish.ON_CREATE))
-    tracer = Tracer(anchor(main_root, cfg.observability.db),
-                    anchor(main_root, f"{cfg.defaults.data_dir}/sessions/{adw_id}"))
+    tracer = Tracer(anchor(main_root, f"{cfg.defaults.data_dir}/sessions/{adw_id}"))
     run = Run(RunSpec(cfg=cfg, adw_id=adw_id, engineer=engineer_name(),
                       workspace=workspace, resume=resume, hitl=hitl), tracer)
-    tracer.session_start(adw_id, run.engineer, adw_name=workflow)
     # What the session already knows about itself, from its own directory. An
     # issue-triggered session that a later ADW re-enters must still know it was
     # issue-triggered — integration.py refuses to merge on that — and a session
@@ -113,14 +109,11 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     if recorded:
         run.adopt_provenance(recorded.trigger, recorded.issue_url, recorded.pr_url)
     triggered_by = recorded.triggered_by if recorded else _launched_by()
-    tracer.session_workspace(adw_id, workspace)
-    # The same fact in the session's OWN directory, and the only place it is
-    # written whole: `command` is the argv as a list, so `just resume` can launch
-    # this workflow again without a db, without unquoting, and without the 500
-    # character clip the process row applies. artifacts.py says why files win.
-    # The `session_started` event it is built from is also the first line a
-    # cockpit reads, which is why the base the branch was cut from — and the
-    # station it ran on — ride on it.
+    # Where the run executes and what launched it, in the session's OWN
+    # directory: `command` is the argv as a list, so `just resume` can launch
+    # this workflow again without unquoting. The `session_started` event it is
+    # built from is also the first line a cockpit reads, which is why the base
+    # the branch was cut from — and the station it ran on — ride on it.
     command = [Path(sys.argv[0]).name, *sys.argv[1:]]
     here = station.identify(main_root, cfg.defaults.data_dir)
     artifacts.start_run(run.session_dir, SessionStarted(
@@ -141,7 +134,6 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
         session=adw_id))
     # This process is the run. Record it before any phase opens, so a run that
     # hangs in its first agent call is still killable by adw_id.
-    tracer.process_start(adw_id, "adw", "", os.getpid(), " ".join(command))
     artifacts.record_process(run.session_dir, "adw", "", os.getpid(), " ".join(command))
     _finalize_when_killed(run)
     run.console.session_started(adw_id, run.engineer)

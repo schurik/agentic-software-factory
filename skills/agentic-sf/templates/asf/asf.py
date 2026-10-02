@@ -17,6 +17,7 @@ Usage:
                                                  for a workflow with input: issue | pr;
                                                  --force starts it without a claim
 
+    uv run asf/asf.py sessions [--limit 10]      the newest sessions, from their own records
     uv run asf/asf.py pending                    runs stopped at a gate, waiting for you
     uv run asf/asf.py show <adw_id>              what a waiting run wants you to read
     uv run asf/asf.py approve <adw_id> [-m "remarks"]
@@ -28,7 +29,7 @@ Usage:
     uv run asf/asf.py issues  once|loop|status [--interval 120]   a run per labelled issue
     uv run asf/asf.py answers once|loop|status [--interval 120]   resume what was answered
     uv run asf/asf.py prs     once|loop|status [--interval 120] [--pr 17]   answer review threads
-    uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--with obs] [--interval 120]
+    uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--interval 120]
                                                  the station loop, the local cockpit, every watcher
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
@@ -73,6 +74,11 @@ def cmd_check(args) -> int:
         return cmd_describe(args)
     if getattr(args, "ship", False):
         raise SystemExit("--ship sends the self-description: it goes with --json")
+    try:
+        factory.load(args.config)     # a refused config is said once, not once per workflow
+    except SystemExit as error:
+        print(f"✗ {args.config}\n  {error}")
+        return 1
     names = [args.workflow] if args.workflow else [n for n, _ in workflow.available(args.config)]
     if not names:
         print(f"no workflows under {workflow.workflows_dir(args.config)}")
@@ -123,6 +129,10 @@ def cmd_run(args) -> int:
     request = args.prompt if loaded.input != "prompt" else utils.resolve_prompt(args.prompt)
     return workflow.run(loaded, Invocation(request=request, adw_id=args.adw_id, resume=args.resume,
                                            hitl=args.hitl, force=args.force))
+
+
+def cmd_sessions(args) -> int:
+    return operate.sessions(factory.load(args.config), args.limit)
 
 
 def cmd_pending(args) -> int:
@@ -199,7 +209,7 @@ def _watched_workflows(config: str, names, kind: str) -> None:
 
 def cmd_up(args) -> int:
     return supervise.up(factory.load(args.config), args.config,
-                        supervise.Children(args.only, args.extra, True, args.interval))
+                        supervise.Children(args.only, True, args.interval))
 
 
 def cmd_status(args) -> int:
@@ -264,6 +274,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "for its claim — for recovering by hand")
     run.set_defaults(func=cmd_run)
 
+    sessions = _config_on(sub.add_parser("sessions", help="the newest sessions, from their "
+                                                          "own records"))
+    sessions.add_argument("--limit", type=int, default=10, help="how many (default 10)")
+    sessions.set_defaults(func=cmd_sessions)
     _config_on(sub.add_parser("pending", help="runs stopped at a gate")
                ).set_defaults(func=cmd_pending)
     show = _config_on(sub.add_parser("show", help="what a waiting run wants you to read"))
@@ -310,10 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
                                               "watcher, in one process"))
     up.add_argument("--interval", type=int, default=120, help="seconds between polls")
     up.add_argument("--only", default="",
-                    help="comma-separated subset of cockpit,issues,answers,prs,obs "
+                    help="comma-separated subset of cockpit,issues,answers,prs "
                          "(the station loop always runs)")
-    up.add_argument("--with", dest="extra", default="",
-                    help="add to the default set: obs, the legacy trace UI")
     up.set_defaults(func=cmd_up)
     _config_on(sub.add_parser("status", help="what is watching, running, waiting, left behind")
                ).set_defaults(func=cmd_status)

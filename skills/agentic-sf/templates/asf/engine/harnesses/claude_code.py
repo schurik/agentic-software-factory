@@ -302,7 +302,7 @@ class ToolCallTracker:
     `observe` returns a list.
 
     The record shape is tool_calls.py's, identical to the pi tracker's, which
-    is what lets `agents._event_forwarder`, the tracer and the visualizer stay
+    is what lets `agents._event_forwarder` and the events it writes stay
     untouched by this harness existing.
     """
 

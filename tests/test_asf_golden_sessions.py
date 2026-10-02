@@ -13,11 +13,11 @@ fake harness by the code that ships, under `tests/golden/sessions/<name>/`:
     file a cockpit's Journal view must match byte for byte;
   * `provenance.md` — where the recording came from (`Provenance`, its
     frontmatter for a test and prose for a person): when, from which tree and
-    release, on which harness, whether the factory still kept a trace db
-    beside the events, and what was changed to make it portable. The
-    visualizer-parity test (`apps/cockpit/tests/parity.test.tsx`) holds the
-    cockpit to what the visualizer showed of a session recorded while the
-    trace db was still written; this file is what says one was.
+    release, on which harness, whether the factory that recorded it kept a
+    second copy beside the events (only one before 1.2 did), and what was
+    changed to make it portable. The parity test
+    (`apps/cockpit/tests/parity.test.tsx`) holds the cockpit to a session
+    recorded under that older factory; this file is what says one was.
 
 Like an event fixture, a recording is never edited once checked in: a cockpit
 reads sessions written by every factory there ever was, so an old recording is
@@ -46,7 +46,7 @@ import yaml
 from engine import events, frontmatter
 from engine.data_types import EVENT_KINDS
 
-from .asf_helpers import (PY_CHECK, asf, commit_all, db_rows, envelope, fake_roster, forge,
+from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forge,
                           forge_data, git, issue_json, new_repo, pr_json, session_dir, set_config,
                           stamp, wire, with_origin)
 
@@ -228,26 +228,21 @@ class Provenance:
     """Where a recording came from, as `provenance.md` beside it says.
 
     The frontmatter is what a test reads; the prose under it is the same
-    facts for a person. `traced` is whether the factory still kept its trace
-    db and the session was in it: a session the legacy visualizer could show,
-    which is what the visualizer-parity test needs one of.
+    facts for a person. Its `trace_db` says whether the factory that recorded it
+    still kept a second copy beside the events — true only of a recording made
+    before 1.2, which is what the parity test needs one of. A recording made now
+    says false, and the key stays because a recording is never edited.
     """
     recording: str
     recorded_on: str            # YYYY-MM-DD
     tree: str                   # the commit this repository was at, short
     release: str                # .claude-plugin/plugin.json's version then
-    traced: bool
     noted_later: str = ""       # a note written after the recording was checked in
 
     def render(self) -> str:
         facts = {"recording": self.recording, "recorded_on": self.recorded_on,
                  "recorder": RECORDER, "tree": self.tree, "release": self.release,
-                 "harness": "fake", "trace_db": self.traced}
-        trace_db = (
-            "The factory still kept its trace db (`asf/data/asf.db`) beside these events, and the\n"
-            "session was in it: recorded under the old factory, it is a session the legacy\n"
-            "visualizer could show." if self.traced else
-            "The factory kept no trace db: these events are the session's only record.")
+                 "harness": "fake", "trace_db": False}
         later = f"\n{self.noted_later}\n" if self.noted_later else ""
         return (
             f"---\n{yaml.safe_dump(facts, sort_keys=False)}---\n"
@@ -255,7 +250,7 @@ class Provenance:
             f"Recorded on {self.recorded_on} by `{RECORDER}`, run with\n"
             f"`ASF_RECORD_SESSIONS=1` on top of `{self.tree}` — agentic-sf {self.release} — on the\n"
             f"`fake` harness, whose scripted replies set every token count and cost.\n\n"
-            f"{trace_db}\n\n"
+            f"These events are the session's only record.\n\n"
             f"## What it tells\n\n{STORY}\n\n"
             f"## What was changed\n\n"
             f"Only the machine: the repository's path reads `{WORK}`, the Python interpreter\n"
@@ -301,7 +296,7 @@ def test_the_recorded_story_still_runs_and_is_written_only_when_asked(tmp_path: 
         RECORDING, recorded_on=datetime.now().date().isoformat(),
         tree=git(THIS_REPO, "rev-parse", "--short", "HEAD"),
         release=json.loads((THIS_REPO / ".claude-plugin" / "plugin.json").read_text())["version"],
-        traced=bool(db_rows(repo, f"SELECT adw_id FROM sessions WHERE adw_id = '{ID}'"))).render()
+    ).render()
     facts_of(provenance, RECORDING)
 
     if os.environ.get("ASF_RECORD_SESSIONS") != "1":
@@ -327,8 +322,8 @@ def test_the_corpus_holds_a_recorded_session():
 
 
 def test_the_parity_test_has_a_session_from_the_old_factory():
-    """The visualizer goes only once the cockpit shows all it showed of a session
-    the visualizer could show — one recorded while the trace db was still written."""
+    """The parity test holds the cockpit to a session recorded under the old
+    factory, the one whose record had a second copy — and it keeps that one."""
     assert facts_of((SESSIONS / PARITY / "provenance.md").read_text(), PARITY)["trace_db"] is True
 
 

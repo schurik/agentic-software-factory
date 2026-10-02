@@ -64,10 +64,9 @@ class Obsolete(NamedTuple):
 
 OBSOLETE = (
     Obsolete(("observability",), None,
-     "ignored from 1.2, and can be deleted: until then it only moves the legacy trace db "
-     "from asf/data/asf.db, the default without it"),
+     "ignored, and can be deleted: nothing reads it since 1.2"),
     Obsolete(("worktree", "integration", "mode"), "none",
-     "refused from 1.2: set `pr` (with `open_pr: false` to push and open nothing), and "
+     "refused since 1.2: set `pr` (with `open_pr: false` to push and open nothing), and "
      "`worktree.publish: on_integrate` to keep a branch off the remote until it is "
      "integrated; a workflow that should land nothing drops its `integrate` stage"),
 )
@@ -289,9 +288,9 @@ def ensure_gitignore(root: Path, stamped: list) -> None:
 def ensure_env(root: Path, sample: Path, stamped: list, notes: list) -> bool:
     """Whether `.env` ends up carrying a usable ASF_SKILL.
 
-    False is not cosmetic: unset, `just obs` starts without the legacy trace
-    UI and `just uninstall` cannot find the skill at all — so main()
-    says it loudly rather than leaving it to `doctor`.
+    False is not cosmetic: unset, `just uninstall` cannot find the skill at
+    all and `doctor` cannot say which release it is — so main() says it
+    loudly rather than leaving it to `doctor`.
     """
     env = root / ".env"
     if not env.exists() and sample.exists():
@@ -396,8 +395,7 @@ def main() -> int:
                   f"of these FAILS rather than passing.\n    write the real argv into "
                   f"asf/engine/quality.py")
     if not skill_in_env:
-        print(f"\n  ! NO .env, SO ASF_SKILL IS UNSET — `just obs` will start without the "
-              f"legacy trace UI,\n    and `just uninstall` cannot find "
+        print(f"\n  ! NO .env, SO ASF_SKILL IS UNSET — `just uninstall` cannot find "
               f"the skill.\n    write it yourself:  echo 'ASF_SKILL={SKILL_ROOT}' >> .env")
     # `just labels --create` and not a label call from here: the labels a repo
     # needs come from its RESOLVED config, and this script never reads one — it

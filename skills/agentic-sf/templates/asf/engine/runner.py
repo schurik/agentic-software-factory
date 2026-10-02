@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from . import agents, artifacts, git_helper, hitl, journal, limits, publish, replay, worktree
 from .console import Console
 from .data_types import (COMMIT_FILES, AgentCall, AgentConfig, AgentResult, Committed,
-                         Decision, DomainEvent, EnvelopeBase, EventRecord, Gate, Phase, PhaseEnded,
+                         Decision, DomainEvent, EnvelopeBase, Gate, Phase, PhaseEnded,
                          PhaseParams, PhaseStarted, ProvenanceRecorded, RunSpec,
                          SessionSuspended, Subject, UsageRecorded, WaitingFor)
 from .utils import anchor, ensure_dir, now_iso, write_atomic
@@ -40,14 +40,8 @@ class PhaseHandle:
         self.said = ""
 
     def log(self, **payload) -> None:
-        self.run.tracer.mirror(EventRecord(adw_id=self.run.adw_id,
-                                          phase_id=self.phase.phase_id,
-                                          type="log", name=self.phase.params.name,
-                                          payload=payload))
         self.said = ", ".join(f"{k}: {v}" for k, v in payload.items())
         self.run.console.note(self.said)
-        if self.phase.params.kind == "engineer" and "input" in payload:
-            self.run.tracer.session_request(self.run.adw_id, str(payload["input"]))
 
     def call(self, call: AgentCall) -> EnvelopeBase:
         if self.phase.params.kind != "agent":
@@ -67,7 +61,7 @@ class Run:
         self.cfg = spec.cfg
         self.adw_id = spec.adw_id
         self.tracer = tracer
-        self.console = Console(tracer, spec.adw_id)
+        self.console = Console(spec.adw_id)
         self.engineer = spec.engineer
         self.phases: list[Phase] = []
         self.tokens = 0                 # THIS process — what the banner reports
@@ -92,20 +86,18 @@ class Run:
         # provenance the first process recorded; without this every re-entry
         # would claim to be engineer-triggered. session.ensure() fills it in.
         # The runtime is anchored to the MAIN checkout, not to the worktree: one
-        # trace db for every concurrent run, one place the visualizer reads, and
-        # a record that survives the worktree being pruned. The cost is that
+        # data_dir for every concurrent run, and a record that survives the
+        # worktree being pruned. The cost is that
         # context_handoff/ now sits outside the agent's working directory, so
         # the path handed to an agent must be absolute — see agents.execute.
         data_dir = anchor(spec.workspace.main_root, self.cfg.defaults.data_dir)
         self.session_dir = ensure_dir(data_dir / "sessions" / spec.adw_id)
         self.context_handoff_dir = ensure_dir(self.session_dir / "context_handoff")
         # A joined or resumed run continues the phase sequence rather than
-        # restarting at 1 — from the session's own event log, so it is right
-        # with the db deleted.
+        # restarting at 1 — from the session's own event log.
         self._seq = artifacts.max_phase_seq(self.session_dir, spec.adw_id)
         # What the SESSION had already spent before this process opened, read
-        # off its own run.json — never the db, which the factory must work
-        # without. A joined run (`--adw-id`, `just integrate`, a pr-review
+        # off its own run.json. A joined run (`--adw-id`, `just integrate`, a pr-review
         # re-entry) is the same work continuing, so the budget counts from
         # here, while `tokens`/`cost` above stay THIS process's and keep the
         # banner reporting the run in front of the engineer. A new session has
@@ -188,10 +180,10 @@ class Run:
             self.pr_url = pr_url
 
     def record_issue(self, context) -> None:
-        """Bind this run to the work item that caused it, in memory and in the db.
+        """Bind this run to the work item that caused it, in memory and on record.
 
         Lives here rather than in the ADW script (rule 6) because four
-        different things need it afterwards: the trace column, the PR body
+        different things need it afterwards: the session's provenance, the PR body
         template, integration's refusal to merge an externally triggered run,
         and the label a run that suspended at a gate lands when it finally ends
         — in a process the watcher that started it never sees. A script that
@@ -200,18 +192,16 @@ class Run:
         self.trigger = "issue"
         self.issue_number = context.number
         self.issue_url = context.url
-        self.tracer.session_issue(self.adw_id, context.url)
         # `request` is otherwise only known from the prompt (see
-        # `session_started` and PhaseHandle.log), and an issue-triggered chain
-        # has none — so without this every such run reads as blank in `just
-        # sessions` and on its card in the UI. The title is what the request
-        # field is for: the one line that says what this run was about.
+        # `session_started`), and an issue-triggered chain has none — so
+        # without this every such run reads as blank on its card in a cockpit.
+        # The title is what the request field is for: the one line that says
+        # what this run was about.
         request = f"#{context.number} {context.title}"
         artifacts.record_provenance(self.session_dir, ProvenanceRecorded(
             request=request, trigger="issue", issue_url=context.url,
             issue_number=context.number, issue_project=context.project,
             issue_author=context.author, issue_assignees=context.assignees))
-        self.tracer.session_request(self.adw_id, request)
 
     def record_pull_request(self, context) -> None:
         """Bind this run to the pull request whose review feedback caused it.
@@ -230,20 +220,17 @@ class Run:
         """
         if self.trigger == "engineer":
             self.trigger = "pr_review"
-            self.tracer.session_trigger(self.adw_id, self.trigger)
         self.pr_url = context.url or self.pr_url
-        self.tracer.session_pr(self.adw_id, context.url)
         artifacts.record_provenance(self.session_dir, ProvenanceRecorded(
             trigger=self.trigger, pr_url=context.url))
 
-    # ── usage (run totals mirror what the tracer accumulates in sqlite) ─────
+    # ── usage (this process's totals, and the session's on its record) ──────
     def add_usage(self, phase: Phase, agent: AgentConfig, result: AgentResult) -> None:
         """Bank one agent turn's spend."""
         self.tokens += result.tokens
         self.cost += result.cost
-        self.tracer.session_add_usage(self.adw_id, result.tokens, result.cost)
         # ...and into the session's own record, because the budget has to be
-        # readable by the next process without the db. Absolute totals, not an
+        # readable by the next process. Absolute totals, not an
         # increment: this process knows what came before it, so nothing has to
         # read-modify-write a number two runs could race on.
         artifacts.record_usage(self.session_dir, UsageRecorded(
@@ -316,9 +303,9 @@ class Run:
         runs again for real — but it is the SAME phase of the same session
         either way, and a fresh number would file it beside its own row instead
         of on it: two `plan`s after one resume, three after the next, and a
-        visualizer drawing every completed stage once per recovery. Re-entering
-        it under the recorded id makes `phase_upsert` an update, which is what
-        that ON CONFLICT clause was always for.
+        cockpit drawing every completed stage once per recovery. Re-entering
+        it under the recorded id makes the second walk a second telling of the
+        same phase.
 
         Only when resuming. A joined run (`--adw-id` without `--resume`) is new
         work continuing a session, and new work gets a new number even where it
@@ -364,11 +351,6 @@ class Run:
         self._unannounced = phase
         if params.kind != "agent":
             self.announce(phase)
-        self.tracer.phase_upsert(phase)
-        self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
-                                      type="phase_start", name=params.name,
-                                      payload={"kind": params.kind, "owner": params.owner,
-                                               "description": params.description}))
         self.console.phase_started(phase)
         clock = time.monotonic()
         handle = PhaseHandle(self, phase)
@@ -381,13 +363,6 @@ class Run:
             phase.status = "waiting"
             phase.ended_at = now_iso()
             self._ended(phase, waiting=stop.waiting)
-            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
-                                          type="phase_end", name=params.name,
-                                          payload={"status": "waiting",
-                                                   "gate": stop.waiting.gate,
-                                                   "round": stop.waiting.round}))
-            self.tracer.phase_upsert(phase)
-            self.tracer.session_waiting(self.adw_id, stop.waiting.gate)
             artifacts.suspend_run(self.session_dir, SessionSuspended(
                 waiting_for=stop.waiting, base_commit=self.workspace.base_commit,
                 head_sha=self._head(), published=stop.published, questions=stop.questions,
@@ -401,14 +376,6 @@ class Run:
             phase.error = str(error)[:1000]
             phase.ended_at = now_iso()
             self._ended(phase, error=phase.error)
-            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
-                                          type="error", name=params.name,
-                                          payload={"error": phase.error}))
-            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
-                                          type="phase_end", name=params.name,
-                                          payload={"status": "fail"}))
-            self.tracer.phase_upsert(phase)
-            self.tracer.session_finish(self.adw_id, ok=False)
             artifacts.finish_run(self.session_dir, "fail",
                                  reason=f"{params.name} failed: {phase.error}")
             self.console.phase_ended(phase, time.monotonic() - clock)
@@ -416,20 +383,15 @@ class Run:
             # published branch goes. Any other failure keeps it, for `resume`.
             if isinstance(error, hitl.Aborted):
                 self._withdraw()
-            self.console.session_finished(False, self.tokens, self.cost,
-                                          self.cfg.observability.db)
+            self.console.session_finished(False, self.tokens, self.cost, self.session_dir)
             raise
         else:
             phase.status = "success"
             phase.ended_at = now_iso()
             self._ended(phase)
-            self.tracer.mirror(EventRecord(adw_id=self.adw_id, phase_id=phase.phase_id,
-                                          type="phase_end", name=params.name,
-                                          payload={"status": "success"}))
-            self.tracer.phase_upsert(phase)
             # ...and one line in the run's own journal, which is the copy every
-            # agent after this phase READS. The db is for the engineer and the
-            # UI; this is what makes a reviewer know that verify_1 went red and
+            # agent after this phase READS. The events are for a cockpit; this
+            # is what makes a reviewer know that verify_1 went red and
             # fix_1 followed. See engine/journal.py.
             journal.record_phase(self, phase, handle.envelope, handle.said)
             self.console.phase_ended(phase, time.monotonic() - clock)
@@ -467,25 +429,19 @@ class Run:
         This replaces a `succeeded` property that answered only the first
         question — and, being a property with side effects, wrote the session
         status and printed the banner before the caller's `and test.passed` was
-        ever evaluated. A run whose suite never passed was recorded green in the
-        db, on the terminal, and in the UI while exiting 1. Anyone reading the
-        trace saw success; only a CI job checking `$?` saw the truth. One call
-        now settles the db, the banner, and the exit code together, so the three
-        cannot disagree.
+        ever evaluated. A run whose suite never passed was recorded green on
+        the terminal and in the UI while exiting 1. Anyone reading the trace
+        saw success; only a CI job checking `$?` saw the truth. One call now
+        settles the record, the banner, and the exit code together, so the
+        three cannot disagree.
         """
         phases_ok = bool(self.phases) and all(p.status == "success" for p in self.phases)
         ok = phases_ok and accepted
         note = ""
         if phases_ok and not accepted:
             note = reason or "the run's acceptance criterion was not met"
-            self.tracer.mirror(EventRecord(
-                adw_id=self.adw_id,
-                phase_id=self.phases[-1].phase_id if self.phases else "",
-                type="error", name="not_accepted", payload={"reason": note}))
             self.console.note(f"not accepted: {note}")
-        self.tracer.session_finish(self.adw_id, ok=ok)
-        # The session's own record says the same thing, and it is the one a
-        # resume reads: `just resume` must not need the trace db to exist.
+        # The session's own record says it, and it is the one a resume reads.
         artifacts.finish_run(self.session_dir, "success" if ok else "fail", reason=note)
         # An accepted run's worktree is a redundant copy of a branch that is
         # kept, so it goes; a failed or killed one is the evidence, so it stays.
@@ -500,5 +456,5 @@ class Run:
         # its branch a cockpit was reading; one that did not finish still does.
         if ok:
             self._withdraw()
-        self.console.session_finished(ok, self.tokens, self.cost, self.cfg.observability.db)
+        self.console.session_finished(ok, self.tokens, self.cost, self.session_dir)
         return 0 if ok else 1

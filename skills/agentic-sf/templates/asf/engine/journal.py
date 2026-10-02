@@ -51,8 +51,7 @@ Two files and one of them is derived: `<session_dir>/journal.json` holds the
 entries, and `<context_handoff_dir>/journal.md` is that same list rendered,
 rewritten whole on every write so it cannot drift from what it shows. Every
 entry filed is also a `journal_noted` domain event, which is how a cockpit shows
-the journal exactly as the next agent reads it. The trace db mirrors the same
-phases and decisions, and nothing here reads it.
+the journal exactly as the next agent reads it.
 """
 
 from __future__ import annotations

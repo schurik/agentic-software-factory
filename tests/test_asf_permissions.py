@@ -13,7 +13,6 @@ prefix rule matched by the end the file left.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,7 +21,7 @@ import pytest
 from engine import events, permissions
 from engine.data_types import AgentConfig, FactoryConfig, PromptEngineering
 
-from .asf_helpers import (adw_id_of, asf, commit_all, db_rows, envelope, fake_roster, git,
+from .asf_helpers import (adw_id_of, asf, commit_all, envelope, fake_roster, git,
                           session_dir, write_workflow)
 
 
@@ -41,10 +40,10 @@ def test_an_agent_may_write_a_file_with_a_non_ascii_name_inside_its_boundary(sta
     assert result.returncode == 0, result.stdout + result.stderr
     adw_id = adw_id_of(result)
     assert git(stamped, "show", f"asf/{adw_id}:docs/asf/spec/plän.md") == "# Plan"
-    # What the trace says the planner touched is the path, not git's spelling of it.
-    [touched] = db_rows(stamped, "select payload_json from events "
-                                 f"where adw_id='{adw_id}' and name='paths_touched'")
-    assert json.loads(touched[0])["paths"] == ["docs/asf/spec/plän.md"]
+    # What the record says was committed is the path, not git's spelling of it.
+    [committed] = [line.payload for line in events.read(session_dir(stamped, adw_id))
+                   if line.kind == "committed"]
+    assert committed["files"] == ["docs/asf/spec/plän.md"]
 
 
 def test_a_read_only_agent_s_changes_to_files_with_non_ascii_names_are_undone(stamped: Path):

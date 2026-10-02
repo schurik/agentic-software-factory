@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 
 from . import artifacts
-from .data_types import (EventRecord, PullRequestContext, PullRequestOutput,
+from .data_types import (PullRequestContext, PullRequestOutput,
                          PullRequestRef, PullRequestResult, PullRequestsConfig,
                          PullRequestUpdate, ReviewComment, ReviewThread)
 from .issues import _aim, _run, resolve_project
@@ -221,15 +221,6 @@ def attach(run, config: PullRequestsConfig,
     context.threads_path = str(body_path)
     artifacts.record_artifacts(run, "request", [str(body_path)])
 
-    run.tracer.mirror(EventRecord(
-        adw_id=run.adw_id, phase_id=run.phases[-1].phase_id if run.phases else "",
-        type="tool_call", name="pr:fetch",
-        payload={"project": context.project, "number": context.number,
-                 "url": context.url, "state": context.state,
-                 "branch": context.branch, "author": context.author,
-                 "threads_total": len(context.threads),
-                 "threads_open": len(open_threads),
-                 "threads_artifact": context.threads_path}))
     return context
 
 

@@ -52,9 +52,6 @@ uv run asf/asf.py list && uv run asf/asf.py check      # loads every workflow, s
 uv run /path/to/agentic-software-factory/skills/agentic-sf/scripts/uninstall.py --dry-run
 ```
 
-The visualizer (`skills/agentic-sf/apps/visualizer`, Vue + Vite on Bun) has its own scripts:
-`bun run typecheck`, `bun run lint` (oxlint), `bun run build`. CI does not run them.
-
 The cockpit (`apps/cockpit`, Next.js on self-hosted Convex, outside the skill per ADR 0001) is run
 with bun: `bun run typecheck`, `bun run lint`, `bun run test` (vitest + `convex-test`, no backend
 needed), and CI runs all three. `bun run test`, not `bun test`: the latter is Bun's own runner. Its tests ingest every fixture under `tests/golden/events/`, so a
@@ -64,9 +61,9 @@ They also tell every whole session under `tests/golden/sessions/` (recorded, nev
 one is `ASF_RECORD_SESSIONS=1 pytest tests/test_asf_golden_sessions.py`), and the session page's
 Journal view must match the `journal.md` recorded beside it byte for byte (`convex/model/journal.ts`
 is `engine/journal.py`'s `render`, in TypeScript).
-`tests/parity.test.tsx` holds the session page to everything the legacy visualizer showed, one test
-per item, over the session recorded under the old factory (its `provenance.md` says so): the
-visualizer and the trace db are deleted only while it is green.
+`tests/parity.test.tsx` holds the session page to everything the legacy trace UI showed, one test
+per item, over the session recorded under the old factory (its `provenance.md` says so): that UI
+was deleted behind it in 1.2, and it stays green so the session page never shows less.
 An inbox answer is a comment the factory's answers watcher reads, so its form is a contract too:
 `tests/golden/answers/` holds each rendering, which the cockpit renders byte for byte and
 `tests/test_asf_answers.py` proves the watcher hears as meant — change both ends in one PR.
@@ -91,9 +88,9 @@ bug already shipped once.
 
 1. **Code owns sequencing, retries and acceptance; an agent owns one bounded phase.** A known
    invocation (`bun test`, `ruff check`) is a `kind="code"` phase via `quality.py`, never an agent.
-2. **The factory never reads the trace db.** `tracer.py` writes SQLite; every question about a
-   session is answered from that session's own directory under `data_dir`. A run must still work
-   with the db deleted. Tests may read it to assert.
+2. **The session directory is the record. There is no trace db; a cockpit receives the events.**
+   `tracer.py` appends a session's events to its own `events.jsonl`, and every question about a
+   session is answered from that session's own directory under `data_dir`.
 3. **Typed envelopes only, and the contract is a synced triad**: the `EnvelopeBase` subclass in
    `data_types.py`, the JSON example in the task file's `## Report` block, and `output_type=` at
    the call site. Change one, change all three in the same edit.

@@ -21,6 +21,45 @@ before — `None` when there are none, never omitted.
 
 ## Unreleased
 
+- **The session directory is the record.** The SQLite trace db and the legacy trace UI that read it
+  (the skill's `apps/visualizer`) are gone: a run writes its own directory under
+  `asf/data/sessions/` and nothing else, and a cockpit receives its events. `asf/data/asf.db` is
+  no longer written, and `doctor` no longer checks a trace UI or the db's directory.
+- `asf up` has no `obs` child: `--with` is gone, and `--only` names `cockpit`, `issues`, `answers`
+  and `prs`. A factory stamped by an older release keeps running its own engine, which drops its
+  `obs` child with the warning it always gave once the skill carries no visualizer.
+- **`asf sessions`** (`just sessions`) lists the newest sessions from their own `run.json`, and
+  `just tail <id>` prints the end of the session's `events.jsonl`. `just phases` and `just obs`
+  are gone. A run's closing panel names its session directory where it named the db.
+- `observability:` in `asf/factory.yaml` is ignored; `install.py` still names it as obsolete.
+- **`worktree.integration.mode: none` is refused** by every command that loads the config —
+  `check` and `doctor` included — with what to say instead; `integrate: {mode: none}` in a
+  workflow is refused by `check`. It is never remapped: `mode: pr`, with `open_pr: false` to push
+  and open nothing; `worktree.publish: on_integrate` to keep a branch off the remote; no
+  `integrate` stage in a workflow that should land nothing. `worktree.publish` no longer defaults
+  differently under it.
+- An agent's `color:` still loads and nothing reads it.
+- `ASF_SKILL` stays in `.env`: `just uninstall` and `doctor`'s release comparison find the skill
+  through it.
+
+### Upgrade
+
+From 1.1, in this order (`cookbooks/upgrade.md` walks them):
+
+1. If `asf/factory.yaml` says `worktree.integration.mode: none`, or a workflow says
+   `integrate: {mode: none}`, decide what it meant and change it in the same change as the
+   re-stamp: from 1.2 nothing runs while it says `none`.
+2. Commit, then `install.py --harness <harness> --force` from the target repo root.
+3. Delete `observability:` from `asf/factory.yaml`, and the database it placed:
+   `asf/data/asf.db` with its `-wal` and `-shm`, or wherever `observability.db` pointed.
+4. A justfile the re-stamp kept (the repository's own, or a stamped one that diverged): drop
+   `obs` and `phases`, and take `sessions` and `tail` from the fresh stamp.
+5. A repository that vendors the skill and once ran `just obs` has
+   `<skill>/apps/visualizer/node_modules/` left in its tree, and the ignore file that kept it out
+   of `git add -A` went with the visualizer: delete the directory before a commit stage runs.
+
+## 1.1.0
+
 - Releases are semver tags, and `plugin.json` is the one version source.
 - `install.py` stamps `asf/.skill-version`. `uninstall.py` removes it with the rest of `asf/`.
 - **The upgrade path for an old stamp.** `asf doctor` compares the stamp's record with the skill's

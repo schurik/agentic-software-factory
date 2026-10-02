@@ -13,7 +13,7 @@
     {
       "name": "agentic-sf",
       "source": "./",
-      "description": "Deploy and operate agentic workflows in any codebase: deterministic Python owns sequencing, retries and acceptance; coding agents work inside bounded phases; every event streams into SQLite.",
+      "description": "Deploy and operate agentic workflows in any codebase: deterministic Python owns sequencing, retries and acceptance; coding agents work inside bounded phases; every event lands in the session's own record, and a cockpit receives it.",
       "version": "1.0.0",
       "author": { "name": "schurik" },
       "homepage": "https://github.com/schurik/agentic-software-factory",

@@ -150,8 +150,5 @@ temp/
 # asf runtime — never committed here, and never stamped into a target repo
 asf/data/
 .asf-worktrees/
-# Unanchored: a trace db is never committed, wherever it turns up. An empty one
-# under templates/ would stamp a fake trace db into every target repo.
-asf.db*
 
 *.mov

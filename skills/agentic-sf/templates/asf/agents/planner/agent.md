@@ -6,7 +6,7 @@
 purpose: Turn a request into a plan the builder can implement without asking questions.
 thinking: high
 model: opus                        # overrides factory.yaml defaults.model
-color: "#a78bfa"                   # its lane in the visualizer
+color: "#a78bfa"                   # a swatch for this agent; the engine draws nothing with it
 # The boundary, enforced in code after every call: the plan is the only thing
 # the planner may leave in the repo. Its handoff files under data_dir are
 # always writable — read-only with respect to the REPO, never mute.

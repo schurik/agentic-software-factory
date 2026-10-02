@@ -28,8 +28,8 @@ A module qualifies by exposing:
                       recover from. See references/harnesses.md.
 
 `agents.py` dispatches on those names and knows nothing else about any harness.
-Everything downstream of the result — gates, permissions.py, the trace schema,
-the visualizer — is harness-agnostic by construction.
+Everything downstream of the result — gates, permissions.py, the events a
+cockpit reads — is harness-agnostic by construction.
 """
 
 from __future__ import annotations

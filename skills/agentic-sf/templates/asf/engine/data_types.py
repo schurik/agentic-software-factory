@@ -881,7 +881,7 @@ class AgentConfig(BaseModel):
     harness: str = "pi"
     model: str = "google/gemini-3.6-flash"
     thinking: str = "medium"        # off | minimal | low | medium | high | xhigh | max
-    color: str = ""                 # hex swatch for this agent's lane in the UI
+    color: str = ""                 # a hex swatch; nothing in the engine reads it
     purpose: str = ""
     prompt_engineering: PromptEngineering
     harness_engineering: list[str] = Field(default_factory=list)
@@ -934,9 +934,8 @@ class ConfigDefaults(BaseModel):
     data_dir: str = "asf/data"
 
 
-# `none` is on its way out: it warns wherever the config is loaded and is
-# refused from 1.2 — see `integration.none_is_retiring`.
-IntegrationMode = Literal["none", "merge", "pr"]
+# `none` is refused when the config is loaded — see `integration.none_is_refused`.
+IntegrationMode = Literal["merge", "pr"]
 
 
 class IntegrationConfig(BaseModel):
@@ -1004,9 +1003,8 @@ class BudgetConfig(BaseModel):
     chain, then `just integrate`, then a review run answering comments on the
     pull request it opened are three processes against one adw_id, and a
     ceiling that reset with each of them would bound nothing. `Run` seeds
-    itself from the session's own `run.json` — never the trace db, which nothing
-    in the factory reads — so a joined run starts where the last one stopped
-    whether or not that db was ever written.
+    itself from the session's own `run.json`, so a joined run starts where the
+    last one stopped.
 
     Both default to 0 — no ceiling, exactly as every version before this one
     behaved. A repository that runs the factory unattended (an issue watcher,
@@ -1075,11 +1073,6 @@ def _switch(value: Any) -> Any:
 # The closed vocabulary a cockpit can ask a station for (spec #40). Answering a
 # terminal-channel gate is `answer`; `run` starts a prompt workflow.
 CommandVerb = Literal["answer", "abort", "kill", "resume", "run"]
-
-
-class ObservabilityConfig(BaseModel):
-    db: str = "asf/data/asf.db"
-    poll_ms: int = 500
 
 
 class CockpitConfig(BaseModel):
@@ -1283,7 +1276,6 @@ class FactoryConfig(BaseModel):
     defaults: ConfigDefaults = Field(default_factory=ConfigDefaults)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     hitl: HitlConfig = Field(default_factory=HitlConfig)
-    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     cockpit: CockpitConfig = Field(default_factory=CockpitConfig)
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     issues: IssuesConfig = Field(default_factory=IssuesConfig)
@@ -1299,9 +1291,9 @@ class Workspace(BaseModel):
     `repo_root` is the tree the agents are spawned in, the gates measure, the
     permission snapshot fingerprints and the commit phases commit. `main_root`
     is the engineer's checkout, which a run must never modify — but which owns
-    the one thing that has to outlive the run: `data_dir`, and with it the trace
-    db, the session dir and context_handoff/. A worktree is pruned; the trace of
-    what happened in it is not.
+    the one thing that has to outlive the run: `data_dir`, and with it the
+    session dir and context_handoff/. A worktree is pruned; the record of what
+    happened in it is not.
 
     Without a worktree (disabled, or not a git repo) both point at the same
     directory and every path below behaves exactly as it did before.
@@ -1337,14 +1329,14 @@ class WorktreeInfo(BaseModel):
 
     A killed run leaves its worktree behind deliberately, so "left behind" and
     "orphaned" are not the same thing — the session status is what tells them
-    apart, and it lives in the trace db, not in git.
+    apart, and it lives in the session's `run.json`, not in git.
     """
 
     path: str
     branch: str = ""
     adw_id: str = ""
     dirty: bool = False
-    status: str = "unknown"         # the run's session status, from the trace db
+    status: str = "unknown"         # the run's session status, from its run.json
     prunable: bool = False          # git says the directory is gone
 
 
@@ -1413,16 +1405,14 @@ class RunState(BaseModel):
     # `status == "waiting"` says the PROCESS is gone; this says why, and what
     # `just approve` would be approving.
     waiting_for: Optional[WaitingFor] = None
-    # What the SESSION has spent, across every process that joined it. Here
-    # rather than only in `sessions.total_tokens` because `budget:` is enforced
-    # against it, and a limit that needed the db would be one the factory
-    # cannot honor where the db was never written.
+    # What the SESSION has spent, across every process that joined it —
+    # what `budget:` is enforced against.
     total_tokens: int = 0
     total_cost: float = 0.0
 
     @property
     def adw_name(self) -> str:
-        """The session's workflows the way the trace and the UI name them."""
+        """The session's workflows the way a person names them: `issue + pr-review`."""
         return " + ".join(self.workflows)
 
 
@@ -1480,7 +1470,7 @@ class IntegrationRequest(BaseModel):
 class IntegrationResult(BaseModel):
     """What integration actually did — a code phase's evidence, not a claim."""
 
-    mode: IntegrationMode = "none"
+    mode: IntegrationMode = "pr"
     ok: bool = False
     branch: str = ""
     base_ref: str = ""
@@ -1741,25 +1731,6 @@ class PullRequestResult(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-# ── Tracing ──────────────────────────────────────────────────────────────────
-
-class EventRecord(BaseModel):
-    """One traced event, always logged against adw_id + phase."""
-
-    adw_id: str
-    phase_id: str = ""
-    type: str                       # phase_start | agent_start | tool_call | handoff | gate_pass | gate_fail | log | agent_end | phase_end | error
-    name: str = ""
-    payload: dict[str, Any] = Field(default_factory=dict)
-    parent_id: str = ""
-    tokens: Optional[int] = None
-    # Spans: set both when an event covers real elapsed time (a tool call), so
-    # the UI lays it out on a time axis without parsing payload JSON. Left unset,
-    # the tracer stamps started_at with the moment the event was recorded.
-    started_at: Optional[str] = None
-    ended_at: Optional[str] = None
-
-
 # ── Coding agent interface (one shape, every harness) ────────────────────────
 
 class AgentRequest(BaseModel):
@@ -1870,8 +1841,8 @@ class AgentResult(BaseModel):
     cost: float = 0.0
     usage: UsageBreakdown = Field(default_factory=UsageBreakdown)
     # Context occupancy after the LAST turn — not a sum. `tokens` bills every
-    # turn; this is how full the window is right now, which is what the
-    # visualizer's context bar measures against `context_window`.
+    # turn; this is how full the window is right now, which is what a
+    # cockpit's context bar measures against `context_window`.
     context_tokens: int = 0
     context_window: int = 0         # 0 when the registry declares no ceiling
 
@@ -2173,8 +2144,8 @@ class EventLine(BaseModel):
 class SessionStarted(DomainEvent):
     """A process took this session — a new one, a join, a resume or an answer.
 
-    Carries what the new `run.json` is built from, plus what only the trace db
-    used to know: the base the work branch was cut from, and the station the
+    Carries what the new `run.json` is built from, plus what only the events
+    say: the base the work branch was cut from, and the station the
     process runs on (`engine/station.py`). `triggered_by` is the session's, as
     its first process recorded it (`RunState.triggered_by`). The skill version
     is empty until the ticket that teaches it. `station_kind` is what a cockpit
@@ -2214,7 +2185,7 @@ class ProvenanceRecorded(DomainEvent):
 
     Empty fields say nothing — provenance is learned, never unlearned, which is
     the rule `artifacts.record_provenance` applies to `run.json`. `request` is
-    the one line the trace db used to be the only home of: the prompt of an
+    the one line that says what the session was about: the prompt of an
     engineer's run, `#42 title` of an issue run.
 
     v2: who wrote the issue and whom it was assigned to when the run read it
@@ -2357,7 +2328,7 @@ RAW_TAIL_CHARS = 32_000     # the end of an agent's unparseable answer, or a com
 
 class EnvelopeRejected(DomainEvent):
     """An agent's answer did not parse as its declared type. The same session is
-    re-prompted; `raw` is the tail of what it said, which only the db held."""
+    re-prompted; `raw` is the tail of what it said."""
 
     KIND: ClassVar[str] = "envelope_rejected"
 
@@ -2446,8 +2417,7 @@ class UsageRecorded(DomainEvent):
     The totals are absolute for the reason `Run.add_usage` writes them so:
     summing floats in a different order than the writer did is how a projection
     ends up a cent-billionth away from the file it rebuilds. The context pair is
-    the window's occupancy after this turn — the per-agent number only the db
-    used to keep.
+    the window's occupancy after this turn, per agent.
     """
 
     KIND: ClassVar[str] = "usage"

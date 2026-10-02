@@ -35,7 +35,7 @@ import subprocess
 from pathlib import Path
 
 from . import artifacts, git_helper
-from .data_types import (EventRecord, IssueComment, IssueContext, IssueOutput, IssueRef,
+from .data_types import (IssueComment, IssueContext, IssueOutput, IssueRef,
                          IssueResult, IssuesConfig, IssueUpdate, PullRequestsConfig, Question,
                          Said)
 from .utils import operator_env, write_atomic
@@ -212,13 +212,6 @@ def fetch(run, config: IssuesConfig, ref: IssueRef) -> IssueContext:
         body_path=str(body_path),
         carries_requirements=refined,
     )
-    run.tracer.mirror(EventRecord(
-        adw_id=run.adw_id, phase_id=run.phases[-1].phase_id if run.phases else "",
-        type="tool_call", name="issue:fetch",
-        payload={"command": " ".join(config.fetch_command[:3]), "project": project,
-                 "number": context.number, "url": context.url,
-                 "labels": labels, "author": context.author,
-                 "body_artifact": context.body_path}))
     return context
 
 

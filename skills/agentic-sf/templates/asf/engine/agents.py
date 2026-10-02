@@ -20,7 +20,7 @@ from . import (artifacts, git_helper, harnesses, journal, limits, permissions,
                preflight, prompts)
 from .data_types import (BODY_BYTES, RAW_TAIL_CHARS, TRANSCRIPT_CHUNK_CHARS, AgentCall,
                          AgentConfig, AgentRequest, AgentResult, AgentSession,
-                         EnvelopeAccepted, EnvelopeBase, EnvelopeRejected, EventRecord,
+                         EnvelopeAccepted, EnvelopeBase, EnvelopeRejected,
                          FactoryConfig, GateCheck, GateReport, GateResult, HarnessOutput, Phase,
                          PhaseReplayed, PromptRendered, RecordedPhase, ToolCalled,
                          UsageBreakdown)
@@ -221,22 +221,10 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
 
     driver = harness_for(agent)
     session = _agent_session(run, agent, driver)
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="agent_start", name=agent.name,
-                                 payload={"model": agent.model, "thinking": agent.thinking,
-                                          "color": agent.color,
-                                          "session_id": session.session_id,
-                                          "harness": agent.harness,
-                                          "purpose": agent.purpose,
-                                          "tools": agent.tools,  # None = all tools
-                                          "timeout_seconds": agent.timeout_seconds,
-                                          "harness_engineering": agent.harness_engineering}))
     run.console.agent_started(agent.name, agent.model, session.session_id)
 
-    # Parse retries and gate corrections re-enter the SAME agent session, so the
-    # last send is the one whose context occupancy is current — while spend is
-    # the opposite: every send costs, so usage accumulates across all of them.
-    latest: AgentResult | None = None
+    # Parse retries and gate corrections re-enter the SAME agent session, and
+    # every send costs, so usage accumulates across all of them.
     spent = UsageBreakdown()
     forward = _event_forwarder(run, phase, agent.name, driver)
     output = _HarnessOutput(run, phase, agent.name)
@@ -247,7 +235,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         forward(event)
 
     def send(prompt_text: str) -> AgentResult:
-        nonlocal latest, sends
+        nonlocal sends
         # Asked BEFORE the turn, because spend is only known after one is paid
         # for: a session that has hit its ceiling keeps the envelope it already
         # bought and dies here instead, rather than mid-turn with nothing to
@@ -293,13 +281,12 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
             if expiry.result:
                 run.add_usage(phase, agent, expiry.result)
                 spent.merge(expiry.result.usage)
-            _record_limit(run, phase, agent, "agent_timeout", str(expiry))
+            run.console.note(f"agent_timeout: {expiry}")
             raise
         finally:
             output.flush()      # a turn's last lines do not wait for the next turn
         run.add_usage(phase, agent, result)
         spent.merge(result.usage)
-        latest = result
         # The session now EXISTS, and the next send in this phase must continue
         # it rather than create it again. Persisted immediately, not at the end
         # of the phase: a Claude Code session survives the process, so a run
@@ -340,21 +327,9 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     # Permission is checked after every send is done, and before the envelope is
     # accepted: an agent does not get to report success on a phase in which it
     # wrote somewhere it was not allowed to.
-    try:
-        touched = permissions.enforce(run, phase, agent, tree_before)
-    except permissions.PermissionBreach as breach:
-        run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                     type="error", name="permission_breach",
-                                     payload={"agent": agent.name, "error": str(breach),
-                                              "writes": agent.writes,
-                                              "protected_files": run.cfg.defaults.protected_files}))
-        raise
-    if touched:
-        run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                     type="log", name="paths_touched",
-                                     payload={"agent": agent.name, "paths": touched}))
+    permissions.enforce(run, phase, agent, tree_before)
 
-    _persist_envelope(run, phase, agent.name, call, envelope, attempt, valid=True)
+    _persist_envelope(run, phase, agent.name, call, envelope, attempt)
     # What it declared it wrote, now that the claim has held. Not on a replay:
     # nothing was written then, and the record already says what was.
     artifacts.record_artifacts(run, "output", envelope.artifacts)
@@ -368,24 +343,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
         run.console.note(f"{filed} note(s) for the record from {agent.name} — "
                          f"every agent after this one reads them")
     run.console.envelope_summary(envelope)
-    context = latest or result
-    run.tracer.agent_session_row(run.adw_id, agent, session.session_id,
-                                 context_tokens=context.context_tokens,
-                                 context_window=context.context_window)
     _remember(run, agent, session)
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="handoff", name=agent.name,
-                                 payload={"artifacts": envelope.artifacts,
-                                          "summary": envelope.summary}))
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="agent_end", name=agent.name,
-                                 # Phase totals, not the last send's: a retried
-                                 # phase paid for every attempt.
-                                 tokens=spent.total_tokens,
-                                 payload={"cost": spent.total_cost,
-                                          "usage": spent.model_dump(),
-                                          "context_tokens": context.context_tokens,
-                                          "context_window": context.context_window}))
     run.console.agent_finished(agent.name, spent.total_tokens, spent.total_cost)
     if envelope.status != "success":
         raise RuntimeError(f"{agent.name} reported status={envelope.status!r}: {envelope.summary}")
@@ -406,41 +364,17 @@ def _refuse_if_over_budget(run, phase: Phase, agent: AgentConfig) -> None:
     reason = run.overrun()
     if not reason:
         return
-    _record_limit(run, phase, agent, "budget_exceeded", reason)
+    run.console.note(f"budget_exceeded: {reason}")
     raise limits.BudgetExceeded(f"{agent.name} not sent: {reason}")
 
 
-def _record_limit(run, phase: Phase, agent: AgentConfig, kind: str, reason: str) -> None:
-    """One error event per limit that fired, named for the limit.
-
-    The phase records its own failure either way (runner.py), but only as the
-    exception's text. A dedicated event is what makes "which agents time out"
-    and "how often does a ceiling stop a run" answerable from the trace, the
-    way `permission_breach` already is for the write boundary.
-    """
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="error", name=kind,
-                                 payload={"agent": agent.name, "reason": reason,
-                                          "timeout_seconds": agent.timeout_seconds,
-                                          "max_cost_usd": run.cfg.budget.max_cost_usd,
-                                          "max_tokens": run.cfg.budget.max_tokens}))
-    run.console.note(f"{kind}: {reason}")
-
-
 def _spawned(run, agent: AgentConfig, pid: int) -> None:
-    """A coding agent child, recorded in both places `just kill` might look.
-
-    The file is the one that matters — it is what `kill_run.py` reads, and it is
-    there on a machine with no db — while the row keeps the trace UI's process
-    view complete.
-    """
+    """A coding agent child, recorded where `asf kill` looks for it."""
     command = f"{agent.harness} {agent.name} {agent.model}"
-    run.tracer.process_start(run.adw_id, "agent", agent.name, pid, command)
     artifacts.record_process(run.session_dir, "agent", agent.name, pid, command)
 
 
 def _exited(run, pid: int) -> None:
-    run.tracer.process_end(run.adw_id, pid)
     artifacts.end_process(run.session_dir, pid)
 
 
@@ -461,12 +395,6 @@ def _check_gates(run, phase: Phase, call: AgentCall, envelope: EnvelopeBase,
         run.tracer.event(GateResult(phase_id=phase.phase_id, gate=gate.__name__,
                                     attempt=attempt, passed=not found, violations=found,
                                     checks=report.checks))
-        run.tracer.gate_row(phase, gate.__name__, report, attempt)
-        run.tracer.mirror(EventRecord(
-            adw_id=run.adw_id, phase_id=phase.phase_id,
-            type="gate_fail" if found else "gate_pass", name=gate.__name__,
-            payload={"attempt": attempt, "violations": found,
-                     "checks": [c.model_dump() for c in report.checks]}))
         run.console.gate_result(gate.__name__, report)
         violations.extend(found)
     return violations
@@ -499,8 +427,8 @@ def _replay(run, phase: Phase, call: AgentCall, agent: AgentConfig) -> Optional[
     that are no longer there is caught by the same gate that would have caught
     the agent inventing them.
 
-    A replayed phase is written to the trace like any other — envelope row,
-    envelope.json, handoff event — because everything downstream reads the
+    A replayed phase is written to the record like any other — envelope.json,
+    the phase's envelope, `envelope_accepted` — because everything downstream reads the
     record, not this function. What it does NOT write is usage: no agent ran, so
     the phase costs nothing and says so.
     """
@@ -515,21 +443,11 @@ def _replay(run, phase: Phase, call: AgentCall, agent: AgentConfig) -> Optional[
     if _check_gates(run, phase, call, envelope, attempt=0):
         run.console.note(f"replay rejected by its gates — running {agent_name} for real")
         return None
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="replay", name=agent_name,
-                                 payload={"source_seq": record.seq,
-                                          "source_phase": record.phase,
-                                          "output_type": record.output_type,
-                                          "agent": agent_name}))
     run.tracer.event(PhaseReplayed(phase_id=phase.phase_id, name=phase.params.name,
                                    agent=agent_name))
     run.console.replayed(phase.params.name, record.seq)
-    _persist_envelope(run, phase, agent_name, call, envelope, attempt=0, valid=True)
+    _persist_envelope(run, phase, agent_name, call, envelope, attempt=0)
     run.console.envelope_summary(envelope)
-    run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                 type="handoff", name=agent_name,
-                                 payload={"artifacts": envelope.artifacts,
-                                          "summary": envelope.summary}))
     return envelope
 
 
@@ -601,32 +519,20 @@ class _HarnessOutput:
 
 
 def _event_forwarder(run, phase: Phase, agent_name: str, driver):
-    """One record per real tool call, written twice and not the same way.
-
-    The `tool_called` domain event is what a station ships: the tool, whether
-    it worked, how long it took. The db row beside it, for the legacy
-    visualizer on this machine, keeps the exact args and result.
+    """One `tool_called` event per real tool call: the tool, whether it worked,
+    how long it took — never its arguments or its result.
 
     The tracker comes from the harness; the record shape does not (it is
-    tool_calls.py's, identical for both), which is what keeps the tracer, the
-    trace schema and the visualizer out of this phase entirely.
+    tool_calls.py's, identical for both), which keeps the harness's stream
+    format out of this phase entirely.
     """
     tracker = driver.ToolCallTracker()
 
     def forward(event: dict) -> None:
         for record in tracker.observe(event):
-            # What travels: the name, the outcome and the time it took. The
-            # arguments and the result stay in the db row below, on this machine.
             run.tracer.event(ToolCalled(phase_id=phase.phase_id, agent=agent_name,
                                         tool=record["tool"], ok=bool(record["ok"]),
                                         duration_ms=record.get("duration_ms", 0)))
-            # The call's span rides the columns; duration_ms stays in the
-            # payload as the coding agent's own authoritative number.
-            run.tracer.mirror(EventRecord(adw_id=run.adw_id, phase_id=phase.phase_id,
-                                         type="tool_call", name=record.pop("label"),
-                                         started_at=record.pop("started_at", None),
-                                         ended_at=record.pop("ended_at", None),
-                                         payload={**record, "agent": agent_name}))
     return forward
 
 
@@ -656,8 +562,6 @@ def _parse_with_retries(run, phase: Phase, call: AgentCall, result, send):
                 phase_id=phase.phase_id, agent=phase.params.owner,
                 output_type=call.output_type.__name__, attempt=attempt,
                 error=str(error)[:1000], raw=result.text[-RAW_TAIL_CHARS:]))
-            _persist_envelope(run, phase, phase.params.owner, call, None, attempt,
-                              valid=False, raw=result.text)
             if attempt > JSON_FIX_ATTEMPTS:
                 raise RuntimeError(
                     f"{phase.params.owner} never produced valid "
@@ -672,13 +576,7 @@ def _parse_with_retries(run, phase: Phase, call: AgentCall, result, send):
 
 
 def _persist_envelope(run, phase: Phase, agent_name: str, call: AgentCall,
-                      envelope: Optional[EnvelopeBase], attempt: int,
-                      valid: bool, raw: str = "") -> None:
-    payload_json = envelope.model_dump_json(indent=2) if envelope else json.dumps({"raw": raw[-2000:]})
-    run.tracer.envelope_row(phase, agent_name, call.output_type.__name__,
-                            payload_json, valid, attempt)
-    if not envelope:
-        return
+                      envelope: EnvelopeBase, attempt: int) -> None:
     purpose = resolve(run.cfg, agent_name).purpose
     record = {"agent_name": agent_name, "purpose": purpose,
               "output_type": call.output_type.__name__, "attempt": attempt,

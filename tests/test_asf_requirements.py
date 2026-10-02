@@ -142,7 +142,7 @@ def test_a_resumed_run_recognises_its_own_round_and_does_not_ask_twice():
 # ── which channel ────────────────────────────────────────────────────────────
 
 class FakeRun:
-    """Only what `channel_of` looks at. A Run needs a worktree and a tracer;
+    """Only what `channel_of` looks at. A Run needs a worktree and a session;
     which channel a run answers on is a question about three attributes."""
 
     def __init__(self, issue_number: int = 0, pr_url: str = ""):
@@ -872,7 +872,6 @@ class Fetching:
         self.session_dir = handoff.parent          # the body is a request artifact of the session
         self.context_handoff_dir = handoff
         self.phases: list = []
-        self.tracer = type("T", (), {"mirror": lambda *a, **k: None})()
         self.adw_id = "abc123"
 
 

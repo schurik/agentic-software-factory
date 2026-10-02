@@ -12,7 +12,7 @@ repo yourself reproduces the *files* and none of the decisions around them:
 
 | Skipped by hand | What breaks, and when you find out |
 |---|---|
-| `.env` with `ASF_SKILL=` | `just uninstall` fails outright; `just obs` and `just up --with obs` start **without the legacy trace UI**. `.env` is gitignored, so it also never arrives with a clone |
+| `.env` with `ASF_SKILL=` | `just uninstall` fails outright, and `doctor` cannot say which release the skill is. `.env` is gitignored, so it also never arrives with a clone |
 | the `# agentic-sf runtime` block in `.gitignore` | `asf/data/` and `.asf-worktrees/` become tracked, and a commit stage running `git add -A` sweeps the run record into the repository |
 | quality detection | every `verify` block stays a placeholder, and a placeholder **fails** with exit 78 |
 | `justfile` vs `asf.justfile` | a repository's own justfile gets overwritten, or the recipes never land |
@@ -98,7 +98,7 @@ repository's CI is its own, so ask the engineer rather than passing `--ci` for t
 | `justfile`, or `asf.justfile` beside a foreign one | `templates/justfile` | yes — `just --list` is the menu |
 | `.gitignore` | `+5` entries under `# agentic-sf runtime` | yes |
 | `.github/workflows/asf-check.yml` — only with `--ci` | `templates/ci/asf-check.yml` | yes — the optional CI check, shipping the self-description to a cockpit |
-| `asf/data/sessions/<adw_id>/`, `asf/data/asf.db` | created at runtime | no — gitignored |
+| `asf/data/sessions/<adw_id>/` | created at runtime | no — gitignored: each session's whole record |
 | `.asf-worktrees/` | created at runtime | no — gitignored: one worktree per run |
 
 `asf/agents/` is yours the moment it is stamped. Edit it there, never back
@@ -128,10 +128,10 @@ workflows and agents, `asf/.skill-version`) to the skill's current version.
 leaving the diff to you. Everything else stamped *is* replaced, including agent
 prose you edited, so commit before you force.
 
-Every re-run also **lints the config it kept**: each key a later release drops
-is printed under `YOUR CONFIG NAMES OBSOLETE KEYS`, with its line and what to
-say instead — `observability:` is ignored from 1.2 and can be deleted;
-`worktree.integration.mode: none` is refused from 1.2, so set `pr`. It never
+Every re-run also **lints the config it kept**: each key a release dropped is
+printed under `YOUR CONFIG NAMES OBSOLETE KEYS`, with its line and what to say
+instead — `observability:` is ignored and can be deleted;
+`worktree.integration.mode: none` is refused since 1.2, so set `pr`. It never
 refuses to stamp, because the stamp is what brings the code the fix needs, and
 it never edits the file. Over an older stamp, that is the moment for
 [upgrade.md](upgrade.md). The CI workflow counts as stamped
@@ -145,10 +145,10 @@ without.
    the designated answer to "is this repo ready to run anything?".
 2. **`ASF_SKILL` in `.env`** — already written by the installer, and worth
    knowing about. Two things need it: `just uninstall` runs the uninstaller out
-   of the skill, and the legacy trace UI ships with the skill under
-   `apps/visualizer`, so `just obs` finds it that way. `install.py` never overwrites a
-   value that is already there; if the path came from another machine it says so
-   and leaves it. Unset, `doctor` warns on both `ASF_SKILL` and `trace UI`.
+   of the skill, and `doctor` reads the skill's release through it to say
+   whether this stamp is older. `install.py` never overwrites a value that is
+   already there; if the path came from another machine it says so and leaves
+   it. Unset, `doctor` warns on `ASF_SKILL`.
 3. **The harness's own steps** — `install.py` printed them after stamping, out
    of that harness's `about.md`: the CLI on PATH, how it authenticates, and the
    sharp edges (`safe_mode`, running as root, how a model id is resolved).
@@ -188,11 +188,9 @@ without.
 ## If the skill is vendored inside the repo
 
 Some repos keep the skill in-tree (`.agents/skills/agentic-sf/`) rather than
-pointing `ASF_SKILL` at a checkout elsewhere. That works, with one thing to
-know: `just obs` runs `bun install` in `<skill>/apps/visualizer` on first use,
-which writes `node_modules/` inside the tracked skill tree. The skill ships
-`apps/visualizer/.gitignore` to cover it, so it stays out of the host repo's
-`git status` — and out of the `git add -A` a commit stage runs.
+pointing `ASF_SKILL` at a checkout elsewhere. That works: nothing the factory
+runs writes inside the skill's tree, so it never shows up in the host repo's
+`git status` — or in the `git add -A` a commit stage runs.
 
 ## Issue- and review-triggered runs
 

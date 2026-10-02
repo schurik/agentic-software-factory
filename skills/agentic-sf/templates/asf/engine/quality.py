@@ -43,9 +43,9 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .data_types import (RAW_TAIL_CHARS, CommandFinished, EventRecord, QualityCheckResult,
+from .data_types import (RAW_TAIL_CHARS, CommandFinished, QualityCheckResult,
                          QualityCheckSpec, QualityResult, VerifyOutput)
-from .utils import now_iso, operator_env, write_atomic
+from .utils import operator_env, write_atomic
 
 # How much of a failing command's output rides back inside the envelope. Enough
 # for a builder to act on without opening the artifact; bounded so a runaway
@@ -132,7 +132,6 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
                if unwired else shlex.join(spec.argv))
 
     run.console.note(f"quality {spec.name}: {command}")
-    started_at = now_iso()
     clock = time.monotonic()
     stdout = ""
     stderr = ""
@@ -174,22 +173,6 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
     run.tracer.event(CommandFinished(
         phase_id=phase.phase_id, name=spec.name, argv=list(spec.argv), exit_code=returncode,
         duration_seconds=round(duration, 3), output_tail=(stdout + stderr)[-RAW_TAIL_CHARS:]))
-    run.tracer.mirror(EventRecord(
-        adw_id=run.adw_id,
-        phase_id=phase.phase_id,
-        type="tool_call",
-        name=f"quality:{spec.name}",
-        payload={
-            "area": spec.area,
-            "operation": spec.operation,
-            "command": command,
-            "returncode": returncode,
-            "passed": passed,
-            "output_artifact": str(output_artifact),
-        },
-        started_at=started_at,
-        ended_at=now_iso(),
-    ))
     run.console.note(
         f"quality {spec.name}: {'passed' if passed else 'failed'} "
         f"(exit {returncode}, {duration:.1f}s)"

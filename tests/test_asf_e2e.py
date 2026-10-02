@@ -1,7 +1,7 @@
 """Whole workflows, end to end, on the fake harness. No agent, no network.
 
 A real install into a real git repository, the real runner as a subprocess,
-the real worktree, the real tracer writing the real db — only the coding
+the real worktree, the real session record — only the coding
 agent is scripted, because it is the only part that costs money and does not
 repeat. What these prove is the part no unit test reaches: that a workflow
 directory, its stages, its tasks and its bindings actually drive a run.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .asf_helpers import (BUILD_REPORT, PY_CHECK, adw_id_of, asf, commit_all, db_rows,
+from .asf_helpers import (BUILD_REPORT, PY_CHECK, adw_id_of, asf, commit_all,
                          envelope, fake_roster, git, phase_names, run_state, session_dir,
                          task_text, wire, write_workflow)
 
@@ -47,8 +47,11 @@ def test_sdlc_runs_green_end_to_end_and_lands_a_commit(stamped: Path):
     assert state["status"] == "success"
     assert state["workflows"] == ["sdlc"]
     assert state["command"][:3] == ["asf.py", "run", "sdlc"]
-    # The mirror the visualizer polls calls it by the workflow's name too.
-    assert db_rows(stamped, f"select adw_name from sessions where adw_id='{adw_id}'") == [("sdlc",)]
+    # `asf sessions` lists it by the workflow's name, from that record.
+    listed = asf(stamped, "sessions")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    [row] = [line for line in listed.stdout.splitlines() if line.startswith(adw_id)]
+    assert row.split()[1:3] == ["sdlc", "success"]
 
 
 def test_a_red_check_goes_back_to_the_builder_and_the_green_retry_lands(stamped: Path):

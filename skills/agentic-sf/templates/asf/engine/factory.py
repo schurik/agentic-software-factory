@@ -1,6 +1,6 @@
 """The roster as files and folders: `asf/factory.yaml` plus `asf/agents/<name>/`.
 
-factory.yaml is the manifest — defaults, budget, gates, where the trace goes,
+factory.yaml is the manifest — defaults, budget, gates, what a cockpit is told,
 how a run's worktree is cut and landed. It holds NO agents. An agent is a
 directory with one file, `agent.md`: YAML frontmatter for what the machinery
 needs (model, thinking, tools, writes, purpose) and, below it, the prose that
@@ -15,13 +15,12 @@ trace — knows the roster changed shape.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import yaml
 
 from . import agents, frontmatter, integration
-from .data_types import FactoryConfig, Finding
+from .data_types import FactoryConfig
 
 DEFAULT_CONFIG = "asf/factory.yaml"
 AGENT_FILE = "agent.md"
@@ -44,33 +43,27 @@ def load(config_path: str | Path = DEFAULT_CONFIG) -> FactoryConfig:
         raise SystemExit(f"{path}: `agents:` does not belong in factory.yaml — an agent is "
                          f"a directory under {root_of(path) / 'agents'} with an "
                          f"{AGENT_FILE} in it")
+    refused = _refused(raw)
+    if refused:
+        raise SystemExit(f"{path}: {refused}")
     default_harness = (raw.get("defaults") or {}).get("harness", "")
     raw["agents"] = [_agent_entry(directory, default_harness)
                      for directory in agent_dirs(root_of(path))]
-    cfg = agents.merge_defaults(raw)
-    for finding in retiring(cfg):
-        _warn_once(f"{path}: {finding.detail} — {finding.fix}")
-    return cfg
+    return agents.merge_defaults(raw)
 
 
-def retiring(cfg: FactoryConfig) -> list[Finding]:
-    """What this config still says that a later release will refuse. Warned
-    about wherever the config is loaded, and listed by `doctor` with the rest
-    of what wants fixing."""
-    if cfg.worktree.integration.mode == "none":
-        return [integration.none_is_retiring("worktree.integration.mode: none")]
-    return []
+def _refused(raw: dict) -> str:
+    """What this config says that the engine no longer runs, or "".
 
-
-_warned: set[str] = set()
-
-
-def _warn_once(text: str) -> None:
-    """On stderr, once per process: `check` loads the config once per workflow,
-    and a watcher loads it for as long as it runs."""
-    if text not in _warned:
-        _warned.add(text)
-        print(f"asf: warning — {text}", file=sys.stderr, flush=True)
+    Read off the YAML before it is validated, so the refusal names what to say
+    instead rather than listing the values a field accepts — and so `check`,
+    `doctor` and every run say the same thing.
+    """
+    worktree = raw.get("worktree") or {}
+    integration_block = worktree.get("integration") if isinstance(worktree, dict) else None
+    if isinstance(integration_block, dict) and integration_block.get("mode") == "none":
+        return integration.none_is_refused("worktree.integration.mode: none")
+    return ""
 
 
 def agent_dirs(root: Path) -> list[Path]:

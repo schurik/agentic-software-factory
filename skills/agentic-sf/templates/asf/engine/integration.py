@@ -45,26 +45,24 @@ from __future__ import annotations
 
 import subprocess
 
-from . import artifacts, git_helper, publish
-from .data_types import Finding, IntegrationRequest, IntegrationResult, ProvenanceRecorded
+from . import artifacts, git_helper
+from .data_types import IntegrationRequest, IntegrationResult, ProvenanceRecorded
 from .utils import operator_env
 
 
-def none_is_retiring(setting: str) -> Finding:
+def none_is_refused(setting: str) -> str:
     """What to tell a repository that still says `none`, and what to say instead.
 
     `none` did two jobs — land nothing, and push nothing — and both now have a
     name of their own: a workflow that lands nothing has no `integrate` stage,
-    and `worktree.publish` says when a branch may leave the machine. It warns
-    for one release and is refused in the next; it is never remapped, because
-    which of the two the repository meant is its to say.
+    and `worktree.publish` says when a branch may leave the machine. It warned
+    for a release and is refused since 1.2; it is never remapped, because which
+    of the two the repository meant is its to say.
     """
-    return Finding(
-        check="integration", level="warn", detail=f"`{setting}` is refused from 1.2",
-        fix="say `mode: pr` instead (with `open_pr: false` to push a branch and open "
-            "nothing), and `worktree.publish: on_integrate` to keep a branch off the "
-            "remote until it is integrated; a workflow that should land nothing leaves "
-            "out its `integrate` stage")
+    return (f"`{setting}` is refused — say `mode: pr` instead (with `open_pr: false` "
+            f"to push a branch and open nothing), and `worktree.publish: on_integrate` "
+            f"to keep a branch off the remote until it is integrated; a workflow that "
+            f"should land nothing leaves out its `integrate` stage")
 
 
 def integrate(run, params: IntegrationRequest) -> IntegrationResult:
@@ -76,8 +74,7 @@ def integrate(run, params: IntegrationRequest) -> IntegrationResult:
     # An externally triggered run must not be able to move the base branch. The
     # prompt came from whoever can file an issue, not from the engineer's own
     # terminal, so the one thing that cannot be left to config discipline is
-    # whether a merge is even reachable on that path. `mode: none` still wins —
-    # a repository that wants nothing landed gets nothing landed.
+    # whether a merge is even reachable on that path.
     downgrade = ""
     if (run.trigger == "issue" and run.cfg.issues.force_pr
             and mode == "merge"):
@@ -88,7 +85,7 @@ def integrate(run, params: IntegrationRequest) -> IntegrationResult:
     # A run that exists BECAUSE the branch is under review is the one run that
     # must never end the review. There is no config switch beside this one: an
     # engineer who wants the branch merged says so by merging the pull request,
-    # which is the whole point of having opened it. `mode: none` still wins.
+    # which is the whole point of having opened it.
     elif run.trigger == "pr_review" and mode == "merge":
         mode = "pr"
         downgrade = ("review-triggered run: merge downgraded to pr — this "
@@ -100,10 +97,6 @@ def integrate(run, params: IntegrationRequest) -> IntegrationResult:
     if downgrade:
         result.notes.append(downgrade)
 
-    if mode == "none":
-        result.ok = True
-        result.notes.append("integration is disabled (worktree.integration.mode: none)")
-        return result
     if not workspace.enabled:
         result.notes.append("this run has no worktree, so it has no branch to land — "
                             "its commits are already on the branch it ran on")
@@ -152,15 +145,6 @@ def keep_published(run) -> IntegrationResult:
                                base_ref=workspace.base_ref, ok=True)
 
     if not workspace.enabled or not git_helper.has_remote(tree, config.remote):
-        return result
-    if config.mode == "none" and publish.mode(run.cfg, run.main_root) != publish.ON_CREATE:
-        # The off switch is total. A repository that has said a run's work stays
-        # on its branch does not get a push either — not even onto a branch
-        # something else put on the remote. Unless it ALSO said `worktree.
-        # publish: on_create`: then the branch is there because this factory
-        # put it there, and a copy a cockpit reads is kept current.
-        result.notes.append("integration is disabled "
-                            "(worktree.integration.mode: none)")
         return result
     published = git_helper.remote_tip(tree, config.remote, workspace.branch)
     if not published:
@@ -341,11 +325,10 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
                                capture_output=True, text=True)
     output = (completed.stderr or completed.stdout).strip()
     if completed.returncode != 0:
-        # The trace is not the only way a branch gets a pull request: someone
-        # opened one by hand, an earlier run's db was moved, `open_pr` was
-        # turned on afterwards. The forge says so and names the url, and that
-        # answer is worth exactly as much as the recorded one — the push already
-        # updated whichever PR it is.
+        # The record is not the only way a branch gets a pull request: someone
+        # opened one by hand, `open_pr` was turned on afterwards. The forge says
+        # so and names the url, and that answer is worth exactly as much as the
+        # recorded one — the push already updated whichever PR it is.
         existing = _existing_pr_url(output)
         if not existing:
             result.ok = False
@@ -363,12 +346,10 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
     # Recorded here, not in the ADW: this is the only place a pr url exists, and
     # a chain that landed a branch must not be able to forget where it went. In
     # memory too, so a later phase of THIS process — and `keep_published` — can
-    # name the pull request without going back to the db.
+    # name the pull request without reading it back.
     run.pr_url = result.pr_url or run.pr_url
-    run.tracer.session_pr(run.adw_id, result.pr_url)
     # And in the session's own file: the review watcher reads `pr_url` from
-    # run.json to know which sessions became pull requests, and a db is not
-    # something it may assume.
+    # run.json to know which sessions became pull requests.
     if run.pr_url:
         artifacts.record_provenance(run.session_dir, ProvenanceRecorded(pr_url=run.pr_url))
     return result

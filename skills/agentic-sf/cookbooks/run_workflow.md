@@ -75,20 +75,17 @@ checkout is never touched.
 
 ```bash
 just status            # what is watching, running, waiting, left behind
-just sessions          # the last 10 runs
-just phases <adw_id>   # phase status in sequence
-just tail <adw_id>     # the live event tail
-just obs               # the legacy trace UI over the db (needs bun and ASF_SKILL)
+just sessions          # the newest runs, from their own records
+just tail <adw_id>     # the end of its events.jsonl, newest last
 ```
 
 The cockpit is where a run is meant to be watched: `just up` starts one on this
 machine at `http://localhost:3000` (Docker; or ships to the shared one
 `ASF_COCKPIT_URL` names) and ships every session to it as it is written.
 
-Reads on the trace db never block a run. The factory itself never reads that db
-— every question about a live run is answered from its own directory under
-`asf/data/sessions/<adw_id>/`, which is also why a run survives the db being
-deleted. **Never edit anything under `asf/data/`**; it is the run record.
+Every question about a live run is answered from its own directory under
+`asf/data/sessions/<adw_id>/`, and reading it never blocks the run. **Never
+edit anything under `asf/data/`**; it is the run record.
 
 Report progress when asked, not as a standing status board.
 
@@ -146,8 +143,8 @@ line rather than the last phase.
 The branch is `asf/<adw_id>`, and what happened to it is
 `worktree.integration.mode` in `asf/factory.yaml`: `pr` (the default) opened a
 pull request, `merge` moved the base branch. A workflow with no `integrate`
-stage left the branch for a person (`none` did the same; it warns now and is
-refused from 1.2). A `pr` run that could not push — no `origin`, a rejected
+stage left the branch for a person (`none` did the same until 1.2, which
+refuses it). A `pr` run that could not push — no `origin`, a rejected
 push — is still accepted, with its work on the branch; the `integrate` phase's
 notes say why.
 
@@ -164,4 +161,5 @@ whose run "succeeded" still needs to know where to look.
 
 Three things, short: what the run did, whether it was accepted, and where the
 work is. Then the cost if they asked. If it failed, the phase that failed and
-what `just phases` says about it — not a transcript.
+the error it ended with (its `phase_ended` event, or the run's closing lines) —
+not a transcript.

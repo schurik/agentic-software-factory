@@ -209,8 +209,7 @@ def inventory(main_root, config: WorktreeConfig, sessions_dir: str = "") -> list
     "Left behind" and "orphaned" are different things: a killed run keeps its
     worktree on purpose, and git has no idea whether the process that made this
     directory is still alive. The runs' own records say so — one `run.json` per
-    session, never the trace db, which may not exist on this machine at all.
-    Statuses come from there; git supplies the paths.
+    session. Statuses come from there; git supplies the paths.
     """
     root = anchor(main_root, config.dir)
     statuses = artifacts.statuses(Path(sessions_dir)) if sessions_dir else {}

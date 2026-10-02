@@ -31,15 +31,13 @@ not in their head:
   and you can read them afterwards.
 - **Anything in a kept worktree?** A failed run keeps its worktree on purpose —
   it is where you go to see what happened.
-- **The trace db?** It goes with the run record. Every question about past runs
-  goes with it.
 
 ## What it removes
 
 | Removed | Note |
 |---|---|
 | `asf/` entire | the engine, the stages, **and the workflows and agents you own**, plus the whole run record under `asf/data/` |
-| the trace db | under `asf/data/` it goes with the directory; pointed elsewhere by `observability.db`, it is deleted by name along with its `-wal`/`-shm` siblings |
+| a stamp from before 1.2's own database | under `asf/data/` it goes with the directory; where that stamp's `observability.db` put it elsewhere, it is deleted by name along with its `-wal`/`-shm` siblings |
 | every run worktree | git metadata included, so git does not keep believing in them |
 | `.env.sample` | only when it is one this skill ships today |
 | the stamped `justfile` (or `asf.justfile`) | only when it still matches what was stamped |

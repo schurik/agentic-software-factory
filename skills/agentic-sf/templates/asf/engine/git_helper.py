@@ -57,7 +57,7 @@ def repo_root(cwd: Pathish | None = None) -> Path:
 def main_root(cwd: Pathish | None = None) -> Path:
     """Absolute root of the PRIMARY checkout, even when called from a worktree.
 
-    The run's record — the trace db, the session dir, context_handoff/ — lives
+    The run's record — the session dir, context_handoff/ — lives
     in one place per repository, not one place per run, so it is anchored here
     rather than at `repo_root`. `--git-common-dir` is the shared `.git` every
     worktree of a repository points at; its parent is the checkout that owns it.
