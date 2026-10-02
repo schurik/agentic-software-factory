@@ -1,28 +1,43 @@
 "use client";
 
-import Link from "next/link";
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { onlyFactory, type Order, rank } from "@/convex/model/factories";
+import { type PeriodKind, PERIODS, periodOf } from "@/convex/model/period";
 import { PENDING_SHOWN } from "@/convex/model/progress";
+import { useClock, viewersTimeZone } from "./clock";
+import { FactoriesTable } from "./FactoriesTable";
 import { factoryHref } from "./factory/view";
 import { useCockpit } from "./Shell";
 import { formatTime } from "./format";
 import { useSignIn } from "./signIn";
-import { TriggerButton, TriggerForm } from "./trigger/Trigger";
+import { TriggerForm } from "./trigger/Trigger";
 
+/**
+ * Every factory the viewer can read (spec #40), what needs attention first
+ * and then the most recently active — or by name, on the toggle — with spend
+ * in a calendar period of the viewer's own timezone, month-to-date unless
+ * they pick another.
+ */
 export function FactoriesList() {
   const signIn = useSignIn();
   const { mode, forge, viewer } = useCockpit();
-  const list = useQuery(api.factories.list, { signIn });
+  const now = useClock();
+  const [kind, setKind] = useState<PeriodKind>("month");
+  const [order, setOrder] = useState<Order>("attention");
+  // The period's bounds stay put between its midnights, so the query is asked again only when it moves on.
+  const { from, to } = periodOf(kind, now, viewersTimeZone());
+  const list = useQuery(api.factories.list, { signIn, period: { from, to } });
   const [triggering, setTriggering] = useState<string | null>(null);
   const router = useRouter();
   // A solo developer's one factory is not a list: straight to its page.
-  const only = mode === "local" && list?.factories.length === 1 ? list.factories[0].repo : null;
+  const only = list ? onlyFactory(mode, list.factories) : null;
   useEffect(() => {
     if (only !== null) router.replace(factoryHref(only));
   }, [only, router]);
+  const ranked = useMemo(() => (list ? rank(list.factories, now, order) : []), [list, now, order]);
   if (list === undefined) return <p className="muted">Loading…</p>;
   if (list === null) return null;       // signed out between two renders: the shell is about to say so
   const { factories, discovery } = list;
@@ -65,47 +80,27 @@ export function FactoriesList() {
           ) : null}
         </p>
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Factory</th>
-              <th>You can</th>
-              <th>Stations</th>
-              <th>Last activity</th>
-              <th>Trigger</th>
-            </tr>
-          </thead>
-          <tbody>
-            {factories.map((factory) => (
-              <Fragment key={factory.repo}>
-                <tr>
-                  <td>
-                    <Link href={factoryHref(factory.repo)}>{factory.repo}</Link>
-                    {factory.onForge ? <> <a className="small muted" href={`https://${forge.host}/${factory.repo}`}>on {forge.host}</a></> : null}
-                    {factory.private ? <> <span className="tag">private</span></> : null}
-                    {!factory.onForge ? <> <span className="tag tag-wait">not found on the forge</span></> : null}
-                  </td>
-                  <td>{factory.role ?? "—"}</td>
-                  <td>{factory.reporting ? "reporting" : <span className="tag tag-wait">no station yet</span>}</td>
-                  <td>{factory.lastActivity === null ? "—" : formatTime(new Date(factory.lastActivity).toISOString())}</td>
-                  <td>
-                    {factory.onForge ? (
-                      <TriggerButton role={factory.role} open={triggering === factory.repo}
-                                     onToggle={() => setTriggering(triggering === factory.repo ? null : factory.repo)} />
-                    ) : "—"}
-                  </td>
-                </tr>
-                {triggering === factory.repo ? (
-                  <tr>
-                    <td colSpan={5}>
-                      <TriggerForm factory={factory.repo} signIn={signIn} as={viewer?.login ?? ""} />
-                    </td>
-                  </tr>
-                ) : null}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <p className="list-controls">
+            <label>
+              Spend{" "}
+              <select value={kind} onChange={(event) => setKind(event.target.value as PeriodKind)}>
+                {Object.entries(PERIODS).map(([value, words]) => <option key={value} value={value}>{words}</option>)}
+              </select>
+            </label>{" "}
+            <label>
+              <input type="checkbox" checked={order === "name"} onChange={(event) => setOrder(event.target.checked ? "name" : "attention")} />{" "}
+              A–Z
+            </label>
+            <span className="muted small">
+              {" "}{order === "name" ? "By name." : "What needs attention first, then the most recently active."}{" "}
+              Spend is list-price equivalent.
+            </span>
+          </p>
+          <FactoriesTable rows={ranked} now={now} host={forge.host} period={PERIODS[kind]} triggering={triggering}
+                          onTrigger={(repo) => setTriggering(triggering === repo ? null : repo)}
+                          form={triggering === null ? null : <TriggerForm factory={triggering} signIn={signIn} as={viewer?.login ?? ""} />} />
+        </>
       )}
 
       {discovery.listedAt !== null ? (

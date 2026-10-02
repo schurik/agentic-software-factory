@@ -4,11 +4,11 @@
  * depends on a station is shown under it: the watchers it runs, the sessions
  * it holds and the claims it holds. CI jobs, which come and go, are one entry.
  *
- * `attention` is the one query what needs attention is read by: the Factory
- * page's, and the one the Factories list is to rank by (#60). It returns the
- * facts — what the cockpit was told, with their timestamps — and
- * `model/attention.ts` says which of them are worth a person's attention
- * against the page's own clock.
+ * `attentionOf` is the one place what needs attention is read: by the
+ * Factory page's `attention` query, and by `factories.list`, whose rows are
+ * ranked by it. It returns the facts — what the cockpit was told, with
+ * their timestamps — and `model/attention.ts` says which of them are worth
+ * a person's attention against the page's own clock.
  */
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
@@ -21,7 +21,7 @@ import type { Drifted, Facts, Failed } from "./model/attention";
 import { drift } from "./model/drift";
 import { permitted } from "./model/inbox";
 import { readSummary, type Summary } from "./model/session";
-import { canRead, viewing, type Viewing } from "./viewer";
+import { readable, viewing, type Viewing } from "./viewer";
 
 /** How many of a factory's sessions a page looks back over, most recently active first. */
 const SCANNED = 500;
@@ -31,14 +31,14 @@ const FAILURES = 20;
 const RECENT = 10;
 
 /** A session's record with its summary read: what every list here is made of. */
-interface Recorded {
+export interface Recorded {
   session: string;
   activity: number;
   summary: Summary;
 }
 
 /** `factory`'s most recently active sessions, newest first. */
-async function recentOf(ctx: QueryCtx, factory: string): Promise<Recorded[]> {
+export async function recentOf(ctx: QueryCtx, factory: string): Promise<Recorded[]> {
   const records: Doc<"sessions">[] = await ctx.db
     .query("sessions")
     .withIndex("by_factory_activity", (q) => q.eq("factory", factory))
@@ -94,6 +94,11 @@ function open({ summary }: Recorded): boolean {
   return summary.status === "running" || summary.status === "waiting";
 }
 
+/** How many of `known` are live: running now, not suspended at a gate. */
+export function liveIn(known: Recorded[]): number {
+  return known.filter(({ summary }) => summary.status === "running").length;
+}
+
 function finished({ summary }: Recorded): boolean {
   return summary.status === "success" || summary.status === "fail";
 }
@@ -146,9 +151,12 @@ async function checkOf(ctx: QueryCtx, factory: string, repo: Doc<"repos"> | null
   return { check: check === null ? "unchecked" : check.ok ? "passing" : "failing", drifted };
 }
 
-/** What needs attention on `factory`, as facts — for a viewer who may read it. */
-export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string): Promise<Facts> {
-  const known = await recentOf(ctx, factory);
+/**
+ * What needs attention on `factory`, as facts — for a viewer who may read it.
+ * `known` is its recent sessions, when the caller read them already.
+ */
+export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string, known?: Recorded[]): Promise<Facts> {
+  known ??= await recentOf(ctx, factory);
   const repo = await repoOf(ctx, factory);
   const stations = await reporting(ctx, factory);
   const watchers = stations
@@ -160,9 +168,10 @@ export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string):
 
 export const attention = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }): Promise<Facts | null> => {
+  handler: async (ctx, { factory: named, signIn }): Promise<Facts | null> => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
     return await attentionOf(ctx, who, factory);
   },
 });
@@ -174,8 +183,9 @@ export const attention = query({
  */
 export const page = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }) => {
-    if (!(await canRead(ctx, await viewing(ctx, signIn), factory))) return null;
+  handler: async (ctx, { factory: named, signIn }) => {
+    const factory = await readable(ctx, await viewing(ctx, signIn), named);
+    if (factory === null) return null;
     const known = await recentOf(ctx, factory);
     const groups = new Map<string, SessionRow[]>();
     for (const each of known.filter(open)) {
@@ -214,9 +224,10 @@ export interface StationDetail {
  */
 export const stations = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }) => {
+  handler: async (ctx, { factory: named, signIn }) => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
     const known = await recentOf(ctx, factory);
     const claims = await heldOn(ctx, who, factory);
     const shown = new Map<string, StationDetail>();

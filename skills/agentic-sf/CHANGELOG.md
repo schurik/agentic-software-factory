@@ -211,6 +211,11 @@ before — `None` when there are none, never omitted.
   default branch as them, with a body saying where it came from. It checks YAML syntax only and
   blocks the submit with the parse error; the repository's CI and branch protection do the rest.
   Disabled, with the reason, below write.
+- The cockpit's **Factories list** ranks what needs attention first, then the most recently active,
+  with an A–Z toggle. Each row shows live sessions, gates waiting (on you / in all), stations
+  online of all, spend in a calendar period of your own timezone (today, this week, or this month
+  by default; list-price equivalent, tokens alongside), and flags for a fresh failure, a claim whose
+  station has been offline over a day, drift, a failing check and nobody watching.
 
 ### Upgrade
 

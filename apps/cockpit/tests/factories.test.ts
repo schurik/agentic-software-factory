@@ -42,7 +42,7 @@ describe("the Factories list in local mode, with the person's own token", () => 
     await catchUp(t);
 
     const list = await t.query(api.factories.list, {});
-    expect(list?.factories).toEqual([
+    expect(list?.factories).toMatchObject([
       { repo: "acme/gadgets", role: "triage", private: false, onForge: true, reporting: false, lastActivity: null },
       { repo: "acme/widgets", role: "admin", private: true, onForge: true, reporting: true,
         lastActivity: expect.any(Number) },
@@ -266,7 +266,7 @@ describe("the Factories list in local mode, with the person's own token", () => 
 
     await catchUp(t);
 
-    expect((await t.query(api.factories.list, {}))?.factories).toEqual([
+    expect((await t.query(api.factories.list, {}))?.factories).toMatchObject([
       { repo: "Acme/Widgets", role: "admin", private: true, onForge: true, reporting: true,
         lastActivity: expect.any(Number) },
     ]);
@@ -302,7 +302,7 @@ describe("the Factories list in local mode, with the person's own token", () => 
 
     await catchUp(t);
 
-    expect((await t.query(api.factories.list, {}))?.factories).toEqual([
+    expect((await t.query(api.factories.list, {}))?.factories).toMatchObject([
       { repo: "acme/widgets", role: "admin", private: true, onForge: true, reporting: false, lastActivity: null },
       { repo: "scratch", role: null, private: null, onForge: false, reporting: true,
         lastActivity: expect.any(Number) },
@@ -320,7 +320,7 @@ describe("the Factories list in local mode, with the person's own token", () => 
     await catchUp(t);
 
     expect(forge.requests).toEqual([]);
-    expect((await t.query(api.factories.list, {}))?.factories).toEqual([
+    expect((await t.query(api.factories.list, {}))?.factories).toMatchObject([
       { repo: "acme/widgets", role: null, private: null, onForge: false, reporting: true,
         lastActivity: expect.any(Number) },
     ]);

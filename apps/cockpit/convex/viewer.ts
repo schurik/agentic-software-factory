@@ -18,6 +18,7 @@ import { type App, exchange, type Expiring, installUrl } from "./forge/app";
 import { personValidator, type Reach, reachValidator, repoKey, type Role } from "./forge/forge";
 import { ForgeError, GitHub, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
+import { storedAs } from "./spelling";
 import { LAPSED_PER_WRITE } from "./handshakes";
 import { digest } from "./model/digest";
 import { localHost, localToken, mode, type Mode } from "./model/mode";
@@ -97,6 +98,15 @@ export async function roleOn(ctx: QueryCtx, viewer: Doc<"viewers">, repo: string
 export async function canRead(ctx: QueryCtx, { mode, viewer }: Viewing, factory: string): Promise<boolean> {
   if (mode === "local") return true;
   return viewer !== null && (await roleOn(ctx, viewer, factory)) !== null;
+}
+
+/**
+ * `factory` — named by a page, in whatever case — as its data is stored
+ * (`spelling.ts`), when the viewer may read it; null when they may not.
+ * What every function that takes a factory from a page reads it by.
+ */
+export async function readable(ctx: QueryCtx, who: Viewing, factory: string): Promise<string | null> {
+  return (await canRead(ctx, who, factory)) ? await storedAs(ctx, factory) : null;
 }
 
 /**

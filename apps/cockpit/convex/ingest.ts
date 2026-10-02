@@ -3,6 +3,7 @@ import { internalMutation } from "./_generated/server";
 import { settleClaims } from "./claims";
 import { settle } from "./commands";
 import { advance, readSummary } from "./model/session";
+import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
 
 /**
@@ -59,6 +60,14 @@ export const append = internalMutation({
     // ...and its finish, or an abort, what frees the claim it was started under.
     await settleClaims(ctx, factory, session, fresh);
     const activity = Date.now();
+    for (const spent of spentIn(fresh, activity)) {
+      const bucket = await ctx.db
+        .query("spend")
+        .withIndex("by_session_at", (q) => q.eq("factory", factory).eq("session", session).eq("at", spent.at))
+        .unique();
+      if (bucket === null) await ctx.db.insert("spend", { factory, session, ...spent });
+      else await ctx.db.patch(bucket._id, { cost: bucket.cost + spent.cost, tokens: bucket.tokens + spent.tokens });
+    }
     const waiting = summary.waitingFor !== null;
     if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting });
     else await ctx.db.patch(record._id, { acked, summary, activity, waiting });

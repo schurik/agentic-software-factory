@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { digest, secret } from "./model/digest";
+import { spellingFor } from "./spelling";
 
 /**
  * Issue an ingest token for `factory` (its repository, e.g. `acme/widgets`) and
@@ -23,12 +24,16 @@ export const issue = internalAction({
   },
 });
 
-/** Keep the digest of a token `issue` just made. Never called with a token itself. */
+/**
+ * Keep the digest of a token `issue` just made. Never called with a token
+ * itself. The token holds the factory as it is already spelled here, if it
+ * is — `spelling.ts` — so one factory's sessions are stored under one name.
+ */
 export const store = internalMutation({
   args: { factory: v.string(), digest: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.insert("ingestTokens", args);
+    await ctx.db.insert("ingestTokens", { ...args, factory: await spellingFor(ctx, args.factory) });
     return null;
   },
 });
