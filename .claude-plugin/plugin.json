@@ -1,7 +1,7 @@
 {
   "name": "agentic-sf",
   "displayName": "Agentic Software Factory",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Deploy and operate agentic workflows in any codebase: a workflow is a directory over a closed stage vocabulary, deterministic Python owns sequencing, retries and acceptance; coding agents work inside bounded phases; typed JSON envelopes cross the seams; every event lands in the session's own record, and a cockpit receives it.",
   "author": {
     "name": "schurik",

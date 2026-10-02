@@ -19,8 +19,14 @@ Every entry has the same shape: `## X.Y.Z — YYYY-MM-DD`, the date its tag was 
 `## Unreleased`), what changed, and an `### Upgrade` section naming the steps from the release
 before — `None` when there are none, never omitted.
 
-## Unreleased
+## 1.2.0 — 2026-10-02
 
+The first tagged release, and the first to publish the cockpit images (`asf-cockpit` and
+`asf-cockpit-backend` on ghcr.io). 1.1.0 below was never tagged: everything it lists ships here.
+
+- `asf/cockpit/min-version` is **1.2.0**. It named 1.1.0, a cockpit no release ever published, so
+  `asf up` from a stamp made before this release pulls an image that does not exist; re-stamping
+  fixes it, and so does `ASF_COCKPIT_VERSION=1.2.0` in `.env` until then.
 - **The session directory is the record.** The SQLite trace db and the legacy trace UI that read it
   (the skill's `apps/visualizer`) are gone: a run writes its own directory under
   `asf/data/sessions/` and nothing else, and a cockpit receives its events. `asf/data/asf.db` is
@@ -44,7 +50,9 @@ before — `None` when there are none, never omitted.
 
 ### Upgrade
 
-From 1.1, in this order (`cookbooks/upgrade.md` walks them):
+From 1.1, in this order (`cookbooks/upgrade.md` walks them). Until this release the stamp template
+said 1.0.0, so a factory stamped from the repository's main branch records `1.0.0` whatever it
+carries: take 1.1.0's steps first, then these.
 
 1. If `asf/factory.yaml` says `worktree.integration.mode: none`, or a workflow says
    `integrate: {mode: none}`, decide what it meant and change it in the same change as the
@@ -59,6 +67,9 @@ From 1.1, in this order (`cookbooks/upgrade.md` walks them):
    of `git add -A` went with the visualizer: delete the directory before a commit stage runs.
 
 ## 1.1.0
+
+Never tagged, so it has no date: `plugin.json` still named 1.0.0 when 1.2 began, and these changes
+first shipped in 1.2.0. Its upgrade steps still apply to a factory stamped from main before then.
 
 - Releases are semver tags, and `plugin.json` is the one version source.
 - `install.py` stamps `asf/.skill-version`. `uninstall.py` removes it with the rest of `asf/`.
