@@ -51,8 +51,9 @@ export const list = query({
     const { mode, viewer } = who;
     if (mode === "team" && viewer === null) return null;
 
-    // A station names its factory when its ingest token is issued, in whatever
-    // case it was typed; the forge's names are case-insensitive.
+    // A station's ingest token names its factory as it was first spelled here
+    // (`spelling.ts`), which may not be the forge's case; the forge's names
+    // are case-insensitive.
     const shippedAs = new Map<string, string[]>();
     for (const { factory } of await ctx.db.query("ingestTokens").collect()) {
       const names = shippedAs.get(repoKey(factory)) ?? [];
@@ -64,7 +65,8 @@ export const list = query({
     for (const repo of found) {
       const role = viewer === null ? null : await roleOn(ctx, viewer, repo.key);
       if (mode === "team" && role === null) continue;
-      const names = [repo.name, ...(shippedAs.get(repo.key) ?? [])];
+      // Its stations' spelling first: what its sessions are stored under (`spelling.ts`).
+      const names = [...(shippedAs.get(repo.key) ?? []), repo.name];
       factories.push({ repo: repo.name, role, private: repo.private, onForge: true, ...(await standing(ctx, who, names, period)) });
     }
     if (mode === "local") {
@@ -82,10 +84,10 @@ export const list = query({
 });
 
 /**
- * What a row says of the factory known as `names` — the first is its own
- * name, the rest how its stations spelled it. Sessions, stations and what
- * needs attention go by its own name, as its Factory page does; spend and
- * whether it reported, by every spelling.
+ * What a row says of the factory known as `names`. The first is the one its
+ * data is stored under, which sessions, stations and what needs attention
+ * are read by; spend and whether it reported are read under every spelling,
+ * for a cockpit that stored two before it kept to one.
  */
 async function standing(ctx: QueryCtx, who: Viewing, names: string[], period: Period | undefined):
     Promise<Omit<FactoryRow, "repo" | "role" | "private" | "onForge">> {

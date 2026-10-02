@@ -60,9 +60,9 @@ async function sentFor(ctx: QueryCtx, factory: string, session: string, summary:
 async function waitOf(ctx: QueryCtx, who: Viewing, factory: string, session: string, signIn: string | undefined,
                       ready: boolean) {
   const stored = await storedSession(ctx, factory, session, signIn);
-  const record = await ctx.db
+  const record = stored && await ctx.db
     .query("sessions")
-    .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
+    .withIndex("by_session", (q) => q.eq("factory", stored.factory).eq("session", session))
     .unique();
   const shown = stored && record && (await rowOf(ctx, who, record, ready));
   if (!stored || !record || !shown) return null;

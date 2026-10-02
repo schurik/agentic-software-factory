@@ -3,7 +3,7 @@ import { query, type QueryCtx } from "./_generated/server";
 import type { StoredEvent } from "./model/wire";
 import { forgeWeb } from "./forge/memory";
 import { phaseView, readSummary, view } from "./model/session";
-import { canRead, viewing } from "./viewer";
+import { canRead, readable, viewing } from "./viewer";
 
 // Who sees a session is the forge's call, not the cockpit's: in a team
 // cockpit, whoever the forge lets read its factory's repository
@@ -40,7 +40,7 @@ export const get = query({
     const stored = await storedSession(ctx, factory, session, signIn);
     if (stored === null) return null;
     const page = view(stored.events, stored.acked);
-    return { factory, session, acked: stored.acked, forge: await forgeWeb(ctx), ...page };
+    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), ...page };
   },
 });
 
@@ -57,11 +57,15 @@ export const phase = query({
   },
 });
 
-/** A session's events and how far they were acknowledged, or null when the viewer may not see it. */
-export async function storedSession(ctx: QueryCtx, factory: string, session: string, signIn?: string):
-    Promise<{ acked: number; events: StoredEvent[] } | null> {
+/**
+ * A session's events and how far they were acknowledged, and the factory as
+ * they are stored under it — or null when the viewer may not see it.
+ */
+export async function storedSession(ctx: QueryCtx, named: string, session: string, signIn?: string):
+    Promise<{ factory: string; acked: number; events: StoredEvent[] } | null> {
   // A session the viewer may not see and one that does not exist answer alike.
-  if (!(await canRead(ctx, await viewing(ctx, signIn), factory))) return null;
+  const factory = await readable(ctx, await viewing(ctx, signIn), named);
+  if (factory === null) return null;
   const record = await ctx.db
     .query("sessions")
     .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
@@ -71,5 +75,5 @@ export async function storedSession(ctx: QueryCtx, factory: string, session: str
     .query("events")
     .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session))
     .collect();
-  return { acked: record.acked, events };
+  return { factory, acked: record.acked, events };
 }

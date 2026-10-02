@@ -23,7 +23,7 @@ import { writes } from "./model/command";
 import type { StoredEvent } from "./model/wire";
 import { anonymous, attendedAt, roleOf } from "./commands";
 import { stationOf } from "./stations";
-import { actAs, canRead, viewing, type Viewing } from "./viewer";
+import { actAs, canRead, readable, viewing, type Viewing } from "./viewer";
 
 async function heldFor(ctx: QueryCtx, asked: Pick<Asked, "repo" | "kind" | "number">): Promise<Doc<"claims"> | null> {
   return await ctx.db
@@ -140,9 +140,10 @@ async function viewsOf(ctx: QueryCtx, who: Viewing, factory: string, rows: Doc<"
  */
 export const ofSession = query({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, session, signIn }): Promise<ClaimView[]> => {
+  handler: async (ctx, { factory: named, session, signIn }): Promise<ClaimView[]> => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return [];
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return [];
     const rows = (await ctx.db.query("claims").withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session)).collect())
       .sort((a, b) => b.grantedAt - a.grantedAt);
     return await viewsOf(ctx, who, factory, rows);

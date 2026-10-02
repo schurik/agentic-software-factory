@@ -21,7 +21,7 @@ import type { Drifted, Facts, Failed } from "./model/attention";
 import { drift } from "./model/drift";
 import { permitted } from "./model/inbox";
 import { readSummary, type Summary } from "./model/session";
-import { canRead, viewing, type Viewing } from "./viewer";
+import { readable, viewing, type Viewing } from "./viewer";
 
 /** How many of a factory's sessions a page looks back over, most recently active first. */
 const SCANNED = 500;
@@ -168,9 +168,10 @@ export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string, 
 
 export const attention = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }): Promise<Facts | null> => {
+  handler: async (ctx, { factory: named, signIn }): Promise<Facts | null> => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
     return await attentionOf(ctx, who, factory);
   },
 });
@@ -182,8 +183,9 @@ export const attention = query({
  */
 export const page = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }) => {
-    if (!(await canRead(ctx, await viewing(ctx, signIn), factory))) return null;
+  handler: async (ctx, { factory: named, signIn }) => {
+    const factory = await readable(ctx, await viewing(ctx, signIn), named);
+    if (factory === null) return null;
     const known = await recentOf(ctx, factory);
     const groups = new Map<string, SessionRow[]>();
     for (const each of known.filter(open)) {
@@ -222,9 +224,10 @@ export interface StationDetail {
  */
 export const stations = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }) => {
+  handler: async (ctx, { factory: named, signIn }) => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
     const known = await recentOf(ctx, factory);
     const claims = await heldOn(ctx, who, factory);
     const shown = new Map<string, StationDetail>();

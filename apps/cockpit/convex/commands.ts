@@ -30,7 +30,7 @@ import { Payload } from "./model/payload";
 import { readSummary, type Summary } from "./model/session";
 import type { StoredEvent } from "./model/wire";
 import { stationOf } from "./stations";
-import { canRead, roleOn, viewing, type Viewing } from "./viewer";
+import { readable, roleOn, viewing, type Viewing } from "./viewer";
 
 type Queued = { ok: true } | { ok: false; because: string };
 
@@ -223,10 +223,11 @@ function sessionRefusal(verb: "kill" | "resume", { who, role, summary, station }
 
 /** Queue `verb` for a session's own station, as the viewer — or say why not. One already on its way is enough. */
 async function queueForSession(ctx: MutationCtx, verb: "kill" | "resume",
-                               { factory, session, signIn }: { factory: string; session: string; signIn?: string }): Promise<Queued> {
+                               { factory: named, session, signIn }: { factory: string; session: string; signIn?: string }): Promise<Queued> {
   const who = await viewing(ctx, signIn);
-  const record = await sessionRecord(ctx, factory, session);
-  if (record === null || !(await canRead(ctx, who, factory))) {
+  const factory = await readable(ctx, who, named);
+  const record = factory === null ? null : await sessionRecord(ctx, factory, session);
+  if (factory === null || record === null) {
     return { ok: false, because: "no such session among the ones you can read" };
   }
   const summary = readSummary(record.summary);
@@ -309,9 +310,10 @@ async function ownStations(ctx: QueryCtx, who: Viewing, factory: string): Promis
  */
 export const runTargets = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }) => {
+  handler: async (ctx, { factory: named, signIn }) => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
     const role = await roleOf(ctx, who, factory);
     return {
       refused: anonymous(who, "run a prompt") ?? (writes(role) ? null : commandRefusal("run", role, null)),
@@ -336,10 +338,11 @@ export const run = mutation({
     factory: v.string(), workflow: v.string(), prompt: v.string(), station: v.optional(v.string()),
     signIn: v.optional(v.string()),
   },
-  handler: async (ctx, { factory, workflow, prompt, station, signIn }):
+  handler: async (ctx, { factory: named, workflow, prompt, station, signIn }):
       Promise<{ ok: true; id: Id<"commands"> } | { ok: false; because: string }> => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return { ok: false, because: "no such factory among the ones you can read" };
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return { ok: false, because: "no such factory among the ones you can read" };
     const nobody = anonymous(who, "run a prompt");
     if (nobody !== null) return { ok: false, because: nobody };
     const role = await roleOf(ctx, who, factory);
@@ -364,9 +367,10 @@ export const run = mutation({
 /** The viewer's latest runs on `factory`: where each went, what became of it, and the session it started. */
 export const runs = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }) => {
+  handler: async (ctx, { factory: named, signIn }) => {
     const who = await viewing(ctx, signIn);
-    if (who.viewer === null || !(await canRead(ctx, who, factory))) return [];
+    const factory = await readable(ctx, who, named);
+    if (who.viewer === null || factory === null) return [];
     const login = who.viewer.login;
     // Every run of the factory sits under session "": walk them newest first until enough are theirs.
     const theirs: Doc<"commands">[] = [];
@@ -398,10 +402,11 @@ export const runs = query({
  */
 export const steering = query({
   args: sessionArgs,
-  handler: async (ctx, { factory, session, signIn }): Promise<SteeringView | null> => {
+  handler: async (ctx, { factory: named, session, signIn }): Promise<SteeringView | null> => {
     const who = await viewing(ctx, signIn);
-    const record = await sessionRecord(ctx, factory, session);
-    if (record === null || !(await canRead(ctx, who, factory))) return null;
+    const factory = await readable(ctx, who, named);
+    const record = factory === null ? null : await sessionRecord(ctx, factory, session);
+    if (factory === null || record === null) return null;
     const summary = readSummary(record.summary);
     const { row, facts: station } = await holderOf(ctx, factory, summary);
     const asker = { who, role: await roleOf(ctx, who, factory), summary, station };

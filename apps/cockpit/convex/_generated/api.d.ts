@@ -54,6 +54,7 @@ import type * as model_webhook from "../model/webhook.js";
 import type * as model_wire from "../model/wire.js";
 import type * as sessions from "../sessions.js";
 import type * as setup from "../setup.js";
+import type * as spelling from "../spelling.js";
 import type * as stations from "../stations.js";
 import type * as tokens from "../tokens.js";
 import type * as trigger from "../trigger.js";
@@ -112,6 +113,7 @@ declare const fullApi: ApiFromModules<{
   "model/wire": typeof model_wire;
   sessions: typeof sessions;
   setup: typeof setup;
+  spelling: typeof spelling;
   stations: typeof stations;
   tokens: typeof tokens;
   trigger: typeof trigger;

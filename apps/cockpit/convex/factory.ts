@@ -20,7 +20,7 @@ import { open } from "./forge/open";
 import { readDescription } from "./model/description";
 import { roleOf } from "./commands";
 import { editing } from "./config";
-import { canRead, viewing } from "./viewer";
+import { readable, viewing } from "./viewer";
 
 /** The repository row of `factory`, when the forge shows one. */
 export async function repoOf(ctx: QueryCtx, factory: string): Promise<Doc<"repos"> | null> {
@@ -47,9 +47,10 @@ export async function reporting(ctx: QueryCtx, factory: string): Promise<Doc<"st
 
 export const page = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }) => {
+  handler: async (ctx, { factory: named, signIn }) => {
     const who = await viewing(ctx, signIn);
-    if (!(await canRead(ctx, who, factory))) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
     const repo = await repoOf(ctx, factory);
     const defaultBranch = repo?.defaultBranch || null;
     const check = await defaultCheck(ctx, factory, defaultBranch);
@@ -81,8 +82,9 @@ export type Look =
 /** What the look needs from the database: whether the viewer may, which branch, and the commits stations stand on. */
 export const looking = internalQuery({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, signIn }): Promise<{ branch: string | null; heads: string[] } | null> => {
-    if (!(await canRead(ctx, await viewing(ctx, signIn), factory))) return null;
+  handler: async (ctx, { factory: named, signIn }): Promise<{ branch: string | null; heads: string[] } | null> => {
+    const factory = await readable(ctx, await viewing(ctx, signIn), named);
+    if (factory === null) return null;
     const repo = await repoOf(ctx, factory);
     const heads = new Set((await reporting(ctx, factory)).map((row) => row.report?.head ?? "").filter(Boolean));
     return { branch: repo?.factory ? repo.defaultBranch || null : null, heads: [...heads].sort() };

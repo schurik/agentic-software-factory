@@ -34,7 +34,10 @@ A factory is known to the cockpit by its repository. Give it an **ingest token**
 and append-only: it can add events to that factory's sessions and read nothing back. It is printed
 once; only its SHA-256 is stored. Name the factory as its repository, `owner/name` (in any case):
 that is what a viewer's permission is looked up by, so sessions shipped under any other name are
-shown to nobody in a team's cockpit.
+shown to nobody in a team's cockpit. One factory is stored under one spelling: a token takes the
+one its factory already has here — an earlier token's, else the forge's — whatever case it was
+asked for in, and a page that names the factory in another case reads the same sessions
+(`convex/spelling.ts`).
 
 ```bash
 docker compose exec app ./convex.sh run tokens:issue '{"factory": "acme/widgets"}'
