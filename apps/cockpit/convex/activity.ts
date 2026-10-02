@@ -20,7 +20,7 @@ import { defaultCheck, repoOf, reporting } from "./factory";
 import type { Drifted, Facts, Failed } from "./model/attention";
 import { drift } from "./model/drift";
 import { permitted } from "./model/inbox";
-import { readSummary, type Summary } from "./model/session";
+import { endedAt, readSummary, type Summary } from "./model/session";
 import { readable, viewing, type Viewing } from "./viewer";
 
 /** How many of a factory's sessions a page looks back over, most recently active first. */
@@ -45,15 +45,6 @@ export async function recentOf(ctx: QueryCtx, factory: string): Promise<Recorded
     .order("desc")
     .take(SCANNED);
   return records.map((record) => ({ session: record.session, activity: record.activity, summary: readSummary(record.summary) }));
-}
-
-/** When a session ended, epoch ms: its finish, else its last event, else when the cockpit last heard of it. */
-function endedAt({ summary, activity }: Recorded): number {
-  for (const ts of [summary.endedAt, summary.lastEventAt]) {
-    const at = Date.parse(ts);
-    if (ts && !Number.isNaN(at)) return at;
-  }
-  return activity;
 }
 
 /** The workflow a session is in now, or ended in: its last chapter's. */

@@ -109,7 +109,7 @@ describe("the permission mirror", () => {
   it("shows nothing on a word older than fifteen minutes, until the forge is asked again", async () => {
     const forge = fakeForge();
     const { t, alex } = await signedIn(forge);
-    const sessions = async () => (await t.query(api.sessions.list, { signIn: alex })).length;
+    const sessions = async () => (await t.query(api.sessions.list, { signIn: alex }))?.sessions.length ?? 0;
     await ingest(t, await factory(t, "acme/widgets"), { session: "5c0075aa", events: [fixture("session_started", 1)] });
     expect(await sessions()).toBe(1);
 

@@ -165,6 +165,11 @@ export interface Judged {
  */
 export type ForYou = "triggered" | "wrote" | "assigned";
 
+/** Whether two forge logins are one person: the forge does not tell them apart by case. */
+export function sameLogin(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 /**
  * Every reason `summary`'s session is for `login`. A forge's logins are one
  * person whatever their case, and this is a ranking, not a permission: what
@@ -172,7 +177,7 @@ export type ForYou = "triggered" | "wrote" | "assigned";
  */
 export function forYou(summary: Summary, login: string | null): ForYou[] {
   if (login === null) return [];
-  const is = (other: string) => other.toLowerCase() === login.toLowerCase();
+  const is = (other: string) => sameLogin(other, login);
   const reasons: ForYou[] = [];
   if (is(summary.triggeredBy)) reasons.push("triggered");
   if (is(summary.issueAuthor)) reasons.push("wrote");

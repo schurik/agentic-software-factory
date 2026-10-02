@@ -9,6 +9,8 @@
  * makes the current period "to date".
  */
 
+import { v } from "convex/values";
+
 export type PeriodKind = "day" | "week" | "month";
 
 export const PERIODS: Record<PeriodKind, string> = { day: "today", week: "this week", month: "this month" };
@@ -17,6 +19,9 @@ export interface Period {
   from: number;
   to: number;
 }
+
+/** A period as a query takes it. */
+export const periodValidator = v.object({ from: v.number(), to: v.number() });
 
 /** The `kind` of period `now` falls in, in `timeZone` (an IANA name). Weeks start on Monday. */
 export function periodOf(kind: PeriodKind, now: number, timeZone: string): Period {

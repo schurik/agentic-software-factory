@@ -112,11 +112,39 @@ describe("sessions in a team cockpit", () => {
     const forge = fakeForge();
     const t = await shipped(forge);
     const listed = async (holding?: string) =>
-      (await t.query(api.sessions.list, { signIn: holding })).map(({ factory: from, session }) => `${from} ${session}`);
+      (await t.query(api.sessions.list, { signIn: holding }))?.sessions.map(({ factory: from, session }) => `${from} ${session}`);
 
-    expect((await listed(await signIn(t, forge, "alex"))).sort()).toEqual(["acme/gadgets 0ddba11", "acme/widgets 5c0075aa"]);
+    expect((await listed(await signIn(t, forge, "alex")))?.sort()).toEqual(["acme/gadgets 0ddba11", "acme/widgets 5c0075aa"]);
     expect(await listed(await signIn(t, forge, "sam"))).toEqual(["acme/widgets 5c0075aa"]);
-    expect(await listed()).toEqual([]);
+    expect(await t.query(api.sessions.list, {})).toBeNull();
+  });
+
+  it("offer no filter a choice that only a factory the viewer cannot read holds", async () => {
+    const forge = fakeForge();
+    const t = await shipped(forge);
+    const secret = fixture("session_started", 2);
+    Object.assign(secret.payload, { workflow: "secret-plan", triggered_by: "mallory", station_id: "st_mallory", station_name: "mallory@lab:gadgets" });
+    await ingest(t, await factory(t, "acme/gadgets"), { session: "0ddba11", events: [secret] });
+
+    const sam = await signIn(t, forge, "sam");
+    const list = await t.query(api.sessions.list, { signIn: sam });
+    expect(list?.facets.workflows).not.toContain("secret-plan");
+    expect(list?.facets.people).not.toContain("mallory");
+    expect(list?.facets.stations.map((station) => station.key)).not.toContain("st_mallory");
+    expect((await t.query(api.sessions.list, { signIn: sam, filter: { person: "mallory" } }))?.sessions).toEqual([]);
+
+    // Alex reads both: the same choices are theirs.
+    const alex = await t.query(api.sessions.list, { signIn: await signIn(t, forge, "alex"), filter: { person: "mallory" } });
+    expect(alex?.sessions.map((row) => row.session)).toEqual(["0ddba11"]);
+  });
+
+  it("of one factory are nothing at all to a viewer who cannot read it", async () => {
+    const forge = fakeForge();
+    const t = await shipped(forge);
+
+    expect(await t.query(api.sessions.list, { factory: "acme/gadgets", signIn: await signIn(t, forge, "sam") })).toBeNull();
+    expect((await t.query(api.sessions.list, { factory: "acme/gadgets", signIn: await signIn(t, forge, "alex") }))
+      ?.sessions.map((row) => row.session)).toEqual(["0ddba11"]);
   });
 
   it("open for a viewer who can read their factory's repository, and for nobody else", async () => {

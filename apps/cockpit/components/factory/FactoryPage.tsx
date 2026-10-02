@@ -9,6 +9,7 @@ import type { ClaimView } from "@/convex/model/claim";
 import { needsAttention } from "@/convex/model/attention";
 import { useClock } from "../clock";
 import { CostPanel } from "../cost/CostPanel";
+import { SessionsList } from "../SessionsList";
 import { RunPanel } from "../run/RunPrompt";
 import { said, useCockpit } from "../Shell";
 import { useSignIn } from "../signIn";
@@ -20,18 +21,21 @@ import { StationsTab } from "./StationsTab";
 import { drifts, promptWorkflows } from "./view";
 import { WorkflowsTab } from "./WorkflowsTab";
 
-const TABS = { activity: "Activity", workflows: "Workflows", stations: "Stations", cost: "Cost", config: "Config" } as const;
+const TABS = {
+  activity: "Activity", workflows: "Workflows", stations: "Stations", sessions: "Sessions", cost: "Cost", config: "Config",
+} as const;
 type Tab = keyof typeof TABS;
 
 /**
  * One factory (spec #40): the fixed header, and its tabs — Activity (what
  * needs attention, what runs now, what finished), Workflows, from the
- * factory's own self-description, Stations, with what each one holds, Cost,
- * what it spent in a period, and Config, whose files a writer edits into a
- * pull request. Live: the queries keep themselves current; the forge is
- * looked at once when the page opens, and again whenever a station reports a
- * commit it has not measured. Every tab stays mounted, so a draft outlives a
- * look at another one.
+ * factory's own self-description, Stations, with what each one holds,
+ * Sessions, its whole history narrowed as on the Sessions page across
+ * factories, Cost, what it spent in a period, and Config, whose files a writer
+ * edits into a pull request. Live: the queries keep themselves current; the
+ * forge is looked at once when the page opens, and again whenever a station
+ * reports a commit it has not measured. Every tab stays mounted, so a draft —
+ * or a filter — outlives a look at another one.
  */
 export function FactoryPage({ factory }: { factory: string }) {
   const signIn = useSignIn();
@@ -109,6 +113,9 @@ export function FactoryPage({ factory }: { factory: string }) {
         {stations ? <StationsTab stations={stations.stations} ci={stations.ci} drifts={measured} now={now} factory={factory}
                              selected={station} onSelect={setStation} onRelease={onRelease} />
           : <p className="muted">Loading…</p>}
+      </div>
+      <div hidden={tab !== "sessions"}>
+        <SessionsList factory={factory} />
       </div>
       <div hidden={tab !== "cost"}>
         <CostPanel factory={factory} />

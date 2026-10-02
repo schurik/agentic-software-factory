@@ -5,7 +5,7 @@ import { readProgress } from "./discovery";
 import { reporting } from "./factory";
 import { repoKey, type Role } from "./forge/forge";
 import type { Facts } from "./model/attention";
-import type { Period } from "./model/period";
+import { type Period, periodValidator } from "./model/period";
 import type { Spend } from "./model/spend";
 import { roleOn, viewing, type Viewing } from "./viewer";
 
@@ -45,7 +45,7 @@ export interface FactoryRow {
  * can see of it.
  */
 export const list = query({
-  args: { signIn: v.optional(v.string()), period: v.optional(v.object({ from: v.number(), to: v.number() })) },
+  args: { signIn: v.optional(v.string()), period: v.optional(periodValidator) },
   handler: async (ctx, { signIn, period }) => {
     const who = await viewing(ctx, signIn);
     const { mode, viewer } = who;

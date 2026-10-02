@@ -99,7 +99,7 @@ describe("a session told by its events", () => {
     const t = cockpit();
     await ship(t, await factory(t), upToTheGate);
 
-    expect(await t.query(api.sessions.list, {})).toEqual([
+    expect((await t.query(api.sessions.list, {}))?.sessions).toEqual([
       {
         factory: "acme/widgets",
         session: "5c0075aa",
@@ -158,7 +158,7 @@ describe("a session told by its events", () => {
     await ship(t, token, upToTheGate);
     await ship(t, token, [fixture("decision_recorded", 9), fixture("session_finished", 10)]);
 
-    const [listed] = await t.query(api.sessions.list, {});
+    const [listed] = (await t.query(api.sessions.list, {}))!.sessions;
     expect(listed.summary).toMatchObject({
       status: "fail",
       waitingFor: null,
@@ -171,14 +171,14 @@ describe("a session told by its events", () => {
     const t = cockpit();
     const token = await factory(t);
     await ship(t, token, [fixture("session_started", 1), fixture("session_finished", 3)]);
-    expect((await t.query(api.sessions.list, {}))[0].summary.status).toBe("running");
+    expect((await t.query(api.sessions.list, {}))!.sessions[0].summary.status).toBe("running");
 
     const page = await t.query(api.sessions.get, WHERE);
     expect(page!.summary.status).toBe("running");
     expect(page!.events.map((row) => row.seq)).toEqual([1, 3]);
 
     await ship(t, token, [fixture("phase_started", 2)]);
-    expect((await t.query(api.sessions.list, {}))[0].summary.status).toBe("fail");
+    expect((await t.query(api.sessions.list, {}))!.sessions[0].summary.status).toBe("fail");
     expect((await t.query(api.sessions.get, WHERE))!.summary.status).toBe("fail");
   });
 
@@ -232,6 +232,6 @@ describe("an event this cockpit cannot read", () => {
         unreadBecause: "newer version", detail: "", raw: JSON.stringify(newerVersion.payload) },
     ]);
     expect(view!.summary).toMatchObject({ status: "running", unread: 2 });
-    expect((await t.query(api.sessions.list, {}))[0].summary).toEqual(view!.summary);
+    expect((await t.query(api.sessions.list, {}))!.sessions[0].summary).toEqual(view!.summary);
   });
 });

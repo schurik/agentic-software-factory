@@ -367,7 +367,7 @@ kind is not `ci` is refused with a 403 — a checkout's own edits are what drift
 it is measured against.
 
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
-branch's commit, the check's state, flags, the per-session budget, and Run a prompt — and five tabs.
+branch's commit, the check's state, flags, the per-session budget, and Run a prompt — and six tabs.
 
 **Activity**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
 that the viewer may answer (a link into the inbox, `/?factory=<owner>/<repo>`), the sessions that
@@ -389,6 +389,18 @@ drift. Opened, a station shows what it obeys, the commit it has out, the watcher
 the sessions it holds (live, suspended, or failed and so its to resume) and the claims it holds,
 each with Release claim. Every CI job is one **CI** entry: the sessions that ran in CI and the
 checks CI pushed.
+
+**Sessions** is the factory's whole history as a table, the same one `/sessions` shows across
+every factory the viewer can read, with a column naming each row's factory there. Both are one
+query, `sessions.list` (`convex/sessions.ts`), given a factory or not, and narrow by **workflow** —
+one the session passed through, in any chapter — **person**, who triggered the run (the labeller,
+or whoever ran `asf run`; case-insensitively, as the inbox's "for you" reads it), **station** — every CI job
+is one **CI** entry, as on Stations — **status**, and **period**: today, this week or this month in
+the viewer's timezone, keeping each session alive at any moment of it, a live or suspended one
+alive still (`convex/model/filter.ts`). Each filter offers what the sessions it looked at hold,
+whether or not the filters kept them, and only sessions of factories the viewer can read are looked
+at, so no choice names what they may not see. The query reads the most recently active sessions
+until it has 200 to show or has read 2000, and says when older ones were left unread.
 
 **Cost** is what the factory spent in a period, as `/cost` rolls it up (above).
 

@@ -87,7 +87,7 @@ describe("ingest", () => {
     const events = Array.from({ length: 501 }, (_, index) => line(index + 1));
     const response = await ingest(t, token, { session: "5c0075aa", events });
     expect(response.status).toBe(413);
-    expect(await t.query(api.sessions.list, {})).toEqual([]);
+    expect((await t.query(api.sessions.list, {}))?.sessions).toEqual([]);
   });
 
   it("keeps each factory's sessions apart, by the token that sent them", async () => {
