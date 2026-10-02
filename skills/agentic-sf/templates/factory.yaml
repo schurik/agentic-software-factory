@@ -25,12 +25,6 @@ hitl:
   when_unattended: suspend         # suspend | auto
   notify_command: []               # run on suspend, subject on stdin
 
-# The trace: every run streams into this SQLite db, and `just obs` shows it.
-# Under asf/data/ by default, so it is runtime the installer already ignores.
-observability:
-  db: asf/data/asf.db
-  poll_ms: 500
-
 # What a cockpit is told. A session's events are written either way, and a
 # station ships them once there is a cockpit to ship to: phases, gates, spend,
 # commits, the handoff files its phases wrote, and each tool call's name,

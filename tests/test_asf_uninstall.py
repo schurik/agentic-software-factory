@@ -66,7 +66,7 @@ def test_the_ci_workflow_goes_as_stamped_and_stays_once_it_is_yours(repo: Path):
 def test_a_db_pointed_outside_asf_is_deleted_by_name(repo: Path):
     install(repo, "--harness", "pi")
     config = repo / "asf" / "factory.yaml"
-    config.write_text(config.read_text().replace("db: asf/data/asf.db", "db: .trace/asf.db"))
+    config.write_text(config.read_text() + "\nobservability:\n  db: .trace/asf.db\n")  # pre-1.2
     db = repo / ".trace" / "asf.db"
     db.parent.mkdir()
     db.write_text("")

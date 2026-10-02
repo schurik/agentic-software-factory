@@ -28,13 +28,21 @@ The directory this `SKILL.md` lives in. Substitute it, never the literal
 
 ## Startup
 
-Two steps. Then stop.
+Three steps. Then stop.
 
 1. If `asf/factory.yaml` does not exist, say in one line that the factory is
    not installed here and offer [cookbooks/install.md](cookbooks/install.md).
    Stamping it by hand instead of running `install.py` is how a repo ends up
    with `asf/` but no `.env` — read the cookbook. Otherwise:
-2. Run `just list` (or `uv run asf/asf.py list`) and print it — one line per
+2. Compare `asf/.skill-version` (the release that stamped this factory) with
+   `<skill>/templates/asf/.skill-version` (the release this skill is). If the
+   stamp's is **missing** — stamped before 1.1 — or **older**, say so in one
+   line, "stamped at X · skill is Y", and offer
+   [cookbooks/upgrade.md](cookbooks/upgrade.md) first, before any other
+   request: read it before acting on it. Nothing is refused meanwhile; an old
+   stamp runs as it did. A stamp **newer** than the skill means this skill
+   checkout is behind — say so, and install nothing from it.
+3. Run `just list` (or `uv run asf/asf.py list`) and print it — one line per
    workflow, name and description — and **wait for the engineer's request.**
 
 Nothing else. No trace-db queries, no reading the config, no reading stages
@@ -58,7 +66,8 @@ cockpit is fed, so it is read, never rewritten.
 
 ```
 asf/
-  factory.yaml            the manifest: defaults, budget, gates, trace, cockpit, worktree. No agents in it.
+  factory.yaml            the manifest: defaults, budget, gates, cockpit, worktree. No agents in it.
+  .skill-version          the skill release that stamped this factory — `--force` rewrites it, never edit it
   asf.py                  the runner: list | check | run
   agents/<name>/          agent.md: frontmatter (model, thinking, tools, writes, purpose) + identity below it
   workflows/<name>/       workflow.yaml (input, agents, stages), optional tasks/<key>.md, optional agents/<x>.md
@@ -114,13 +123,14 @@ journal file and lists its deviations.
 
 ## Request routing
 
-Commands are inline; three rows carry a cookbook as well, and those are the
-three whose answer is a decision process rather than a command. Read it before
-acting, not after.
+Commands are inline; four requests carry a cookbook as well — install,
+upgrade, run, uninstall — and those are the ones whose answer is a decision
+process rather than a command. Read it before acting, not after.
 
 | Request | Do |
 |---|---|
 | install / set up the factory here | [cookbooks/install.md](cookbooks/install.md) — **read it first**: four decisions belong to the repo, and `install.py` is the only supported way in. Then `uv run <skill>/scripts/install.py --harness claude_code\|pi` and `just doctor` |
+| upgrade the factory / "stamped at X · skill is Y" / `asf/.skill-version` missing or older than the skill's / a re-install printed `YOUR CONFIG NAMES OBSOLETE KEYS` | [cookbooks/upgrade.md](cookbooks/upgrade.md) — **read it first**: `install.py --force` refreshes the code and never the operator's `asf/factory.yaml`, so each key a release added (`cockpit.commands`, `worktree.publish`) and each obsolete one (`observability:`, `integration.mode: none`) is a decision put to the engineer, and registering a station is theirs to approve. Never refused meanwhile; `just doctor` prints both versions |
 | "is this repo ready to run?" / something failed before the first phase | `just doctor` — every check with its fix, then every workflow checked; spawns nothing. [cookbooks/install.md](cookbooks/install.md#post-install-checklist) |
 | run a workflow | `just do "<prompt>"` (sdlc), `just quick`, `just ship`, or `just run <name> "<prompt>" [--hitl all\|none\|plan]` — turning the request into a prompt, watching it, gates, failures: [cookbooks/run_workflow.md](cookbooks/run_workflow.md) |
 | work a tracked issue / answer a review | `just issue 42`, `just pr-review 17` — the number, never a prompt; the run reports back on the issue or in the threads |
