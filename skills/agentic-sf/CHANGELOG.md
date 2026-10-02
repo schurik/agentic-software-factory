@@ -216,6 +216,12 @@ before — `None` when there are none, never omitted.
   online of all, spend in a calendar period of your own timezone (today, this week, or this month
   by default; list-price equivalent, tokens alongside), and flags for a fresh failure, a claim whose
   station has been offline over a day, drift, a failing check and nobody watching.
+- The cockpit's **Cost** page, and a Cost tab on each Factory page, roll spend up by session,
+  workflow, factory, station (whose machine and key paid, named with its owner) and person (who
+  triggered the run), over today, this week or this month in your own timezone, or a range of days
+  — list-price equivalent, tokens alongside. Each agent call is charged to the workflow, station and
+  person current when it was made. A session page shows its spend against the per-session `budget:`
+  ceiling the factory's self-description names; no per-period or per-factory budget appears anywhere.
 
 ### Upgrade
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { ClaimView } from "@/convex/model/claim";
 import { liveness, type SteeringView } from "@/convex/model/command";
 import type { SessionView as View } from "@/convex/model/session";
@@ -12,7 +12,17 @@ import { actionFor, type Command } from "./action";
 import { Chapter, chapterAnchor, phaseAnchor } from "./Chapter";
 import { channelWords, glyphOf, toneOf } from "./words";
 
-export type Page = View & { factory: string; session: string; acked: number; forge: string };
+/** The per-session budget, as factory.yaml sets it: 0 for a ceiling it does not set. */
+export interface Budget {
+  maxCostUsd: number;
+  maxTokens: number;
+}
+
+export type Page = View & {
+  factory: string; session: string; acked: number; forge: string;
+  /** The ceiling its spend is shown against; null when no `asf check` reached the cockpit. */
+  budget?: Budget | null;
+};
 
 /**
  * The session page: a top bar with the one action that applies now, a sidebar
@@ -99,7 +109,7 @@ function Sidebar({ page, now, steering, claims, onRelease }: {
         </dd>
         <dt>Triggered by</dt><dd>{summary.triggeredBy || "—"}</dd>
         <dt>Started</dt><dd>{formatTime(summary.startedAt)}{ran !== null && ran >= 0 ? <span className="muted"> · {formatDuration(ran)}</span> : null}</dd>
-        <dt>Cost</dt><dd><b>{formatCost(summary.totalCost)}</b> <span className="muted">· {summary.totalTokens.toLocaleString()} tokens</span></dd>
+        <dt>Cost</dt><dd><Spent cost={summary.totalCost} tokens={summary.totalTokens} budget={page.budget ?? null} /></dd>
         <dt>Branch</dt><dd>{summary.branch ? <code>{summary.branch}</code> : "—"}</dd>
         <dt>Base</dt>
         <dd>{summary.baseRef ? <code>{summary.baseRef}</code> : "—"}{story.baseCommit ? <> at <code>{story.baseCommit.slice(0, 7)}</code></> : null}</dd>
@@ -130,6 +140,54 @@ function Sidebar({ page, now, steering, claims, onRelease }: {
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * What the session spent, against the per-session ceiling the factory
+ * enforces — in money and in tokens, each only where factory.yaml sets one —
+ * and never against anything else: no budget per period exists to show.
+ */
+function Spent({ cost, tokens, budget }: { cost: number; tokens: number; budget: Budget | null }) {
+  const money = `$${cost.toFixed(2)}`;
+  const counted = `${tokens.toLocaleString("en-US")} tokens`;
+  const note = <div className="muted small">list-price equivalent</div>;
+  if (budget === null || (!budget.maxCostUsd && !budget.maxTokens)) {
+    return (
+      <>
+        <b>{money}</b> <span className="muted">· {counted}</span>
+        <div className="muted small">
+          {budget === null ? "ceiling unknown: no asf check has reached the cockpit" : "no per-session budget"}
+        </div>
+        {note}
+      </>
+    );
+  }
+  return (
+    <>
+      <Against spent={cost} ceiling={budget.maxCostUsd}
+               words={budget.maxCostUsd ? <><b>{money}</b> of ${budget.maxCostUsd.toFixed(2)} per-session ceiling</>
+                 : <><b>{money}</b> · no cost ceiling</>} />
+      <Against spent={tokens} ceiling={budget.maxTokens}
+               words={budget.maxTokens ? <>{tokens.toLocaleString("en-US")} of {budget.maxTokens.toLocaleString("en-US")} tokens</>
+                 : <>{counted} · no token ceiling</>} />
+      {note}
+    </>
+  );
+}
+
+function Against({ spent, ceiling, words }: { spent: number; ceiling: number; words: ReactNode }) {
+  const share = ceiling ? spent / ceiling : null;
+  return (
+    <div className="against">
+      {words}
+      {share === null ? null : (
+        <>
+          <span className="muted"> · {Math.round(share * 100)}%</span>
+          <meter min={0} max={1} high={0.8} optimum={0} value={Math.min(share, 1)} />
+        </>
+      )}
+    </div>
   );
 }
 

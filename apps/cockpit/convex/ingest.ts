@@ -54,17 +54,20 @@ export const append = internalMutation({
       .withIndex("by_session_seq", (q) =>
         q.eq("factory", factory).eq("session", session).gt("seq", before).lte("seq", acked))
       .collect();
-    const summary = advance(readSummary(record?.summary), fresh);
+    const folded = readSummary(record?.summary);
+    const summary = advance(folded, fresh);
     // A station's `command_result` is what settles a command, never its sending.
     await settle(ctx, factory, fresh);
     // ...and its finish, or an abort, what frees the claim it was started under.
     await settleClaims(ctx, factory, session, fresh);
     const activity = Date.now();
-    for (const spent of spentIn(fresh, activity)) {
-      const bucket = await ctx.db
+    for (const spent of spentIn(fresh, folded, activity)) {
+      const buckets = await ctx.db
         .query("spend")
         .withIndex("by_session_at", (q) => q.eq("factory", factory).eq("session", session).eq("at", spent.at))
-        .unique();
+        .collect();
+      const bucket = buckets.find((row) => row.workflow === spent.workflow && row.station === spent.station &&
+                                           row.stationName === spent.stationName && row.person === spent.person) ?? null;
       if (bucket === null) await ctx.db.insert("spend", { factory, session, ...spent });
       else await ctx.db.patch(bucket._id, { cost: bucket.cost + spent.cost, tokens: bucket.tokens + spent.tokens });
     }

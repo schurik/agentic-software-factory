@@ -68,6 +68,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Link href="/factories">Factories</Link>
             <Link href="/sessions">Sessions</Link>
             <Link href="/stations">Stations</Link>
+            <Link href="/cost">Cost</Link>
           </nav>
         ) : null}
         <span className="who">

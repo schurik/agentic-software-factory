@@ -322,9 +322,29 @@ check, nobody watching. Drift there is measured against the commit the default b
 ran on, since a query cannot ask the forge; the Factory page measures against the forge's tip.
 
 Spend comes from the `usage` events: ingest adds each agent call's cost and tokens to a row per
-session and quarter hour (`spend`, `convex/model/spend.ts`) as the event becomes contiguous, so
-once however often a batch is resent. Every timezone in use is offset from UTC by a multiple of
-fifteen minutes, so a period starting at any viewer's midnight takes whole rows.
+session, quarter hour and **charge** (`spend`, `convex/model/spend.ts`) as the event becomes
+contiguous, so once however often a batch is resent. A call is charged to what was running when it
+was made — the workflow of its chapter, the station that ran it, the person who triggered the run —
+so a session that went on into a pull request's review spends in both workflows. Every timezone in
+use is offset from UTC by a multiple of fifteen minutes, so a period starting at any viewer's
+midnight takes whole rows.
+
+## Cost: who spent, and who asked
+
+`/cost`, and the Factory page's **Cost** tab for one factory, roll that spend up
+(`convex/cost.ts`) by **session**, **workflow** (a factory's own: two factories' `ship` are two),
+**factory**, **station** — whose machine and key paid, so it names the station's owner, the person
+who registered it — and **person**, who triggered the run. The two differ whenever a teammate's
+label is picked up by your watcher: your station paid, they asked. The period is today, this week
+or this month in the viewer's own timezone, month-to-date by default, or a range of calendar days
+there (`daysOf` in `convex/model/period.ts`). Every amount is labelled **list-price equivalent** —
+what the tokens would cost at the provider's list price, subscription or not — with the tokens
+alongside.
+
+No budget is shown there, because none exists per period or per factory: the factory enforces
+`budget:` per session only. The configured ceiling is in the Factory page's header and Workflows
+tab, from the factory's self-description, and each session page shows its spend against it, in
+money and in tokens — or says the ceiling is unknown when no `asf check` reached the cockpit.
 
 A local cockpit that knows one factory skips the list and opens its Factory page; a second factory
 brings the list back. A team's cockpit always shows the list.
@@ -343,7 +363,7 @@ kind is not `ci` is refused with a 403 — a checkout's own edits are what drift
 it is measured against.
 
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
-branch's commit, the check's state, flags, and Run a prompt — and four tabs.
+branch's commit, the check's state, flags, the per-session budget, and Run a prompt — and five tabs.
 
 **Activity**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
 that the viewer may answer (a link into the inbox, `/?factory=<owner>/<repo>`), the sessions that
@@ -365,6 +385,8 @@ drift. Opened, a station shows what it obeys, the commit it has out, the watcher
 the sessions it holds (live, suspended, or failed and so its to resume) and the claims it holds,
 each with Release claim. Every CI job is one **CI** entry: the sessions that ran in CI and the
 checks CI pushed.
+
+**Cost** is what the factory spent in a period, as `/cost` rolls it up (above).
 
 **Config** lists the files under `asf/` on the default branch, what the check said, and each
 station's drift. A factory no CI workflow ever described is **unchecked**, never broken.

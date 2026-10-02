@@ -265,3 +265,29 @@ describe("what a chapter was asked, in one line", () => {
     expect(firstLine("# Title\n\n<!-- a frame -->\n\nThe endpoint\nreturns 500.\n\nMore.\n")).toBe("The endpoint returns 500.");
   });
 });
+
+describe("the sidebar's cost", () => {
+  // The recorded session spent $0.463 and 27,100 tokens over its three chapters.
+  const against = (budget: Page["budget"]) => {
+    const html = renderToStaticMarkup(<SessionView page={{ ...page(RECORDED), budget }} now={LATER} />);
+    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  };
+
+  it("is spend against the factory's per-session ceiling, in money and in tokens", () => {
+    const text = against({ maxCostUsd: 2.5, maxTokens: 2_000_000 });
+    expect(text).toContain("$0.46 of $2.50 per-session ceiling · 19%");
+    expect(text).toContain("27,100 of 2,000,000 tokens · 1%");
+    expect(text).toContain("list-price equivalent");
+  });
+
+  it("names only the ceiling the factory sets, and says when it sets none", () => {
+    const text = against({ maxCostUsd: 0, maxTokens: 50_000 });
+    expect(text).toContain("$0.46 · no cost ceiling");
+    expect(text).toContain("27,100 of 50,000 tokens · 54%");
+    expect(against({ maxCostUsd: 0, maxTokens: 0 })).toContain("no per-session budget");
+  });
+
+  it("says no ceiling is known for a factory whose check never reached the cockpit", () => {
+    expect(against(null)).toContain("ceiling unknown: no asf check has reached the cockpit");
+  });
+});

@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { StoredEvent } from "./model/wire";
+import { defaultCheck, repoOf } from "./factory";
 import { forgeWeb } from "./forge/memory";
+import { readDescription } from "./model/description";
 import { phaseView, readSummary, view } from "./model/session";
 import { canRead, readable, viewing } from "./viewer";
 
@@ -33,14 +35,21 @@ export const list = query({
   },
 });
 
-/** One session's page: its summary, its phases in order and every stored event. */
+/**
+ * One session's page: its summary, its phases in order and every stored
+ * event, and the per-session budget its spend is shown against — the one the
+ * factory's own `asf check` on its default branch last said factory.yaml
+ * sets, null when none reached the cockpit.
+ */
 export const get = query({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, { factory, session, signIn }) => {
     const stored = await storedSession(ctx, factory, session, signIn);
     if (stored === null) return null;
     const page = view(stored.events, stored.acked);
-    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), ...page };
+    const check = await defaultCheck(ctx, stored.factory, (await repoOf(ctx, stored.factory))?.defaultBranch || null);
+    const budget = check && readDescription(check.description).budget;
+    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), budget, ...page };
   },
 });
 
