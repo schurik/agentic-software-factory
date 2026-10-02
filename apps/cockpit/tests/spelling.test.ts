@@ -90,7 +90,7 @@ describe("a factory its stations spell otherwise than the forge", () => {
     const later = await factory(t, "ACME/widgets");
     await ingest(t, later, { session: "r2", events: [started("r2")] });
 
-    const sessions = await t.query(api.sessions.list, { signIn: alex });
+    const { sessions } = (await t.query(api.sessions.list, { signIn: alex }))!;
     expect(new Set(sessions.map((row) => row.factory))).toEqual(new Set(["acme/widgets"]));
     expect((await t.query(api.factories.list, { signIn: alex }))?.factories[0].live).toBe(2);
   });
@@ -105,7 +105,7 @@ describe("a factory its stations spell otherwise than the forge", () => {
     const token = await factory(t, "acme/widgets");
     await ingest(t, token, { session: "r1", events: [started("r1")] });
 
-    const sessions = await t.query(api.sessions.list, { signIn: await signIn(t, forge, "alex") });
+    const { sessions } = (await t.query(api.sessions.list, { signIn: await signIn(t, forge, "alex") }))!;
     expect(sessions.map((row) => row.factory)).toEqual(["Acme/Widgets"]);
   });
 });

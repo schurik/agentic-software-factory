@@ -128,6 +128,17 @@ export function advance(summary: Summary, events: StoredEvent[]): Summary {
   return state.summary;
 }
 
+/** When a session ended, epoch ms: its finish, else its last event, else `activity` — when the cockpit last heard of it. */
+export function endedAt({ summary, activity }: { summary: Summary; activity: number }): number {
+  return at(summary.endedAt) ?? at(summary.lastEventAt) ?? activity;
+}
+
+/** A summary's timestamp in epoch ms; null when it has none. */
+export function at(ts: string): number | null {
+  const parsed = Date.parse(ts);
+  return ts && !Number.isNaN(parsed) ? parsed : null;
+}
+
 /** A stored summary, with anything a fold from an older cockpit never wrote filled in. */
 export function readSummary(stored: unknown): Summary {
   const summary = { ...EMPTY_SUMMARY, ...(isRecord(stored) ? stored : {}) } as Summary;
