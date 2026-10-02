@@ -64,6 +64,9 @@ They also tell every whole session under `tests/golden/sessions/` (recorded, nev
 one is `ASF_RECORD_SESSIONS=1 pytest tests/test_asf_golden_sessions.py`), and the session page's
 Journal view must match the `journal.md` recorded beside it byte for byte (`convex/model/journal.ts`
 is `engine/journal.py`'s `render`, in TypeScript).
+`tests/parity.test.tsx` holds the session page to everything the legacy visualizer showed, one test
+per item, over the session recorded under the old factory (its `provenance.md` says so): the
+visualizer and the trace db are deleted only while it is green.
 An inbox answer is a comment the factory's answers watcher reads, so its form is a contract too:
 `tests/golden/answers/` holds each rendering, which the cockpit renders byte for byte and
 `tests/test_asf_answers.py` proves the watcher hears as meant — change both ends in one PR.

@@ -95,10 +95,11 @@ describe("the finished session", () => {
 describe("a phase, one click from its tabs", () => {
   const html = renderToStaticMarkup(<SessionView page={page(RECORDED)} now={LATER} />);
 
-  it("offers every agent card and code row its details, closed until asked", () => {
+  it("offers every agent card, code row and the phase that read what a chapter was asked its details, closed until asked", () => {
     const { story } = page(RECORDED);
-    const phases = story.chapters.flatMap((chapter) => chapter.items)
+    const phases = story.chapters.flatMap((chapter) => [...(chapter.reader ? [chapter.reader] : []), ...chapter.items])
       .filter((item) => item.type === "agent" || item.type === "code");
+    expect(story.chapters.map((chapter) => chapter.reader?.name)).toEqual(["issue", "pr", "pr"]);
     expect(html.match(/<button[^>]*aria-expanded="false"[^>]*>details<\/button>/g)).toHaveLength(phases.length);
     expect(html).not.toContain('class="phase-tabs"');
   });

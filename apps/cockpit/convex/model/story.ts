@@ -156,6 +156,10 @@ export interface Chapter {
   reason: string;
   cost: number;
   asked: Asked | null;
+  // The code phase that read what was asked — the issue, or the threads. Its
+  // card IS the Asked card, so it is not among the items, but it is still a
+  // phase of the session: the page names it and opens it like any other.
+  reader: CodeItem | null;
   items: Item[];
 }
 
@@ -559,8 +563,7 @@ function item(phase: PhaseState, journal: Entry[]): Item {
              channel: phase.channel, issueNumber: phase.issueNumber, headSha: phase.headSha,
              summary: phase.gateSummary, decision: phase.decision, at: phase.askedAt || phase.at };
   }
-  const facts = { ...placed, owner: phase.owner, description: phase.description, status: phase.status,
-                  error: phase.error, duration: duration(phase) };
+  const facts = factsOf(phase);
   if (phase.kind === "agent") {
     const notes = journal
       .filter((entry) => entry.note !== null && entry.seq === phase.number && entry.phase === phase.name)
@@ -570,7 +573,17 @@ function item(phase: PhaseState, journal: Entry[]): Item {
              cost: phase.cost, tokens: phase.tokens, changedFiles: phase.changedFiles,
              artifacts: phase.artifacts, notes, replayed: phase.replayed };
   }
-  return { ...facts, type: "code", commits: phase.commits, commands: phase.commands };
+  return codeItem(phase);
+}
+
+/** What an agent card and a code row both say of their phase. */
+function factsOf(phase: PhaseState) {
+  return { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name, owner: phase.owner,
+           description: phase.description, status: phase.status, error: phase.error, duration: duration(phase) };
+}
+
+function codeItem(phase: PhaseState): CodeItem {
+  return { ...factsOf(phase), type: "code", commits: phase.commits, commands: phase.commands };
 }
 
 function answering(chapter: ChapterState): Answering | null {
@@ -590,7 +603,8 @@ export function finish(state: StoryState, summary: Summary): Story {
     const requester = mine.find((phase) => phase.request !== null);
     // The code phase that read the issue or the threads IS the chapter's Asked;
     // an agent or a gate that wrote a request did more than that, and keeps its card.
-    const shown = mine.filter((phase) => !(phase === requester && phase.kind === "code"));
+    const reader = requester?.kind === "code" ? requester : undefined;
+    const shown = mine.filter((phase) => phase !== reader);
     const items = [
       ...shown.map((phase) => item(phase, state.journal)),
       ...state.extras.filter(({ chapter }) => chapter === each.number).map(({ item }) => item),
@@ -603,7 +617,7 @@ export function finish(state: StoryState, summary: Summary): Story {
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
       endedAt: each.endedAt, status: each.status, reason: each.reason,
       cost: mine.reduce((total, phase) => total + phase.cost, 0),
-      asked: requester?.request ?? null, items,
+      asked: requester?.request ?? null, reader: reader ? codeItem(reader) : null, items,
     };
   });
 

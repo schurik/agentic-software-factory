@@ -217,7 +217,8 @@ function Checks({ detail }: { detail: PhaseDetail }) {
     ...checks.map((check) => ({ seq: check.seq, node: (
       <div className="check" key={`g${check.seq}`}>
         <span className={check.passed ? "ok" : "error"}>{check.passed ? "✓" : "✕"}</span> <b>{check.gate}</b>{" "}
-        <span className="muted">{check.replayed ? "on resume, checked against the record" : `attempt ${check.attempt}`}</span>
+        <span className="muted">{check.replayed ? "on resume, checked against the record" : `attempt ${check.attempt}`}
+          {" · "}{formatClock(check.at)}</span>
         {check.checks.length ? (
           <ul className="plain">
             {check.checks.map((each, index) => (

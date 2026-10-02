@@ -225,6 +225,7 @@ function Outline({ story }: { story: Story }) {
           <a className="oc" href={`#${chapterAnchor(chapter.number)}`}>
             {chapter.number ? `${chapter.number} · ` : ""}{chapter.title}
           </a>
+          {chapter.reader ? <OutlineEntry item={chapter.reader} /> : null}
           {chapter.items.map((item) => <OutlineEntry key={`${item.type}-${item.seq}`} item={item} />)}
         </div>
       ))}
