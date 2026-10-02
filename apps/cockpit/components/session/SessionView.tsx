@@ -6,7 +6,9 @@ import type { Budget } from "@/convex/model/description";
 import { liveness, type SteeringView } from "@/convex/model/command";
 import type { SessionView as View } from "@/convex/model/session";
 import type { Item, Story } from "@/convex/model/story";
+import type { Purged } from "@/convex/retention";
 import { ClaimRow } from "../ClaimRow";
+import { Purge } from "../Purge";
 import { Status } from "../Status";
 import { formatAgo, formatCost, formatDollars, formatDuration, formatTime, formatTokens, pretty } from "../format";
 import { actionFor, type Command } from "./action";
@@ -17,6 +19,8 @@ export type Page = View & {
   factory: string; session: string; acked: number; forge: string;
   /** The ceiling its spend is shown against; null when no `asf check` reached the cockpit. */
   budget: Budget | null;
+  /** Whether the viewer may purge its bodies: an admin of its repository. */
+  mayPurge?: boolean;
 };
 
 /**
@@ -27,7 +31,7 @@ export type Page = View & {
  * Pure: everything it shows comes from `page` and the clock `now`, so a test
  * renders it from a golden session with no backend (tests/sessionview.test.tsx).
  */
-export function SessionView({ page, now, steering, onCommand, claims, onRelease }: {
+export function SessionView({ page, now, steering, onCommand, claims, onRelease, onPurge }: {
   page: Page;
   now: number;
   /** The station's side of it (commands.steering): undefined while it is asked for. */
@@ -38,6 +42,8 @@ export function SessionView({ page, now, steering, onCommand, claims, onRelease 
   claims?: ClaimView[];
   /** Release one, confirmed. */
   onRelease?: (claim: ClaimView) => void;
+  /** Purge the session's bodies, for why. Offered only where the page says the viewer may. */
+  onPurge?: (reason: string) => Promise<Purged>;
 }) {
   const { summary, story, session, factory } = page;
   const action = actionFor(factory, session, summary, story, steering, now);
@@ -70,7 +76,7 @@ export function SessionView({ page, now, steering, onCommand, claims, onRelease 
       ) : null}
 
       <div className="layout">
-        <Sidebar page={page} now={now} steering={steering ?? null} claims={claims ?? []} onRelease={onRelease} />
+        <Sidebar page={page} now={now} steering={steering ?? null} claims={claims ?? []} onRelease={onRelease} onPurge={onPurge} />
         <div className="story">
           <NowCard story={story} status={summary.status} cost={summary.totalCost} />
           {story.chapters.map((chapter) => (
@@ -84,8 +90,9 @@ export function SessionView({ page, now, steering, onCommand, claims, onRelease 
   );
 }
 
-function Sidebar({ page, now, steering, claims, onRelease }: {
+function Sidebar({ page, now, steering, claims, onRelease, onPurge }: {
   page: Page; now: number; steering: SteeringView | null; claims: ClaimView[]; onRelease?: (claim: ClaimView) => void;
+  onPurge?: (reason: string) => Promise<Purged>;
 }) {
   const [tab, setTab] = useState<"outline" | "journal">("outline");
   const { summary, story } = page;
@@ -134,6 +141,10 @@ function Sidebar({ page, now, steering, claims, onRelease }: {
           </p>
         </div>
       )}
+      {page.mayPurge && onPurge ? (
+        <Purge label="Purge bodies" onPurge={onPurge}
+               explains="Removes every artifact's content, every command's output and the transcript from this cockpit. The events stay — phases, gates, decisions, cost — and so does a line saying who purged them, when and why." />
+      ) : null}
     </aside>
   );
 }

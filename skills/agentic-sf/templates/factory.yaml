@@ -39,6 +39,13 @@ observability:
 # harness, tool arguments and results included. It is large, it holds whatever
 # an agent read, and it is off until this says otherwise.
 #
+# A cockpit keeps a transcript for a while after its session finishes — 30 days
+# unless its deployment says otherwise — and then ages it out: the events stay,
+# their bodies go, and the Transcript tab says when. `transcript_retention_days`
+# can only shorten that (the cockpit keeps the lower of the two); unset, the
+# cockpit's own maximum applies. Everything else a session sends is kept until
+# someone purges it.
+#
 # `commands` is which COMMANDS this factory's stations carry out when a cockpit
 # asks — steering the forge cannot carry, from the closed set:
 #   kill     stop a live run
@@ -54,6 +61,7 @@ observability:
 # owner's already).
 cockpit:
   transcripts: false
+  # transcript_retention_days: 7
   commands: [answer, abort, kill, resume]
 
 # Every run gets its own git worktree on its own branch, cut from a base ref

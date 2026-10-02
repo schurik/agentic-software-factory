@@ -19,7 +19,10 @@ set -eu
 #                        so it is never on a command line.
 #   COCKPIT_APP_URL      where people open these pages: a station registering
 #                        with this cockpit prints its approval link here.
-for name in COCKPIT_MODE COCKPIT_FORGE_HOST COCKPIT_FORGE_TOKEN COCKPIT_APP_URL; do
+#   COCKPIT_TRANSCRIPT_DAYS  how many days a finished session's transcript is
+#                        kept before it ages out; 30 when unset. A factory's
+#                        factory.yaml can only shorten it.
+for name in COCKPIT_MODE COCKPIT_FORGE_HOST COCKPIT_FORGE_TOKEN COCKPIT_APP_URL COCKPIT_TRANSCRIPT_DAYS; do
   eval "value=\${$name:-}"
   if [ -n "$value" ]; then
     printf '%s' "$value" | ./convex.sh env set "$name" > /dev/null
@@ -33,6 +36,10 @@ done
 # Sessions an older cockpit stored carry no `waiting` mark, which is what the
 # inbox finds a waiting session by; this marks them, and then has nothing to do.
 ./convex.sh run inbox:backfill > /dev/null 2>&1 || echo "start: the inbox's backfill did not run; older waiting sessions are missing from it"
+
+# Transcripts of sessions an older cockpit stored are found, and every one
+# still held is dated again under COCKPIT_TRANSCRIPT_DAYS as it is now.
+./convex.sh run retention:backfill > /dev/null 2>&1 || echo "start: the retention backfill did not run; transcripts stored before it may not age out"
 
 # The forge catch-up poll, once as the deployment starts: a cockpit that was
 # down missed whatever GitHub delivered meanwhile, and GitHub does not send it

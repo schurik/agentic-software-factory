@@ -1,3 +1,4 @@
+import { type Pruned, prunedWord } from "@/convex/model/retention";
 import type { WaitingFor } from "@/convex/model/session";
 
 export function sessionHref(factory: string, session: string): string {
@@ -93,4 +94,16 @@ export function pretty(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+/** "3 Oct 2026": the day `ts` fell on, in UTC, so every viewer reads the same day. */
+export function formatDay(ts: string): string {
+  const date = new Date(ts);
+  if (!ts || Number.isNaN(date.getTime())) return "an unknown day";
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/** What became of a pruned body (`model/retention.ts`): "transcript aged out on 3 Oct 2026", "content purged on … by alex". */
+export function formatPruned(what: string, pruned: Pruned): string {
+  return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${pruned.by}` : ""}`;
 }

@@ -291,3 +291,18 @@ describe("the sidebar's cost", () => {
     expect(against(null)).toContain("ceiling unknown: no asf check has reached the cockpit");
   });
 });
+
+describe("purging the session's bodies", () => {
+  const rendered = (mayPurge: boolean) => renderToStaticMarkup(
+    <SessionView page={{ ...page(RECORDED), mayPurge }} now={LATER} onPurge={async () => ({ ok: true })} />);
+
+  it("is offered to an admin of its repository, behind a reason", () => {
+    const html = rendered(true);
+    expect(html).toContain("Purge bodies");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Purge bodies<\/button>/);
+  });
+
+  it("is not offered to anyone else", () => {
+    expect(rendered(false)).not.toContain("Purge bodies");
+  });
+});

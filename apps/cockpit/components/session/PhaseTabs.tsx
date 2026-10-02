@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import type { Read } from "@/convex/artifacts";
 import { type Artifact, type PhaseDetail, READ_BYTES } from "@/convex/model/phase";
-import { formatBytes, formatClock, formatCost, formatDuration, formatTime, pretty } from "../format";
+import { prunedWord } from "@/convex/model/retention";
+import { formatBytes, formatClock, formatCost, formatDuration, formatPruned, formatTime, pretty } from "../format";
 
 /** Which session a phase is of, and the forge's web origin its links go to ("" when unknown). */
 export interface Where {
@@ -55,7 +56,8 @@ export function PhaseTabs({ detail, where, initial, read }: {
       <div className="tabs" role="tablist">
         {tabs.map((each) => (
           <button key={each} role="tab" aria-selected={each === shown} onClick={() => setTab(each)}>
-            {TABS[each]}{each === "transcript" && !detail.transcript.on ? <span className="off"> · off</span> : null}
+            {TABS[each]}{each === "transcript" && !detail.transcript.on ? <span className="off"> · off</span>
+              : each === "transcript" && detail.transcript.pruned ? <span className="off"> · {prunedWord(detail.transcript.pruned.reason)}</span> : null}
           </button>
         ))}
       </div>
@@ -116,6 +118,9 @@ function ArtifactCard({ artifact, where, read }: { artifact: Artifact; where: Wh
 }
 
 function HandoffFile({ artifact }: { artifact: Artifact }) {
+  if (artifact.pruned) {
+    return <p className="art-b muted">Not shown: its {formatPruned("content", artifact.pruned)} ({formatBytes(artifact.size)}).</p>;
+  }
   if (artifact.truncated && artifact.content === "") {
     return <p className="art-b muted">Not text: the factory did not send it ({formatBytes(artifact.size)}).</p>;
   }
@@ -235,7 +240,8 @@ function Checks({ detail }: { detail: PhaseDetail }) {
         <span className={command.exitCode ? "error" : "ok"}>{command.exitCode ? "✕" : "✓"}</span> <b>{command.name}</b>{" "}
         <code>{command.argv.join(" ")}</code>
         <span className="muted"> · exit {command.exitCode} · {formatDuration(command.durationSeconds)}</span>
-        {command.outputTail ? <pre>{command.outputTail}</pre> : null}
+        {command.pruned ? <p className="muted small">Its {formatPruned("output", command.pruned)}.</p>
+          : command.outputTail ? <pre>{command.outputTail}</pre> : null}
       </div>
     ) })),
   ].sort((a, b) => a.seq - b.seq);
@@ -294,6 +300,16 @@ function Transcript({ detail }: { detail: PhaseDetail }) {
           Transcripts are off for this factory: the session shipped no prompt and no harness output.{" "}
           <code>cockpit: {"{transcripts: true}"}</code> in <code>asf/factory.yaml</code> turns them on.
         </p>
+      </>
+    );
+  }
+  if (transcript.pruned) {
+    return (
+      <>
+        <p className="off-box">This {formatPruned("transcript", transcript.pruned)}: the prompts this phase sent and its
+          harness&apos;s output are no longer kept.{transcript.pruned.reason === "aged_out"
+            ? " A finished session's transcript is kept for as long as the cockpit's retention allows." : ""}</p>
+        {detail.promptDigest ? <p className="muted small">The prompt&apos;s digest was <code>{detail.promptDigest.slice(0, 16)}</code>.</p> : null}
       </>
     );
   }

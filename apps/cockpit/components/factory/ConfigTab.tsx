@@ -1,8 +1,15 @@
+import type { FunctionReturnType } from "convex/server";
 import type { ReactNode } from "react";
+import type { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
 import type { Drift } from "@/convex/model/drift";
-import { formatAgo } from "../format";
+import type { Purged } from "@/convex/retention";
+import { formatAgo, formatTime } from "../format";
+import { Purge } from "../Purge";
 import { type Page, short } from "./view";
+
+/** One line of a factory's purge audit (`retention.purges`). */
+export type PurgeLine = NonNullable<FunctionReturnType<typeof api.retention.purges>>[number];
 
 /**
  * The Config tab: the factory's config as the default branch holds it (the
@@ -12,7 +19,7 @@ import { type Page, short } from "./view";
  * station's drift from it. Pure: the page's query, the forge look, the drifts
  * and the editor come in as props.
  */
-export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor }: {
+export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purges, onPurge }: {
   page: Page;
   look: Look | null;
   drifts: Map<string, Drift>;
@@ -23,6 +30,10 @@ export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor }: {
   onEdit?: (path: string) => void;
   /** The editor, when a file is open in it. */
   editor?: ReactNode;
+  /** Every purge of the factory's bodies, newest first. */
+  purges?: PurgeLine[] | null;
+  /** Purge every session's bodies, for why: offered to an admin, and done for an owner of the account. */
+  onPurge?: (reason: string) => Promise<Purged>;
 }) {
   const { check } = page;
   const tip = look?.ok ? look.tip : null;
@@ -121,6 +132,34 @@ export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor }: {
             </tbody>
           </table>
         )}
+      </section>
+
+      <section>
+        <h2>Retention</h2>
+        <p className="muted small">
+          A session&apos;s events are kept for good. A transcript ages out once its session has been finished as long as the
+          cockpit allows — <code>cockpit.transcript_retention_days</code> in <code>asf/factory.yaml</code> can only shorten
+          that — and the bodies of every session can be purged, with a line below saying who did it, when and why.
+        </p>
+        {purges && purges.length ? (
+          <table className="table small">
+            <thead><tr><th>when</th><th>what</th><th>by</th><th>why</th></tr></thead>
+            <tbody>
+              {purges.map((line) => (
+                <tr key={`${line.at}-${line.session}`}>
+                  <td>{formatTime(new Date(line.at).toISOString())}</td>
+                  <td>{line.session ? <>session <code>{line.session}</code></> : "every session"}</td>
+                  <td>{line.via === "deployment" ? "the deployment's CLI" : line.by}</td>
+                  <td>{line.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p className="muted small">Nothing has been purged.</p>}
+        {page.role === "admin" && onPurge ? (
+          <Purge label="Purge every session's bodies" onPurge={onPurge}
+                 explains={`Removes every artifact's content, every command's output and every transcript of ${page.repo} from this cockpit, for every session. It takes an owner of ${page.repo.split("/")[0]}; the events, the cost and the audit line stay.`} />
+        ) : null}
       </section>
     </>
   );

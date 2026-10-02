@@ -28,6 +28,7 @@
  */
 import { file, readEntry, render, type Entry, type Note } from "./journal";
 import type { Payload } from "./payload";
+import { prunedOf, type Pruned } from "./retention";
 import type { Summary } from "./session";
 
 // ── what the page gets ───────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ export interface Asked {
   size: number;
   content: string;
   truncated: boolean;
+  pruned: Pruned | null;  // its content purged (retention.ts)
 }
 
 export interface Chip {
@@ -57,6 +59,7 @@ export interface Command {
   exitCode: number;
   durationSeconds: number;
   outputTail: string;
+  pruned: Pruned | null;  // its output tail purged
 }
 
 export interface Decision {
@@ -365,6 +368,7 @@ const TELLERS: Record<string, Record<number, Teller>> = {
   session_started: {
     1: tellStarted,
     2: tellStarted,                 // v2 adds station_kind, which the story has no use for
+    3: tellStarted,                 // v3 adds the transcript's retention: the summary's, not the story's
   },
   workflow_started: {
     1: (state, p, { ts }) => {
@@ -439,7 +443,7 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     1: withPhase((phase, p) => {
       if (p.str("role") === "request" && phase.request === null) {
         phase.request = { path: p.str("path"), size: p.num("size"), content: p.str("content"),
-                          truncated: p.bool("truncated") };
+                          truncated: p.bool("truncated"), pruned: prunedOf(p) };
       } else if (!phase.artifacts.some((chip) => chip.path === p.str("path"))) {
         phase.artifacts.push({ path: p.str("path"), location: p.str("location"), size: p.num("size") });
       }
@@ -453,7 +457,8 @@ const TELLERS: Record<string, Record<number, Teller>> = {
   command_finished: {
     1: withPhase((phase, p) => {
       phase.commands.push({ name: p.str("name"), argv: p.strs("argv"), exitCode: p.num("exit_code"),
-                            durationSeconds: p.num("duration_seconds"), outputTail: p.str("output_tail") });
+                            durationSeconds: p.num("duration_seconds"), outputTail: p.str("output_tail"),
+                            pruned: prunedOf(p) });
     }),
   },
   gate_opened: { 1: (state, p, at) => asked(state, p.obj("waiting_for"), at) },

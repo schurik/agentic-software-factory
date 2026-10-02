@@ -3,7 +3,7 @@ import type {
   AgentItem, Asked, AutomaticItem, Chapter as ChapterData, CodeItem, GateItem, Item, ResumedItem,
 } from "@/convex/model/story";
 import { Status } from "../Status";
-import { formatClock, formatCost, formatDuration } from "../format";
+import { formatClock, formatCost, formatDuration, formatPruned } from "../format";
 import { PhaseDetails } from "./PhaseDetails";
 import type { Where } from "./PhaseTabs";
 import { channelWords, pillOf, toneOf } from "./words";
@@ -43,8 +43,8 @@ function AskedCard({ asked }: { asked: Asked }) {
         <span className="label">Asked</span> <code className="muted">{asked.path.split("/").pop()}</code>
         <span className="first">{firstLine(asked.content)}</span>
       </summary>
-      <pre>{asked.content}</pre>
-      {asked.truncated ? <p className="muted small">Cut at the factory&apos;s cap: the file was {asked.size} bytes.</p> : null}
+      {asked.pruned ? <p className="muted small">Its {formatPruned("content", asked.pruned)}.</p> : <pre>{asked.content}</pre>}
+      {asked.truncated && !asked.pruned ? <p className="muted small">Cut at the factory&apos;s cap: the file was {asked.size} bytes.</p> : null}
     </details>
   );
 }
@@ -168,7 +168,8 @@ function CodeRow({ phase, where }: { phase: CodeItem; where: Where }) {
           <span className="muted small">{formatDuration(phase.duration)}</span>
           {toggle}
         </div>
-        {failed?.outputTail ? <pre className="tail">{failed.outputTail}</pre> : null}
+        {failed?.pruned ? <p className="muted small">Its {formatPruned("output", failed.pruned)}.</p>
+          : failed?.outputTail ? <pre className="tail">{failed.outputTail}</pre> : null}
         {phase.error ? <div className="error small">{phase.error}</div> : null}
         {opened !== null ? (
           <div className="detail boxed"><PhaseDetails phaseId={phase.phaseId} where={where} /></div>

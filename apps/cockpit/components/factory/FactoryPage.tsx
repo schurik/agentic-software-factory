@@ -47,6 +47,8 @@ export function FactoryPage({ factory }: { factory: string }) {
   const happening = useQuery(api.activity.page, { factory, signIn });
   const stations = useQuery(api.activity.stations, { factory, signIn });
   const release = useAction(api.claims.release);
+  const purges = useQuery(api.retention.purges, { factory, signIn });
+  const purge = useAction(api.retention.purgeFactory);
   const [released, setReleased] = useState("");
   const [station, setStation] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("activity");
@@ -121,7 +123,8 @@ export function FactoryPage({ factory }: { factory: string }) {
         <CostPanel factory={factory} />
       </div>
       <div hidden={tab !== "config"}>
-        <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now}
+        <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges}
+                   onPurge={(reason) => purge({ factory, reason, signIn })}
                    onEdit={(path) => {
                      const base = editing?.base ?? (look?.ok ? look.tip : null);
                      if (base) setEditing({ path, base });

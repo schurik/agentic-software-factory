@@ -96,6 +96,12 @@ export interface Forge {
   /** Every repository that person reaches through this forge, and as what. */
   reach(): Promise<Reach[]>;
   /**
+   * Whether that person owns the account `account`: is that user, or an owner
+   * of that organization. Asked as the person and never remembered — it is
+   * asked to authorize something.
+   */
+  owns(account: string): Promise<boolean>;
+  /**
    * The bytes of `path` in `repo` at the commit `ref`, or null when the forge
    * will not show it there. A commit, never a branch: what a session wrote is
    * read where it was committed, not wherever the branch has moved since.

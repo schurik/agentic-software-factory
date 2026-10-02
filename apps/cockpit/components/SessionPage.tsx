@@ -25,6 +25,7 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const resume = useMutation(api.commands.resume);
   const claims = useQuery(api.claims.ofSession, { factory, session, signIn });
   const release = useAction(api.claims.release);
+  const purge = useMutation(api.retention.purgeSession);
   const [problem, setProblem] = useState("");
   const [released, setReleased] = useState("");
   const now = useClock();
@@ -56,7 +57,8 @@ export function SessionPage({ factory, session }: { factory: string; session: st
     <>
       {problem ? <p className="notice">{problem}</p> : null}
       {released ? <p className="notice">{released}</p> : null}
-      <SessionView page={page} now={now} steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease} />
+      <SessionView page={page} now={now} steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
+                   onPurge={(reason) => purge({ factory, session, reason, signIn })} />
     </>
   );
 }

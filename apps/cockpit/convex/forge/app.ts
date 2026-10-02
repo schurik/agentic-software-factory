@@ -75,7 +75,9 @@ export function manifest({ appUrl, siteUrl, organization }: Registration): Recor
     callback_urls: [`${appUrl}/auth/callback`],
     setup_url: `${appUrl}/factories`,
     request_oauth_on_install: false,
-    default_permissions: { metadata: "read", contents: "write", issues: "write", pull_requests: "write" },
+    // `members`: whether a person owns the organization a factory's repository is
+    // in — who may purge a whole factory (retention.ts).
+    default_permissions: { metadata: "read", contents: "write", issues: "write", pull_requests: "write", members: "read" },
     ...(deliverable(webhook) ? {
       hook_attributes: { url: webhook, active: true },
       default_events: ["push", "repository", "issues", "issue_comment", "pull_request", "pull_request_review"],
@@ -366,6 +368,8 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       return github.issue(await asInstallation(installation), repo, number);
     },
     person: () => github.one(asUser(), "/user", readPerson),
+    // Whether they own an organization is theirs to show, and needs the App to read members.
+    owns: (account) => github.owns(asUser(), account),
     // On the person's own token, so the comment is theirs — and GitHub shows it was made through the App.
     comment: (repo, number, body) => github.comment(asUser(), repo, number, body),
     // The same for a label: the forge's `labeled` event is what the factory records as the trigger.

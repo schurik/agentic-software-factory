@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { settleClaims } from "./claims";
 import { settle } from "./commands";
+import { retained } from "./model/retention";
 import { advance, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
@@ -72,8 +73,10 @@ export const append = internalMutation({
       else await ctx.db.patch(bucket._id, { cost: bucket.cost + spent.cost, tokens: bucket.tokens + spent.tokens });
     }
     const waiting = summary.waitingFor !== null;
-    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting });
-    else await ctx.db.patch(record._id, { acked, summary, activity, waiting });
+    // Whether it holds a transcript, and from when that ages out (retention.ts).
+    const transcript = retained(record === null ? false : record.transcripts, fresh, summary);
+    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting, ...transcript });
+    else await ctx.db.patch(record._id, { acked, summary, activity, waiting, ...transcript });
     return { acked };
   },
 });

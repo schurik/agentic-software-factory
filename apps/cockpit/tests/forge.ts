@@ -155,6 +155,7 @@ export class FakeForge {
   private readonly installations: Installation[] = [];
   private readonly manifestCodes = new Map<string, App>();
   private readonly grants = new Map<string, string>();      // an OAuth code or refresh token → login
+  private readonly owners = new Map<string, Set<string>>(); // an organization → the logins that own it
   private ids = 1000;
   private pushes = 0;
   private minted = 0;
@@ -204,6 +205,13 @@ export class FakeForge {
       manifest,
     });
     return code;
+  }
+
+  /** `login` made an owner of the organization `org`. */
+  owner(org: string, login: string): void {
+    const owners = this.owners.get(org.toLowerCase()) ?? new Set<string>();
+    owners.add(login);
+    this.owners.set(org.toLowerCase(), owners);
   }
 
   /** The App installed on an account, on all of its repositories or on the ones named. */
@@ -425,6 +433,18 @@ export class FakeForge {
         id: person.id, login: person.login, name: person.name,
         avatar_url: `https://${this.host}/avatars/${person.login}`,
       });
+    }
+    const membership = /^\/user\/memberships\/orgs\/([^/]+)$/.exec(path);
+    if (membership && method === "GET" && (bearer.kind === "person" || bearer.kind === "user")) {
+      // A user token through the App is shown a membership only when the App may read members.
+      const permissions = this.app?.manifest.default_permissions as Record<string, string> | undefined;
+      if (bearer.kind === "user" && !permissions?.members) {
+        return this.reply(request, token, 403, { message: "Resource not accessible by integration" });
+      }
+      const org = membership[1].toLowerCase();
+      if (!this.owners.has(org)) return this.reply(request, token, 404, { message: "Not Found" });
+      const role = this.owners.get(org)!.has(bearer.login) ? "admin" : "member";
+      return this.reply(request, token, 200, { state: "active", role, organization: { login: membership[1] } });
     }
     if (method === "GET" && path === "/user/repos" && bearer.kind === "person") {
       const reachable = this.sorted().filter((repo) => repo.roles[bearer.login] !== undefined)

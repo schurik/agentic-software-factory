@@ -212,7 +212,13 @@ stage that adds to this: commit through `run.commit(ph.phase, message)`, not
 and what an agent declares in `artifacts` is what is shipped, once its envelope
 is accepted. The prompts themselves and the harness's raw stream are the
 transcript (`prompt_rendered`, `harness_output`), written only under
-`cockpit: {transcripts: true}` and only through `Run.transcript`.
+`cockpit: {transcripts: true}` and only through `Run.transcript`. A cockpit
+ages a transcript out once its session has been finished for as long as the
+deployment allows (30 days by default); `cockpit.transcript_retention_days`
+can only shorten that, and travels on every `session_started`, so the limit
+holds wherever the session's events go. Aging out replaces an event's body
+with a `pruned` marker and keeps the event — which is why no view but the
+cockpit's Transcript tab may be built from a transcript body.
 
 ### Publishing
 

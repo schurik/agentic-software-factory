@@ -210,7 +210,7 @@ describe("the Transcript tab", () => {
 
     const { transcript } = await phase(t, "a9f259f0_05_plan_revise_1");
 
-    expect(transcript).toEqual({ on: false, runs: [] });
+    expect(transcript).toEqual({ on: false, runs: [], pruned: null });
   });
 });
 
