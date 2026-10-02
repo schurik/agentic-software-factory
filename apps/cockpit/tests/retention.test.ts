@@ -142,6 +142,21 @@ describe("a transcript", () => {
     expect((await payloads(t))[3].pruned).toBeUndefined();
   });
 
+  it("ages out behind any number of sessions with no transcript to age out", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    // More running sessions, and finished ones that sent no transcript, than one run of the cron takes.
+    for (let index = 0; index < 60; index += 1) {
+      const events = index % 2 ? [started(1, 0)] : [started(1, 0), fixture("session_finished", 2)];
+      expect((await ingest(t, token, { session: `quiet${index}`, events })).status).toBe(200);
+    }
+    await ship(t, token, finished());
+
+    await ageOutAt(t, 31 * DAY);
+
+    expect((await payloads(t))[3].pruned).toMatchObject({ reason: "aged_out" });
+  });
+
   it("of a session stored before retention existed ages out once the backfill has found it", async () => {
     const t = cockpit();
     await ship(t, await factory(t), finished());
@@ -298,6 +313,18 @@ describe("purging a factory", () => {
       .toEqual({ ok: false, because: "purging a factory takes an owner of acme, and the forge does not say you are one" });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect((await payloadsAs(t, alex))[5].pruned).toBeUndefined();
+  });
+
+  it("says so when the team's App was registered without leave to read who owns the organization", async () => {
+    const forge = forgeOfAcme();
+    const t = await teamWithSessions(forge);
+    const olive = await signIn(t, forge, "olive");
+    const permissions = forge.app!.manifest.default_permissions as Record<string, string>;
+    delete permissions.members;
+
+    const refused = await t.action(api.retention.purgeFactory, { factory: WHERE.factory, reason: "gone", signIn: olive });
+
+    expect(refused).toMatchObject({ ok: false, because: expect.stringContaining("Members: read") });
   });
 
   it("is done from the deployment's CLI with no forge permission at all, and audited", async () => {

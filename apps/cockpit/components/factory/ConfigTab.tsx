@@ -1,10 +1,15 @@
+import type { FunctionReturnType } from "convex/server";
 import type { ReactNode } from "react";
+import type { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
 import type { Drift } from "@/convex/model/drift";
 import type { Purged } from "@/convex/retention";
 import { formatAgo, formatTime } from "../format";
 import { Purge } from "../Purge";
 import { type Page, short } from "./view";
+
+/** One line of a factory's purge audit (`retention.purges`). */
+export type PurgeLine = NonNullable<FunctionReturnType<typeof api.retention.purges>>[number];
 
 /**
  * The Config tab: the factory's config as the default branch holds it (the
@@ -14,15 +19,6 @@ import { type Page, short } from "./view";
  * station's drift from it. Pure: the page's query, the forge look, the drifts
  * and the editor come in as props.
  */
-/** One line of a factory's purge audit (`retention.purges`). */
-export interface PurgeLine {
-  session: string;
-  by: string;
-  via: string;
-  reason: string;
-  at: number;
-}
-
 export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purges, onPurge }: {
   page: Page;
   look: Look | null;

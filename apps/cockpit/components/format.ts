@@ -1,3 +1,4 @@
+import { type Pruned, prunedWord } from "@/convex/model/retention";
 import type { WaitingFor } from "@/convex/model/session";
 
 export function sessionHref(factory: string, session: string): string {
@@ -103,7 +104,6 @@ export function formatDay(ts: string): string {
 }
 
 /** What became of a pruned body (`model/retention.ts`): "transcript aged out on 3 Oct 2026", "content purged on … by alex". */
-export function formatPruned(what: string, pruned: { on: string; reason: string; by: string }): string {
-  const done = pruned.reason === "purged" ? "purged" : "aged out";
-  return `${what} ${done} on ${formatDay(pruned.on)}${pruned.by ? ` by ${pruned.by}` : ""}`;
+export function formatPruned(what: string, pruned: Pruned): string {
+  return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${pruned.by}` : ""}`;
 }

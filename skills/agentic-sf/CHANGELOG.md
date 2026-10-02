@@ -271,6 +271,10 @@ the block). A stage of your own that calls `git_helper.commit_all` still commits
 to a cockpit until it calls `run.commit(ph.phase, message)` instead. A cockpit keeps a transcript
 for 30 days after its session finishes; to keep it for less, add `transcript_retention_days: <days>`
 under `cockpit:` by hand. A session started before the re-stamp is kept for the cockpit's maximum.
+A team's cockpit whose GitHub App was registered before this release cannot tell an organization's
+owners, so purging a whole factory from it is refused until the App is granted *Organization
+permissions → Members: read* in its settings on GitHub and the installation accepts it; the
+deployment's CLI purges a factory without it.
 
 Once a cockpit is configured, a re-stamped factory pushes each session's branch as it is created. To
 keep branches on the machine until they are integrated, add `publish: on_integrate` under

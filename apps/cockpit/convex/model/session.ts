@@ -14,7 +14,7 @@
 import { v, type Infer } from "convex/values";
 import { Payload } from "./payload";
 import { beginDetail, detail, finishDetail, type DetailState, type PhaseDetail } from "./phase";
-import { prunedOf } from "./retention";
+import { prunedOf, prunedWord } from "./retention";
 import { begin, finish, tell, type Story, type StoryState } from "./story";
 import { isRecord, type StoredEvent } from "./wire";
 
@@ -224,7 +224,7 @@ const describePhaseStarted = (p: Payload) =>
 function travelled(p: Payload): string {
   if (p.str("location") === "repo") return "in the repository";
   const pruned = prunedOf(p);
-  if (pruned !== null) return `${pruned.reason === "purged" ? "purged" : "aged out"} since`;
+  if (pruned !== null) return `${prunedWord(pruned.reason)} since`;
   if (!p.bool("truncated")) return "inline";
   return p.str("content") === "" ? "not text, not sent" : "inline, cut at the cap";
 }

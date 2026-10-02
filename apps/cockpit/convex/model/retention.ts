@@ -69,6 +69,11 @@ export function prune(kind: string, payload: string, pruned: Pruned): string | n
   return JSON.stringify(kept);
 }
 
+/** How a person reads why a body went: "purged", "aged out". */
+export function prunedWord(reason: PruneReason): string {
+  return reason === "purged" ? "purged" : "aged out";
+}
+
 /** The marker on a pruned event, or null for one whose body is still here. */
 export function prunedOf(p: Payload): Pruned | null {
   const marker = p.obj("pruned");

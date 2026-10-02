@@ -27,7 +27,7 @@
  */
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, type MutationCtx, query } from "./_generated/server";
 import { roleOf } from "./commands";
 import { ForgeError } from "./forge/github";
@@ -64,7 +64,9 @@ export const ageOut = internalMutation({
     const now = Date.now();
     const due = await ctx.db
       .query("sessions")
-      .withIndex("by_transcripts_due", (q) => q.lte("transcriptsDue", now))
+      // From 0: an unset due date sorts below every number, and a session
+      // that holds no transcript, or still runs, must not fill the take.
+      .withIndex("by_transcripts_due", (q) => q.gte("transcriptsDue", 0).lte("transcriptsDue", now))
       .take(DUE_PER_RUN);
     for (const record of due) {
       const dated = agesOutAt(readSummary(record.summary));
@@ -183,13 +185,15 @@ function nameless(who: Viewing): string | null {
     : "this cockpit holds no forge token to say who purged: `gh auth login`, then `asf up` again";
 }
 
+/** A purge as its audit line records it, before it is dated. */
+type Purge = Omit<Doc<"purges">, "_id" | "_creationTime" | "at">;
+
 /**
  * Write the audit line, then sweep: one session's events, or — with no
  * session named — every event of the factory, under every spelling it was
  * ever stored by.
  */
-async function purge(ctx: MutationCtx, factory: string, session: string, by: string,
-                     via: "cockpit" | "deployment", reason: string): Promise<void> {
+async function purge(ctx: MutationCtx, { factory, session, by, via, reason }: Purge): Promise<void> {
   const at = Date.now();
   await ctx.db.insert("purges", { factory, session, by, via, reason: reason.trim(), at });
   const pruned: Pruned = { on: new Date(at).toISOString(), reason: "purged", by };
@@ -214,18 +218,14 @@ export const purgeSession = mutation({
     const anonymous = nameless(who);
     if (anonymous !== null) return { ok: false, because: anonymous };
     const factory = await readable(ctx, who, named);
-    const record = factory && await ctx.db
-      .query("sessions")
-      .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
-      .unique();
-    if (!factory || !record) return { ok: false, because: UNSEEN };
+    if (factory === null || (await sessionRecord(ctx, factory, session)) === null) return { ok: false, because: UNSEEN };
     const role = await roleOf(ctx, who, factory);
     if (role !== "admin") {
       return { ok: false, because: `purging a session's bodies takes admin on ${factory}; you have ${role ?? "no role"}` };
     }
     const because = unexplained(reason);
     if (because !== null) return { ok: false, because };
-    await purge(ctx, factory, session, who.viewer!.login, "cockpit", reason);
+    await purge(ctx, { factory, session, by: who.viewer!.login, via: "cockpit", reason });
     return { ok: true };
   },
 });
@@ -288,7 +288,7 @@ export const purged = internalMutation({
   args: { factory: v.string(), by: v.string(), reason: v.string() },
   returns: v.null(),
   handler: async (ctx, { factory, by, reason }) => {
-    await purge(ctx, factory, "", by, "cockpit", reason);
+    await purge(ctx, { factory, session: "", by, via: "cockpit", reason });
     return null;
   },
 });
@@ -305,7 +305,7 @@ export const purgeFactoryFromDeployment = internalMutation({
     const because = unexplained(reason);
     if (because !== null) return because;
     const factory = await storedAs(ctx, named);
-    await purge(ctx, factory, "", "", "deployment", reason);
+    await purge(ctx, { factory, session: "", by: "", via: "deployment", reason });
     return `purging every body of every session of ${factory}; its events, cost and this purge's audit line are kept`;
   },
 });

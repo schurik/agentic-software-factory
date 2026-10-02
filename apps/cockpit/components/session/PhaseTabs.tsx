@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Read } from "@/convex/artifacts";
 import { type Artifact, type PhaseDetail, READ_BYTES } from "@/convex/model/phase";
+import { prunedWord } from "@/convex/model/retention";
 import { formatBytes, formatClock, formatCost, formatDuration, formatPruned, formatTime, pretty } from "../format";
 
 /** Which session a phase is of, and the forge's web origin its links go to ("" when unknown). */
@@ -56,7 +57,7 @@ export function PhaseTabs({ detail, where, initial, read }: {
         {tabs.map((each) => (
           <button key={each} role="tab" aria-selected={each === shown} onClick={() => setTab(each)}>
             {TABS[each]}{each === "transcript" && !detail.transcript.on ? <span className="off"> · off</span>
-              : each === "transcript" && detail.transcript.pruned ? <span className="off"> · {detail.transcript.pruned.reason === "purged" ? "purged" : "aged out"}</span> : null}
+              : each === "transcript" && detail.transcript.pruned ? <span className="off"> · {prunedWord(detail.transcript.pruned.reason)}</span> : null}
           </button>
         ))}
       </div>

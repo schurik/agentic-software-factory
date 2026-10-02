@@ -243,14 +243,20 @@ export class GitHub {
 
   /**
    * Whether the person `as` is owns `account`: is that user, or an owner of
-   * that organization. A membership the forge will not show — none, or an App
-   * not allowed to read members — is no.
+   * that organization. A membership the forge does not show is no; one it
+   * forbids asking about is an error, which says what permission is missing.
    */
   async owns(as: Credential, account: string): Promise<boolean> {
     const person = await this.one(as, "/user", readPerson);
     if (person.login.toLowerCase() === account.toLowerCase()) return true;
     const where = `/user/memberships/orgs/${encodeURIComponent(account)}`;
     const response = await this.send(as, "GET", this.api + where);
+    // Forbidden is not "not an owner": a GitHub App registered without leave
+    // to read members is refused for everyone, owners included.
+    if (response.status === 403) {
+      throw new ForgeError(403, `${this.host} would not say who owns ${account}: the cockpit's GitHub App needs ` +
+        "Organization permissions → Members: read, granted in its settings and accepted on the installation");
+    }
     if (UNSHOWN.has(response.status)) return false;
     if (!response.ok) throw await refusal(response, where);
     const body: unknown = await response.json();

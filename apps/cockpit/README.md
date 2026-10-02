@@ -390,7 +390,9 @@ docker compose exec app ./convex.sh run retention:purgeFactoryFromDeployment \
   '{"factory": "acme/widgets", "reason": "the repository was deleted"}'
 ```
 
-On a local cockpit its one person holds everything already, and may do both. Each one writes an
+On a local cockpit its one person holds everything already, and may do both. A deleted repository
+is in nobody's reach any more, so the cockpit shows it to no one: its factory is purged from the
+CLI. Each one writes an
 audit line to `purges` — who, what, when and why — which the Config tab lists.
 Core events are never purged, so a factory's cost history holds.
 
