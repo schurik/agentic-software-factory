@@ -1,5 +1,8 @@
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { find, type Limits, STATUSES } from "./model/filter";
+import { periodValidator } from "./model/period";
 import type { StoredEvent } from "./model/wire";
 import { forgeWeb } from "./forge/memory";
 import { phaseView, readSummary, view } from "./model/session";
@@ -9,29 +12,50 @@ import { canRead, readable, viewing } from "./viewer";
 // cockpit, whoever the forge lets read its factory's repository
 // (`viewer.canRead`); in a local one, the one person whose machine it is.
 
-/** How many sessions the list shows, and how far back it looks for them. */
-const SHOWN = 200;
-const SCANNED = 2000;
+/** How many sessions the list shows, and how many stored ones it reads to find them. */
+const LIMITS: Limits = { shown: 200, read: 2000 };
 
-/** The sessions the viewer may see, most recently active first. */
+const filterValidator = v.object({
+  workflow: v.optional(v.string()),
+  person: v.optional(v.string()),
+  station: v.optional(v.string()),
+  status: v.optional(v.union(...STATUSES.map((status) => v.literal(status)))),
+  period: v.optional(periodValidator),
+});
+
+/**
+ * The sessions the viewer may see, most recently active first, that `filter`
+ * keeps (model/filter.ts): of one factory — its Sessions tab — or, without
+ * one, of every factory they can read. Null for someone who has not signed
+ * in to a team's cockpit, and for a factory they cannot read.
+ */
 export const list = query({
-  args: { signIn: v.optional(v.string()) },
-  handler: async (ctx, { signIn }) => {
+  args: { signIn: v.optional(v.string()), factory: v.optional(v.string()), filter: v.optional(filterValidator) },
+  handler: async (ctx, { signIn, factory: named, filter = {} }) => {
     const who = await viewing(ctx, signIn);
-    if (who.mode === "team" && who.viewer === null) return [];
-    const readable = new Map<string, boolean>();
-    const shown = [];
-    let scanned = 0;
-    for await (const record of ctx.db.query("sessions").withIndex("by_activity").order("desc")) {
-      if (shown.length === SHOWN || (scanned += 1) > SCANNED) break;
-      if (!readable.has(record.factory)) readable.set(record.factory, await canRead(ctx, who, record.factory));
-      if (!readable.get(record.factory)) continue;
-      const { factory, session, acked, summary } = record;
-      shown.push({ factory, session, acked, summary: readSummary(summary) });
-    }
-    return shown;
+    if (who.mode === "team" && who.viewer === null) return null;
+    const factory = named === undefined ? null : await readable(ctx, who, named);
+    if (named !== undefined && factory === null) return null;
+    const records = factory === null
+      ? ctx.db.query("sessions").withIndex("by_activity").order("desc")
+      : ctx.db.query("sessions").withIndex("by_factory_activity", (q) => q.eq("factory", factory)).order("desc");
+    const readability = new Map<string, boolean>();
+    const canSee = async (each: string) => {
+      if (!readability.has(each)) readability.set(each, await canRead(ctx, who, each));
+      return readability.get(each)!;
+    };
+    const found = await find(withSummaries(records), canSee, filter, LIMITS);
+    return {
+      ...found,
+      sessions: found.sessions.map(({ factory: from, session, acked, summary }) => ({ factory: from, session, acked, summary })),
+    };
   },
 });
+
+/** Each stored session with its summary read: what finding one goes by. */
+async function* withSummaries(records: AsyncIterable<Doc<"sessions">>) {
+  for await (const record of records) yield { ...record, summary: readSummary(record.summary) };
+}
 
 /** One session's page: its summary, its phases in order and every stored event. */
 export const get = query({
