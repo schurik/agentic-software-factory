@@ -26,6 +26,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Iterator, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _detect                                     # noqa: E402  (path set above)
@@ -55,11 +56,17 @@ CI_WORKFLOW = Path(".github") / "workflows" / "asf-check.yml"
 # stamp from an older release hears about it: NAMED, never refused — refusing
 # would block the very `--force` that brings the code the fix needs. A key
 # matches by its path, and by its value where one is given.
+class Obsolete(NamedTuple):
+    path: tuple[str, ...]
+    value: str | None              # None: the key itself, whatever it says
+    why: str
+
+
 OBSOLETE = (
-    (("observability",), None,
+    Obsolete(("observability",), None,
      "ignored from 1.2, and can be deleted: until then it only moves the legacy trace db "
      "from asf/data/asf.db, the default without it"),
-    (("worktree", "integration", "mode"), "none",
+    Obsolete(("worktree", "integration", "mode"), "none",
      "refused from 1.2: set `pr` (with `open_pr: false` to push and open nothing), and "
      "`worktree.publish: on_integrate` to keep a branch off the remote until it is "
      "integrated; a workflow that should land nothing drops its `integrate` stage"),
@@ -217,7 +224,7 @@ KEY_LINE = re.compile(r"^( *)([A-Za-z_][\w-]*)\s*:(?:\s+(.*?))?\s*(?:\s#.*)?$")
 FLOW_PAIR = re.compile(r"([A-Za-z_][\w-]*)\s*:\s*([^,{}]*)")
 
 
-def config_keys(text: str):
+def config_keys(text: str) -> Iterator[tuple[tuple[str, ...], str, int]]:
     """(path, value, line number) for every key of a YAML mapping, without a
     YAML parser — this script has no dependencies. Block style, and one level
     of flow style (`integration: {mode: none}`), which is all a factory.yaml
@@ -245,10 +252,11 @@ def lint_config(config: Path) -> list[str]:
         return []
     found = []
     for path, value, number in config_keys(config.read_text()):
-        for obsolete, expected, why in OBSOLETE:
-            if path == obsolete and expected in (None, value):
-                key = ".".join(path) + (f": {value}" if expected else ":")
-                found.append(f"{config.parent.name}/{config.name}:{number} `{key}` — {why}")
+        for obsolete in OBSOLETE:
+            if path == obsolete.path and obsolete.value in (None, value):
+                key = ".".join(path) + (f": {value}" if obsolete.value else ":")
+                found.append(f"{config.parent.name}/{config.name}:{number} `{key}` — "
+                             f"{obsolete.why}")
     return found
 
 

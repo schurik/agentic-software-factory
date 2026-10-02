@@ -251,12 +251,13 @@ before — `None` when there are none, never omitted.
 ### Upgrade
 
 None required: a factory without `asf/.skill-version` runs exactly as it did, and `asf doctor`
-names it `stamped before 1.1`. `cookbooks/upgrade.md` walks the steps below in order, one decision
-at a time; `observability:` can be deleted from `asf/factory.yaml` unless it moved the trace db. A plain re-run of `install.py` does not change that — it keeps every file
-that exists, so they are still the old release's. The version is recorded by the run that refreshes
-them: commit, then `install.py --harness <harness> --force` from the target repo root, and put back
-any agent prose or task you had edited (`asf/factory.yaml` is never overwritten; a fresh render
-lands beside it as `.new`).
+names it `stamped before 1.1`. A plain re-run of `install.py` does not change that — it keeps every
+file that exists, so they are still the old release's. The version is recorded by the run that
+refreshes them: commit, then `install.py --harness <harness> --force` from the target repo root, and
+put back any agent prose or task you had edited (`asf/factory.yaml` is never overwritten; a fresh
+render lands beside it as `.new`). `cookbooks/upgrade.md` walks the steps below in order, one
+decision at a time; `observability:` can be deleted from `asf/factory.yaml` unless it moved the
+trace db.
 
 To ship to a cockpit, the same `--force` re-stamp brings the engine and the `station-sync` recipe;
 then add `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` to `.env` by hand, because the installer never

@@ -429,7 +429,11 @@ def _release(version: str) -> tuple[int, int, int, int] | None:
 
 
 def _skill_root() -> Path | None:
-    """The skill directory ASF_SKILL names, or None when it names none."""
+    """The skill directory ASF_SKILL names, or None when it names none.
+
+    The one way a stamp can find the skill it came from: `install.py` writes
+    the path into `.env`. Whoever retires ASF_SKILL owes `stamped_version`
+    another way to read the skill's release."""
     raw = os.environ.get("ASF_SKILL", "").strip()
     root = Path(raw).expanduser() if raw else None
     if root is None or not (root / "templates" / "asf" / ".skill-version").is_file():

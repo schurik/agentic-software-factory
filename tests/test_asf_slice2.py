@@ -256,7 +256,7 @@ def test_doctor_will_not_tick_a_trace_ui_that_cannot_start(stamped: Path):
         if "trace UI" in line:
             assert "just up" in line and "just obs" in line
     # and the ASF_SKILL finding names the visualizer, not only re-installing
-    skill_line = next(line for line in result.stdout.splitlines()
-                      if line.strip()[2:].startswith("ASF_SKILL"))
+    skill_line = next(line for line in result.stdout.splitlines()     # its check, not a
+                      if line.split()[1:2] == ["ASF_SKILL"])           # mention in another
     assert "trace UI" in skill_line
 
