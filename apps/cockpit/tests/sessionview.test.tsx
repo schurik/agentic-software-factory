@@ -18,7 +18,7 @@ const LATER = Date.parse("2026-09-30T18:00:00Z");
 function page(events: WireEvent[]): Page {
   const stored = events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) }));
   const acked = events.at(-1)?.seq ?? 0;
-  return { factory: "acme/widgets", session: "a9f259f0", acked, forge: "https://github.com", ...view(stored, acked) };
+  return { factory: "acme/widgets", session: "a9f259f0", acked, forge: "https://github.com", budget: null, ...view(stored, acked) };
 }
 
 function shown(events: WireEvent[], steering?: SteeringView): string {

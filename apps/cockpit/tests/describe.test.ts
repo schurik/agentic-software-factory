@@ -156,7 +156,9 @@ describe("a self-description pushed by a CI station", () => {
     expect((await t.query(api.sessions.get, where))?.budget).toBeNull();
 
     await ship(t, ingestToken, described({ ref: "main", ok: true }));
-    await ship(t, ingestToken, described({ ref: "feature/x", head: "b".repeat(40), ok: false }));
+    // A branch raising the ceiling is not what the session spends against: the default branch is.
+    await ship(t, ingestToken, { ...described({ ref: "feature/x", head: "b".repeat(40), ok: true }),
+                                 budget: { max_cost_usd: 9, max_tokens: 0 } });
 
     expect((await t.query(api.sessions.get, where))?.budget).toEqual({ maxCostUsd: 2.5, maxTokens: 2_000_000 });
   });

@@ -16,7 +16,15 @@ import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { readSummary, type Summary } from "./model/session";
 import { type Charge, chargeOf, type Spend } from "./model/spend";
+import { spellingsOf, storedAs } from "./spelling";
 import { canRead, readable, viewing } from "./viewer";
+
+/**
+ * The most `spend` rows one roll-up sums: a quarter hour a session and
+ * charge, so a busy team's month is well under it, and a range of days long
+ * enough to pass it is refused (`cut`) rather than summed in part.
+ */
+export const SUMMED = 10_000;
 
 export interface SessionCost extends Spend {
   factory: string;
@@ -50,6 +58,8 @@ export interface PersonCost extends Spend {
 }
 
 export interface Rollup {
+  /** The period held more than `SUMMED` rows, and nothing was summed: a shorter one will be. */
+  cut: boolean;
   total: Spend;
   /** Each dimension, most spent first. */
   sessions: SessionCost[];
@@ -62,7 +72,10 @@ export interface Rollup {
 /**
  * What was spent in `period` — in `factory` alone on its Factory page, in
  * every factory the viewer can read on the Cost page. Null for someone who
- * may not read the factory, or has not signed in to a team's cockpit.
+ * may not read the factory, or has not signed in to a team's cockpit. A
+ * factory is summed under every spelling its rows were stored under, and
+ * named by the one it is stored under now (`spelling.ts`), as the Factories
+ * list sums it.
  */
 export const rollup = query({
   args: {
@@ -73,25 +86,44 @@ export const rollup = query({
   handler: async (ctx, { factory: named, period: { from, to }, signIn }): Promise<Rollup | null> => {
     const who = await viewing(ctx, signIn);
     if (who.mode === "team" && who.viewer === null) return null;
-    let rows: Doc<"spend">[];
+    const rows: Stored[] = [];
+    let scanned = 0;
     if (named !== undefined) {
       const factory = await readable(ctx, who, named);
       if (factory === null) return null;
-      rows = await ctx.db.query("spend")
-        .withIndex("by_factory_at", (q) => q.eq("factory", factory).gte("at", from).lt("at", to)).collect();
+      for (const spelling of await spellingsOf(ctx, factory)) {
+        const found = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", from).lt("at", to));
+        for await (const row of found) {
+          if ((scanned += 1) > SUMMED) return { ...NOTHING, cut: true };
+          rows.push({ row, factory });
+        }
+      }
     } else {
-      const readableHere = new Map<string, boolean>();
-      rows = [];
+      const storedHere = new Map<string, string | null>();
       for await (const row of ctx.db.query("spend").withIndex("by_at", (q) => q.gte("at", from).lt("at", to))) {
-        if (!readableHere.has(row.factory)) readableHere.set(row.factory, await canRead(ctx, who, row.factory));
-        if (readableHere.get(row.factory)) rows.push(row);
+        if ((scanned += 1) > SUMMED) return { ...NOTHING, cut: true };
+        if (!storedHere.has(row.factory)) {
+          storedHere.set(row.factory, (await canRead(ctx, who, row.factory)) ? await storedAs(ctx, row.factory) : null);
+        }
+        const factory = storedHere.get(row.factory)!;
+        if (factory !== null) rows.push({ row, factory });
       }
     }
     return await rolledUp(ctx, rows);
   },
 });
 
-async function rolledUp(ctx: QueryCtx, rows: Doc<"spend">[]): Promise<Rollup> {
+const NOTHING: Rollup = {
+  cut: false, total: { cost: 0, tokens: 0 }, sessions: [], workflows: [], factories: [], stations: [], people: [],
+};
+
+/** A row as it was stored, and the factory it is summed under: the spelling its factory is stored under now. */
+interface Stored {
+  row: Doc<"spend">;
+  factory: string;
+}
+
+async function rolledUp(ctx: QueryCtx, rows: Stored[]): Promise<Rollup> {
   const summaries = new Map<string, Summary>();
   const sessions = new Map<string, SessionCost>();
   const workflows = new Map<string, WorkflowCost>();
@@ -100,19 +132,19 @@ async function rolledUp(ctx: QueryCtx, rows: Doc<"spend">[]): Promise<Rollup> {
   const people = new Map<string, PersonCost>();
   const total: Spend = { cost: 0, tokens: 0 };
 
-  for (const row of rows) {
+  for (const { row, factory } of rows) {
     const key = JSON.stringify([row.factory, row.session]);
     if (!summaries.has(key)) summaries.set(key, await summaryOf(ctx, row.factory, row.session));
     const summary = summaries.get(key)!;
     const charge = chargeIn(row, summary);
     add(total, row);
     add(entry(sessions, key, () => ({
-      factory: row.factory, session: row.session, request: summary.request, workflows: summary.workflows,
+      factory, session: row.session, request: summary.request, workflows: summary.workflows,
     })), row);
-    add(entry(workflows, JSON.stringify([row.factory, charge.workflow]), () => ({ factory: row.factory, workflow: charge.workflow })), row);
-    add(entry(factories, row.factory, () => ({ factory: row.factory })), row);
-    add(entry(stations, JSON.stringify([row.factory, charge.station]), () => ({
-      factory: row.factory, station: charge.station, name: charge.stationName, owner: "",
+    add(entry(workflows, JSON.stringify([factory, charge.workflow]), () => ({ factory, workflow: charge.workflow })), row);
+    add(entry(factories, factory, () => ({ factory })), row);
+    add(entry(stations, JSON.stringify([factory, charge.station]), () => ({
+      factory, station: charge.station, name: charge.stationName, owner: "",
     })), row);
     add(entry(people, charge.person, () => ({ person: charge.person })), row);
   }
@@ -125,7 +157,7 @@ async function rolledUp(ctx: QueryCtx, rows: Doc<"spend">[]): Promise<Rollup> {
   }
 
   return {
-    total, sessions: ranked(sessions), workflows: ranked(workflows), factories: ranked(factories),
+    cut: false, total, sessions: ranked(sessions), workflows: ranked(workflows), factories: ranked(factories),
     stations: ranked(stations), people: ranked(people),
   };
 }

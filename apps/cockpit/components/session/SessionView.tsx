@@ -2,26 +2,21 @@
 
 import { type ReactNode, useState } from "react";
 import type { ClaimView } from "@/convex/model/claim";
+import type { Budget } from "@/convex/model/description";
 import { liveness, type SteeringView } from "@/convex/model/command";
 import type { SessionView as View } from "@/convex/model/session";
 import type { Item, Story } from "@/convex/model/story";
 import { ClaimRow } from "../ClaimRow";
 import { Status } from "../Status";
-import { formatAgo, formatCost, formatDuration, formatTime, pretty } from "../format";
+import { formatAgo, formatCost, formatDollars, formatDuration, formatTime, formatTokens, pretty } from "../format";
 import { actionFor, type Command } from "./action";
 import { Chapter, chapterAnchor, phaseAnchor } from "./Chapter";
 import { channelWords, glyphOf, toneOf } from "./words";
 
-/** The per-session budget, as factory.yaml sets it: 0 for a ceiling it does not set. */
-export interface Budget {
-  maxCostUsd: number;
-  maxTokens: number;
-}
-
 export type Page = View & {
   factory: string; session: string; acked: number; forge: string;
   /** The ceiling its spend is shown against; null when no `asf check` reached the cockpit. */
-  budget?: Budget | null;
+  budget: Budget | null;
 };
 
 /**
@@ -109,7 +104,7 @@ function Sidebar({ page, now, steering, claims, onRelease }: {
         </dd>
         <dt>Triggered by</dt><dd>{summary.triggeredBy || "—"}</dd>
         <dt>Started</dt><dd>{formatTime(summary.startedAt)}{ran !== null && ran >= 0 ? <span className="muted"> · {formatDuration(ran)}</span> : null}</dd>
-        <dt>Cost</dt><dd><Spent cost={summary.totalCost} tokens={summary.totalTokens} budget={page.budget ?? null} /></dd>
+        <dt>Cost</dt><dd><Spent cost={summary.totalCost} tokens={summary.totalTokens} budget={page.budget} /></dd>
         <dt>Branch</dt><dd>{summary.branch ? <code>{summary.branch}</code> : "—"}</dd>
         <dt>Base</dt>
         <dd>{summary.baseRef ? <code>{summary.baseRef}</code> : "—"}{story.baseCommit ? <> at <code>{story.baseCommit.slice(0, 7)}</code></> : null}</dd>
@@ -149,8 +144,8 @@ function Sidebar({ page, now, steering, claims, onRelease }: {
  * and never against anything else: no budget per period exists to show.
  */
 function Spent({ cost, tokens, budget }: { cost: number; tokens: number; budget: Budget | null }) {
-  const money = `$${cost.toFixed(2)}`;
-  const counted = `${tokens.toLocaleString("en-US")} tokens`;
+  const money = formatDollars(cost);
+  const counted = formatTokens(tokens);
   const note = <div className="muted small">list-price equivalent</div>;
   if (budget === null || (!budget.maxCostUsd && !budget.maxTokens)) {
     return (
@@ -166,10 +161,10 @@ function Spent({ cost, tokens, budget }: { cost: number; tokens: number; budget:
   return (
     <>
       <Against spent={cost} ceiling={budget.maxCostUsd}
-               words={budget.maxCostUsd ? <><b>{money}</b> of ${budget.maxCostUsd.toFixed(2)} per-session ceiling</>
+               words={budget.maxCostUsd ? <><b>{money}</b> of {formatDollars(budget.maxCostUsd)} per-session ceiling</>
                  : <><b>{money}</b> · no cost ceiling</>} />
       <Against spent={tokens} ceiling={budget.maxTokens}
-               words={budget.maxTokens ? <>{tokens.toLocaleString("en-US")} of {budget.maxTokens.toLocaleString("en-US")} tokens</>
+               words={budget.maxTokens ? <>{tokens.toLocaleString("en-US")} of {formatTokens(budget.maxTokens)}</>
                  : <>{counted} · no token ceiling</>} />
       {note}
     </>

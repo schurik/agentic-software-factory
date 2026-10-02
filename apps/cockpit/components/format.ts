@@ -10,7 +10,17 @@ export function inboxHref(factory: string, session: string): string {
 }
 
 export function formatCost(value: number): string {
-  return value ? `$${value.toFixed(2)}` : "—";
+  return value ? formatDollars(value) : "—";
+}
+
+/** An amount in USD, zero included: what a roll-up or a ceiling says. */
+export function formatDollars(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+/** "27,100 tokens". */
+export function formatTokens(count: number): string {
+  return `${count.toLocaleString("en-US")} tokens`;
 }
 
 export function formatTime(ts: string): string {

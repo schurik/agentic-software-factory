@@ -8,6 +8,7 @@ import type { Rollup } from "../convex/cost";
 // tokens alongside every amount, and no budget but the per-session one.
 
 const ROLLUP: Rollup = {
+  cut: false,
   total: { cost: 0.5185, tokens: 30_700 },
   sessions: [
     { factory: "acme/widgets", session: "a9f259f0", request: "resolve relative due dates", workflows: ["issue", "pr-review"],
@@ -80,8 +81,16 @@ describe("one factory's Cost tab", () => {
 
 describe("a period nothing was spent in", () => {
   it("says so, instead of empty tables", () => {
-    const empty: Rollup = { total: { cost: 0, tokens: 0 }, sessions: [], workflows: [], factories: [], stations: [], people: [] };
+    const empty: Rollup = { cut: false, total: { cost: 0, tokens: 0 }, sessions: [], workflows: [], factories: [], stations: [], people: [] };
     expect(shown(empty)).toContain("Nothing was spent this month.");
     expect(shown(empty)).not.toContain("By workflow");
+  });
+});
+
+describe("a period too long to sum at once", () => {
+  it("asks for a shorter one, and shows no sums", () => {
+    const cut: Rollup = { cut: true, total: { cost: 0, tokens: 0 }, sessions: [], workflows: [], factories: [], stations: [], people: [] };
+    expect(shown(cut)).toContain("More was spent this month than the cockpit sums at once: pick a shorter period.");
+    expect(shown(cut)).not.toContain("Nothing was spent");
   });
 });

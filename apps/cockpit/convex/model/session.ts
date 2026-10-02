@@ -221,11 +221,10 @@ const sessionStarted: Reader = {
   fold: ({ summary }, p) => {
     const workflow = p.str("workflow");
     if (workflow && !summary.workflows.includes(workflow)) summary.workflows.push(workflow);
-    learn(summary, { workflow });
     summary.status = "running";
     summary.endedAt = "";
     learn(summary, {
-      request: p.str("request"), branch: p.str("branch"), baseRef: p.str("base_ref"),
+      workflow, request: p.str("request"), branch: p.str("branch"), baseRef: p.str("base_ref"),
       trigger: p.str("trigger"), triggeredBy: p.str("triggered_by"),
       issueUrl: p.str("issue_url"), prUrl: p.str("pr_url"),
       stationId: p.str("station_id"), stationName: p.str("station_name"), stationKind: p.str("station_kind"),

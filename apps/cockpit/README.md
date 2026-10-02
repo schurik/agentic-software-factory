@@ -341,6 +341,10 @@ there (`daysOf` in `convex/model/period.ts`). Every amount is labelled **list-pr
 what the tokens would cost at the provider's list price, subscription or not — with the tokens
 alongside.
 
+A factory is summed under every spelling its rows were stored under, as the Factories list sums
+it. One roll-up sums at most `SUMMED` rows (a quarter hour a session and charge): a range long
+enough to pass it is refused with "pick a shorter period", never summed in part.
+
 No budget is shown there, because none exists per period or per factory: the factory enforces
 `budget:` per session only. The configured ceiling is in the Factory page's header and Workflows
 tab, from the factory's self-description, and each session page shows its spend against it, in

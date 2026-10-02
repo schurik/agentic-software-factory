@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { Rollup } from "@/convex/cost";
 import type { Spend } from "@/convex/model/spend";
 import { factoryHref } from "../factory/view";
-import { sessionHref } from "../format";
+import { formatDollars as dollars, formatTokens as tokens, sessionHref } from "../format";
 
 const LIST_PRICE = "list-price equivalent: what the tokens would cost at the provider's list price, subscription or not";
 
@@ -21,6 +21,7 @@ export function CostView({ rollup, period, factory }: {
   factory?: string;
 }) {
   const across = factory === undefined;
+  if (rollup.cut) return <p className="notice">More was spent {period} than the cockpit sums at once: pick a shorter period.</p>;
   if (!rollup.sessions.length) return <p className="muted">Nothing was spent {period}.</p>;
   return (
     <div className="cost">
@@ -99,12 +100,4 @@ function Section({ title, head, lines }: { title: string; head: string[]; lines:
       </table>
     </section>
   );
-}
-
-function dollars(cost: number): string {
-  return `$${cost.toFixed(2)}`;
-}
-
-function tokens(count: number): string {
-  return `${count.toLocaleString("en-US")} tokens`;
 }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
+import { SUMMED } from "../convex/cost";
 import { periodOf } from "../convex/model/period";
 import { catchUp, type Cockpit, factory, fixture, ingest, recorded, signIn, type WireEvent } from "./helpers";
 import { approved, fakeForge, localOf, STATION, teamOf } from "./station";
@@ -171,5 +172,47 @@ describe("a period's edges", () => {
     expect(await spent(periodOf("month", at("2026-10-15T12:00:00Z"), "Europe/Berlin"))).toBe(0);
     expect(await spent(periodOf("month", at("2026-11-15T12:00:00Z"), "Europe/Berlin"))).toBe(0.0185);
     expect(await spent(periodOf("day", at("2026-11-01T08:00:00Z"), "Europe/Berlin"))).toBe(0.0185);
+  });
+});
+
+describe("a factory a cockpit stored under two spellings, before it kept to one", () => {
+  it("is one factory, its spend read under both, as the Factories list reads it", async () => {
+    const forge = fakeForge();
+    const { t, ingestToken } = await localOf(forge);
+    await ingest(t, ingestToken, { session: "5c0075aa", events: spending("5c0075aa", {
+      workflow: "ship", person: "alex", station: STATION, calls: 1,
+    }) });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("ingestTokens", { factory: "Acme/Widgets", digest: "an older token" });
+      await ctx.db.insert("spend", { factory: "Acme/Widgets", session: "0ld0ld00", at: at("2026-09-02T10:00:00Z"),
+                                     cost: 1, tokens: 1_000, workflow: "ship", station: STATION.id,
+                                     stationName: STATION.name, person: "alex" });
+    });
+
+    for (const factory of [undefined, "acme/widgets", "Acme/Widgets"]) {
+      const cost = await t.query(api.cost.rollup, { factory, period: SEPTEMBER });
+      expect(cost?.factories).toEqual([{ factory: "acme/widgets", cost: 1.0185, tokens: 2_200 }]);
+      expect(cost?.workflows).toEqual([{ factory: "acme/widgets", workflow: "ship", cost: 1.0185, tokens: 2_200 }]);
+    }
+  });
+});
+
+describe("a period too long to sum at once", () => {
+  it("is said to be, rather than summed in part", async () => {
+    const forge = fakeForge();
+    const { t } = await localOf(forge);
+    await t.run(async (ctx) => {
+      for (let row = 0; row <= SUMMED; row += 1) {
+        await ctx.db.insert("spend", { factory: "acme/widgets", session: `s${row}`, at: SEPTEMBER.from + row * 15 * 60_000,
+                                       cost: 0.01, tokens: 10, workflow: "ship", station: "", stationName: "", person: "" });
+      }
+    });
+
+    for (const factory of [undefined, "acme/widgets"]) {
+      expect(await t.query(api.cost.rollup, { factory, period: { from: SEPTEMBER.from, to: at("2027-01-01T00:00:00Z") } }))
+        .toMatchObject({ cut: true, total: { cost: 0, tokens: 0 }, sessions: [] });
+    }
+    expect(await t.query(api.cost.rollup, { factory: "acme/widgets", period: SEPTEMBER }))
+      .toMatchObject({ cut: false, total: { tokens: 28_800 } });
   });
 });
