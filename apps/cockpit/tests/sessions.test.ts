@@ -107,6 +107,7 @@ describe("a session told by its events", () => {
         summary: {
           status: "waiting",
           workflows: ["ship"],
+          workflow: "ship",
           request: "add a health check",
           branch: "asf/5c0075aa",
           baseRef: "main",

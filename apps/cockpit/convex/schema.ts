@@ -55,19 +55,26 @@ export default defineSchema({
     .index("by_waiting", ["waiting", "activity"])
     .index("by_factory_waiting", ["factory", "waiting"]),
 
-  // What a session's agent calls cost in one quarter hour (model/spend.ts),
-  // added to by ingest as each `usage` event becomes contiguous — so once.
-  // What spend in a period is summed from: a period in any timezone starts on
-  // a quarter hour, so it takes whole rows.
+  // What a session's agent calls cost in one quarter hour, charged to one
+  // workflow, station and person (model/spend.ts), added to by ingest as each
+  // `usage` event becomes contiguous — so once. What spend in a period is
+  // rolled up from (cost.ts): a period in any timezone starts on a quarter
+  // hour, so it takes whole rows. A row stored before it was charged to
+  // anything has no charge, and is charged as its session's summary says.
   spend: defineTable({
     factory: v.string(),
     session: v.string(),
     at: v.number(),                   // the quarter hour's start, epoch ms
     cost: v.number(),                 // list-price equivalent, USD
     tokens: v.number(),
+    workflow: v.optional(v.string()),
+    station: v.optional(v.string()),  // the station's id
+    stationName: v.optional(v.string()),
+    person: v.optional(v.string()),   // the forge login of whoever triggered the run
   })
     .index("by_session_at", ["factory", "session", "at"])
-    .index("by_factory_at", ["factory", "at"]),
+    .index("by_factory_at", ["factory", "at"])
+    .index("by_at", ["at"]),
 
   // An answer a viewer posted from the inbox: the comment on the work item,
   // which is the answer itself — this only remembers that it was sent, so the

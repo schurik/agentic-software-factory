@@ -42,6 +42,7 @@ export const waitingForValidator = v.object({
 export const summaryValidator = v.object({
   status: v.string(),                 // unknown until session_started | running | waiting | success | fail
   workflows: v.array(v.string()),     // every workflow the session passed through, in order
+  workflow: v.string(),               // the one running now: what the latest process said it ran
   request: v.string(),
   branch: v.string(),
   baseRef: v.string(),
@@ -73,7 +74,7 @@ const EMPTY_WAITING: WaitingFor = {
 };
 
 export const EMPTY_SUMMARY: Summary = {
-  status: "unknown", workflows: [], request: "", branch: "", baseRef: "", trigger: "",
+  status: "unknown", workflows: [], workflow: "", request: "", branch: "", baseRef: "", trigger: "",
   triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", stationKind: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
   totalTokens: 0, totalCost: 0, unread: 0,
@@ -234,7 +235,7 @@ const sessionStarted: Reader = {
     summary.status = "running";
     summary.endedAt = "";
     learn(summary, {
-      request: p.str("request"), branch: p.str("branch"), baseRef: p.str("base_ref"),
+      workflow, request: p.str("request"), branch: p.str("branch"), baseRef: p.str("base_ref"),
       trigger: p.str("trigger"), triggeredBy: p.str("triggered_by"),
       issueUrl: p.str("issue_url"), prUrl: p.str("pr_url"),
       stationId: p.str("station_id"), stationName: p.str("station_name"), stationKind: p.str("station_kind"),

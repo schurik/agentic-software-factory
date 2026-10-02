@@ -25,6 +25,20 @@ export async function storedAs(ctx: QueryCtx, factory: string): Promise<string> 
 }
 
 /**
+ * Every spelling `factory`'s data may be stored under — the one it is, first,
+ * then any a cockpit issued before it kept to one — for what is summed over
+ * all of them, as spend is.
+ */
+export async function spellingsOf(ctx: QueryCtx, factory: string): Promise<string[]> {
+  const key = repoKey(factory);
+  const names = [await storedAs(ctx, factory)];
+  for (const token of await ctx.db.query("ingestTokens").collect()) {
+    if (repoKey(token.factory) === key && !names.includes(token.factory)) names.push(token.factory);
+  }
+  return names;
+}
+
+/**
  * The spelling the earliest ingest token for `factory` holds, or null when
  * none does. The table is a token a checkout, so it is read whole; a cockpit
  * that issued two spellings before this was kept to one reads the first.

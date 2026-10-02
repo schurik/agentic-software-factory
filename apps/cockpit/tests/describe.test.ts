@@ -3,7 +3,7 @@ import { api, internal } from "../convex/_generated/api";
 import { KNOWN_FORMAT, readDescription } from "../convex/model/description";
 import { drift } from "../convex/model/drift";
 import { fakeForge } from "./forge";
-import { factory, signIn } from "./helpers";
+import { factory, fixture, ingest, signIn } from "./helpers";
 import { json, localOf, poll, post, REPORT, STATION, teamOf } from "./station";
 
 // The factory describes itself (spec #40, #57): `asf check --json` prints its
@@ -143,6 +143,24 @@ describe("a self-description pushed by a CI station", () => {
     await ship(t, ingestToken, described({ ref: "main", head: "c".repeat(40), ok: false }));
     const again = await t.query(api.factory.page, { factory: "acme/widgets", signIn: alex });
     expect(again!.check).toMatchObject({ head: "c".repeat(40), ok: false });     // the latest push, kept once
+  });
+
+  it("gives each session page the per-session ceiling it is spending against, and none when unchecked", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "read" });
+    const alex = await signIn(t, forge, "alex");
+    const ingestToken = await factory(t, "acme/widgets");
+    await ingest(t, ingestToken, { session: "5c0075aa", events: [fixture("session_started", 1, 2), fixture("usage", 2)] });
+    const where = { factory: "acme/widgets", session: "5c0075aa", signIn: alex };
+
+    expect((await t.query(api.sessions.get, where))?.budget).toBeNull();
+
+    await ship(t, ingestToken, described({ ref: "main", ok: true }));
+    // A branch raising the ceiling is not what the session spends against: the default branch is.
+    await ship(t, ingestToken, { ...described({ ref: "feature/x", head: "b".repeat(40), ok: true }),
+                                 budget: { max_cost_usd: 9, max_tokens: 0 } });
+
+    expect((await t.query(api.sessions.get, where))?.budget).toEqual({ maxCostUsd: 2.5, maxTokens: 2_000_000 });
   });
 
   it("leaves a factory without one unchecked, not broken", async () => {

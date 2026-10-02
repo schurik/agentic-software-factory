@@ -14,6 +14,7 @@ import type * as auth from "../auth.js";
 import type * as claims from "../claims.js";
 import type * as commands from "../commands.js";
 import type * as config from "../config.js";
+import type * as cost from "../cost.js";
 import type * as crons from "../crons.js";
 import type * as describe from "../describe.js";
 import type * as discovery from "../discovery.js";
@@ -74,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   claims: typeof claims;
   commands: typeof commands;
   config: typeof config;
+  cost: typeof cost;
   crons: typeof crons;
   describe: typeof describe;
   discovery: typeof discovery;

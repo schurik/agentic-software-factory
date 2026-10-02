@@ -18,7 +18,7 @@ const LATER = Date.parse("2026-09-30T18:00:00Z");
 function page(events: WireEvent[]): Page {
   const stored = events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) }));
   const acked = events.at(-1)?.seq ?? 0;
-  return { factory: "acme/widgets", session: "a9f259f0", acked, forge: "https://github.com", ...view(stored, acked) };
+  return { factory: "acme/widgets", session: "a9f259f0", acked, forge: "https://github.com", budget: null, ...view(stored, acked) };
 }
 
 function shown(events: WireEvent[], steering?: SteeringView): string {
@@ -263,5 +263,31 @@ describe("what a chapter was asked, in one line", () => {
   it("is the reviewer's last words, or the reporter's first line, never a heading or a framing comment", () => {
     expect(firstLine("# Review\n\n<!-- quoted -->\n\n> first\n\n> the last thing said\n")).toBe("the last thing said");
     expect(firstLine("# Title\n\n<!-- a frame -->\n\nThe endpoint\nreturns 500.\n\nMore.\n")).toBe("The endpoint returns 500.");
+  });
+});
+
+describe("the sidebar's cost", () => {
+  // The recorded session spent $0.463 and 27,100 tokens over its three chapters.
+  const against = (budget: Page["budget"]) => {
+    const html = renderToStaticMarkup(<SessionView page={{ ...page(RECORDED), budget }} now={LATER} />);
+    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  };
+
+  it("is spend against the factory's per-session ceiling, in money and in tokens", () => {
+    const text = against({ maxCostUsd: 2.5, maxTokens: 2_000_000 });
+    expect(text).toContain("$0.46 of $2.50 per-session ceiling · 19%");
+    expect(text).toContain("27,100 of 2,000,000 tokens · 1%");
+    expect(text).toContain("list-price equivalent");
+  });
+
+  it("names only the ceiling the factory sets, and says when it sets none", () => {
+    const text = against({ maxCostUsd: 0, maxTokens: 50_000 });
+    expect(text).toContain("$0.46 · no cost ceiling");
+    expect(text).toContain("27,100 of 50,000 tokens · 54%");
+    expect(against({ maxCostUsd: 0, maxTokens: 0 })).toContain("no per-session budget");
+  });
+
+  it("says no ceiling is known for a factory whose check never reached the cockpit", () => {
+    expect(against(null)).toContain("ceiling unknown: no asf check has reached the cockpit");
   });
 });

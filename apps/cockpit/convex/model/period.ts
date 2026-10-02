@@ -34,6 +34,30 @@ export function periodOf(kind: PeriodKind, now: number, timeZone: string): Perio
   return { from: midnight(year, month, 1, timeZone), to: midnight(year, month + 1, 1, timeZone) };
 }
 
+/**
+ * The calendar days `first` through `last` (`YYYY-MM-DD`, as a date input
+ * gives them) in `timeZone`: a custom range, from its first midnight there to
+ * the one after its last day. Null when either is not a date, or it ends
+ * before it starts.
+ */
+export function daysOf(first: string, last: string, timeZone: string): Period | null {
+  const start = dateOf(first);
+  const end = dateOf(last);
+  if (start === null || end === null || Date.UTC(...end) < Date.UTC(...start)) return null;
+  return { from: midnight(...start, timeZone), to: midnight(end[0], end[1], end[2] + 1, timeZone) };
+}
+
+/** The calendar day `at` falls on in `timeZone`, as `YYYY-MM-DD`: what a custom range starts from. */
+export function dayOf(at: number, timeZone: string): string {
+  const { year, month, day } = wallDate(at, timeZone);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function dateOf(day: string): [number, number, number] | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
 interface Wall {
   year: number;
   /** 1–12 */

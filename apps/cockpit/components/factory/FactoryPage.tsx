@@ -8,6 +8,7 @@ import type { Look } from "@/convex/factory";
 import type { ClaimView } from "@/convex/model/claim";
 import { needsAttention } from "@/convex/model/attention";
 import { useClock } from "../clock";
+import { CostPanel } from "../cost/CostPanel";
 import { SessionsList } from "../SessionsList";
 import { RunPanel } from "../run/RunPrompt";
 import { said, useCockpit } from "../Shell";
@@ -21,7 +22,7 @@ import { drifts, promptWorkflows } from "./view";
 import { WorkflowsTab } from "./WorkflowsTab";
 
 const TABS = {
-  activity: "Activity", workflows: "Workflows", stations: "Stations", sessions: "Sessions", config: "Config",
+  activity: "Activity", workflows: "Workflows", stations: "Stations", sessions: "Sessions", cost: "Cost", config: "Config",
 } as const;
 type Tab = keyof typeof TABS;
 
@@ -30,11 +31,11 @@ type Tab = keyof typeof TABS;
  * needs attention, what runs now, what finished), Workflows, from the
  * factory's own self-description, Stations, with what each one holds,
  * Sessions, its whole history narrowed as on the Sessions page across
- * factories, and Config, whose files a writer edits into a pull request.
- * Live: the queries keep themselves current; the forge is looked at once when
- * the page opens, and again whenever a station reports a commit it has not
- * measured. Every tab stays mounted, so a draft — or a filter — outlives a
- * look at another one.
+ * factories, Cost, what it spent in a period, and Config, whose files a writer
+ * edits into a pull request. Live: the queries keep themselves current; the
+ * forge is looked at once when the page opens, and again whenever a station
+ * reports a commit it has not measured. Every tab stays mounted, so a draft —
+ * or a filter — outlives a look at another one.
  */
 export function FactoryPage({ factory }: { factory: string }) {
   const signIn = useSignIn();
@@ -115,6 +116,9 @@ export function FactoryPage({ factory }: { factory: string }) {
       </div>
       <div hidden={tab !== "sessions"}>
         <SessionsList factory={factory} />
+      </div>
+      <div hidden={tab !== "cost"}>
+        <CostPanel factory={factory} />
       </div>
       <div hidden={tab !== "config"}>
         <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now}

@@ -220,6 +220,12 @@ before — `None` when there are none, never omitted.
   narrowed by workflow, person (who triggered the run), station (every CI job as one CI entry),
   status and a calendar period of your own timezone. Across factories it shows only the factories
   you can read, and names each row's factory.
+- The cockpit's **Cost** page, and a Cost tab on each Factory page, roll spend up by session,
+  workflow, factory, station (whose machine and key paid, named with its owner) and person (who
+  triggered the run), over today, this week or this month in your own timezone, or a range of days
+  — list-price equivalent, tokens alongside. Each agent call is charged to the workflow, station and
+  person current when it was made. A session page shows its spend against the per-session `budget:`
+  ceiling the factory's self-description names; no per-period or per-factory budget appears anywhere.
 
 ### Upgrade
 

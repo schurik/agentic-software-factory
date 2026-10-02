@@ -60,6 +60,12 @@ export interface DescribedWorkflow {
   warnings: string[];
 }
 
+/** The per-session budget factory.yaml sets — the only ceiling the factory enforces: 0 for one it does not set. */
+export interface Budget {
+  maxCostUsd: number;
+  maxTokens: number;
+}
+
 export interface Description {
   format: number;
   /** Written in a format newer than this cockpit reads: upgrade the cockpit. */
@@ -67,7 +73,7 @@ export interface Description {
   skillVersion: string;
   checked: { head: string; ref: string; configHash: string };
   ok: boolean;
-  budget: { maxCostUsd: number; maxTokens: number };
+  budget: Budget;
   workflows: DescribedWorkflow[];
   problems: { workflow: string; error: string }[];
 }
