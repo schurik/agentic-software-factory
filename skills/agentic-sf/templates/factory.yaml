@@ -85,9 +85,9 @@ worktree:
   # publish: on_create             # on_create | on_integrate
   integration:
     # pr by default: a machine proposes, a human moves the base branch. `merge`
-    # suits a solo repo where nobody reviews. (`none` still loads, with a
-    # warning, and is refused from 1.2: a workflow that lands nothing leaves out
-    # its `integrate` stage, and `publish` above says when a branch is pushed.)
+    # suits a solo repo where nobody reviews. (`none` is refused: a workflow
+    # that lands nothing leaves out its `integrate` stage, and `publish` above
+    # says when a branch is pushed.)
     mode: pr                       # merge | pr
     merge_flags: ["--no-ff"]
     remote: origin

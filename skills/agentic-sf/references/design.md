@@ -182,17 +182,15 @@ top of it through a small seam:
   identity is the roster's file plus what a workflow appends.
 - `AgentCall.task` and `AgentCall.variables`: the user prompt per call, which
   is how a stage's task file reaches the agent.
-- `session.ensure(cfg, SessionSpec(name=, request=))`: the trace and `run.json` name the
-  workflow, and `session_started` carries the prompt.
+- `session.ensure(cfg, SessionSpec(name=, request=))`: `run.json` names the workflow, and
+  `session_started` carries the prompt.
 - `quality.run_blocks(run, names)`: a verify stage picks its blocks.
 - `agents.merge_defaults(raw)`: one merge over defaults, used by `engine.factory`.
 
 And five modules of its own: `stage.py` (contract and registry), `tasks.py`
 (resolution and the report check), `factory.py` (roster from directories),
 `workflow.py` (load, validate, run), `inputs.py` (where a request comes from
-and where its outcome goes). The trace db is `asf/data/asf.db`; the
-legacy visualizer under `apps/visualizer` reads it (`asf up --with obs`). Beside it, every session writes
-`events.jsonl`: typed, per-kind-versioned domain events (`events.py`), each
+and where its outcome goes). Every session writes `events.jsonl`: typed, per-kind-versioned domain events (`events.py`), each
 appended by the function that writes the session file it describes — what a
 station ships to a cockpit, and what `tests/projection.py` rebuilds the
 session's files from.
@@ -239,8 +237,7 @@ from landing the branch (`engine/integration.py`):
   `head_sha` is a commit the remote has and the subject is in its tree. The
   commit stage that follows runs in a resumed process, finds the tree clean,
   and says `unchanged`.
-- **`on_integrate`** (the default without a cockpit, and under
-  `integration.mode: none`). Nothing is pushed or committed at a suspend; the
+- **`on_integrate`** (the default without a cockpit). Nothing is pushed or committed at a suspend; the
   factory is the one it was before this module, and a cockpit cannot show what
   that session's gates ask about.
 
@@ -262,8 +259,9 @@ so a session that read "not published" from its absence would stop committing
 its gates' subjects without a word. Present, it proves the branch was pushed;
 missing, it proves nothing, and the push is made.
 
-`integration.mode: none` warns wherever the config is loaded and in `doctor`
-(`factory.retiring`), and is refused from 1.2. It did two jobs, and each has
+`integration.mode: none` is refused wherever the config is loaded
+(`factory.load`), and `integrate: {mode: none}` by `check`; both warned in
+1.1. It did two jobs, and each has
 its own name now: a workflow that lands nothing has no `integrate` stage, and
 `worktree.publish` says when a branch leaves the machine. It is never remapped.
 

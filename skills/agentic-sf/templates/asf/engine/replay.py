@@ -15,9 +15,7 @@ run VERIFIES the tree it inherited — and a replayed envelope whose gates no
 longer hold is discarded, with the agent asked again, live. Nothing is trusted
 because it is old; it is trusted because its gates still pass.
 
-The record comes from `engine/artifacts.py` — the session directory, never
-the trace db. A run must work with the db deleted, and the db is the mirror the
-visualizer polls, not a dependency of the factory.
+The record comes from `engine/artifacts.py` — the session directory.
 
 Matching is by phase NAME — which `PhaseParams` already requires to be unique
 within a run — plus the agent that owned it and the output type it produced. Any

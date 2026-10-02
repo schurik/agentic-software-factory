@@ -58,7 +58,6 @@ from . import (artifacts, claims, git_helper, hitl, inputs, issues, operate, pul
                session, station, worktree)
 from .data_types import (ClaimAsk, Decision, IssueRef, IssueUpdate, Launch, PullRequestRef,
                          PullRequestUpdate, FactoryConfig, Reply, WaitingFor)
-from .tracer import watcher_beat as db_beat
 from .utils import anchor, ensure_dir, new_id, now_iso, operator_env
 
 RUNNER = "asf/asf.py"
@@ -111,17 +110,12 @@ def live_runs(cfg: FactoryConfig, main_root) -> dict[str, int]:
 
 def beat(cfg: FactoryConfig, main_root, kind: str, status: str, *, project: str = "",
          interval: int = 0, note: str = "") -> None:
-    """Say that this watcher exists and what it just did — a file for `asf
-    status`, a db row for the trace UI's badge. Never raises."""
+    """Say that this watcher exists and what it just did — a file `asf status`
+    reads. Never raises."""
     artifacts.watcher_beat(
         artifacts.watchers_dir(main_root, cfg.defaults.data_dir), kind,
         {"status": status, "pid": os.getpid(), "project": project, "interval_s": interval,
          "note": note, "started_at": now_iso(), "last_poll_at": now_iso()})
-    try:
-        db_beat(anchor(main_root, cfg.observability.db), kind, status, pid=os.getpid(),
-                project=project, interval_s=interval, note=note)
-    except Exception:                                   # noqa: BLE001 — a badge, not a run
-        pass
 
 
 @contextmanager

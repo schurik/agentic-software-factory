@@ -258,7 +258,7 @@ def test_the_local_cockpit_is_started_with_the_persons_own_gh_token(stamped, mon
     gh = minting((0, "gho_0a1b2c\n"))
     monkeypatch.setattr(local_cockpit, "_gh", gh)
 
-    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
 
     assert gh.calls == [["gh", "auth", "token", "--hostname", "github.com"]]
     assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == "gho_0a1b2c"
@@ -271,7 +271,7 @@ def test_the_token_is_the_one_for_the_host_gh_is_aimed_at(stamped, monkeypatch):
     monkeypatch.setattr(local_cockpit, "_gh", gh)
     monkeypatch.setenv("GH_HOST", "ghe.acme.test")
 
-    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
 
     assert gh.calls == [["gh", "auth", "token", "--hostname", "ghe.acme.test"]]
     assert cockpit.env["ASF_COCKPIT_FORGE_HOST"] == "ghe.acme.test"
@@ -282,12 +282,12 @@ def test_without_a_gh_login_the_local_cockpit_starts_with_no_token_and_says_what
         stamped, monkeypatch):
     monkeypatch.setattr(local_cockpit, "_gh", minting((1, "")))
 
-    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
 
     assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == ""
     assert cockpit.summary[0] == "forge" and "gh auth login" in cockpit.summary[1]
     monkeypatch.setattr(local_cockpit, "_gh", minting((0, "gho_0a1b2c\n")))
-    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped, stamped / "db")
+    [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
     said = cockpit.summary[1]
     assert "github.com" in said and "gho_0a1b2c" not in said         # named, never shown
 
@@ -332,7 +332,7 @@ def test_up_with_no_shared_cockpit_starts_the_local_one_beside_the_watchers(cfg,
     want = supervise.wanted(cfg, supervise.Children())
 
     assert want == {"cockpit", "issues", "answers", "prs"}
-    started = supervise.services(want, "asf/factory.yaml", 120, stamped, stamped / "db")
+    started = supervise.services(want, "asf/factory.yaml", 120, stamped)
     assert names(started) == ["cockpit", "issues", "answers", "prs"]
     cockpit = started[0]
     assert cockpit.argv[:2] == ["docker", "compose"]
@@ -347,12 +347,11 @@ def test_up_with_a_shared_cockpit_starts_no_cockpit_child(cfg, monkeypatch):
     assert supervise.wanted(cfg, supervise.Children(only="cockpit,issues")) == {"issues"}
 
 
-def test_the_legacy_trace_ui_starts_only_when_asked_for(cfg):
-    assert "obs" not in supervise.wanted(cfg, supervise.Children())
-    assert "obs" in supervise.wanted(cfg, supervise.Children(extra="obs"))
-    assert supervise.wanted(cfg, supervise.Children(only="issues,obs")) == {"issues", "obs"}
-    with pytest.raises(SystemExit):
-        supervise.wanted(cfg, supervise.Children(extra="ui"))
+def test_up_names_the_services_there_are_when_asked_for_one_there_is_not(cfg):
+    """`obs`, the legacy trace UI, is no longer one: an old justfile's `just
+    obs` is told what `up` can start instead."""
+    with pytest.raises(SystemExit, match="obs.*cockpit, issues, answers, prs"):
+        supervise.wanted(cfg, supervise.Children(only="issues,obs"))
 
 
 def test_asf_station_is_the_same_loop_without_watchers(cfg, monkeypatch):

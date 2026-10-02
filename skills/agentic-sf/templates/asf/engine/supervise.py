@@ -23,11 +23,6 @@ it. Without Docker it is dropped with a WARNING and the watchers still run — a
 service that silently did not start looks exactly like a service with nothing
 to say, and the watchers are the part that must not be forgotten.
 
-`obs` is the legacy trace UI (`apps/visualizer` in the skill, reached through
-the `ASF_SKILL` the installer wrote into `.env`). It starts only when asked
-for (`--with obs`, or `--only …obs`): the cockpit replaces it, and it goes in
-the release after the cockpit is proven to cover it.
-
 `status` answers the other half: is anything running right now, and did it
 poll recently — from the watcher heartbeat FILES and a probe of each pid, so a
 watcher killed with SIGKILL reads as gone rather than as its last row.
@@ -47,18 +42,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import artifacts, commands, git_helper, issues, preflight, station, worktree
+from . import artifacts, commands, git_helper, issues, station, worktree
 from . import cockpit as local_cockpit
 from .data_types import FactoryConfig, Station, StationCredential
 from .station import Destination
 from .utils import anchor
 
 RUNNER = "asf/asf.py"
-API_PORT = int(os.environ.get("PORT", "4600"))
-UI_PORT = 4601
 WATCHERS = ("issues", "answers", "prs")
-SERVICES = ("cockpit", *WATCHERS, "obs")
-COLORS = {"station": "\033[1m", "cockpit": "\033[36m", "obs": "\033[36m", "ui": "\033[35m",
+SERVICES = ("cockpit", *WATCHERS)
+COLORS = {"station": "\033[1m", "cockpit": "\033[36m",
           "issues": "\033[33m", "answers": "\033[34m", "prs": "\033[32m"}
 DIM, WARN, RESET = "\033[2m", "\033[33m", "\033[0m"
 
@@ -89,8 +82,8 @@ class Service:
 
 
 def _spawn(service: Service, on_line) -> None:
-    """Its OWN process group, so `bun run vite` and the runner's children can
-    be signalled whole — an orphan holding :4600 is what this exists to stop."""
+    """Its OWN process group, so compose and the runner's children can be
+    signalled whole — an orphan holding a port is what this exists to stop."""
     service.proc = subprocess.Popen(
         service.argv, cwd=str(service.cwd), env={**os.environ, **service.env},
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
@@ -137,11 +130,10 @@ def _names(raw: str, flag: str) -> set[str]:
 
 @dataclass
 class Children:
-    """What `up` was asked to start. `only` replaces the default set, `extra`
-    adds to it (`--with obs`); `watchers=False` is `asf station`, the loop
-    alone; `interval` is the watchers' poll."""
+    """What `up` was asked to start. `only` replaces the default set;
+    `watchers=False` is `asf station`, the loop alone; `interval` is the
+    watchers' poll."""
     only: str = ""
-    extra: str = ""
     watchers: bool = True
     interval: int = 120
 
@@ -152,8 +144,7 @@ def wanted(cfg: FactoryConfig, children: Children) -> set[str]:
     if only:
         want = _names(only, "--only")
     else:
-        want = ({"cockpit", *WATCHERS} if watchers else {"cockpit"}) | _names(children.extra,
-                                                                              "--with")
+        want = {"cockpit", *WATCHERS} if watchers else {"cockpit"}
         if watchers and not cfg.issues.enabled:
             # Both tracker pollers go: one launches runs from the item, the other
             # brings them back from it, and neither has anywhere to look without it.
@@ -196,20 +187,6 @@ def check(cfg: FactoryConfig, want: set[str]) -> str | None:
             local = "join"
         else:
             local = "start"
-    if "obs" in want:
-        home = preflight.visualizer_dir()
-        if home is None:
-            print(paint(WARN, "  ! no trace UI: ASF_SKILL in .env must point at the skill "
-                              "directory (the visualizer ships there) — install.py writes "
-                              "it, and a clone without its .env has none"))
-            want.discard("obs")
-        elif not shutil.which("bun"):
-            print(paint(WARN, "  ! bun is not on PATH — starting without the trace UI"))
-            want.discard("obs")
-        elif not preflight.port_free(API_PORT):
-            print(paint(WARN, f"  ! something already listens on :{API_PORT} — starting "
-                              f"without the trace UI: `lsof -ti :{API_PORT} | xargs kill`"))
-            want.discard("obs")
     forge = (cfg.issues.list_command or ["gh"])[0]
     if want & set(WATCHERS) and not shutil.which(forge):
         print(paint(WARN, f"  ! {forge!r} is not on PATH — the watchers can start, but every "
@@ -217,8 +194,8 @@ def check(cfg: FactoryConfig, want: set[str]) -> str | None:
     return local
 
 
-def services(want: set[str], config_path: str, interval: int, main_root: Path,
-             db: Path) -> list[Service]:
+def services(want: set[str], config_path: str, interval: int,
+             main_root: Path) -> list[Service]:
     found: list[Service] = []
     if "cockpit" in want:
         # compose stops its containers on SIGTERM, and a Convex backend takes
@@ -234,11 +211,6 @@ def services(want: set[str], config_path: str, interval: int, main_root: Path,
             found.append(Service(name, [sys.executable, RUNNER, "--config", config_path, name,
                                         "loop", "--interval", str(interval)],
                                  main_root, {"PYTHONUNBUFFERED": "1"}))
-    if "obs" in want:
-        home = preflight.visualizer_dir()
-        found.append(Service("obs", ["bun", "run", "server/index.ts"], home,
-                             {"ASF_DB": str(db), "PORT": str(API_PORT)}))
-        found.append(Service("ui", ["bunx", "vite"], home, {"PORT": str(API_PORT)}))
     return found
 
 
@@ -295,7 +267,6 @@ def _commands_line(cfg: FactoryConfig, main_root: Path, here: Station,
 
 def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     main_root = git_helper.main_root()
-    db = anchor(main_root, cfg.observability.db)
     here = station.identify(main_root, cfg.defaults.data_dir)
     interval = children.interval
     print(f"asf {'up' if children.watchers else 'station'} — {main_root}")
@@ -306,15 +277,6 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
         print("  ! nothing to start and no cockpit to ship to — see the messages above",
               file=sys.stderr)
         return 2
-    if "obs" in want:
-        if not db.exists():
-            from .tracer import ensure_db
-            ensure_db(db).close()
-            print(f"  {paint(DIM, 'no trace db yet — created an empty one')}")
-        home = preflight.visualizer_dir()
-        if home is not None and not (home / "node_modules").is_dir():
-            print("  installing the visualizer's dependencies (first run only)…")
-            subprocess.run(["bun", "install"], cwd=home, check=False)
 
     width = max(len(name) for name in COLORS)
     lock = threading.Lock()
@@ -337,7 +299,7 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
                             steering=steering)
         loop.say = lambda text: on_line("station", text)
         loop.start()
-    started.extend(services(want, config_path, interval, main_root, db))
+    started.extend(services(want, config_path, interval, main_root))
     for service in started:
         _spawn(service, on_line)
     print()
@@ -347,8 +309,6 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     for service in started:
         if service.summary:
             print(f"  {service.summary[0]:<9}  {service.summary[1]}")
-    if "obs" in want:
-        print(f"  trace UI   http://localhost:{UI_PORT}   (api on :{API_PORT})")
     for name in WATCHERS:
         if name in want:
             print(f"  {name:<9}  polling every {interval}s")
@@ -452,13 +412,12 @@ def _pid_alive(pid: int) -> bool:
 
 def status(cfg: FactoryConfig) -> int:
     """One screen: what is watching, what is running, what is left behind —
-    all from files, so it answers on a machine with no trace db."""
+    all from files."""
     main_root = git_helper.main_root()
-    db = anchor(main_root, cfg.observability.db)
     sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
     rows = artifacts.watcher_states(artifacts.watchers_dir(main_root, cfg.defaults.data_dir))
     print(f"repo:      {main_root}")
-    print(f"db:        {db}{'' if db.exists() else '  (no runs yet)'}")
+    print(f"sessions:  {sessions}{'' if sessions.is_dir() else '  (no runs yet)'}")
     ships_to = local_cockpit.shared() or f"local — `asf up` starts it at {local_cockpit.app_url()}"
     print(f"cockpit:   {ships_to}\n")
     print("watchers")

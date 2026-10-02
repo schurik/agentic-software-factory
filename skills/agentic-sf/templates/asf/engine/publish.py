@@ -44,15 +44,9 @@ def resolve(cfg: FactoryConfig, main_root: Path) -> tuple[PublishMode, str]:
     local cockpit has issued this factory a token — `asf up` started it, and it
     reads the forge exactly as a shared one does. Without either, nothing reads
     the branch before it is integrated, and nothing is pushed before then.
-
-    `integration.mode: none` is the exception to the default, never to the
-    setting: a repository that said its branches stay on this machine does not
-    start pushing them because a cockpit appeared. It says `on_create` itself.
     """
     if cfg.worktree.publish:
         return cfg.worktree.publish, "worktree.publish"
-    if cfg.worktree.integration.mode == "none":
-        return ON_INTEGRATE, "the default under worktree.integration.mode: none"
     data_dir = anchor(main_root, cfg.defaults.data_dir)
     if local_cockpit.shared() or local_cockpit.has_issued_token(data_dir):
         return ON_CREATE, "the default once a cockpit is configured"

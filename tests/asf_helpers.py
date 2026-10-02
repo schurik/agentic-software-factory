@@ -7,18 +7,16 @@ from __future__ import annotations
 import json
 import os
 import re
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
-from engine import frontmatter      # conftest puts templates/asf on the path first
+from engine import events, frontmatter   # conftest puts templates/asf on the path first
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent / "skills" / "agentic-sf"
 INSTALL = SKILL_ROOT / "scripts" / "install.py"
-DB = "asf/data/asf.db"
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -160,15 +158,6 @@ BUILD_REPORT = {"status": "success", "summary": "<s>", "changed_files": ["app.py
 
 # ── reading the record back ───────────────────────────────────────────────────
 
-def db_rows(repo: Path, sql: str) -> list[tuple]:
-    """The trace db — an ASSERTION source, never a production path."""
-    connection = sqlite3.connect(f"file:{repo / DB}?mode=ro", uri=True)
-    try:
-        return connection.execute(sql).fetchall()
-    finally:
-        connection.close()
-
-
 def adw_id_of(result: subprocess.CompletedProcess) -> str:
     """From the `adw_id:` header — the first line of every run, and the only one
     carrying the id that nothing can shorten.
@@ -193,9 +182,22 @@ def run_state(repo: Path, adw_id: str) -> dict:
     return json.loads((session_dir(repo, adw_id) / "run.json").read_text())
 
 
+def phase_rows(repo: Path, adw_id: str) -> list[tuple[int, str, str]]:
+    """(seq, name, status) per phase of the session, in phase order, off its
+    events: one row per phase id however many times a resume re-walked it, with
+    the status its latest walk ended in ("running" while none has)."""
+    rows: dict[str, list] = {}
+    for line in events.read(session_dir(repo, adw_id)):
+        body = line.payload
+        if line.kind == "phase_started":
+            rows.setdefault(body["phase_id"], [body["seq"], body["name"], "running"])
+        elif line.kind == "phase_ended" and body["phase_id"] in rows:
+            rows[body["phase_id"]][2] = body["status"]
+    return sorted(tuple(row) for row in rows.values())
+
+
 def phase_names(repo: Path, adw_id: str) -> list[str]:
-    return [row[0] for row in db_rows(
-        repo, f"select name from phases where adw_id='{adw_id}' order by seq")]
+    return [name for _, name, _ in phase_rows(repo, adw_id)]
 
 
 # ── a forge that records ─────────────────────────────────────────────────────

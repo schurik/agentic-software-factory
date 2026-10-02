@@ -84,8 +84,8 @@ class Reply(BaseModel):
     # agent's writes land and where the gates and permissions.py look.
     writes: dict[str, str] = Field(default_factory=dict)
     deletes: list[str] = Field(default_factory=list)
-    # Each becomes one tool_call event, so the trace and the visualizer see the
-    # same shape a real harness produces.
+    # Each becomes one `tool_called` event, the same shape a real harness
+    # produces.
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     tokens: int = 0
     cost: float = 0.0

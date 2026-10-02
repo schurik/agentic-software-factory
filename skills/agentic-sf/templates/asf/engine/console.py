@@ -1,19 +1,20 @@
-"""Console reporter: one narrative, two destinations.
+"""Console reporter: the narrative a run tells on its terminal.
 
-Every line an ADW prints ALSO lands in the db as a `log` event, so the swim-lane
-UI reads the same story the terminal does. Both go through `_emit` — print and
-trace cannot drift. Plain sequential lines only: no spinners, no live displays,
-so a CI log reads exactly like a terminal.
+What a cockpit reads is the session's events, not these lines; this is the
+person at the keyboard's copy (and a CI job's log). Plain sequential lines
+only: no spinners, no live displays, so a CI log reads exactly like a terminal.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from rich.console import Console as RichConsole
 from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 
-from .data_types import EnvelopeBase, EventRecord, Phase
+from .data_types import EnvelopeBase, Phase
 
 KIND_COLOR = {"engineer": "cyan", "agent": "magenta", "code": "yellow"}
 MAX_LINE = 160          # dynamic text (summaries, violations, errors) is clipped
@@ -25,32 +26,24 @@ def _clip(text: str, limit: int = MAX_LINE) -> str:
 
 
 class Console:
-    """Bound to one run's tracer. Reachable as `run.console` everywhere."""
+    """Bound to one run. Reachable as `run.console` everywhere."""
 
-    def __init__(self, tracer, adw_id: str):
-        self.tracer = tracer
+    def __init__(self, adw_id: str):
         self.adw_id = adw_id
-        self.phase_id = ""          # current lane — log events attach to it
-        self.phase_name = ""
         self.results: list[str] = []            # phase statuses, for the summary
         self._finished = False                  # the summary panel prints once
         self._out = RichConsole(highlight=False, soft_wrap=True)
 
-    # ── the one helper: print AND trace, always together ────────────────────
-    def _emit(self, markup: str, level: str = "info", renderable=None) -> None:
-        text = Text.from_markup(markup)
-        self._out.print(renderable if renderable is not None else text)
-        self.tracer.mirror(EventRecord(
-            adw_id=self.adw_id, phase_id=self.phase_id, type="log",
-            name=self.phase_name or "console",
-            payload={"message": text.plain, "level": level}))
+    # ── the one helper ──────────────────────────────────────────────────────
+    def _emit(self, markup: str) -> None:
+        self._out.print(Text.from_markup(markup))
 
     # ── session ─────────────────────────────────────────────────────────────
     def session_started(self, adw_id: str, engineer: str) -> None:
         self._emit(f"[bold cyan]adw_id:[/bold cyan] [bold]{escape(adw_id)}[/bold]"
                    f"   [dim]engineer[/dim] {escape(engineer)}")
 
-    def session_finished(self, ok: bool, tokens: int, cost: float, db_path: str) -> None:
+    def session_finished(self, ok: bool, tokens: int, cost: float, session_dir: Path) -> None:
         if self._finished:
             return
         self._finished = True
@@ -61,19 +54,16 @@ class Console:
                 f" [dim]tokens[/dim]   {tokens:,}",
                 f" [dim]cost[/dim]     ${cost:.4f}",
                 f" [dim]adw_id[/dim]   {escape(self.adw_id)}",
-                f" [dim]db[/dim]       {escape(str(db_path))}",
+                f" [dim]record[/dim]   {escape(str(session_dir))}",
                 f" [dim]next[/dim]     [bold]uv run asf/asf.py run <workflow> ... --adw-id "
                 f"{escape(self.adw_id)} --resume[/bold]  (picks a failed run back up)"]
         panel = Panel(Text.from_markup("\n".join(rows)),
                       title="[bold]ADW complete[/bold]",
                       border_style="green" if ok else "red", expand=False)
-        plain = (f"session {self.adw_id} {'success' if ok else 'fail'} · "
-                 f"{passed}/{len(self.results)} phases · {tokens:,} tokens · ${cost:.4f}")
-        self._emit(escape(plain), level="info" if ok else "error", renderable=panel)
+        self._out.print(panel)
 
     # ── phases ──────────────────────────────────────────────────────────────
     def phase_started(self, phase: Phase) -> None:
-        self.phase_id, self.phase_name = phase.phase_id, phase.params.name
         p = phase.params
         color = KIND_COLOR.get(p.kind, "white")
         line = (f"[bold {color}]▶ {phase.seq:02d} {escape(p.name)}[/bold {color}]"
@@ -90,8 +80,7 @@ class Console:
         line = f"  {mark} {escape(phase.params.name)} [dim]{seconds:.1f}s[/dim]"
         if not ok and phase.error:
             line += f"  [red]{escape(_clip(phase.error))}[/red]"
-        self._emit(line, level="info" if ok else "error")
-        self.phase_id, self.phase_name = "", ""
+        self._emit(line)
 
     def note(self, message: str) -> None:
         """Free-form detail inside the current phase — what `ph.log()` recorded."""
@@ -100,16 +89,14 @@ class Console:
     # ── human gates ─────────────────────────────────────────────────────────
     def waiting(self, waiting, how: str) -> None:
         """The closing panel of a run that stopped for a person. No `session_finished`
-        follows it: the session is not over, and saying so would be a lie in the
-        trace as well as on the screen."""
+        follows it: the session is not over, and saying so would be a lie."""
         rows = [f" [dim]gate[/dim]     {escape(waiting.gate)} · round {waiting.round}",
                 f" [dim]subject[/dim]  {escape(_clip(waiting.summary))}",
                 *[f" [dim]file[/dim]     {escape(path)}" for path in waiting.paths],
                 f" [dim]answer[/dim]   {escape(how)}"]
         panel = Panel(Text.from_markup("\n".join(rows)),
                       title="[bold]waiting for you[/bold]", border_style="cyan", expand=False)
-        self._emit(escape(f"session {self.adw_id} waiting at gate {waiting.gate}"),
-                   renderable=panel)
+        self._out.print(panel)
 
     # A verdict this does not know is still a decision that happened, and a
     # lane that raises over a colour would turn one into a failed run — which is
@@ -143,7 +130,7 @@ class Console:
 
     def retry(self, name: str, attempt: int, limit: int, reason: str) -> None:
         self._emit(f"  [yellow]⟳[/yellow] {escape(name)} retry {attempt}/{limit} "
-                   f"[dim]— same session · {escape(_clip(reason))}[/dim]", level="warn")
+                   f"[dim]— same session · {escape(_clip(reason))}[/dim]")
 
     # ── verification ────────────────────────────────────────────────────────
     def gate_result(self, name: str, report) -> None:
@@ -152,18 +139,17 @@ class Console:
         mark = "[green]✓[/green]" if ok else "[red]✗[/red]"
         summary = (f"{len(report.checks)} checked" if ok
                    else f"[red]{len(report.violations)} of {len(report.checks)} failed[/red]")
-        self._emit(f"  {mark} gate [dim]{escape(name)}[/dim] [dim]{summary}[/dim]",
-                   level="info" if ok else "error")
+        self._emit(f"  {mark} gate [dim]{escape(name)}[/dim] [dim]{summary}[/dim]")
         for check in report.checks:
             style = "dim" if check.ok else "dim red"
             detail = f" — {_clip(check.note)}" if check.note else ""
             self._emit(f"    [{style}]{'·' if check.ok else '✗'} {escape(_clip(check.item))}"
-                       f"{escape(detail)}[/{style}]", level="info" if check.ok else "error")
+                       f"{escape(detail)}[/{style}]")
 
     def envelope_summary(self, envelope: EnvelopeBase) -> None:
         ok = envelope.status == "success"
         line = (f"  {'[green]✓[/green]' if ok else '[red]✗[/red]'} "
                 f"{type(envelope).__name__} [dim]{escape(_clip(envelope.summary))}[/dim]")
-        self._emit(line, level="info" if ok else "error")
+        self._emit(line)
         if envelope.artifacts:
             self._emit(f"    [dim]artifacts: {escape(_clip(', '.join(envelope.artifacts)))}[/dim]")

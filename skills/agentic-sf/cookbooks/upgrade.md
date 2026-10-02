@@ -7,7 +7,10 @@ Startup, when `asf/.skill-version` is missing or older than
 
 **An old stamp is never refused.** It keeps running exactly as it did, so
 nothing here is urgent and nothing here is yours to do unasked: say what the
-two versions are, offer the upgrade, and do it when the engineer says so. A
+two versions are, offer the upgrade, and do it when the engineer says so. The
+one thing a re-stamp can refuse is its own config: from 1.2 a config saying
+`worktree.integration.mode: none` stops every command until it says something
+else — so settle that one (below) in the same change. A
 missing `asf/.skill-version` means "stamped before 1.1" — older than any
 release that records one.
 
@@ -62,8 +65,8 @@ From the **target repo root**. Read three things in what it prints:
 - `YOUR CONFIG WAS NOT TOUCHED` — where the fresh render landed
   (`asf/factory.yaml.new`);
 - `YOUR CONFIG NAMES OBSOLETE KEYS` — each key the operator's config still
-  says that a later release drops, with its line and what to do. Nothing was
-  refused for them.
+  says that a release dropped, with its line and what to do. The stamp was not
+  refused for them; `mode: none` will be, by the code it just stamped.
 
 ## Put back what was yours
 
@@ -86,12 +89,12 @@ Most new keys have defaults that apply without them — the `.new` shows them, a
 nothing needs copying. These do not, and each is the repository's call: put each
 to the engineer with what it does, and edit `asf/factory.yaml` with their answer.
 
-1. **`observability:`** — obsolete. It only places the legacy trace db, and is
-   ignored from 1.2: delete it. If it moved the db somewhere other than
-   `asf/data/asf.db` and `just obs` is still used, it can wait for 1.2.
+1. **`observability:`** — obsolete and ignored since 1.2: delete it. The
+   database it placed is no longer written; the file it names (by default
+   `asf/data/asf.db`, with its `-wal` and `-shm`) can be deleted too.
 2. **`worktree.integration.mode: none`** (or `integration: {mode: none}`) —
-   warns now, refused from 1.2, and never remapped for them, because `none` did
-   two jobs. Ask which was meant:
+   refused since 1.2 (it warned in 1.1), and never remapped for them, because
+   `none` did two jobs. Ask which was meant:
    - *land nothing* → `mode: pr`, and drop the `integrate` stage from the
      workflows that should land nothing;
    - *push nothing* → `mode: pr` and `worktree.publish: on_integrate`;
@@ -136,6 +139,15 @@ the next `--force` writes over the one they read.
   find it (`just labels` shows the text).
 - **The optional CI check** — `install.py --harness <harness> --force --ci`
   stamps `.github/workflows/asf-check.yml`. A repository's CI is its own: ask.
+- **A justfile that was kept** (the repository's own, or a stamped one that
+  diverged) may still carry `obs`, `phases` and a `sessions` or `tail` that
+  read the old database. They are gone since 1.2: `just sessions` and `just
+  tail` read each session's own record now — copy those two from the fresh
+  stamp, and drop the rest.
+- **A vendored skill** (`.agents/skills/agentic-sf/` or the like) that once ran
+  `just obs` holds `apps/visualizer/node_modules/` in the repository's tree,
+  and the ignore file that kept it out of `git add -A` left with the
+  visualizer in 1.2: delete that directory before a commit stage runs.
 
 ## Done when
 
@@ -143,6 +155,7 @@ the next `--force` writes over the one they read.
 just doctor
 ```
 
-prints `skill version  stamped at <Y> · skill is <Y>` with a ✓, no `integration`
-warning, and every workflow checked. Commit the lot as one change, so the
+prints `skill version  stamped at <Y> · skill is <Y>` with a ✓ — it refuses to
+run at all while the config says `integration: none` — and every workflow
+checked. Commit the lot as one change, so the
 upgrade is one diff in the history — `asf: upgrade the factory to <Y>`.

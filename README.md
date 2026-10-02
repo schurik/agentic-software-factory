@@ -1,7 +1,7 @@
 # Agentic Software Factory
 
 **Deterministic code owns sequencing, retries and acceptance. Coding agents work inside bounded
-phases. Typed envelopes cross the seams. Every event streams into SQLite.**
+phases. Typed envelopes cross the seams. Every event lands in the session's own record.**
 
 `agentic-sf` is an *agent skill*: you install it once into your agent harness, point it at a
 repository, and it stamps a small Python control plane — `asf/` — into that repository. From then
@@ -80,8 +80,8 @@ The eight stages: `scout`, `plan`, `implement`, `verify`, `review`, `document`, 
 6. **Bindings narrow, identity is appended.** Five workflows must not quietly become five builders.
 7. **Every run works in its own git worktree** on branch `asf/<adw_id>`. Your checkout is never
    touched. A run that is not accepted keeps its worktree so you can look.
-8. **The factory never reads its own trace db.** Every question about a session is answered from
-   that session's directory; the db is for you and the UI.
+8. **The session directory is the record.** Every question about a session is answered from
+   that session's directory; a cockpit receives its events and is never asked.
 
 ## Human in the loop
 
@@ -149,21 +149,18 @@ pull request on those inputs, in code.
 
 ## Observability
 
-Everything streams into SQLite (WAL) while the run is in flight — phases, tool calls, envelopes,
-gate verdicts, token spend.
+Every session writes typed domain events to its own `events.jsonl` while the run is in flight —
+phases, tool calls, envelopes, gate verdicts, token spend — and a **cockpit** (`apps/cockpit`)
+builds its views from them.
 
 ```bash
-just sessions        # recent runs
-just phases <id>     # the phase-by-phase record
-just tail <id>       # follow a live run
-just obs             # the legacy trace UI (Vue + Vite on Bun, ships with the skill)
+just sessions        # recent runs, from their own records
+just tail <id>       # follow a live run's events
 ```
 
-Every session also writes typed domain events, and a **cockpit** (`apps/cockpit`) builds its views
-from them. `just up` is the station loop: it ships every session on the checkout to the shared
+`just up` is the station loop: it ships every session on the checkout to the shared
 cockpit `ASF_COCKPIT_URL` names or, without one, starts a local cockpit from the same published
-images a team deploys (Docker; `http://localhost:3000`). The trace UI starts only when asked for.
-What travels is the session's story — chapters, phases, gates, spend, commits, the handoff files
+images a team deploys (Docker; `http://localhost:3000`). What travels is the session's story — chapters, phases, gates, spend, commits, the handoff files
 its phases wrote, and each tool call's name, outcome and duration. A tool's arguments and results,
 the prompts and the harness's raw output are the transcript, which a factory sends only if its
 `factory.yaml` says `cockpit: {transcripts: true}`.

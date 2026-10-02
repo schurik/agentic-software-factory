@@ -5,8 +5,8 @@ One record per COMPLETED tool call, with the same keys whatever ran it:
     tool, tool_call_id, args, ok, label, result_snippet,
     started_at, ended_at, duration_ms
 
-That shape is the contract `agents._event_forwarder` writes to the trace and
-the visualizer reads back, so it lives here rather than inside one harness.
+That shape is the contract `agents._event_forwarder` turns into `tool_called`
+events, so it lives here rather than inside one harness.
 A harness's tracker parses its own event vocabulary and does its bookkeeping
 through `ToolCallLedger`; nothing downstream can tell which one ran.
 """
@@ -48,9 +48,8 @@ class ToolCallLedger:
     A tool call is announced by one event and answered by a later one, and only
     the answer carries the result — so a record is emitted at `close`, the
     moment the call returns, instead of one shapeless event per sighting. The
-    ledger also holds the call's real span (`started_at`/`ended_at`), which the
-    tracer writes to columns so the UI can lay tool calls on a time axis
-    without parsing every payload.
+    ledger also holds the call's real span (`started_at`/`ended_at`), which is
+    where its duration comes from.
     """
 
     def __init__(self) -> None:

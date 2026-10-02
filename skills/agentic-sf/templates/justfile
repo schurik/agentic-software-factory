@@ -12,7 +12,6 @@ set positional-arguments
 
 # `ASF_CONFIG=other.yaml just do "..."` swaps the whole factory for one run.
 config := env_var_or_default("ASF_CONFIG", "asf/factory.yaml")
-db     := "asf/data/asf.db"
 asf    := "uv run asf/asf.py --config " + config
 
 # list every recipe
@@ -194,23 +193,16 @@ station-register:
     {{asf}} station register
 
 # ── watch it ────────────────────────────────────────────────────────────────
-# Reads on the trace db never block a run.
+# Read from each session's own directory; the cockpit `just up` starts shows
+# the same sessions whole.
 
-# the last 10 runs
-sessions:
-    @sqlite3 {{db}} "select adw_id, adw_name, status, substr(request,1,40), total_tokens, round(total_cost,4) from sessions order by started_at desc limit 10;"
+# the newest runs: just sessions [--limit 20]
+sessions *ARGS:
+    @{{asf}} sessions "$@"
 
-# phase status in sequence: just phases <adw_id>
-phases ADW_ID:
-    @sqlite3 {{db}} "select seq, name, kind, owner, status, attempt from phases where adw_id='{{ADW_ID}}' order by seq;"
-
-# the live event tail: just tail <adw_id>
+# the end of a run's events: just tail <adw_id> — its events.jsonl, newest last (default data_dir)
 tail ADW_ID:
-    @sqlite3 {{db}} "select rowid, type, name, started_at from events where adw_id='{{ADW_ID}}' order by rowid desc limit 25;"
-
-# the legacy trace UI only — the visualizer that ships with the skill, over the trace db
-obs:
-    {{asf}} up --only obs
+    @tail -n 25 asf/data/sessions/{{ADW_ID}}/events.jsonl
 
 # ── leaving ─────────────────────────────────────────────────────────────────
 

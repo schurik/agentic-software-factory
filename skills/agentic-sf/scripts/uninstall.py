@@ -22,9 +22,10 @@ Four files live in a namespace the repository had before the factory arrived —
 and **kept the moment it differs**. A `.env` holding your API keys and a
 justfile holding your own recipes are not the factory's to delete.
 
-The trace db goes with the run record. It lives under `asf/data/` unless
-`observability.db` was pointed elsewhere, in which case that file (and its
-`-wal`/`-shm` siblings) is deleted by name.
+A stamp from before 1.2 also kept a trace db. Under `asf/data/` it goes with
+the run record; where that stamp's `observability.db` pointed elsewhere, that
+file (and its `-wal`/`-shm` siblings) is deleted by name, so uninstalling an
+old factory leaves nothing of it behind.
 
 Refuses while anything is still running: a half-deleted factory under a live
 run is the one state worse than either end of this. `asf kill <adw_id>` and
@@ -52,7 +53,7 @@ SKILL_ROOT = install.SKILL_ROOT
 TEMPLATES = install.TEMPLATES
 
 CONFIG = "asf/factory.yaml"
-DEFAULT_DB = "asf/data/asf.db"
+DEFAULT_DB = "asf/data/asf.db"           # where a stamp before 1.2 kept its trace db
 DEFAULT_DATA_DIR = "asf/data"
 DEFAULT_WORKTREE_DIR = ".asf-worktrees"
 DEFAULT_BRANCH_PREFIX = "asf/"

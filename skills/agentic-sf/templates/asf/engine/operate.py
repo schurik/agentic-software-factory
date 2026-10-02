@@ -6,9 +6,9 @@ nothing — so it is code, reached through `asf.py`'s subcommands, and thin for
 the reason stages are: the decision record lives in `engine.hitl`, the
 session record in `engine.artifacts`, the checks in `engine.preflight`.
 
-THE SESSION DIRECTORY IS THE RECORD, never the trace db. `run.json` says
-which workflow ran, the argv that started it, and how it ended — so a
-suspended run can be answered and brought back with the db deleted.
+THE SESSION DIRECTORY IS THE RECORD. `run.json` says which workflow ran, the
+argv that started it, and how it ended — so a suspended run can be answered
+and brought back from it alone.
 """
 
 from __future__ import annotations
@@ -43,6 +43,21 @@ def sessions_dir(cfg: FactoryConfig) -> Path:
 def _answer_hint(adw_id: str) -> str:
     return (f"asf approve {adw_id} [-m remarks] · asf reject {adw_id} -m \"...\" · "
             f"asf abort {adw_id}")
+
+
+# ── sessions ─────────────────────────────────────────────────────────────────
+
+def sessions(cfg: FactoryConfig, limit: int = 10) -> int:
+    """The newest sessions on this checkout, one line each, from their `run.json`."""
+    found = sorted(artifacts.scan(sessions_dir(cfg)).values(),
+                   key=lambda state: state.started_at, reverse=True)[:limit]
+    if not found:
+        print("no sessions recorded here yet")
+        return 0
+    for state in found:
+        print(f"{state.adw_id}  {state.adw_name or '?'}  {state.status}  "
+              f"{state.started_at}  {state.total_tokens:,} tokens  ${state.total_cost:.4f}")
+    return 0
 
 
 # ── gates ────────────────────────────────────────────────────────────────────
