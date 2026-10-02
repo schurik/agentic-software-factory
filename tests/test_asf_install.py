@@ -219,21 +219,6 @@ def test_the_stamp_records_the_skill_version_and_only_force_rewrites_it(repo: Pa
     assert stamp.read_text() == f"{plugin_version()}\n"
 
 
-def test_doctor_names_the_stamp_s_version_and_a_missing_one_is_before_1_1(stamped: Path):
-    """No refusal either way: an old stamp keeps running as it did. On the fake
-    harness, so a machine without the `claude` CLI is not what doctor refuses."""
-    fake_roster(stamped)
-    line = next(line for line in asf(stamped, "doctor").stdout.splitlines()
-                if "skill version" in line)
-    assert plugin_version() in line and "asf/.skill-version" in line
-
-    (stamped / "asf" / ".skill-version").unlink()
-    result = asf(stamped, "doctor")
-    assert result.returncode == 0, result.stdout + result.stderr
-    line = next(line for line in result.stdout.splitlines() if "skill version" in line)
-    assert "before 1.1" in line
-
-
 def test_a_re_run_over_a_factory_stamped_before_the_record_does_not_invent_one(repo: Path):
     """A re-run without --force keeps every file that exists, so what it
     leaves is still the old release's code. Writing today's version beside
@@ -249,3 +234,101 @@ def test_a_re_run_over_a_factory_stamped_before_the_record_does_not_invent_one(r
 
     install(repo, "--harness", "claude_code", "--force")      # refreshed: now it is true
     assert stamp.read_text() == f"{plugin_version()}\n"
+
+
+# ── the upgrade path: an old stamp is named, never refused ───────────────────
+
+PRE_1_1_KEYS = """
+# The trace: every run streams into this SQLite db, and `just obs` shows it.
+observability:
+  db: asf/data/asf.db
+  poll_ms: 500
+"""
+
+
+def line_of(text: str, needle: str) -> int:
+    return next(number for number, line in enumerate(text.splitlines(), 1) if needle in line)
+
+
+def test_force_over_a_pre_1_1_stamp_names_each_obsolete_key_and_still_stamps(repo: Path):
+    """The file the operator owns is linted, never rewritten and never a
+    reason to refuse: refusing would block the very step that fixes it."""
+    install(repo, "--harness", "claude_code")
+    (repo / "asf" / ".skill-version").unlink()                # as every stamp before 1.1
+    config = repo / "asf" / "factory.yaml"
+    old = config.read_text().replace("mode: pr ", "mode: none", 1) + PRE_1_1_KEYS
+    config.write_text(old)
+
+    forced = install(repo, "--harness", "claude_code", "--force")
+    assert forced.returncode == 0, forced.stdout + forced.stderr
+    assert (repo / "asf" / ".skill-version").read_text() == f"{plugin_version()}\n"
+    assert config.read_text() == old                          # linted, not touched
+    assert (repo / "asf" / "factory.yaml.new").is_file()
+
+    named = forced.stdout
+    observability = next(line for line in named.splitlines() if "`observability:`" in line)
+    assert f"asf/factory.yaml:{line_of(old, 'observability:')}" in observability
+    assert "ignored" in observability and "can be deleted" in observability
+    integration = next(line for line in named.splitlines() if "`worktree.integration.mode: "
+                       "none`" in line)
+    assert f"asf/factory.yaml:{line_of(old, 'mode: none')}" in integration
+    assert "refused from 1.2" in integration and "`pr`" in integration
+
+
+def test_the_lint_reads_a_flow_mapping_too(repo: Path):
+    """`integration: {mode: none}` is how the changelog itself spells it."""
+    install(repo, "--harness", "claude_code")
+    (repo / "asf" / "factory.yaml").write_text(
+        "observability: {db: asf/data/asf.db}\n"
+        "worktree:\n  integration: {mode: none, remote: origin}  # landed nothing\n")
+    forced = install(repo, "--harness", "claude_code", "--force")
+    assert forced.returncode == 0, forced.stdout + forced.stderr
+    assert "asf/factory.yaml:1 `observability:`" in forced.stdout
+    assert "asf/factory.yaml:3 `worktree.integration.mode: none`" in forced.stdout
+
+
+def test_a_config_this_release_rendered_names_nothing_obsolete(repo: Path):
+    """The lint names what a LATER release drops, so the render this one
+    writes must not trip it — or every re-run would cry wolf."""
+    install(repo, "--harness", "claude_code")
+    for args in ((), ("--force",)):
+        again = install(repo, "--harness", "claude_code", *args)
+        assert "OBSOLETE" not in again.stdout and "`observability:`" not in again.stdout
+
+
+def doctor_line(repo: Path, **env: str) -> tuple[str, str]:
+    """The `skill version` line `doctor` prints, and the one after it (its fix)."""
+    result = asf(repo, "doctor", env={"ASF_SKILL": str(SKILL_ROOT), **env})
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    at = next(index for index, line in enumerate(lines) if "skill version" in line)
+    return lines[at], lines[at + 1]
+
+
+def test_doctor_compares_the_stamp_with_the_skill_and_points_an_old_one_at_the_cookbook(
+        stamped: Path):
+    fake_roster(stamped)
+    record = stamped / "asf" / ".skill-version"
+    version = plugin_version()
+
+    line, _ = doctor_line(stamped)
+    assert f"stamped at {version} · skill is {version}" in line and "✓" in line
+
+    record.write_text("0.9.0\n")
+    line, fix = doctor_line(stamped)
+    assert f"stamped at 0.9.0 · skill is {version}" in line and "✓" not in line
+    assert str(SKILL_ROOT / "cookbooks" / "upgrade.md") in fix
+
+    record.unlink()
+    line, fix = doctor_line(stamped)
+    assert f"stamped before 1.1 · skill is {version}" in line
+    assert str(SKILL_ROOT / "cookbooks" / "upgrade.md") in fix
+
+    record.write_text("99.0.0\n")                             # a skill checkout left behind
+    line, fix = doctor_line(stamped)
+    assert f"stamped at 99.0.0 · skill is {version}" in line
+    assert "older than the stamp" in line and "--force" in fix
+
+    record.write_text(f"{version}\n")
+    line, _ = doctor_line(stamped, ASF_SKILL="")              # no skill to compare with
+    assert f"stamped at {version}" in line and "ASF_SKILL" in line

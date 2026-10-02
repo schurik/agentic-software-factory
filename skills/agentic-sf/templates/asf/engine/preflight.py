@@ -383,17 +383,62 @@ def labels(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
 # ── the skill, and the UI that ships with it ─────────────────────────────────
 
 def stamped_version(main_root: Path) -> list[Finding]:
-    """Which release of the skill stamped this factory, from the record the
-    installer wrote. Never a refusal: a factory stamped before the record
-    existed runs exactly as it did, and saying which release it came from is
-    all this knows how to do honestly."""
+    """Which release stamped this factory, against the release the skill is.
+
+    Never a refusal: an old stamp runs exactly as it did. What an older one
+    gets is the way forward — the upgrade cookbook, which walks a stamp to the
+    skill's release one decision at a time, because `install.py --force` alone
+    refreshes the code and leaves every key the operator's config lacks unset.
+    A stamp NEWER than the skill is the other way round: the checkout of the
+    skill was left behind, and a `--force` from it would stamp older code."""
     record = main_root / "asf" / ".skill-version"
-    if not record.is_file():
-        return [Finding(check="skill version",
-                        detail="before 1.1 — this factory was stamped before "
-                               "asf/.skill-version was recorded")]
-    return [Finding(check="skill version",
-                    detail=f"{record.read_text().strip()}  (asf/.skill-version)")]
+    recorded = record.read_text().strip() if record.is_file() else ""
+    stamped = f"stamped at {recorded}" if recorded else "stamped before 1.1"
+    root = _skill_root()
+    if root is None:
+        return [Finding(check="skill version", level="ok" if recorded else "warn",
+                        detail=f"{stamped} · the skill's own release is unknown: ASF_SKILL "
+                               f"does not point at it",
+                        fix="set ASF_SKILL in .env to the skill directory, then `doctor` "
+                            "again: a stamp that records no release is older than any "
+                            "that does, and the skill's cookbooks/upgrade.md walks it forward")]
+    current = (root / "templates" / "asf" / ".skill-version").read_text().strip()
+    detail = f"{stamped} · skill is {current}"
+    if recorded == current:
+        return [Finding(check="skill version", detail=detail)]
+    if recorded and None not in (_release(recorded), _release(current)) \
+            and _release(recorded) > _release(current):
+        return [Finding(check="skill version", level="warn",
+                        detail=f"{detail} — the skill is older than the stamp",
+                        fix=f"update the skill at {root} before installing from it: "
+                            f"`install.py --force` from there would stamp older code over "
+                            f"this")]
+    return [Finding(check="skill version", level="warn",
+                    detail=f"{detail} — this factory runs an older release's code",
+                    fix=f"upgrade it: {root / 'cookbooks' / 'upgrade.md'} — nothing is "
+                        f"refused meanwhile")]
+
+
+def _release(version: str) -> tuple[int, int, int, int] | None:
+    """A version's place in release order, or None when it is not semver. A
+    pre-release (`1.2.0-rc1`) sorts before the release it leads to."""
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)(-)?", version)
+    if not match:
+        return None
+    return int(match[1]), int(match[2]), int(match[3]), 0 if match[4] else 1
+
+
+def _skill_root() -> Path | None:
+    """The skill directory ASF_SKILL names, or None when it names none.
+
+    The one way a stamp can find the skill it came from: `install.py` writes
+    the path into `.env`. Whoever retires ASF_SKILL owes `stamped_version`
+    another way to read the skill's release."""
+    raw = os.environ.get("ASF_SKILL", "").strip()
+    root = Path(raw).expanduser() if raw else None
+    if root is None or not (root / "templates" / "asf" / ".skill-version").is_file():
+        return None
+    return root
 
 
 def skill() -> list[Finding]:

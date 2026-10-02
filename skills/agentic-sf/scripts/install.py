@@ -22,9 +22,11 @@ Stdlib only: this runs under `uv run` with no dependencies.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Iterator, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _detect                                     # noqa: E402  (path set above)
@@ -48,6 +50,27 @@ VERSION_FILE = Path("asf") / ".skill-version"
 # by --force. Taking it is a flag or a question; leaving it is deleting it.
 CI_TEMPLATE = TEMPLATES / "ci" / "asf-check.yml"
 CI_WORKFLOW = Path(".github") / "workflows" / "asf-check.yml"
+
+# What an operator's factory.yaml may still say that a later release drops,
+# and what to tell them. A re-stamp never rewrites that file, so this is how a
+# stamp from an older release hears about it: NAMED, never refused — refusing
+# would block the very `--force` that brings the code the fix needs. A key
+# matches by its path, and by its value where one is given.
+class Obsolete(NamedTuple):
+    path: tuple[str, ...]
+    value: str | None              # None: the key itself, whatever it says
+    why: str
+
+
+OBSOLETE = (
+    Obsolete(("observability",), None,
+     "ignored from 1.2, and can be deleted: until then it only moves the legacy trace db "
+     "from asf/data/asf.db, the default without it"),
+    Obsolete(("worktree", "integration", "mode"), "none",
+     "refused from 1.2: set `pr` (with `open_pr: false` to push and open nothing), and "
+     "`worktree.publish: on_integrate` to keep a branch off the remote until it is "
+     "integrated; a workflow that should land nothing drops its `integrate` stage"),
+)
 
 GITIGNORE_ENTRIES = [
     "asf/data/",
@@ -195,6 +218,48 @@ def write_config(harness: str, dest: Path, force: bool,
     notes.append((str(dest), str(proposed)))
 
 
+# `key: value`, indented by spaces; a comment, a list item or a block scalar's
+# text never starts like this, and a `#` after the value is a comment.
+KEY_LINE = re.compile(r"^( *)([A-Za-z_][\w-]*)\s*:(?:\s+(.*?))?\s*(?:\s#.*)?$")
+FLOW_PAIR = re.compile(r"([A-Za-z_][\w-]*)\s*:\s*([^,{}]*)")
+
+
+def config_keys(text: str) -> Iterator[tuple[tuple[str, ...], str, int]]:
+    """(path, value, line number) for every key of a YAML mapping, without a
+    YAML parser — this script has no dependencies. Block style, and one level
+    of flow style (`integration: {mode: none}`), which is all a factory.yaml
+    says; anything stranger yields nothing rather than a guess."""
+    stack: list[tuple[int, str]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = KEY_LINE.match(line)
+        if not match:
+            continue
+        indent, key, value = len(match[1]), match[2], (match[3] or "").strip()
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        stack.append((indent, key))
+        path = tuple(name for _, name in stack)
+        yield path, value.strip("\"'"), number
+        if value.startswith("{") and value.endswith("}"):
+            for child, child_value in FLOW_PAIR.findall(value[1:-1]):
+                yield (*path, child), child_value.strip().strip("\"'"), number
+
+
+def lint_config(config: Path) -> list[str]:
+    """Each obsolete key the operator's config still says, where, and what
+    to do about it — the installer's only say in a file it never rewrites."""
+    if not config.is_file():
+        return []
+    found = []
+    for path, value, number in config_keys(config.read_text()):
+        for obsolete in OBSOLETE:
+            if path == obsolete.path and obsolete.value in (None, value):
+                key = ".".join(path) + (f": {value}" if obsolete.value else ":")
+                found.append(f"{config.parent.name}/{config.name}:{number} `{key}` — "
+                             f"{obsolete.why}")
+    return found
+
+
 JUSTFILE_MARK = "# agentic-sf recipes."
 
 
@@ -278,6 +343,7 @@ def main() -> int:
         keep_unrecorded(root, stamped)
     write_config(harness, root / "asf" / "factory.yaml", args.force, stamped, skipped,
                  config_notes)
+    obsolete = lint_config(root / "asf" / "factory.yaml")
     stamp(HARNESSES / harness / "env.sample", root / ".env.sample", args.force, stamped, skipped)
     justfile_note = stamp_justfile(root, args.force, stamped, skipped)
     ci_taken = wants_ci(root, args.ci)
@@ -300,6 +366,11 @@ def main() -> int:
     for mine, proposed in config_notes:
         print("\n  YOUR CONFIG WAS NOT TOUCHED — a fresh render is beside it:")
         print(f"    yours: {mine}\n    new:   {proposed}")
+    if obsolete:
+        print("\n  YOUR CONFIG NAMES OBSOLETE KEYS — named, not changed, and nothing was "
+              "refused:")
+        for line in obsolete:
+            print(f"    {line}")
     print(f"\nthe skill is here: {SKILL_ROOT}")
     for note in notes:
         print(f"  {note}")

@@ -22,8 +22,19 @@ before — `None` when there are none, never omitted.
 ## Unreleased
 
 - Releases are semver tags, and `plugin.json` is the one version source.
-- `install.py` stamps `asf/.skill-version`; `asf doctor` prints it, or `before 1.1` when a factory
-  has none. `uninstall.py` removes it with the rest of `asf/`.
+- `install.py` stamps `asf/.skill-version`. `uninstall.py` removes it with the rest of `asf/`.
+- **The upgrade path for an old stamp.** `asf doctor` compares the stamp's record with the skill's
+  own release (found through `ASF_SKILL`) — `stamped at 1.1.0 · skill is 1.2.0`, or `stamped before
+  1.1` when there is none — and warns when the stamp is older, pointing at the skill's new
+  `cookbooks/upgrade.md`; it warns the other way too, when the skill checkout is older than the
+  stamp. `SKILL.md`'s Startup makes the same comparison and offers that cookbook first. Nothing is
+  refused: an old stamp runs as it did.
+- `install.py` **lints the `asf/factory.yaml` it keeps** on every re-run, `--force` included, and
+  names each obsolete key with its line: `observability:` (ignored from 1.2, can be deleted) and
+  `worktree.integration.mode: none` (refused from 1.2: set `pr`). It never refuses to stamp and
+  never edits the file.
+- A fresh stamp's `asf/factory.yaml` no longer carries `observability:`; the trace db stays where
+  that block put it, `asf/data/asf.db`, which is the default without it.
 - A checkout is a **station**: a random id kept in `asf/data/station.json` (gitignored with the rest
   of `asf/data/`), a name that defaults to `<login>@<host>:<dir>` (`ASF_STATION_NAME` overrides it)
   and a kind, `ci` under a CI job and `local` otherwise. Every `session_started` names the station.
@@ -240,11 +251,13 @@ before — `None` when there are none, never omitted.
 ### Upgrade
 
 None required: a factory without `asf/.skill-version` runs exactly as it did, and `asf doctor`
-names it `before 1.1`. A plain re-run of `install.py` does not change that — it keeps every file
-that exists, so they are still the old release's. The version is recorded by the run that refreshes
-them: commit, then `install.py --harness <harness> --force` from the target repo root, and put back
-any agent prose or task you had edited (`asf/factory.yaml` is never overwritten; a fresh render
-lands beside it as `.new`).
+names it `stamped before 1.1`. A plain re-run of `install.py` does not change that — it keeps every
+file that exists, so they are still the old release's. The version is recorded by the run that
+refreshes them: commit, then `install.py --harness <harness> --force` from the target repo root, and
+put back any agent prose or task you had edited (`asf/factory.yaml` is never overwritten; a fresh
+render lands beside it as `.new`). `cookbooks/upgrade.md` walks the steps below in order, one
+decision at a time; `observability:` can be deleted from `asf/factory.yaml` unless it moved the
+trace db.
 
 To ship to a cockpit, the same `--force` re-stamp brings the engine and the `station-sync` recipe;
 then add `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` to `.env` by hand, because the installer never

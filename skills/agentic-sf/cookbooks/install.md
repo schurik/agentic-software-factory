@@ -92,7 +92,7 @@ repository's CI is its own, so ask the engineer rather than passing `--ci` for t
 | `asf/stages/<name>/` | `templates/asf/stages/` | yes — the closed vocabulary: scout, plan, implement, verify, review, document, commit, integrate. Each is `stage.py` plus its default task files |
 | `asf/agents/<name>/agent.md` | `templates/asf/agents/` | yes — **the user-owned home for identity**: frontmatter for the engine, prose for the model |
 | `asf/workflows/<name>/` | `templates/asf/workflows/` | yes — `sdlc`, `quick`, `ship`, `issue`, `pr-review` |
-| `asf/.skill-version` | `templates/asf/.skill-version` | yes — the skill release that stamped it; `doctor` prints it. Never edit it: `--force` rewrites it, and a factory without one was stamped before 1.1 |
+| `asf/.skill-version` | `templates/asf/.skill-version` | yes — the skill release that stamped it; `doctor` compares it with the skill's own. Never edit it: `--force` rewrites it, and a factory without one was stamped before 1.1 |
 | `.env.sample` | `templates/harnesses/<harness>/env.sample` | yes — only the keys that harness needs |
 | `.env` | copied from `.env.sample`, with `ASF_SKILL=` written in | **no** — gitignored, and the reason a clone needs `install.py` re-run |
 | `justfile`, or `asf.justfile` beside a foreign one | `templates/justfile` | yes — `just --list` is the menu |
@@ -118,14 +118,23 @@ already has an `asf/.skill-version` from an older release, or none because it
 was stamped before 1.1, it says so and leaves it that way: the files that exist
 were not refreshed, so the record still describes them. It points at the
 skill's [`CHANGELOG.md`](../CHANGELOG.md), whose `### Upgrade` sections name the
-steps between the two.
+steps between the two — and [upgrade.md](upgrade.md) is the order to take them
+in.
 
 `--force` refreshes stamped code (`asf/engine/`, `asf/stages/`, the shipped
 workflows and agents, `asf/.skill-version`) to the skill's current version.
 **It does not overwrite `asf/factory.yaml`**: a fresh render lands beside it as
 `asf/factory.yaml.new` and the installer prints `YOUR CONFIG WAS NOT TOUCHED`,
 leaving the diff to you. Everything else stamped *is* replaced, including agent
-prose you edited, so commit before you force. The CI workflow counts as stamped
+prose you edited, so commit before you force.
+
+Every re-run also **lints the config it kept**: each key a later release drops
+is printed under `YOUR CONFIG NAMES OBSOLETE KEYS`, with its line and what to
+say instead — `observability:` is ignored from 1.2 and can be deleted;
+`worktree.integration.mode: none` is refused from 1.2, so set `pr`. It never
+refuses to stamp, because the stamp is what brings the code the fix needs, and
+it never edits the file. Over an older stamp, that is the moment for
+[upgrade.md](upgrade.md). The CI workflow counts as stamped
 once it is there: `--force` refreshes it without `--ci`, and never adds it
 without.
 

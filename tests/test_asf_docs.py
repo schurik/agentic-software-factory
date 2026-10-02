@@ -59,3 +59,23 @@ def test_the_install_cookbook_is_what_startup_offers():
     startup = text.split("## Startup", 1)[1].split("##", 1)[0]
     assert "cookbooks/install.md" in startup, \
         "Startup does not name cookbooks/install.md — the one file that path needs"
+
+
+def test_startup_routes_an_old_stamp_to_the_upgrade_cookbook_first():
+    """An old stamp is never refused, so the agent is what carries it forward:
+    Startup is the one place it reads before a request, and it must compare
+    the stamp's record with the skill's and hand over the upgrade cookbook."""
+    text = SKILL_MD.read_text()
+    startup = text.split("## Startup", 1)[1].split("\n## ", 1)[0]
+    assert "cookbooks/upgrade.md" in startup
+    assert "asf/.skill-version" in startup and "templates/asf/.skill-version" in startup
+
+
+def test_the_upgrade_cookbook_walks_every_step_a_pre_1_1_stamp_lacks():
+    """What `--force` cannot do for an operator, because each is a key in the
+    config it never rewrites or a person's approval — the issue's checklist."""
+    cookbook = (COOKBOOKS / "upgrade.md").read_text()
+    for step in ("install.py", "--force", "factory.yaml.new", "worktree.publish",
+                 "cockpit.commands", "station-register", "observability", "mode: none",
+                 "labels --create", "just doctor", "CHANGELOG.md"):
+        assert step in cookbook, f"the upgrade cookbook never mentions {step}"
