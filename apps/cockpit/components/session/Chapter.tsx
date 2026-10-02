@@ -6,7 +6,7 @@ import { Status } from "../Status";
 import { formatClock, formatCost, formatDuration, formatPruned } from "../format";
 import { PhaseDetails } from "./PhaseDetails";
 import type { Where } from "./PhaseTabs";
-import { channelWords, pillOf, toneOf } from "./words";
+import { channelWords, glyphOf, pillOf, toneOf } from "./words";
 
 export const phaseAnchor = (phaseId: string) => `phase-${phaseId}`;
 export const chapterAnchor = (number: number) => `chapter-${number}`;
@@ -28,7 +28,7 @@ export function Chapter({ chapter, where }: { chapter: ChapterData; where: Where
         <span className="small">{formatCost(chapter.cost)}</span>
       </header>
       {chapter.reason ? <p className="error small">{chapter.reason}</p> : null}
-      {chapter.asked ? <AskedCard asked={chapter.asked} /> : null}
+      {chapter.asked ? <AskedCard asked={chapter.asked} reader={chapter.reader} where={where} /> : null}
       <ol className="timeline">
         {chapter.items.map((item) => <TimelineItem key={`${item.type}-${item.seq}`} item={item} where={where} />)}
       </ol>
@@ -36,16 +36,29 @@ export function Chapter({ chapter, where }: { chapter: ChapterData; where: Where
   );
 }
 
-function AskedCard({ asked }: { asked: Asked }) {
+/** What the chapter was asked, and the code phase that read it, which opens like any code row. */
+function AskedCard({ asked, reader, where }: { asked: Asked; reader: CodeItem | null; where: Where }) {
+  const [opened, , toggle] = useOpened();
   return (
-    <details className="asked">
-      <summary>
-        <span className="label">Asked</span> <code className="muted">{asked.path.split("/").pop()}</code>
-        <span className="first">{firstLine(asked.content)}</span>
-      </summary>
-      {asked.pruned ? <p className="muted small">Its {formatPruned("content", asked.pruned)}.</p> : <pre>{asked.content}</pre>}
-      {asked.truncated && !asked.pruned ? <p className="muted small">Cut at the factory&apos;s cap: the file was {asked.size} bytes.</p> : null}
-    </details>
+    <div className="asked" id={reader ? phaseAnchor(reader.phaseId) : undefined}>
+      <details>
+        <summary>
+          <span className="label">Asked</span> <code className="muted">{asked.path.split("/").pop()}</code>
+          <span className="first">{firstLine(asked.content)}</span>
+        </summary>
+        {asked.pruned ? <p className="muted small">Its {formatPruned("content", asked.pruned)}.</p> : <pre>{asked.content}</pre>}
+        {asked.truncated && !asked.pruned ? <p className="muted small">Cut at the factory&apos;s cap: the file was {asked.size} bytes.</p> : null}
+      </details>
+      {reader ? (
+        <div className="reader small muted">
+          {glyphOf(reader.status)} read by <b>{reader.name}</b>
+          {" · "}{formatClock(reader.at)} · {formatDuration(reader.duration)} {toggle}
+        </div>
+      ) : null}
+      {reader && opened !== null ? (
+        <div className="detail boxed"><PhaseDetails phaseId={reader.phaseId} where={where} /></div>
+      ) : null}
+    </div>
   );
 }
 

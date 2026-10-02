@@ -10,7 +10,14 @@ fake harness by the code that ships, under `tests/golden/sessions/<name>/`:
   * `events.jsonl` — the session's events, exactly as its station shipped them
     (with the machine's paths replaced, so the recording is the same anywhere);
   * `journal.md` — the journal the factory rendered for the next agent, the
-    file a cockpit's Journal view must match byte for byte.
+    file a cockpit's Journal view must match byte for byte;
+  * `provenance.md` — where the recording came from (`Provenance`, its
+    frontmatter for a test and prose for a person): when, from which tree and
+    release, on which harness, whether the factory still kept a trace db
+    beside the events, and what was changed to make it portable. The
+    visualizer-parity test (`apps/cockpit/tests/parity.test.tsx`) holds the
+    cockpit to what the visualizer showed of a session recorded while the
+    trace db was still written; this file is what says one was.
 
 Like an event fixture, a recording is never edited once checked in: a cockpit
 reads sessions written by every factory there ever was, so an old recording is
@@ -27,21 +34,30 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
-from engine import events
+from engine import events, frontmatter
 from engine.data_types import EVENT_KINDS
 
-from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forge, forge_data,
-                          git, issue_json, new_repo, pr_json, session_dir, set_config, stamp,
-                          wire, with_origin)
+from .asf_helpers import (PY_CHECK, asf, commit_all, db_rows, envelope, fake_roster, forge,
+                          forge_data, git, issue_json, new_repo, pr_json, session_dir, set_config,
+                          stamp, wire, with_origin)
 
+THIS_REPO = Path(__file__).resolve().parent.parent
 SESSIONS = Path(__file__).resolve().parent / "golden" / "sessions"
 EVENT_FIXTURES = Path(__file__).resolve().parent / "golden" / "events"
 RECORDING = "issue-then-two-reviews"
+# The recording apps/cockpit/tests/parity.test.tsx reads: the one made under the old factory.
+# RECORDING moves on when a new story is recorded; this one stays.
+PARITY = "issue-then-two-reviews"
+RECORDER = "tests/test_asf_golden_sessions.py"
 ID = "a9f259f0"
 PR = 9
 WORK = "/work/widgets"          # where the recording says the repository was
@@ -141,17 +157,19 @@ def review_round(repo: Path, said: str, content: str, message: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def tell(repo: Path) -> None:
-    """One session, the way a team's would go.
+# What `tell` tells, said once: here, and in each recording's provenance.md.
+STORY = """\
+Chapter 1 is issue #42: scouted, planned, and stopped at the plan gate,
+where a person rejects the plan with a remark and approves the second one
+with another. The approval resumes the session — the scout and the planner
+are replayed from the record, not called again — and the build, review,
+documentation and pull request follow; the gates hitl leaves off pass by
+policy. Chapters 2 and 3 are two rounds of review on that pull request.
+Transcripts are on, so the prompts each agent was sent are in the stream."""
 
-    Chapter 1 is issue #42: scouted, planned, and stopped at the plan gate,
-    where a person rejects the plan with a remark and approves the second one
-    with another. The approval resumes the session — the scout and the planner
-    are replayed from the record, not called again — and the build, review,
-    documentation and pull request follow; the gates hitl leaves off pass by
-    policy. Chapters 2 and 3 are two rounds of review on that pull request.
-    Transcripts are on, so the prompts each agent was sent are in the stream.
-    """
+
+def tell(repo: Path) -> None:
+    """One session, the way a team's would go: STORY, on the fake harness."""
     base = forge(repo)
     set_config(repo,
                issues={"enabled": True, "project": "acme/widgets",
@@ -205,6 +223,60 @@ def recorded(repo: Path) -> tuple[str, str]:
     return anonymous(lines), anonymous(journal)
 
 
+@dataclass(frozen=True)
+class Provenance:
+    """Where a recording came from, as `provenance.md` beside it says.
+
+    The frontmatter is what a test reads; the prose under it is the same
+    facts for a person. `traced` is whether the factory still kept its trace
+    db and the session was in it: a session the legacy visualizer could show,
+    which is what the visualizer-parity test needs one of.
+    """
+    recording: str
+    recorded_on: str            # YYYY-MM-DD
+    tree: str                   # the commit this repository was at, short
+    release: str                # .claude-plugin/plugin.json's version then
+    traced: bool
+    noted_later: str = ""       # a note written after the recording was checked in
+
+    def render(self) -> str:
+        facts = {"recording": self.recording, "recorded_on": self.recorded_on,
+                 "recorder": RECORDER, "tree": self.tree, "release": self.release,
+                 "harness": "fake", "trace_db": self.traced}
+        trace_db = (
+            "The factory still kept its trace db (`asf/data/asf.db`) beside these events, and the\n"
+            "session was in it: recorded under the old factory, it is a session the legacy\n"
+            "visualizer could show." if self.traced else
+            "The factory kept no trace db: these events are the session's only record.")
+        later = f"\n{self.noted_later}\n" if self.noted_later else ""
+        return (
+            f"---\n{yaml.safe_dump(facts, sort_keys=False)}---\n"
+            f"# {self.recording}\n\n"
+            f"Recorded on {self.recorded_on} by `{RECORDER}`, run with\n"
+            f"`ASF_RECORD_SESSIONS=1` on top of `{self.tree}` — agentic-sf {self.release} — on the\n"
+            f"`fake` harness, whose scripted replies set every token count and cost.\n\n"
+            f"{trace_db}\n\n"
+            f"## What it tells\n\n{STORY}\n\n"
+            f"## What was changed\n\n"
+            f"Only the machine: the repository's path reads `{WORK}`, the Python interpreter\n"
+            f"`python`, and the station's name was set (`ASF_STATION_NAME`) rather than this\n"
+            f"machine's. Nothing else was edited, and the recording never is.\n{later}")
+
+
+def facts_of(text: str, name: str) -> dict:
+    """A provenance.md's frontmatter, once it is known to say where `name` came from."""
+    facts, prose = frontmatter.split(text, f"{name}/provenance.md")
+    assert set(facts) == {"recording", "recorded_on", "recorder", "tree", "release", "harness",
+                          "trace_db"}, facts
+    assert facts["recording"] == name and facts["recorder"] == RECORDER, facts
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(facts["recorded_on"])), facts
+    assert re.fullmatch(r"[0-9a-f]{7,40}", str(facts["tree"])), facts
+    assert re.fullmatch(r"\d+\.\d+\.\d+", str(facts["release"])), facts
+    assert facts["harness"] == "fake" and isinstance(facts["trace_db"], bool), facts
+    assert prose.startswith(f"# {name}\n") and "## What it tells\n" in prose, prose[:80]
+    return facts
+
+
 def fixture_for(kind: str, version: int) -> Path:
     return EVENT_FIXTURES / kind / f"v{version}.json"
 
@@ -225,6 +297,13 @@ def test_the_recorded_story_still_runs_and_is_written_only_when_asked(tmp_path: 
     assert json.loads((session_dir(repo, ID) / "run.json").read_text())["status"] == "success"
     assert git(repo, "log", "-1", "--format=%s", f"asf/{ID}") == "fix: one date format throughout"
 
+    provenance = Provenance(
+        RECORDING, recorded_on=datetime.now().date().isoformat(),
+        tree=git(THIS_REPO, "rev-parse", "--short", "HEAD"),
+        release=json.loads((THIS_REPO / ".claude-plugin" / "plugin.json").read_text())["version"],
+        traced=bool(db_rows(repo, f"SELECT adw_id FROM sessions WHERE adw_id = '{ID}'"))).render()
+    facts_of(provenance, RECORDING)
+
     if os.environ.get("ASF_RECORD_SESSIONS") != "1":
         return
     target = SESSIONS / RECORDING
@@ -235,6 +314,7 @@ def test_the_recorded_story_still_runs_and_is_written_only_when_asked(tmp_path: 
     stream, journal = recorded(repo)
     (target / "events.jsonl").write_text(stream)
     (target / "journal.md").write_text(journal)
+    (target / "provenance.md").write_text(provenance)
 
 
 # ── every recording stays readable ───────────────────────────────────────────
@@ -244,6 +324,19 @@ RECORDINGS = sorted(path.parent.name for path in SESSIONS.glob("*/events.jsonl")
 
 def test_the_corpus_holds_a_recorded_session():
     assert RECORDING in RECORDINGS
+
+
+def test_the_parity_test_has_a_session_from_the_old_factory():
+    """The visualizer goes only once the cockpit shows all it showed of a session
+    the visualizer could show — one recorded while the trace db was still written."""
+    assert facts_of((SESSIONS / PARITY / "provenance.md").read_text(), PARITY)["trace_db"] is True
+
+
+@pytest.mark.parametrize("name", RECORDINGS)
+def test_a_recorded_session_says_where_it_came_from(name: str):
+    path = SESSIONS / name / "provenance.md"
+    assert path.is_file(), f"{name} has no provenance.md"
+    facts_of(path.read_text(), name)
 
 
 @pytest.mark.parametrize("name", RECORDINGS)

@@ -115,8 +115,8 @@ describe("the other tabs", () => {
 
   it("Checks: each gate's verdict and each refused envelope", () => {
     const text = tab("a9f259f0_05_plan_revise_1", "checks");
-    expect(text).toContain("✓ artifacts_exist attempt 1 docs/asf/spec/plan.md: exists, 122B");
-    expect(text).toContain("✓ artifacts_exist on resume, checked against the record");
+    expect(text).toMatch(/✓ artifacts_exist attempt 1 · \d\d:\d\d( [AP]M)? docs\/asf\/spec\/plan\.md: exists, 122B/);
+    expect(text).toContain("✓ artifacts_exist on resume, checked against the record ·");
     expect(text).toContain("✕ PlanOutput refused, attempt 1: no JSON object found in the response → re-prompted in the same session");
   });
 
