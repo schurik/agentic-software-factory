@@ -86,6 +86,19 @@ def repo(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
                 f"config to cut from whatever main has checked out"))
         return findings
 
+    # The engineer's checkout on a session's branch — fixing review feedback by
+    # hand — holds that branch, so the session's next run cannot re-create its
+    # worktree from it (`worktree.ensure` refuses), and a new run with no
+    # base_ref would be cut from another session's work. A warning, not a
+    # fatal: it is a perfectly good place to be, until a run needs the branch.
+    current = git_helper.current_branch(main_root)
+    if cfg.worktree.enabled and current.startswith(cfg.worktree.branch_prefix):
+        findings.append(Finding(
+            check="git", level="warn",
+            detail=f"the main checkout is on {current} — a session's branch, so that "
+                   f"session's next run is refused until the checkout leaves it",
+            fix="push what you committed there, then `git checkout <your base branch>`"))
+
     # A check that says nothing when it passes reads as a check that never ran,
     # which in a report is worse than noise — so the good news is a line too.
     cut_from = base_ref or git_helper.current_branch(main_root)

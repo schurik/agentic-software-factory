@@ -40,3 +40,29 @@ def test_kill_on_a_finished_run_signals_nothing(stamped: Path):
     assert result.returncode == 0 and "nothing believed alive" in result.stdout
     nobody = asf(stamped, "kill", "deadbeef")
     assert nobody.returncode == 0 and "never started" in nobody.stdout
+
+
+def test_a_rerun_whose_branch_the_main_checkout_holds_is_refused_and_says_where(stamped: Path):
+    # An engineer fixing review feedback by hand checks the session's branch out
+    # in their own checkout. git will not hand one branch to two worktrees, so
+    # the next run on that session cannot re-create its own — and has to say so
+    # in words, not in a traceback inside a watcher's output.
+    fake_roster(stamped, builder=[{"writes": {"app.py": "ok = 1\n"},
+                                   "envelope": envelope(changed_files=["app.py"],
+                                                        commit_message="feat: app")}] * 2)
+    wire(stamped, "test", PY_CHECK)
+    commit_all(stamped)
+    adw_id = adw_id_of(asf(stamped, "run", "quick", "add app.py"))
+    assert not (stamped / ".asf-worktrees" / adw_id).exists()      # pruned on success
+    git(stamped, "checkout", "-q", f"asf/{adw_id}")
+
+    doctor = asf(stamped, "doctor")
+    assert f"the main checkout is on asf/{adw_id}" in doctor.stdout
+
+    refused = asf(stamped, "run", "quick", "again", "--adw-id", adw_id)
+    assert refused.returncode != 0
+    assert "Traceback" not in refused.stderr
+    said = refused.stdout + refused.stderr
+    assert f"asf/{adw_id} is checked out at {stamped.resolve()}" in said
+    assert "git checkout" in said
+    assert not (stamped / ".asf-worktrees" / adw_id).exists()      # nothing was created
