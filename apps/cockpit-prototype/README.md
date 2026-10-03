@@ -103,3 +103,5 @@ remembered).
   reviews, artifacts and the Journal. The recorded session's Journal is its real `journal.md`.
   Building it found that a stock renderer **renumbers** journal.py's list (seqs 7, 10, 12 came out
   as 7, 8, 9), so the Journal draws its own numbers and renders markdown inside each entry.
+- **Now:** Needs attention, Running and Waiting on others all fold behind the same Show/Hide.
+  The first two start open and Waiting on others starts closed. Inbox never folds.

@@ -66,6 +66,24 @@ function Section({ title, count, right, children }: { title: ReactNode; count: n
   );
 }
 
+/** A Section whose list folds away behind Show/Hide; Inbox is the one section that never folds. */
+function CollapsibleSection({ title, count, defaultOpen, children }: { title: ReactNode; count: number; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <Collapsible.Root defaultOpen={defaultOpen} render={<section />}>
+      <Collapsible.Trigger className="group mb-3 flex w-full items-baseline gap-2 text-left cursor-pointer">
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <span className="text-sm text-faint tabular-nums">{count}</span>
+        <span className="grow" />
+        <span className="flex items-center gap-1 text-sm text-muted group-hover:text-fg">
+          <span className="group-data-panel-open:hidden">Show</span><span className="hidden group-data-panel-open:inline">Hide</span>
+          <Chevron className="group-data-panel-open:rotate-90" />
+        </span>
+      </Collapsible.Trigger>
+      <Collapsible.Panel>{children}</Collapsible.Panel>
+    </Collapsible.Root>
+  );
+}
+
 const waited = (since: number) => `waiting ${fmtAgo(NOW - since).replace(" ago", "")}`;
 const late = (since: number) => (NOW - since > 30 * 60_000 ? "text-wait" : undefined);
 
@@ -131,21 +149,21 @@ function attentionRow(a: Attention): { icon: Icon; title: ReactNode; line: React
 
 function NeedsAttention() {
   return (
-    <Section title="Needs attention" count={ATTENTION.length}>
+    <CollapsibleSection title="Needs attention" count={ATTENTION.length} defaultOpen>
       <Card className="divide-y divide-line overflow-hidden">
         {ATTENTION.map((a, i) => {
           const r = attentionRow(a);
           return <Row key={i} icon={r.icon} title={r.title} lines={[r.line]} where={a.factory} when={<span className="text-accent">{r.action} →</span>} href={r.href} />;
         })}
       </Card>
-    </Section>
+    </CollapsibleSection>
   );
 }
 
 function Running() {
   const running = SESSIONS.filter((s) => s.status === "running");
   return (
-    <Section title="Running" count={running.length}>
+    <CollapsibleSection title="Running" count={running.length} defaultOpen>
       <Card className="divide-y divide-line overflow-hidden">
         {running.map((s) => {
           const { chapter, stage } = whereNow(s);
@@ -167,39 +185,28 @@ function Running() {
           );
         })}
       </Card>
-    </Section>
+    </CollapsibleSection>
   );
 }
 
 function WaitingOnOthers() {
   return (
-    <Collapsible.Root>
-      <Collapsible.Trigger className="group mb-3 flex w-full items-baseline gap-2 text-left cursor-pointer">
-        <h2 className="text-lg font-semibold tracking-tight">Waiting on others</h2>
-        <span className="text-sm text-faint tabular-nums">{OTHERS.length}</span>
-        <span className="grow" />
-        <span className="flex items-center gap-1 text-sm text-muted group-hover:text-fg">
-          <span className="group-data-panel-open:hidden">Show</span><span className="hidden group-data-panel-open:inline">Hide</span>
-          <Chevron className="group-data-panel-open:rotate-90" />
-        </span>
-      </Collapsible.Trigger>
-      <Collapsible.Panel>
-        <Card className="divide-y divide-line overflow-hidden">
-          {OTHERS.map((g) => (
-            <Row
-              key={g.id}
-              icon="waiting"
-              title={g.title}
-              lines={[<>{g.question} {g.gate} gate · round {g.round} · asked of {g.askedOf}</>]}
-              where={<>{g.factory} <IssueRef plain factory={g.factory} n={Number(g.ref.slice(1))} state="open" /></>}
-              when={waited(g.since)}
-              whenTone={late(g.since)}
-              href={`/sessions/${g.session}`}
-            />
-          ))}
-        </Card>
-      </Collapsible.Panel>
-    </Collapsible.Root>
+    <CollapsibleSection title="Waiting on others" count={OTHERS.length}>
+      <Card className="divide-y divide-line overflow-hidden">
+        {OTHERS.map((g) => (
+          <Row
+            key={g.id}
+            icon="waiting"
+            title={g.title}
+            lines={[<>{g.question} {g.gate} gate · round {g.round} · asked of {g.askedOf}</>]}
+            where={<>{g.factory} <IssueRef plain factory={g.factory} n={Number(g.ref.slice(1))} state="open" /></>}
+            when={waited(g.since)}
+            whenTone={late(g.since)}
+            href={`/sessions/${g.session}`}
+          />
+        ))}
+      </Card>
+    </CollapsibleSection>
   );
 }
 
