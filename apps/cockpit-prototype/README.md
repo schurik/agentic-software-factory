@@ -152,7 +152,7 @@ remembered).
 - The rule for the one extra hue (merged purple) is in `globals.css`.
 
 **Consistency**
-- A chevron on the left for everything that folds.
+- A chevron on the left for chapters and diff files. Now's sections went back to Show/Hide on the right (round 4).
 - The pill / dot / icon rule is written in `ui.tsx`.
 - Refs carry their icon everywhere.
 - The run dialog uses Base UI Selects, can't run an empty prompt, and has a close button.
@@ -160,3 +160,11 @@ remembered).
 - Key hints hide on touch screens.
 
 Left out on purpose: the Needs-attention warning triangle (the Inbox's gate icons were chosen instead) and the S items.
+
+### Round 4
+
+- **Now:** sections fold behind Show/Hide on the right again; the leading chevron didn't look right.
+- **Header:** the Now count is a small badge in the icons' amber tint, with the number centred. The active place is underlined in the accent.
+- **Session Now card:** a cost gauge, accent below 80%, amber from 80%, red at the ceiling.
+- **⋯ menu:** purge's note is shortened to two lines.
+- **Chapters:** each one is a Base UI Collapsible. The header keeps one size open or closed, so nothing jumps. The panel animates its height and fades in, and the small graph in the header fades out as the big one arrives, then back on close.

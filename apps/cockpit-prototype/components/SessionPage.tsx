@@ -60,11 +60,26 @@ function MoreMenu({ s }: { s: Session }) {
             <Menu.Item className={cx(menuItem, "text-bad data-highlighted:bg-bad-soft")}>
               <Trash2 size={14} /> Purge session…
             </Menu.Item>
-            <div className="px-2.5 pb-1.5 text-xs text-muted">Deletes its events from this cockpit. The factory&apos;s own record is untouched.</div>
+            <div className="max-w-60 px-2.5 pb-1.5 pl-[2.1rem] text-xs text-muted">Removes this cockpit’s copy; the factory keeps its own.</div>
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
     </Menu.Root>
+  );
+}
+
+/** Spend against the per-session ceiling: the accent, amber from 80%, red at the ceiling. */
+function CostGauge({ spent, budget }: { spent: number; budget: number }) {
+  const share = spent / budget;
+  const tone = share >= 1 ? "bg-bad" : share >= 0.8 ? "bg-wait" : "bg-accent";
+  return (
+    <div className="w-28">
+      <div className={cx("text-lg font-semibold", share >= 0.8 && "text-wait")}>{fmtCost(spent)}</div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3" role="meter" aria-valuemin={0} aria-valuemax={budget} aria-valuenow={spent} aria-label="Spend against the session ceiling">
+        <div className={cx("h-full rounded-full", tone)} style={{ width: `${Math.min(100, share * 100)}%` }} />
+      </div>
+      <div className="mt-1 text-xs text-faint">{Math.round(share * 100)}% of {fmtCost(budget)}</div>
+    </div>
   );
 }
 
@@ -90,7 +105,7 @@ function NowCard({ s, className }: { s: Session; className?: string }) {
         ) : null}
       </div>
       <div className="flex shrink-0 gap-6 text-right tabular-nums">
-        <div><div className="text-lg font-semibold">{fmtCost(spent)}</div><div className="text-xs text-faint">of {fmtCost(s.budget)}</div></div>
+        <CostGauge spent={spent} budget={s.budget} />
         <div><div className="text-lg font-semibold">{fmtDur(elapsed(s))}</div><div className="text-xs text-faint">{s.status === "done" || s.status === "failed" ? "took" : "elapsed"}</div></div>
       </div>
     </Card>

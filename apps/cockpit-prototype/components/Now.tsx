@@ -80,18 +80,18 @@ function Section({ title, count, right, children }: { title: ReactNode; count: n
   );
 }
 
-/**
- * A Section whose list folds away; Inbox is the one section that never folds. The chevron hangs
- * in the gutter so every section title keeps the same left edge, and a folded section takes no
- * more room than its title.
- */
+/** A Section whose list folds away behind Show/Hide; Inbox is the one section that never folds. */
 function CollapsibleSection({ title, count, defaultOpen, children }: { title: ReactNode; count: number; defaultOpen?: boolean; children: ReactNode }) {
   return (
     <Collapsible.Root defaultOpen={defaultOpen} render={<section />}>
-      <Collapsible.Trigger className="group relative flex w-full items-baseline gap-2 text-left data-panel-open:mb-3 cursor-pointer">
-        <Chevron className="absolute top-1/2 -left-4 -translate-y-1/2 text-faint group-hover:text-fg group-data-panel-open:rotate-90" />
+      <Collapsible.Trigger className="group flex w-full items-baseline gap-2 text-left data-panel-open:mb-3 cursor-pointer">
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
         <span className="text-sm text-faint tabular-nums">{count}</span>
+        <span className="grow" />
+        <span className="flex items-center gap-1 text-sm text-muted group-hover:text-fg">
+          <span className="group-data-panel-open:hidden">Show</span><span className="hidden group-data-panel-open:inline">Hide</span>
+          <Chevron className="group-data-panel-open:rotate-90" />
+        </span>
       </Collapsible.Trigger>
       <Collapsible.Panel>{children}</Collapsible.Panel>
     </Collapsible.Root>

@@ -176,12 +176,12 @@ function Nav() {
           className={cx(
             "relative flex items-center gap-1.5 px-1.5 text-sm font-medium sm:text-base",
             "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
-            i.on ? "text-fg after:bg-fg" : "text-muted hover:text-fg",
+            i.on ? "text-fg after:bg-accent" : "text-muted hover:text-fg",
           )}
         >
           {i.label}
           {i.count ? (
-            <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-wait px-1 text-[11px] font-semibold text-bg tabular-nums" aria-label={`${i.count} gates wait on you`}>{i.count}</span>
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-wait-soft px-1 text-[10px] leading-none font-semibold text-wait tabular-nums" aria-label={`${i.count} gates wait on you`}>{i.count}</span>
           ) : null}
         </PLink>
       ))}

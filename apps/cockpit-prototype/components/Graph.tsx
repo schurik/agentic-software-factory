@@ -5,6 +5,7 @@
 //   C Ribbon — one bar, each stage a segment sized by its time, phases as slices inside
 // Each has a full form (session page) and a mini form (a row on Now). Horizontal on desktop,
 // vertical on a phone. Hand-built: flex/grid + borders, no graph library.
+import { Collapsible } from "@base-ui/react/collapsible";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chapter, Phase, Session, Stage } from "@/lib/data";
 import {
@@ -492,33 +493,41 @@ export function MiniGraph({ chapter }: { chapter: Chapter }) {
   return <CardsMini chapter={chapter} />;
 }
 
-/** Every chapter, one row each: earlier ones collapse to a line, the last one is open. */
+/**
+ * Every chapter, one row each: earlier ones fold to a line, the last one is open. A Base UI
+ * Collapsible: the header never changes size, the panel grows to the graph's height and fades
+ * in, and the small graph in the header fades out as the big one arrives (and back).
+ */
 export function SessionGraph({ session }: { session: Session }) {
   const { variant } = useProto();
   const last = session.chapters.length - 1;
-  const [open, setOpen] = useState<Record<number, boolean>>({});
   return (
     <div className="flex flex-col gap-2">
       {session.chapters.map((c, i) => {
-        const isOpen = open[i] ?? i === last;
         const st = chapterStatus(c);
         return (
-          <section key={c.n} className={cx("rounded-xl border border-line bg-surface", isOpen ? "p-4 md:p-5" : "px-4 py-2.5")}>
-            <button onClick={() => setOpen((o) => ({ ...o, [i]: !isOpen }))} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left cursor-pointer">
-              <Chevron open={isOpen} className="text-faint" />
+          <Collapsible.Root key={c.n} defaultOpen={i === last} render={<section className="rounded-xl border border-line bg-surface" />}>
+            <Collapsible.Trigger className="group flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left md:px-5 cursor-pointer">
+              <Chevron className="text-faint transition-transform duration-200 group-data-panel-open:rotate-90" />
               <span className="text-xs font-medium uppercase tracking-wider text-faint">Chapter {c.n}</span>
               <span className="font-semibold">{c.workflow}</span>
               <span className="text-sm text-muted">{c.input === "prompt" ? "from a prompt" : `answering ${c.ref}`}</span>
-              {!isOpen ? <span className="hidden sm:block"><MiniGraph chapter={c} /></span> : null}
+              <span aria-hidden className="hidden transition-opacity duration-200 group-data-panel-open:pointer-events-none group-data-panel-open:opacity-0 sm:block">
+                <MiniGraph chapter={c} />
+              </span>
               <span className="grow" />
               <span className="flex items-center gap-3 text-sm text-muted tabular-nums">
                 <span>{fmtDur(chapterSecs(c))}</span>
                 <span>{fmtCost(cost(allPhases(c)))}</span>
                 {i === last && session.status !== "done" ? null : <StatusIcon status={st} />}
               </span>
-            </button>
-            {isOpen ? <div className="mt-4"><ChapterGraph session={session} chapter={c} variant={variant} /></div> : null}
-          </section>
+            </Collapsible.Trigger>
+            <Collapsible.Panel className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] data-ending-style:h-0 data-ending-style:opacity-0 data-starting-style:h-0 data-starting-style:opacity-0">
+              <div className="px-4 pb-4 md:px-5 md:pb-5">
+                <ChapterGraph session={session} chapter={c} variant={variant} />
+              </div>
+            </Collapsible.Panel>
+          </Collapsible.Root>
         );
       })}
     </div>
