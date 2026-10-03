@@ -14,6 +14,17 @@ _Avoid_: instance, installation, deployment
 A named, checked composition of stages inside a factory, started against a prompt, an issue or a pull request.
 _Avoid_: pipeline, flow
 
+**Stage**:
+One step of a workflow's fixed shape, drawn from a closed vocabulary (scout, plan, commit, verify…).
+A workflow lists its stages once, and they are the same for every session it runs.
+_Avoid_: step, node, task
+
+**Phase**:
+One bounded execution a session actually went through: an agent call, a code check, a person at a
+gate. A stage produces one or more phases (a plan, its gate, a revision, the gate again); reading
+the work item at a workflow's start and reporting on it at the end are phases that belong to no stage.
+_Avoid_: step, task, attempt
+
 **Session**:
 One piece of work on one branch, identified by its id, with its own directory of state under the
 factory's data dir. It may pass through several workflows in turn: an issue's workflow, then a round
@@ -69,6 +80,12 @@ _Avoid_: ACL, roles, permissions table, access list
 **Inbox**:
 The cross-repo list, in a cockpit, of every gate currently waiting on the person looking at it.
 _Avoid_: queue, pending list, notifications
+
+**Needs attention**:
+Something on a factory a person should look at now, read against the clock: a gate waiting on
+them, a session that failed within the last day, a claim whose station has been away for over a
+day, a station whose config drifted, a failing check, or queued work no online station is watching.
+_Avoid_: alerts, problems, stuck
 
 **Command**:
 One steering action, from a closed set, that a cockpit asks a station to carry out on a named session
