@@ -73,3 +73,33 @@ remembered).
   Status column is gone, Cost and Started are narrow, and Session and Where take the room.
 - Session page: the Cards chain scrolls sideways instead of wrapping.
 - Session page tabs: **Details · Timeline · Journal**, with Details open first.
+
+### Round 2
+
+- **Running** puts the current stage's icon in the icon column, with one icon per stage of the
+  closed vocabulary (scout, plan, commit, implement, verify, review, document, integrate). The
+  mini graph keeps the only spinner, and the "who is on what" sentence is gone.
+- **The gate drawer** is a dialog now. Its 56px header lines up with the page header, the body
+  scrolls, and the footer is fixed: notes, then Reject and the primary action (blue, not green),
+  with Abort at the far left. Session, station and spend are gone from it; they aren't decision
+  material and are one click away on the session. What it shows depends on the gate
+  (`GateKind` in `lib/data.ts`):
+  - **plan, round 1:** the plan · the issue in the reporter's words · the scout's findings
+  - **plan, round 2+:** *changes since the rejected round* first, under the person's own note
+    from that round, then the plan, the issue and the findings
+  - **integrate:** the branch's diff · checks · the reviewer's verdict · the issue
+
+  At every gate the agents' ⚑ flags sit above the tabs, because a flagged risk is decision
+  material.
+- **Forge things carry their icon and state colour:** issue (open green, closed purple), pull
+  request (open green, merged purple, closed red, draft grey), branch and commit. Each one links
+  to the forge: in the session header and Details, gate headers, timeline commits, and the
+  sessions table. Inside a row that is already a link they are shown, not linked.
+- **Diffs** come from jsdiff and are drawn here, unified or split, with line numbers and the
+  changed words marked. Prose files wrap and code keeps its columns. They appear at the gates,
+  in a **Diff** tab on a commit phase, and in a **Changes** tab on the session (the branch
+  against its base). In the real build the before and after come from the forge at two shas.
+- **Markdown** goes through react-markdown + GFM + hard breaks: plans, issues, findings,
+  reviews, artifacts and the Journal. The recorded session's Journal is its real `journal.md`.
+  Building it found that a stock renderer **renumbers** journal.py's list (seqs 7, 10, 12 came out
+  as 7, 8, 9), so the Journal draws its own numbers and renders markdown inside each entry.

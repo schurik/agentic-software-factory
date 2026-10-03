@@ -9,13 +9,16 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ATTENTION, GATES, NOW, OTHERS, SESSIONS, type Attention } from "@/lib/data";
 import { cost, elapsed, fmtAgo, fmtCost, fmtDur, sessionPhases, whereNow } from "@/lib/model";
 import { MiniGraph } from "./Graph";
+import { IssueRef, PrRef, StageIcon } from "./icons";
 import { PLink, useProto } from "./state";
 import { Card, Chevron, Kbd, StatusIcon, cx } from "./ui";
 
 type Icon = "waiting" | "failed" | "running";
 
-function Row({ icon, title, lines, where, when, whenTone, href, onClick, active }: {
+function Row({ icon, glyph, title, lines, where, when, whenTone, href, onClick, active }: {
   icon: Icon;
+  /** Drawn in the icon column instead of the status icon. */
+  glyph?: ReactNode;
   title: ReactNode;
   lines?: ReactNode[];
   where: ReactNode;
@@ -28,14 +31,14 @@ function Row({ icon, title, lines, where, when, whenTone, href, onClick, active 
   const body = (
     <>
       {active ? <span className="absolute inset-y-0 left-0 w-0.5 bg-accent" /> : null}
-      <StatusIcon status={icon} size={16} className="mt-0.5" />
+      {glyph ?? <StatusIcon status={icon} size={16} className="mt-0.5" />}
       <span className="min-w-0">
         <span className="block truncate font-semibold">{title}</span>
         {lines?.map((l, i) => <span key={i} className="mt-0.5 block min-w-0 truncate text-sm text-muted">{l}</span>)}
-        <span className="mt-1 block truncate text-sm text-muted sm:hidden">{where} · <span className={whenTone}>{when}</span></span>
+        <span className="mt-1 flex items-center gap-1 truncate text-sm text-muted sm:hidden">{where} · <span className={whenTone}>{when}</span></span>
       </span>
       <span className="hidden w-44 flex-col items-end gap-0.5 text-right text-sm sm:flex">
-        <span className="max-w-full truncate text-muted">{where}</span>
+        <span className="flex max-w-full items-center gap-1 truncate text-muted">{where}</span>
         <span className={cx("max-w-full truncate tabular-nums", whenTone ?? "text-faint")}>{when}</span>
       </span>
     </>
@@ -103,7 +106,7 @@ function Inbox() {
               icon="waiting"
               title={g.title}
               lines={[<><span className="font-medium text-fg">{g.question}</span> {g.gate} gate · round {g.round}</>, g.subject]}
-              where={<>{g.factory} · {g.ref}</>}
+              where={<>{g.factory} <IssueRef plain factory={g.factory} n={Number(g.ref.slice(1))} state="open" /></>}
               when={waited(g.since)}
               whenTone={late(g.since)}
               onClick={() => { setSel(i); open({ type: "gate", gateId: g.id }); }}
@@ -145,16 +148,19 @@ function Running() {
     <Section title="Running" count={running.length}>
       <Card className="divide-y divide-line overflow-hidden">
         {running.map((s) => {
-          const { chapter, phase } = whereNow(s);
+          const { chapter, stage } = whereNow(s);
           return (
             <Row
               key={s.id}
               icon="running"
+              glyph={
+                <span className="-mt-0.5 -ml-1 grid size-6 place-items-center rounded-md bg-accent-soft text-accent" title={stage?.name}>
+                  <StageIcon name={stage?.name ?? ""} size={14} />
+                </span>
+              }
               title={s.title}
-              lines={[
-                <span key="g" className="flex flex-wrap items-center gap-x-3 gap-y-1"><MiniGraph chapter={chapter} /><span className="truncate">{phase?.owner} {phase?.kind === "code" ? "runs" : "is on"} {phase?.name}</span></span>,
-              ]}
-              where={<>{s.factory} · {s.ref}{s.chapters.length > 1 ? ` · ch. ${chapter.n}` : ""}</>}
+              lines={[<MiniGraph key="g" chapter={chapter} />]}
+              where={<>{s.factory} {s.pr ? <PrRef plain factory={s.factory} n={s.pr.n} state={s.pr.state} /> : s.issue ? <IssueRef plain factory={s.factory} n={s.issue.n} state={s.issue.state} /> : "· prompt"}</>}
               when={<>{fmtCost(cost(sessionPhases(s)))} · {fmtDur(elapsed(s))}</>}
               href={`/sessions/${s.id}`}
             />
@@ -185,7 +191,7 @@ function WaitingOnOthers() {
               icon="waiting"
               title={g.title}
               lines={[<>{g.question} {g.gate} gate · round {g.round} · asked of {g.askedOf}</>]}
-              where={<>{g.factory} · {g.ref}</>}
+              where={<>{g.factory} <IssueRef plain factory={g.factory} n={Number(g.ref.slice(1))} state="open" /></>}
               when={waited(g.since)}
               whenTone={late(g.since)}
               href={`/sessions/${g.session}`}

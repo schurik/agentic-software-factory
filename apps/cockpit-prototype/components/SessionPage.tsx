@@ -1,12 +1,15 @@
 "use client";
 // PROTOTYPE, throwaway. The session page, top to bottom: header (title, status, the one
 // applicable action) → the graph, one row per chapter → the Now card → Details · Timeline · Journal.
-import { GATES, OTHERS, type Phase, type Session } from "@/lib/data";
+import { BRANCH_DIFF, GATES, OTHERS, type Phase, type Session } from "@/lib/data";
+import { RECORDED_JOURNAL } from "@/lib/journals";
 import {
   allPhases, cost, elapsed, fmtClock, fmtCost, fmtDur, fmtInt, sessionPhases, tokens, whereNow,
 } from "@/lib/model";
 import { SessionGraph } from "./Graph";
-import { inline } from "./Md";
+import { DiffView } from "./Diff";
+import { BranchRef, CommitRef, ExternalLink, IssueRef, PrRef, prUrl } from "./icons";
+import { Md } from "./Md";
 import { PLink, useProto } from "./state";
 import { Tabbed } from "./Tabs";
 import { Button, Card, KindIcon, Pill, StatusIcon, cx } from "./ui";
@@ -16,7 +19,13 @@ const statusWord = { done: "done", running: "running", waiting: "waiting", faile
 function Action({ s }: { s: Session }) {
   const { open, answered } = useProto();
   const gate = GATES.find((g) => g.session === s.id && !answered[g.id]);
-  if (s.status === "done" && s.prUrl) return <Button variant="primary">Open pull request ↗</Button>;
+  if (s.status === "done" && s.pr) {
+    return (
+      <a href={prUrl(s.factory, s.pr.n)} target="_blank" rel="noreferrer">
+        <Button variant="primary">Pull request #{s.pr.n} <ExternalLink size={14} /></Button>
+      </a>
+    );
+  }
   if (gate) return <Button variant="primary" onClick={() => open({ type: "gate", gateId: gate.id })}>Answer the {gate.gate} gate</Button>;
   if (s.status === "waiting") return <span className="text-sm text-muted">Waiting on {OTHERS.find((g) => g.session === s.id)?.askedOf ?? "someone"}</span>;
   if (s.status === "running") return <Button variant="danger">Kill</Button>;
@@ -67,9 +76,10 @@ function Timeline({ s }: { s: Session }) {
                   <StatusIcon status={p.status} className="mt-1" />
                   <span className="flex items-center gap-1.5 font-medium"><span className="truncate">{label(p)}</span><KindIcon kind={p.kind} /></span>
                   <span className="col-start-3 min-w-0 text-sm text-muted md:col-start-auto">
-                    <span className="block truncate">{p.owner}{p.summary ? ` — ${p.summary}` : ""}</span>
+                    <span className="block truncate">{p.owner}{p.summary && !p.commit ? ` — ${p.summary}` : p.commit ? ` — ${p.commit.message}` : ""}</span>
                     {p.remark?.text ? <span className="mt-0.5 block text-fg">✎ {p.remark.by}: “{p.remark.text}”</span> : null}
                     {p.notes?.map((n) => <span key={n.what} className="mt-0.5 block">⚑ {n.kind}: {n.what}</span>)}
+                    {p.commit?.sha ? <span className="mt-0.5 block"><CommitRef factory={s.factory} sha={p.commit.sha} className="text-accent" /></span> : null}
                   </span>
                   <span className="row-start-1 col-start-4 text-right text-sm tabular-nums text-faint md:col-start-5">{p.secs ? fmtDur(p.secs) : ""}{p.cost ? <span className="block text-xs">{fmtCost(p.cost)}</span> : null}</span>
                 </button>
@@ -82,41 +92,71 @@ function Timeline({ s }: { s: Session }) {
   );
 }
 
-/** The journal, rendered — engine/journal.py's text, read as a page instead of monospace. */
-function Journal({ s }: { s: Session }) {
-  const phases = sessionPhases(s).filter((p) => p.status !== "waiting" && p.status !== "running");
-  // One line per phase that closed, as journal.py numbers them (replays and repeats collapse).
+/**
+ * The journal: engine/journal.py's markdown, rendered. The recorded session shows its real
+ * journal.md verbatim; the others are written here in the same form.
+ */
+function journalOf(s: Session): string {
+  if (s.id === "a9f259f0") return RECORDED_JOURNAL;
   const seen = new Set<number>();
-  const lines = phases.filter((p) => (seen.has(p.seq) ? false : (seen.add(p.seq), true)));
+  const lines = sessionPhases(s)
+    .filter((p) => p.status !== "waiting" && p.status !== "running")
+    .filter((p) => (seen.has(p.seq) ? false : (seen.add(p.seq), true)))
+    .map((p) => {
+      const out = [`${p.seq}. ${p.name} · ${p.owner} · ${p.status === "failed" ? "failure" : "success"}${p.summary ? ` — ${p.summary}` : ""}`];
+      for (const n of p.notes ?? []) {
+        out.push(`   ⚑ ${n.kind} (${n.by}, in ${p.name}): ${n.what}`);
+        if (n.insteadOf) out.push(`     instead of: ${n.insteadOf}`);
+        out.push(`     because: ${n.because}`);
+      }
+      if (p.remark?.text) out.push(`   ✎ ${p.remark.by} said, ${p.remark.verdict} at the ${p.gate?.name} gate (round ${p.gate?.round}): ${p.remark.text}`);
+      return out.join("\n");
+    });
+  return `## This run so far
+
+The factory wrote this as the run went. Each numbered line is a phase that closed;
+the marked lines under one are what came out of it.
+
+${lines.join("\n")}
+`;
+}
+
+/**
+ * journal.py numbers each line by the phase's seq, and the numbers skip (7, 10, 12…). A stock
+ * markdown renderer renumbers an ordered list from its first number, so the numbered entries
+ * are split out here and drawn with their own numbers; markdown renders inside each one.
+ */
+function splitJournal(text: string): { head: string; items: { n: number; body: string }[] } {
+  const lines = text.split("\n");
+  const first = lines.findIndex((l) => /^\d+\. /.test(l));
+  if (first < 0) return { head: text, items: [] };
+  const items: { n: number; body: string }[] = [];
+  for (const l of lines.slice(first)) {
+    const m = /^(\d+)\. (.*)$/.exec(l);
+    if (m) items.push({ n: Number(m[1]), body: m[2] });
+    else if (l.trim() && items.length) items[items.length - 1].body += "\n" + l.trim();
+  }
+  return { head: lines.slice(0, first).join("\n"), items };
+}
+
+function Journal({ s }: { s: Session }) {
+  const { head, items } = splitJournal(journalOf(s));
   return (
-    <article className="prose-journal max-w-[72ch]">
-      <h3 className="text-lg font-semibold">This run so far</h3>
-      <p className="mt-1 text-muted">The factory wrote this as the run went. Each numbered line is a phase that closed; the marked lines under one are what came out of it.</p>
-      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 rounded-lg bg-surface-2 px-4 py-2.5 text-sm">
+    <div className="flex max-w-[80ch] flex-col gap-4">
+      <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-lg bg-surface-2 px-4 py-2.5 text-sm">
         <span><b>⚑</b> a note an agent filed — a report, judged like any claim</span>
         <span><b>✎</b> what a person typed at a gate — an instruction, it wins</span>
       </div>
-      <ol className="mt-4">
-        {lines.map((p) => (
-          <li key={p.id} value={p.seq}>
-            <span className="font-medium">{p.name}</span> <span className="text-muted">· {p.owner} · {p.status === "rejected" ? "success" : p.status === "ok" ? "success" : p.status}</span>
-            {p.summary ? <> — {inline(p.summary)}</> : null}
-            {p.notes?.map((n) => (
-              <div key={n.what} className="mt-1 ml-1 border-l-2 border-line pl-3 text-sm">
-                ⚑ <b className="font-medium">{n.kind}</b> ({n.by}): {n.what}
-                {n.insteadOf ? <div className="text-muted">instead of: {n.insteadOf}</div> : null}
-                <div className="text-muted">because: {n.because}</div>
-              </div>
-            ))}
-            {p.remark?.text ? (
-              <div className="mt-1 ml-1 border-l-2 border-wait pl-3 text-sm">
-                ✎ {p.remark.by} said, {p.remark.verdict} at the {p.gate?.name} gate (round {p.gate?.round}): <b className="font-medium">{p.remark.text}</b>
-              </div>
-            ) : null}
+      <Md text={head} />
+      <ol className="flex flex-col gap-2">
+        {items.map((it) => (
+          <li key={it.n} className="grid grid-cols-[2rem_1fr] gap-x-2">
+            <span className="pt-px text-right text-sm text-faint tabular-nums">{it.n}.</span>
+            <Md text={it.body} />
           </li>
         ))}
       </ol>
-    </article>
+    </div>
   );
 }
 
@@ -137,9 +177,10 @@ function Details({ s }: { s: Session }) {
         <dt className="text-muted">Tokens</dt><dd className="tabular-nums">{fmtInt(tok)} of 2,000,000{meter(tok / 2_000_000)}</dd>
       </dl>
       <dl className="grid grid-cols-[7.5rem_1fr] gap-y-2.5 text-sm">
-        <dt className="text-muted">Branch</dt><dd className="font-mono">{s.branch}</dd>
+        <dt className="text-muted">Branch</dt><dd><BranchRef factory={s.factory} branch={s.branch} className="text-accent" /></dd>
         <dt className="text-muted">Base</dt><dd className="font-mono">{s.base}</dd>
-        <dt className="text-muted">Links</dt><dd className="flex gap-3">{s.issueUrl ? <a className="text-accent hover:underline" href="#">issue {s.ref}</a> : null}{s.prUrl ? <a className="text-accent hover:underline" href="#">pull request</a> : null}</dd>
+        <dt className="text-muted">Issue</dt><dd>{s.issue ? <span className="flex items-center gap-2"><IssueRef factory={s.factory} n={s.issue.n} state={s.issue.state} className="text-accent" /><span className="text-muted">{s.issue.state}</span></span> : <span className="text-muted">none — started from a prompt</span>}</dd>
+        <dt className="text-muted">Pull request</dt><dd>{s.pr ? <span className="flex items-center gap-2"><PrRef factory={s.factory} n={s.pr.n} state={s.pr.state} className="text-accent" /><span className="text-muted">{s.pr.state}</span></span> : <span className="text-muted">not opened yet</span>}</dd>
         <dt className="text-muted">Claim</dt><dd>{s.status === "done" ? "released when it finished" : `held by ${s.station}`}</dd>
         <dt className="text-muted">Transcripts</dt><dd>{s.transcripts ? "on — prompts and harness output are kept" : "off — no prompt or tool argument leaves the machine"}</dd>
       </dl>
@@ -159,9 +200,14 @@ export function SessionPage({ s }: { s: Session }) {
           <PLink href="/factories" className="hover:text-fg">{s.factory}</PLink> / <PLink href="/sessions" className="hover:text-fg">sessions</PLink> / <span className="font-mono">{s.id}</span>
         </div>
         <div className="mt-1.5 flex flex-col gap-3 md:flex-row md:items-start">
-          <h1 className="min-w-0 grow text-2xl font-semibold tracking-tight">
-            {s.ref !== "prompt" ? <span className="text-faint">{s.ref} </span> : null}{s.title}
-          </h1>
+          <div className="min-w-0 grow">
+            <h1 className="text-2xl font-semibold tracking-tight">{s.title}</h1>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+              {s.issue ? <IssueRef factory={s.factory} n={s.issue.n} state={s.issue.state} /> : <span>from a prompt</span>}
+              {s.pr ? <PrRef factory={s.factory} n={s.pr.n} state={s.pr.state} /> : null}
+              <span className="flex min-w-0 items-center gap-1"><BranchRef factory={s.factory} branch={s.branch} /><span className="text-faint">→ {s.base.split(" ")[0]}</span></span>
+            </div>
+          </div>
           <div className="flex shrink-0 items-center gap-3">
             <Pill status={s.status}>{statusWord[s.status]}</Pill>
             <Action s={s} />
@@ -175,6 +221,7 @@ export function SessionPage({ s }: { s: Session }) {
           { value: "details", label: "Details", body: <Details s={s} /> },
           { value: "timeline", label: "Timeline", body: <Timeline s={s} /> },
           { value: "journal", label: "Journal", body: <Journal s={s} /> },
+          ...(BRANCH_DIFF[s.id] ? [{ value: "changes", label: "Changes", body: <DiffView files={BRANCH_DIFF[s.id]} title={<>{s.branch} against {s.base.split(" ")[0]}</>} /> }] : []),
         ]} />
       </Card>
     </div>

@@ -1,11 +1,15 @@
 "use client";
 // PROTOTYPE, throwaway. One right-hand drawer (a bottom sheet on a phone) for three things:
 // answering a gate (from Now), a phase's detail (from the graph), a stage's phases.
-import { Collapsible } from "@base-ui/react/collapsible";
+// Every view is a Pane: a scrolling body, and — where there is something to do — a footer
+// that stays put at the bottom, the way a dialog keeps its actions last.
 import { Drawer } from "@base-ui/react/drawer";
+import { ChevronDown, ChevronUp, MessageSquareQuote } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { GATES, NOW, OTHERS, SESSIONS, STAGE_ABOUT, type Gate, type Phase, type Session } from "@/lib/data";
+import { BRANCH_DIFF, GATES, NOW, OTHERS, SESSIONS, STAGE_ABOUT, type Gate, type Phase, type Session } from "@/lib/data";
 import { fmtAgo, fmtClock, fmtCost, fmtDur, fmtInt, stageSecs, stageStatus } from "@/lib/model";
+import { DiffView } from "./Diff";
+import { BranchRef, CommitRef, IssueRef, StageIcon } from "./icons";
 import { Md } from "./Md";
 import { PLink, useProto, type DrawerTarget } from "./state";
 import { Tabbed } from "./Tabs";
@@ -36,14 +40,29 @@ export function findPhase(id: string): { session: Session; chapter: number; stag
   }
 }
 
+const gateById = (id: string) => GATES.find((g) => g.id === id) ?? OTHERS.find((g) => g.id === id);
+
+/** A view's body scrolls; its footer, if it has one, stays at the bottom. */
+function Pane({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+  return (
+    <>
+      <div className="min-h-0 grow overflow-y-auto overscroll-contain px-5 py-5 md:px-6">{children}</div>
+      {footer ? <div className="shrink-0 border-t border-line bg-surface px-5 pt-3 pb-4 md:px-6">{footer}</div> : null}
+    </>
+  );
+}
+
 export function SideDrawer() {
-  const { drawer, close, back } = useProto();
+  const { drawer, close, back, open, answered } = useProto();
   const phone = useIsPhone();
   const top = drawer[drawer.length - 1];
   // Keep the last content while the drawer animates out.
   const [shown, setShown] = useState<DrawerTarget | undefined>(top);
   useEffect(() => { if (top) setShown(top); }, [top]);
   const t = top ?? shown;
+  const gate = t?.type === "gate" ? gateById(t.gateId) : undefined;
+  const queue = GATES.filter((g) => !answered[g.id] || g.id === gate?.id);
+  const at = gate ? queue.findIndex((g) => g.id === gate.id) : -1;
 
   return (
     <Drawer.Root open={drawer.length > 0} onOpenChange={(o) => { if (!o) close(); }} swipeDirection={phone ? "down" : "right"}>
@@ -54,24 +73,38 @@ export function SideDrawer() {
             className={cx(
               "flex flex-col bg-surface text-fg shadow-pop outline-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
               phone
-                ? "max-h-[92dvh] w-full rounded-t-2xl border-t border-line [transform:translateY(var(--drawer-swipe-movement-y))] data-starting-style:[transform:translateY(100%)] data-ending-style:[transform:translateY(100%)]"
-                : "h-full w-[min(600px,100vw)] border-l border-line [transform:translateX(var(--drawer-swipe-movement-x))] data-starting-style:[transform:translateX(100%)] data-ending-style:[transform:translateX(100%)]",
+                ? "h-[92dvh] w-full rounded-t-2xl border-t border-line [transform:translateY(var(--drawer-swipe-movement-y))] data-starting-style:[transform:translateY(100%)] data-ending-style:[transform:translateY(100%)]"
+                : "h-full w-[min(720px,100vw)] border-l border-line [transform:translateX(var(--drawer-swipe-movement-x))] data-starting-style:[transform:translateX(100%)] data-ending-style:[transform:translateX(100%)]",
             )}
           >
             {phone ? <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong" /> : null}
-            <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
+            {/* Same height and rule as the page header, so the two lines meet. */}
+            <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-4 md:px-5">
               {drawer.length > 1 ? (
                 <Button variant="ghost" size="sm" onClick={back} className="-ml-2"><Chevron className="rotate-180" /> Back</Button>
               ) : null}
-              <span className="text-xs font-medium uppercase tracking-wider text-faint">
-                {t?.type === "gate" ? "Gate" : t?.type === "stage" ? "Stage" : "Phase"}
-              </span>
+              {gate ? (
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <StageIcon name={gate.gate} size={16} className="text-wait" />
+                  {gate.gate} gate <span className="font-normal text-muted">· round {gate.round}</span>
+                </span>
+              ) : (
+                <span className="text-xs font-medium uppercase tracking-wider text-faint">{t?.type === "stage" ? "Stage" : "Phase"}</span>
+              )}
               <span className="grow" />
+              {gate && at >= 0 && queue.length > 1 ? (
+                <span className="flex items-center gap-1 text-xs text-muted">
+                  <button onClick={() => at > 0 && open({ type: "gate", gateId: queue[at - 1].id })} disabled={at === 0} className="grid size-7 place-items-center rounded-md hover:bg-surface-2 disabled:opacity-30 cursor-pointer" aria-label="Previous gate (k)"><ChevronUp size={16} /></button>
+                  <button onClick={() => at < queue.length - 1 && open({ type: "gate", gateId: queue[at + 1].id })} disabled={at === queue.length - 1} className="grid size-7 place-items-center rounded-md hover:bg-surface-2 disabled:opacity-30 cursor-pointer" aria-label="Next gate (j)"><ChevronDown size={16} /></button>
+                  <span className="tabular-nums">{at + 1} of {queue.length}</span>
+                  <span className="mx-2 h-4 w-px bg-line" />
+                </span>
+              ) : null}
               <Drawer.Close className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg cursor-pointer" aria-label="Close">
                 <svg width="14" height="14" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
               </Drawer.Close>
             </div>
-            <Drawer.Content className="min-h-0 grow overflow-y-auto overscroll-contain px-5 py-5 md:px-6">
+            <Drawer.Content className="flex min-h-0 grow flex-col">
               {t?.type === "gate" ? <GateView gateId={t.gateId} /> : null}
               {t?.type === "phase" ? <PhaseView phaseId={t.phaseId} /> : null}
               {t?.type === "stage" ? <StageView session={t.session} chapter={t.chapter} stage={t.stage} /> : null}
@@ -84,10 +117,58 @@ export function SideDrawer() {
 }
 
 // ── Gate ──────────────────────────────────────────────────────────────────────
+//
+// What is on screen depends on what the person is deciding (see GateKind in lib/data.ts):
+//   plan, round 1   the plan · the issue in the reporter's words · what the scout found
+//   plan, round 2+  what changed since the round they rejected, under their own note · the plan · …
+//   integrate       the branch's diff · checks · the reviewer's verdict · the issue
+// Agents' flags (⚑) sit above the tabs at every gate: a risk is decision material.
+// Session, station and spend are not decision material; they are one click away, on the session.
+
+const VERBS: Record<Gate["kind"], { approve: string; reject: string; note: string }> = {
+  plan: { approve: "Approve plan", reject: "Reject", note: "Notes — required to reject: what should the plan change?" },
+  integrate: { approve: "Open pull request", reject: "Send back", note: "Notes — required to send back: what should change before it lands?" },
+};
+
+function gateTabs(gate: Gate) {
+  const tabs: { value: string; label: ReactNode; body: ReactNode }[] = [];
+  const issue = gate.request ? { value: "issue", label: <>Issue {gate.ref}</>, body: <Md text={gate.request} /> } : null;
+  if (gate.kind === "plan") {
+    if (gate.previous) {
+      tabs.push({
+        value: "changes", label: <>Changes since round {gate.round - 1}</>,
+        body: <DiffView files={[{ path: gate.subjectFile, before: gate.previous, after: gate.subjectBody }]} title={<>{gate.subjectFile}, round {gate.round - 1} → {gate.round}</>} />,
+      });
+    }
+    tabs.push({ value: "plan", label: "Plan", body: <Md text={gate.subjectBody} /> });
+    if (issue) tabs.push(issue);
+    if (gate.findings) tabs.push({ value: "findings", label: "Scout's findings", body: <Md text={gate.findings} /> });
+  } else {
+    const files = BRANCH_DIFF[gate.session] ?? [];
+    tabs.push({ value: "changes", label: <>Changes · {files.length} files</>, body: <DiffView files={files} title={<>{gate.branch} against main</>} /> });
+    if (gate.checks) {
+      tabs.push({
+        value: "checks", label: "Checks",
+        body: (
+          <div className="flex flex-col divide-y divide-line rounded-lg border border-line text-sm">
+            {gate.checks.map((c) => (
+              <div key={c.name} className="flex items-center gap-3 px-3 py-2.5">
+                <StatusIcon status={c.ok ? "ok" : "failed"} /><span className="font-medium">{c.name}</span><code className="min-w-0 truncate font-mono text-xs text-muted">{c.detail}</code>
+              </div>
+            ))}
+          </div>
+        ),
+      });
+    }
+    if (gate.review) tabs.push({ value: "review", label: "Review", body: <Md text={gate.review} /> });
+    if (issue) tabs.push(issue);
+  }
+  return tabs;
+}
 
 function GateView({ gateId }: { gateId: string }) {
   const { answered, answer, open, close } = useProto();
-  const gate = GATES.find((g) => g.id === gateId) ?? OTHERS.find((g) => g.id === gateId)!;
+  const gate = gateById(gateId)!;
   const mine = GATES.includes(gate);
   const queue = GATES.filter((g) => !answered[g.id] || g.id === gateId);
   const at = queue.findIndex((g) => g.id === gateId);
@@ -95,6 +176,7 @@ function GateView({ gateId }: { gateId: string }) {
   const [needNote, setNeedNote] = useState(false);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const done = answered[gate.id];
+  const verbs = VERBS[gate.kind];
   useEffect(() => { setNote(""); setNeedNote(false); }, [gateId]);
 
   const go = (d: number) => {
@@ -125,89 +207,66 @@ function GateView({ gateId }: { gateId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <div className="flex items-center gap-2 text-sm text-muted">
-          <span>{gate.factory} · {gate.ref}</span>
-          <span className="grow" />
-          {mine && queue.length > 1 ? (
-            <span className="flex items-center gap-1.5 text-xs">
-              <Kbd>k</Kbd><Kbd>j</Kbd> {at + 1} of {queue.length}
-            </span>
-          ) : null}
-        </div>
-        <Drawer.Title className="mt-1 text-xl font-semibold tracking-tight">{gate.title}</Drawer.Title>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-lg font-semibold">{gate.question}</span>
-          <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted">round {gate.round}</span>
-          <span className="text-sm text-muted">· waiting {fmtAgo(NOW - gate.since).replace(" ago", "")} · asked on the {gate.channel}</span>
-        </div>
+  const lastNote = gate.earlier.at(-1);
+  const footer = done ? (
+    <p className="py-1 text-sm text-muted">Answered: <b className="text-fg">{done}</b>. The station picks it up from the comment on {gate.ref}.</p>
+  ) : mine ? (
+    <div className="flex flex-col gap-2.5">
+      <textarea
+        ref={noteRef}
+        value={note}
+        onChange={(e) => { setNote(e.target.value); setNeedNote(false); }}
+        rows={2}
+        placeholder={verbs.note}
+        className={cx("w-full resize-none rounded-lg border bg-surface px-3 py-2 text-base outline-none placeholder:text-faint focus:border-accent focus:ring-4 focus:ring-accent-soft", needNote ? "border-bad" : "border-line-strong")}
+      />
+      {needNote ? <p className="-mt-1 text-sm text-bad">Say what should change — the next agent reads it as an instruction.</p> : null}
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" className="-ml-2 text-muted">Abort session</Button>
+        <span className="grow" />
+        <Button variant="secondary" onClick={() => decide("reject")}>{verbs.reject} <Kbd>r</Kbd></Button>
+        <Button variant="primary" onClick={() => decide("approve")}>{verbs.approve} <Kbd>a</Kbd></Button>
       </div>
-
-      <section className="rounded-lg border border-line">
-        <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-xs text-muted">
-          <code className="font-mono">{gate.subjectFile}</code><span className="grow" /><span>what you are approving</span>
-        </div>
-        <div className="px-4 py-3">
-          {gate.subjectBody ? <Md text={gate.subjectBody} /> : <p className="text-muted">{gate.subject}</p>}
-        </div>
-      </section>
-
-      {gate.earlier.length ? (
-        <section>
-          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-faint">Earlier rounds</h3>
-          {gate.earlier.map((r) => (
-            <div key={r.round} className="flex items-start gap-2 text-sm">
-              <StatusIcon status={r.verdict === "reject" ? "rejected" : "ok"} size={14} className="mt-0.5" />
-              <span>Round {r.round}: <b>{r.verdict}</b> by {r.by} — “{r.text}”</span>
-            </div>
-          ))}
-        </section>
-      ) : null}
-
-      {gate.record.length ? (
-        <Collapsible.Root>
-          <Collapsible.Trigger className="group flex items-center gap-1.5 text-sm text-muted hover:text-fg cursor-pointer">
-            <Chevron className="group-data-panel-open:rotate-90" /> On the record — what the next agent reads
-          </Collapsible.Trigger>
-          <Collapsible.Panel className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-sm">
-            {gate.record.map((r) => <div key={r}>{r}</div>)}
-          </Collapsible.Panel>
-        </Collapsible.Root>
-      ) : null}
-
-      {done ? (
-        <div className="rounded-lg bg-surface-2 px-4 py-3 text-sm">Answered: <b>{done}</b>. The station picks it up from the comment.</div>
-      ) : mine ? (
-        <section className="flex flex-col gap-3">
-          <textarea
-            ref={noteRef}
-            value={note}
-            onChange={(e) => { setNote(e.target.value); setNeedNote(false); }}
-            rows={3}
-            placeholder="Notes — required to reject: what should change"
-            className={cx("w-full resize-y rounded-lg border bg-surface px-3 py-2 text-base outline-none placeholder:text-faint focus:border-accent focus:ring-4 focus:ring-accent-soft", needNote ? "border-bad" : "border-line-strong")}
-          />
-          {needNote ? <p className="-mt-1 text-sm text-bad">Say what should change — the planner reads it.</p> : null}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="approve" onClick={() => decide("approve")}>Approve <Kbd>a</Kbd></Button>
-            <Button variant="danger" onClick={() => decide("reject")}>Reject <Kbd>r</Kbd></Button>
-            <span className="grow" />
-            <Button variant="ghost" size="sm">Abort session</Button>
-          </div>
-        </section>
-      ) : (
-        <div className="rounded-lg bg-wait-soft px-4 py-3 text-sm">Waiting on <b>{gate.askedOf}</b>. Only they can answer it here; anyone with write access can on the issue.</div>
-      )}
-
-      <dl className="grid grid-cols-[6rem_1fr] gap-y-1.5 border-t border-line pt-4 text-sm">
-        <dt className="text-muted">Session</dt>
-        <dd><PLink href={`/sessions/${gate.session}`} onClick={close} className="font-mono text-accent hover:underline">{gate.session}</PLink> · issue</dd>
-        <dt className="text-muted">Station</dt><dd>{gate.station}</dd>
-        <dt className="text-muted">So far</dt><dd className="tabular-nums">{fmtCost(gate.cost)} · {fmtInt(gate.tokens)} tokens</dd>
-      </dl>
     </div>
+  ) : (
+    <p className="py-1 text-sm text-muted">Waiting on <b className="text-fg">{gate.askedOf}</b>. Only they can answer it here; anyone with write access can on the issue.</p>
+  );
+
+  return (
+    <Pane footer={footer}>
+      <div className="flex flex-col gap-5">
+        <div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+            <span>{gate.factory}</span>
+            <IssueRef factory={gate.factory} n={Number(gate.ref.slice(1))} state="open" />
+            <BranchRef factory={gate.factory} branch={gate.branch} />
+            <PLink href={`/sessions/${gate.session}`} onClick={close} className="hover:text-fg">session <span className="font-mono">{gate.session}</span> →</PLink>
+          </div>
+          <Drawer.Title className="mt-2 text-xl font-semibold tracking-tight">{gate.question}</Drawer.Title>
+          <p className="mt-0.5 text-base">{gate.title}</p>
+          <p className="mt-1 text-sm text-muted">Waiting {fmtAgo(NOW - gate.since).replace(" ago", "")} · asked on the {gate.channel}</p>
+        </div>
+
+        {lastNote ? (
+          <div className="flex gap-3 rounded-lg border border-wait/40 bg-wait-soft px-3.5 py-2.5">
+            <MessageSquareQuote size={16} className="mt-0.5 shrink-0 text-wait" />
+            <div className="text-sm">
+              <div className="text-muted">Round {lastNote.round}: {lastNote.verdict === "reject" ? "rejected" : "approved"} by {lastNote.by === "schurik" ? "you" : lastNote.by}</div>
+              <div className="text-base">“{lastNote.text}”</div>
+              <div className="mt-0.5 text-xs text-muted">Check the changes below answer it.</div>
+            </div>
+          </div>
+        ) : null}
+
+        {gate.record.length ? (
+          <ul className="flex flex-col gap-1 text-sm">
+            {gate.record.map((r) => <li key={r} className="flex gap-2"><span className="text-wait">⚑</span><span>{r.replace(/^⚑ /, "")}</span></li>)}
+          </ul>
+        ) : null}
+
+        <Tabbed key={gate.id} tabs={gateTabs(gate)} />
+      </div>
+    </Pane>
   );
 }
 
@@ -223,9 +282,10 @@ function PhaseView({ phaseId }: { phaseId: string }) {
   const { session, chapter, stage, phase: p } = found;
   const agent = p.kind === "agent";
   const tabs: { value: string; label: ReactNode; body: ReactNode }[] = [
-    { value: "overview", label: "Overview", body: <PhaseOverview p={p} /> },
+    { value: "overview", label: "Overview", body: <PhaseOverview p={p} factory={session.factory} /> },
   ];
   if (p.artifacts?.length) tabs.push({ value: "artifacts", label: `Artifacts · ${p.artifacts.length}`, body: <Artifacts p={p} /> });
+  if (p.diff?.length) tabs.push({ value: "diff", label: "Diff", body: <DiffView files={p.diff} /> });
   if (p.checks?.length || p.command) tabs.push({ value: "checks", label: "Checks", body: <Checks p={p} /> });
   if (agent) {
     tabs.push({ value: "tools", label: `Tools · ${p.tools?.length ?? 0}`, body: <Tools p={p} /> });
@@ -234,7 +294,9 @@ function PhaseView({ phaseId }: { phaseId: string }) {
   }
   tabs.push({ value: "events", label: "Events", body: <Events p={p} /> });
 
+  const waitingGate = p.status === "waiting" ? GATES.find((g) => g.session === session.id) : undefined;
   return (
+    <Pane footer={waitingGate ? <AnswerLink gateId={waitingGate.id} /> : undefined}>
     <div className="flex flex-col gap-4">
       <div>
         <div className="text-sm text-muted">
@@ -254,10 +316,21 @@ function PhaseView({ phaseId }: { phaseId: string }) {
       </div>
       <Tabbed key={p.id} tabs={tabs} />
     </div>
+    </Pane>
   );
 }
 
-function PhaseOverview({ p }: { p: Phase }) {
+function AnswerLink({ gateId }: { gateId: string }) {
+  const { open } = useProto();
+  return (
+    <div className="flex items-center gap-3">
+      <span className="grow text-sm text-muted">This gate is waiting on you.</span>
+      <Button variant="primary" onClick={() => open({ type: "gate", gateId })}>Answer it</Button>
+    </div>
+  );
+}
+
+function PhaseOverview({ p, factory }: { p: Phase; factory?: string }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted">{p.description}</p>
@@ -282,7 +355,7 @@ function PhaseOverview({ p }: { p: Phase }) {
           {p.command.tail ? <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed">{p.command.tail}</pre> : null}
         </div>
       ) : null}
-      {p.commit?.sha ? <div className="text-sm"><code className="font-mono text-accent">{p.commit.sha}</code> {p.commit.message}</div> : null}
+      {p.commit?.sha && factory ? <div className="flex items-center gap-2 text-sm"><CommitRef factory={factory} sha={p.commit.sha} className="text-accent" /> {p.commit.message}</div> : null}
     </div>
   );
 }
@@ -385,10 +458,12 @@ function StageView({ session: sid, chapter: n, stage: i }: { session: string; ch
   const stage = chapter.stages[i];
   const st = stageStatus(stage);
   return (
+    <Pane>
     <div className="flex flex-col gap-4">
       <div>
         <div className="text-sm text-muted">{session.factory} · <span className="font-mono">{session.id}</span> · chapter {n} · {chapter.workflow} · stage {i + 1} of {chapter.stages.length}</div>
         <div className="mt-1 flex items-center gap-2">
+          <StageIcon name={stage.name} size={20} className="text-muted" />
           <Drawer.Title className="text-xl font-semibold tracking-tight">{stage.name}</Drawer.Title>
           <Pill status={st}>{st === "ok" ? "done" : st === "pending" ? "not yet" : st}</Pill>
         </div>
@@ -418,6 +493,7 @@ function StageView({ session: sid, chapter: n, stage: i }: { session: string; ch
         <p className="rounded-lg border border-dashed border-line-strong px-4 py-6 text-center text-sm text-muted">Not reached yet in this chapter.</p>
       )}
     </div>
+    </Pane>
   );
 }
 

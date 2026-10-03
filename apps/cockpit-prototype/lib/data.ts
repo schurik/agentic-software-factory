@@ -7,6 +7,7 @@
 // workflow_started v2 + phase_started v3.
 
 export const NOW = Date.UTC(2026, 9, 3, 14, 30, 0);
+export const FORGE = "https://github.com";
 const min = 60_000;
 export const VIEWER = "schurik";
 
@@ -17,6 +18,10 @@ export interface Note { kind: "risk" | "deviation" | "discovery"; what: string; 
 export interface Remark { verdict: "approve" | "reject"; by: string; text: string; round: number; channel: string }
 export interface Artifact { path: string; location: "repo" | "handoff"; size: number; role: "request" | "output"; preview?: string }
 export interface Check { gate: string; passed: boolean; items: { item: string; ok: boolean; note: string }[] }
+/** One file's change, as before/after text — the renderer computes the hunks. */
+export interface FileDiff { path: string; before: string; after: string }
+export type IssueState = "open" | "closed";
+export type PrState = "open" | "draft" | "merged" | "closed";
 
 export interface Phase {
   id: string;
@@ -44,6 +49,7 @@ export interface Phase {
   corrections?: number;
   error?: string;
   commit?: { sha: string; message: string };
+  diff?: FileDiff[];
   command?: { argv: string; exit: number; secs: number; tail?: string };
 }
 
@@ -74,8 +80,8 @@ export interface Session {
   branch: string;
   base: string;
   triggeredBy: string;
-  issueUrl?: string;
-  prUrl?: string;
+  issue?: { n: number; state: IssueState };
+  pr?: { n: number; state: PrState };
   startedAt: number;
   endedAt?: number;
   budget: number;
@@ -83,8 +89,24 @@ export interface Session {
   now: string;
 }
 
+/**
+ * What a person decides at a gate, and so what the drawer shows them first:
+ *   plan      — "is this the right thing to build?"  the plan; from round 2 what changed since
+ *               the round they rejected, and their own note; the issue and the scout's findings
+ *   integrate — "should this land?"  the branch's diff, the checks, the reviewer's verdict
+ */
+export type GateKind = "plan" | "integrate";
+
 export interface Gate {
   id: string;
+  kind: GateKind;
+  branch: string;
+  request?: string;
+  findings?: string;
+  previous?: string;
+  diff?: FileDiff[];
+  checks?: { name: string; ok: boolean; detail: string }[];
+  review?: string;
   session: string;
   factory: string;
   ref: string;
@@ -235,6 +257,9 @@ const approve = (round: number, remark: Remark | null, status: PhaseStatus, secs
   remark: remark ?? undefined,
   status,
 });
+const gatePhase = (name: string, gate: string, round: number, description: string, owner: string, status: PhaseStatus, secs: number): P => ({
+  name, kind: "gate", owner, secs, description, gate: { name: gate, round, channel: "issue" }, status,
+});
 const revise = (n: number, summary: string, extra: Partial<P> = {}): P => ({
   name: `plan_revise_${n}`, kind: "agent", owner: "planner", secs: 40, cost: 0.041, tokens: 2400, model: "opus",
   task: "asf/stages/plan/task.md", outputType: "PlanOutput", corrections: 1,
@@ -313,6 +338,49 @@ const reportPr = (pr: number): P => ({
 
 const tests = (by: string): Remark => ({ verdict: "reject", by, text: "name the module the date is converted in", round: 1, channel: "terminal" });
 
+// ── File contents, for diffs ───────────────────────────────────────────────────
+
+const APP_V0 = `from summary import summarise
+
+
+def build_prompt(notes):
+    return f"Summarise these meeting notes:\\n{notes}"
+
+
+def action_items(notes):
+    return [line for line in notes.splitlines() if line.startswith("- [ ]")]
+`;
+const APP_V1 = `from dates import local_midnight
+from summary import summarise
+
+
+def build_prompt(notes, meeting_date):
+    day = local_midnight(meeting_date)
+    return (
+        f"The meeting took place on {day:%Y-%m-%d}.\\n"
+        f"Resolve relative due dates against it.\\n"
+        f"Summarise these meeting notes:\\n{notes}"
+    )
+
+
+def action_items(notes):
+    return [line for line in notes.splitlines() if line.startswith("- [ ]")]
+`;
+const APP_V2 = APP_V1.replace("{day:%Y-%m-%d}", "{day:%b %d, %Y}");
+const APP_V3 = APP_V2.replace("against it.", "against {day:%b %d, %Y}.");
+const APP_1: FileDiff = { path: "app.py", before: APP_V0, after: APP_V1 };
+const APP_2: FileDiff = { path: "app.py", before: APP_V1, after: APP_V2 };
+const APP_3: FileDiff = { path: "app.py", before: APP_V2, after: APP_V3 };
+
+/** What a session changed on its branch, against the base it started from. */
+export const BRANCH_DIFF: Record<string, FileDiff[]> = {
+  a9f259f0: [
+    { path: "app.py", before: APP_V0, after: APP_V3 },
+    { path: "dates.py", before: "", after: `from datetime import date, datetime\n\n\ndef local_midnight(day: date) -> datetime:\n    """The meeting's day at local midnight: converted in UTC it is the previous day."""\n    return datetime(day.year, day.month, day.day).astimezone()\n` },
+    { path: "docs/asf/meeting-date.md", before: "", after: "# The meeting date\n\nEvery prompt now carries it.\n" },
+  ],
+};
+
 // ── Sessions ───────────────────────────────────────────────────────────────────
 
 function recorded(): Session {
@@ -332,7 +400,7 @@ function recorded(): Session {
     })],
     [verify(1)],
     [review()],
-    [commit("implement", "813c30e", "feat: the prompt knows the meeting date")],
+    [commit("implement", "813c30e", "feat: the prompt knows the meeting date", { diff: [APP_1] })],
     [changes(), document()],
     [commit("document", "fba4ec9", "docs: the meeting date")],
     [integrate(9)],
@@ -340,19 +408,19 @@ function recorded(): Session {
   const c2 = chapter(sid, 2, "pr-review", "PR #9", c1.at + 52 * min, prPhase("1 open thread of 1 · the date should read like Sep 25, 2026"), [
     [implement("addressed: the date should read like Sep 25, 2026", { cost: 0.04, tokens: 2000, tools: [{ tool: "edit", ok: true }] })],
     [verify(1)],
-    [commit("implement", "65ab701", "fix: the date reads like Sep 25, 2026")],
+    [commit("implement", "65ab701", "fix: the date reads like Sep 25, 2026", { diff: [APP_2] })],
   ], reportPr(9), c1.seq);
   const c3 = chapter(sid, 3, "pr-review", "PR #9", c2.at + 71 * min, prPhase("1 open thread of 1 · use that format two lines below too"), [
     [implement("addressed: use that format two lines below too", { cost: 0.04, tokens: 2000, tools: [{ tool: "edit", ok: true }] })],
     [verify(1)],
-    [commit("implement", "54551da", "fix: one date format throughout")],
+    [commit("implement", "54551da", "fix: one date format throughout", { diff: [APP_3] })],
   ], reportPr(9), c2.seq);
   return {
     id: sid, factory: "acme/widgets", title: "Resolve relative due dates via the meeting date", ref: "#42",
     status: "done", chapters: [c1.chapter, c2.chapter, c3.chapter],
     station: "schurik@mbp:widgets", stationOnline: true, owner: "schurik",
     branch: "asf/a9f259f0", base: "main at ddfd5cb", triggeredBy: "label asf:queued + asf:ship",
-    issueUrl: "#", prUrl: "#", startedAt: start, endedAt: c3.at, budget: 2.5, transcripts: true,
+    issue: { n: 42, state: "closed" }, pr: { n: 9, state: "merged" }, startedAt: start, endedAt: c3.at, budget: 2.5, transcripts: true,
     now: "All work landed in pull request #9 over 3 chapters.",
   };
 }
@@ -374,7 +442,7 @@ function waitingMine(): Session {
     status: "waiting", chapters: [c1.chapter],
     station: "schurik@mbp:widgets", stationOnline: true, owner: "schurik",
     branch: "asf/c41e7b02", base: "main at 3f1c2a9", triggeredBy: "label asf:queued + asf:ship",
-    issueUrl: "#", startedAt: start, budget: 2.5, transcripts: true,
+    issue: { n: 57, state: "open" }, startedAt: start, budget: 2.5, transcripts: true,
     now: "Waiting on you at the plan gate, round 2 — the planner reworked the plan along your note.",
   };
 }
@@ -394,7 +462,7 @@ function waitingMine2(): Session {
     status: "waiting", chapters: [c1.chapter],
     station: "ci@gadgets", stationOnline: true, owner: "—",
     branch: "asf/2a7c9e15", base: "main at 91ab03e", triggeredBy: "label asf:queued + asf:ship",
-    issueUrl: "#", startedAt: start, budget: 2.5, transcripts: false,
+    issue: { n: 18, state: "open" }, startedAt: start, budget: 2.5, transcripts: false,
     now: "Waiting on you at the plan gate, round 1.",
   };
 }
@@ -411,7 +479,7 @@ function waitingOther(): Session {
     status: "waiting", chapters: [c1.chapter],
     station: "mira@thinkpad:gadgets", stationOnline: true, owner: "mira",
     branch: "asf/0f9a6c3d", base: "main at 91ab03e", triggeredBy: "label asf:queued + asf:ship",
-    issueUrl: "#", startedAt: start, budget: 2.5, transcripts: false,
+    issue: { n: 31, state: "open" }, startedAt: start, budget: 2.5, transcripts: false,
     now: "Waiting on mira at the plan gate, round 1.",
   };
 }
@@ -431,7 +499,7 @@ function running(): Session {
     status: "running", chapters: [c1.chapter],
     station: "schurik@mbp:widgets", stationOnline: true, owner: "schurik",
     branch: "asf/7d2f90aa", base: "main at 3f1c2a9", triggeredBy: "label asf:queued + asf:ship",
-    issueUrl: "#", startedAt: start, budget: 2.5, transcripts: true,
+    issue: { n: 61, state: "open" }, startedAt: start, budget: 2.5, transcripts: true,
     now: "The builder is implementing the plan — 3 tool calls so far.",
   };
 }
@@ -454,7 +522,7 @@ function runningReview(): Session {
     status: "running", chapters: [c1.chapter, c2.chapter],
     station: "ci@gadgets", stationOnline: true, owner: "—",
     branch: "asf/3b8e11d0", base: "main at 91ab03e", triggeredBy: "review on PR #14",
-    issueUrl: "#", prUrl: "#", startedAt: start, budget: 2.5, transcripts: false,
+    issue: { n: 12, state: "open" }, pr: { n: 14, state: "open" }, startedAt: start, budget: 2.5, transcripts: false,
     now: "Running bun test after addressing 2 review threads on PR #14.",
   };
 }
@@ -497,40 +565,153 @@ function failed(): Session {
     status: "failed", chapters: [c1.chapter],
     station: "mira@thinkpad:gadgets", stationOnline: false, owner: "mira",
     branch: "asf/e5b3a118", base: "main at 91ab03e", triggeredBy: "label asf:queued + asf:ship",
-    issueUrl: "#", startedAt: start, endedAt: NOW - 2 * 60 * min, budget: 2.5, transcripts: false,
+    issue: { n: 23, state: "open" }, startedAt: start, endedAt: NOW - 2 * 60 * min, budget: 2.5, transcripts: false,
     now: "verify failed twice: bun test still fails GET /v1/health. The branch is kept for resume.",
   };
 }
 
-export const SESSIONS: Session[] = [waitingMine(), waitingMine2(), running(), runningReview(), runningQuick(), waitingOther(), failed(), recorded()];
+const SUMMARY_V0 = `def header(meeting):
+    return f"# {meeting.title}"
 
-export const HISTORY: { id: string; factory: string; title: string; ref: string; workflow: string; status: SessionStatus; cost: number; at: number }[] = [
-  { id: "b71a0c55", factory: "acme/widgets", title: "Timezone in the meeting header", ref: "#40", workflow: "issue", status: "done", cost: 0.51, at: NOW - 26 * 60 * min },
+
+def render(meeting):
+    lines = [header(meeting), ""]
+    lines += [f"- {item}" for item in meeting.items]
+    return "\\n".join(lines)
+`;
+const SUMMARY_V1 = `def header(meeting):
+    when = meeting.date.strftime("%b %d, %Y")
+    return f"# {meeting.title} · {when}"
+
+
+def render(meeting):
+    lines = [header(meeting), ""]
+    lines += [f"- {item}" for item in meeting.items]
+    return "\\n".join(lines)
+`;
+const TEST_SUMMARY = `from datetime import date
+
+from summary import header
+from tests.factories import meeting
+
+
+def test_header_names_the_day():
+    m = meeting(title="Planning", date=date(2026, 9, 25))
+    assert header(m) == "# Planning · Sep 25, 2026"
+`;
+
+function waitingIntegrate(): Session {
+  const sid = "5d1c0e93";
+  const start = NOW - 41 * min;
+  const c1 = chapter(sid, 1, "issue", "#64", start, issuePhase("#64 Show the meeting date in the summary header"), [
+    [scout({ summary: "the header is built in summary.py" })],
+    [plan({ summary: "the date after the title, in the prompt's format", notes: [] }), approve(1, { verdict: "approve", by: "schurik", text: "", round: 1, channel: "issue" }, "ok", 240)],
+    [commit("plan", "9e01c3b", "docs: plan the summary header date")],
+    [implement("header() shows the meeting date", { diff: [{ path: "summary.py", before: SUMMARY_V0, after: SUMMARY_V1 }] })],
+    [verify(1)],
+    [review()],
+    [commit("implement", "b1d2e3f", "feat: the summary header names the day")],
+    [changes(), document()],
+    [commit("document", "c4a5b6d", "docs: the summary header")],
+    [gatePhase("approve_integrate", "integrate", 1, "Hand the finished branch to the engineer before it lands", "schurik", "waiting", 0)],
+  ], null, 0);
+  return {
+    id: sid, factory: "acme/widgets", title: "Show the meeting date in the summary header", ref: "#64",
+    status: "waiting", chapters: [c1.chapter],
+    station: "schurik@mbp:widgets", stationOnline: true, owner: "schurik",
+    branch: "asf/5d1c0e93", base: "main at 3f1c2a9", triggeredBy: "label asf:queued + asf:ship",
+    issue: { n: 64, state: "open" }, startedAt: start, budget: 2.5, transcripts: true,
+    now: "Waiting on you at the integrate gate — built, verified and reviewed; open the pull request?",
+  };
+}
+
+BRANCH_DIFF["5d1c0e93"] = [
+  { path: "summary.py", before: SUMMARY_V0, after: SUMMARY_V1 },
+  { path: "tests/test_summary.py", before: "", after: TEST_SUMMARY },
+  { path: "docs/asf/summary-header.md", before: "", after: "# The summary header\n\nIt names the meeting's day, in the same format as the prompt.\n" },
+];
+
+export const SESSIONS: Session[] = [waitingMine(), waitingIntegrate(), waitingMine2(), running(), runningReview(), runningQuick(), waitingOther(), failed(), recorded()];
+
+export const HISTORY: { id: string; factory: string; title: string; ref: string; workflow: string; status: SessionStatus; cost: number; at: number; issue?: Session["issue"]; pr?: Session["pr"] }[] = [
+  { id: "b71a0c55", factory: "acme/widgets", title: "Timezone in the meeting header", ref: "#40", workflow: "issue", status: "done", cost: 0.51, at: NOW - 26 * 60 * min, issue: { n: 40, state: "closed" }, pr: { n: 7, state: "merged" } },
   { id: "19fe3d2a", factory: "acme/docs-site", title: "Bump the theme", ref: "prompt", workflow: "quick", status: "done", cost: 0.07, at: NOW - 30 * 60 * min },
-  { id: "6c0b9a7e", factory: "acme/gadgets", title: "CORS for the admin app", ref: "#9", workflow: "issue", status: "failed", cost: 0.33, at: NOW - 49 * 60 * min },
+  { id: "6c0b9a7e", factory: "acme/gadgets", title: "CORS for the admin app", ref: "#9", workflow: "issue", status: "failed", cost: 0.33, at: NOW - 49 * 60 * min, issue: { n: 9, state: "open" }, pr: { n: 5, state: "closed" } },
 ];
 
 export const sessionById = (id: string) => SESSIONS.find((s) => s.id === id);
 
 // ── Gates: the Inbox (waiting on the viewer) and Waiting on others ────────────
 
+const CSV_PLAN_1 = `## Plan
+
+- **R1** \`export.py\` gains \`write_csv\`, beside \`write_json\`, with the same columns.
+- **R2** A test exports one item and reads it back.
+
+Out of scope: Excel dialects, a download button.
+`;
+const CSV_PLAN_2 = `## Plan
+
+- **R1** \`export.py\` gains \`write_csv\`, beside \`write_json\`, with the same columns.
+- **R2** Every field is quoted (\`csv.QUOTE_ALL\`) — titles contain commas.
+- **R3** A test exports an item titled \`Ship it, then tell sales\` and reads it back.
+
+Out of scope: Excel dialects, a download button.
+`;
+
 export const GATES: Gate[] = [
   {
-    id: "g-c41e7b02-2", session: "c41e7b02", factory: "acme/widgets", ref: "#57", title: "Export action items as CSV",
+    id: "g-c41e7b02-2", kind: "plan", session: "c41e7b02", factory: "acme/widgets", ref: "#57", branch: "asf/c41e7b02", title: "Export action items as CSV",
     gate: "plan", question: "Approve the plan?", round: 2, since: NOW - 36 * min, askedOf: VIEWER, channel: "issue",
     subject: "every field is quoted; a test with a comma in a title",
     subjectFile: "docs/asf/spec/plan.md",
-    subjectBody: "## Plan\n\n- **R1** `export.py` gains `write_csv`, beside `write_json`, with the same columns.\n- **R2** Every field is quoted (`csv.QUOTE_ALL`) — titles contain commas.\n- **R3** A test exports an item titled `Ship it, then tell sales` and reads it back.\n\nOut of scope: Excel dialects, a download button.",
+    subjectBody: CSV_PLAN_2,
+    previous: CSV_PLAN_1,
+    request: `Action items can only be exported as JSON today. Our ops team pastes them into a spreadsheet every Monday.
+
+**Ask:** an export as CSV, same columns as the JSON export.
+
+- [ ] works with titles that contain commas (we have lots of those)
+- [ ] opens in Excel and Google Sheets
+
+_Labels: asf:queued, asf:ship_`,
+    findings: `## Findings
+
+- \`export.py: write_json\` builds the rows; columns come from \`ActionItem.fields()\`
+- no CSV writer anywhere; \`csv\` from the standard library is enough
+- \`tests/test_export.py\` has a fixture with 3 items, none with a comma`,
     earlier: [{ round: 1, verdict: "reject", by: "schurik", text: "quote every field — titles contain commas" }],
     record: ["⚑ risk (planner): CSV readers differ on line endings — because Excel wants CRLF"],
     cost: 0.16, tokens: 10400, station: "schurik@mbp:widgets", digest: "6151fe4319d0",
   },
   {
-    id: "g-2a7c9e15-1", session: "2a7c9e15", factory: "acme/gadgets", ref: "#18", title: "Retry webhook deliveries with backoff",
+    id: "g-5d1c0e93-1", kind: "integrate", session: "5d1c0e93", factory: "acme/widgets", ref: "#64", branch: "asf/5d1c0e93", title: "Show the meeting date in the summary header",
+    gate: "integrate", question: "Open the pull request?", round: 1, since: NOW - 4 * min, askedOf: VIEWER, channel: "issue",
+    subject: "3 files · +14 −1 · checks pass · review approved",
+    subjectFile: "", subjectBody: "",
+    checks: [
+      { name: "test", ok: true, detail: "python -m pytest · 42 passed in 1.8s" },
+      { name: "lint", ok: true, detail: "ruff check . · no findings" },
+    ],
+    review: `**Approved** — R1 and R2 are met.
+
+- the header uses the prompt's format, so the two read the same
+- the test pins one date; a second with a single-digit day would catch \`%d\` vs \`%-d\` — not blocking`,
+    request: `The summary header only says the meeting's title. When you scroll back through a channel you can't tell which week it was.
+
+**Ask:** put the meeting's date in the header.`,
+    earlier: [],
+    record: ["⚑ deviation (builder): kept header() a plain function — instead of: a template — because nothing else renders headers"],
+    cost: 0.31, tokens: 19800, station: "schurik@mbp:widgets", digest: "e3f08aa1b2c9",
+  },
+  {
+    id: "g-2a7c9e15-1", kind: "plan", session: "2a7c9e15", factory: "acme/gadgets", ref: "#18", branch: "asf/2a7c9e15", title: "Retry webhook deliveries with backoff",
     gate: "plan", question: "Approve the plan?", round: 1, since: NOW - 11 * min, askedOf: VIEWER, channel: "issue",
     subject: "three retries, exponential backoff, a dead-letter log",
     subjectFile: "docs/asf/spec/plan.md",
     subjectBody: "## Plan\n\n- **R1** `hooks/send.py` retries a failed delivery 3 times: 1s, 4s, 16s.\n- **R2** After the last, the delivery goes to `dead_letters.jsonl` with its last error.\n- **R3** Tests use a fake clock.",
+    request: "Deliveries that fail once are lost. Partners have asked twice this month.\n\n**Ask:** retry failed webhook deliveries, and keep the ones that never make it somewhere we can look.",
+    findings: "## Findings\n\n- deliveries are sent once, from `hooks/send.py: deliver`\n- the receiver dedupes on `X-Delivery-Id` — retries are safe",
     earlier: [],
     record: ["⚑ discovery (planner): the receiver is idempotent already — because it dedupes on the delivery id"],
     cost: 0.12, tokens: 8000, station: "ci@gadgets", digest: "0a8be2c4d771",
@@ -539,9 +720,10 @@ export const GATES: Gate[] = [
 
 export const OTHERS: Gate[] = [
   {
-    id: "g-0f9a6c3d-1", session: "0f9a6c3d", factory: "acme/gadgets", ref: "#31", title: "Rate-limit the public API",
+    id: "g-0f9a6c3d-1", kind: "plan", session: "0f9a6c3d", factory: "acme/gadgets", ref: "#31", branch: "asf/0f9a6c3d", title: "Rate-limit the public API",
     gate: "plan", question: "Approve the plan?", round: 1, since: NOW - 61 * min, askedOf: "mira", channel: "issue",
-    subject: "a token bucket per API key, 60 req/min", subjectFile: "docs/asf/spec/plan.md", subjectBody: "",
+    subject: "a token bucket per API key, 60 req/min", subjectFile: "docs/asf/spec/plan.md",
+    subjectBody: "## Plan\n\n- **R1** a token bucket per API key, 60 requests a minute\n- **R2** `429` with `Retry-After` when it is empty",
     earlier: [], record: [], cost: 0.12, tokens: 8000, station: "mira@thinkpad:gadgets", digest: "",
   },
 ];

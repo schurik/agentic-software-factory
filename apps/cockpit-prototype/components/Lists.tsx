@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { FACTORIES, HISTORY, NOW, SESSIONS, type SessionStatus } from "@/lib/data";
 import { cost, fmtAgo, fmtCost, sessionPhases } from "@/lib/model";
 import { MiniGraph } from "./Graph";
+import { IssueRef, PrRef } from "./icons";
 import { PLink } from "./state";
 import { Card, cx } from "./ui";
 
@@ -32,7 +33,7 @@ function StatusDot({ status }: { status: SessionStatus }) {
 export function SessionsList() {
   const factory = useSearchParams().get("factory");
   const rows = [
-    ...SESSIONS.map((s) => ({ id: s.id, factory: s.factory, title: s.title, ref: s.ref, workflow: s.chapters.at(-1)!.workflow, status: s.status, cost: cost(sessionPhases(s)), at: s.startedAt, live: s })),
+    ...SESSIONS.map((s) => ({ id: s.id, factory: s.factory, title: s.title, ref: s.ref, workflow: s.chapters.at(-1)!.workflow, status: s.status, cost: cost(sessionPhases(s)), at: s.startedAt, issue: s.issue, pr: s.pr, live: s })),
     ...HISTORY.map((h) => ({ ...h, live: undefined })),
   ].filter((r) => !factory || r.factory === factory);
   return (
@@ -71,7 +72,12 @@ export function SessionsList() {
                   <td className="py-2.5 pl-3 align-top"><StatusDot status={r.status} /></td>
                   <td className="py-2.5 pr-3 align-top">
                     <PLink href={r.live ? `/sessions/${r.id}` : "#"} className="block font-medium hover:text-accent">{r.title}</PLink>
-                    <span className="block text-xs text-muted">{r.factory} · {r.ref} · <span className="font-mono">{r.id}</span></span>
+                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2.5 text-xs text-muted">
+                      <span>{r.factory}</span>
+                      {r.issue ? <IssueRef factory={r.factory} n={r.issue.n} state={r.issue.state} /> : <span>prompt</span>}
+                      {r.pr ? <PrRef factory={r.factory} n={r.pr.n} state={r.pr.state} /> : null}
+                      <span className="font-mono text-faint">{r.id}</span>
+                    </span>
                   </td>
                   <td className="hidden py-2.5 pr-3 align-top md:table-cell">
                     {r.live && r.status !== "done" ? <MiniGraph chapter={r.live.chapters.at(-1)!} /> : <span className="text-muted">{r.workflow}</span>}
