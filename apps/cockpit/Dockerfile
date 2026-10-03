@@ -15,6 +15,7 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 COPY --from=build /app/package.json /app/tsconfig.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
 COPY --from=build /app/convex ./convex
 COPY --from=build /app/docker/start.sh /app/docker/convex.sh ./
 EXPOSE 3000
