@@ -168,3 +168,4 @@ Left out on purpose: the Needs-attention warning triangle (the Inbox's gate icon
 - **Session Now card:** a cost gauge, accent below 80%, amber from 80%, red at the ceiling.
 - **⋯ menu:** purge's note is shortened to two lines.
 - **Chapters:** each one is a Base UI Collapsible. The header keeps one size open or closed, so nothing jumps. The panel animates its height and fades in, and the small graph in the header fades out as the big one arrives, then back on close.
+- **Now sections:** they fold the same way as chapters (Base UI Collapsible). The title row keeps one size, the gap under it folds away with the list, and the panel animates its height and opacity.

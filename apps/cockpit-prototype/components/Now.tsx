@@ -80,20 +80,27 @@ function Section({ title, count, right, children }: { title: ReactNode; count: n
   );
 }
 
-/** A Section whose list folds away behind Show/Hide; Inbox is the one section that never folds. */
+/**
+ * A Section whose list folds away behind Show/Hide; Inbox is the one section that never folds.
+ * Base UI's Collapsible, animated the way a session's chapters are: the title row keeps one
+ * size, and the panel grows to its list's height and fades in (and back on close).
+ */
 function CollapsibleSection({ title, count, defaultOpen, children }: { title: ReactNode; count: number; defaultOpen?: boolean; children: ReactNode }) {
   return (
     <Collapsible.Root defaultOpen={defaultOpen} render={<section />}>
-      <Collapsible.Trigger className="group flex w-full items-baseline gap-2 text-left data-panel-open:mb-3 cursor-pointer">
+      <Collapsible.Trigger className="group flex w-full items-baseline gap-2 text-left cursor-pointer">
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
         <span className="text-sm text-faint tabular-nums">{count}</span>
         <span className="grow" />
         <span className="flex items-center gap-1 text-sm text-muted group-hover:text-fg">
           <span className="group-data-panel-open:hidden">Show</span><span className="hidden group-data-panel-open:inline">Hide</span>
-          <Chevron className="group-data-panel-open:rotate-90" />
+          <Chevron className="transition-transform duration-200 group-data-panel-open:rotate-90" />
         </span>
       </Collapsible.Trigger>
-      <Collapsible.Panel>{children}</Collapsible.Panel>
+      <Collapsible.Panel className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] data-ending-style:h-0 data-ending-style:opacity-0 data-starting-style:h-0 data-starting-style:opacity-0">
+        {/* The gap under the title lives inside the panel, so it folds away with the list. */}
+        <div className="pt-3 pb-0.5">{children}</div>
+      </Collapsible.Panel>
     </Collapsible.Root>
   );
 }
