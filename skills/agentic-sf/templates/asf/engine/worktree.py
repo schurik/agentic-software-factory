@@ -100,6 +100,7 @@ def ensure(request: WorktreeRequest) -> Workspace:
         # The run's branch outlived its worktree — a pruned success, or a rerun.
         # Check it out again rather than branching a second time from the base:
         # the branch is the record, and re-creating it would discard the record.
+        _refuse_if_held(main, branch)
         _publish(request, branch)
         git_helper.worktree_add(main, path, branch)
         recorded = _read_meta(meta)
@@ -119,6 +120,26 @@ def ensure(request: WorktreeRequest) -> Workspace:
                           created=True)
     _write_meta(meta, request.adw_id, workspace)
     return workspace
+
+
+def _refuse_if_held(main: Path, branch: str) -> None:
+    """git hands a branch to one worktree at a time, so a branch someone else
+    has checked out cannot become this run's worktree — and `worktree add`
+    says so as a raw error, a traceback in whatever watcher launched the run.
+
+    The usual holder is the engineer's own checkout: fixing review feedback by
+    hand on a session's branch is a natural thing to do. Nothing is lost by
+    refusing — the branch is the record, and the run can go once it is free.
+    Asked before the publish, so a refused run has touched nothing.
+    """
+    for entry in git_helper.worktree_list(main):
+        if entry["branch"] == branch:
+            raise SystemExit(
+                f"{branch} is checked out at {entry['path']}, and git checks a branch "
+                f"out in one place at a time — this run cannot re-create its worktree "
+                f"from it. Nothing was created.\n"
+                f"fix: commit or push what is there, `git checkout <another branch>` in "
+                f"{entry['path']}, and run again")
 
 
 def _publish(request: WorktreeRequest, branch: str, base_commit: str = "") -> None:

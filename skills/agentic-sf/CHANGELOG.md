@@ -19,6 +19,19 @@ Every entry has the same shape: `## X.Y.Z — YYYY-MM-DD`, the date its tag was 
 `## Unreleased`), what changed, and an `### Upgrade` section naming the steps from the release
 before — `None` when there are none, never omitted.
 
+## Unreleased
+
+- **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
+  checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
+  next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
+  traceback. The run now stops before it touches anything, names where the branch is checked out
+  and how to free it, and `asf doctor` — and every run's preflight — warns when the main checkout
+  is on a session's branch.
+
+### Upgrade
+
+Re-stamp with `--force` to pick up the refusal and the warning; nothing else changes.
+
 ## 1.2.0 — 2026-10-02
 
 The first tagged release, and the first to publish the cockpit images (`asf-cockpit` and
