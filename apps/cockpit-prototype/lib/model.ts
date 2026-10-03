@@ -1,6 +1,6 @@
 // PROTOTYPE, throwaway. What the graph reads off a chapter: a stage's status, which one is
 // current, which are shown expanded, and the one number format for everything.
-import { NOW, type Chapter, type Phase, type PhaseStatus, type Session, type Stage } from "./data";
+import { NOW, VIEWER, type Chapter, type Phase, type PhaseStatus, type Session, type Stage } from "./data";
 
 export type StageStatus = "ok" | "running" | "waiting" | "failed" | "pending";
 
@@ -61,7 +61,7 @@ export function whereNow(s: Session): { chapter: Chapter; stage?: Stage; phase?:
   const chapter = s.chapters[s.chapters.length - 1];
   const i = currentStageIndex(chapter);
   const stage = i >= 0 ? chapter.stages[i] : undefined;
-  const phase = stage?.phases.find((p) => ["running", "waiting", "failed"].includes(p.status));
+  const phase = stage?.phases.findLast((p) => ["running", "waiting", "failed"].includes(p.status));
   return { chapter, stage, phase };
 }
 
@@ -72,12 +72,43 @@ export const fmtInt = (n: number) => int.format(n);
 export const fmtCost = (n: number) => `$${n.toFixed(2)}`;
 export const fmtTokens = (n: number) => (n >= 10_000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : int.format(n));
 
+/** Seconds only while they matter: "28s", "4m 34s", then "58m", "2h 8m". */
 export function fmtDur(secs: number): string {
   if (secs < 60) return `${secs}s`;
   const m = Math.floor(secs / 60);
-  if (m < 60) return `${m}m ${String(secs % 60).padStart(2, "0")}s`;
+  if (secs < 600) return `${m}m ${String(secs % 60).padStart(2, "0")}s`;
+  if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
-  return `${h}h ${String(m % 60).padStart(2, "0")}m`;
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+}
+
+/** The viewer is "you", everywhere a login would be shown. */
+export const who = (login: string) => (login === VIEWER ? "you" : login);
+
+const COMMIT_WHAT: Record<string, string> = { plan: "plan", implement: "code", document: "docs" };
+
+/**
+ * A phase's name for people. The engine's names (plan_revise_1, verify_2, commit_implement)
+ * stay in the Events tab and the journal, which are the record; everything else reads these.
+ */
+export function phaseTitle(p: Phase): string {
+  if (p.gate) return `${p.gate.name} gate · round ${p.gate.round}`;
+  let m = /^plan_revise_(\d+)$/.exec(p.name);
+  if (m) return `plan revision ${m[1]}`;
+  m = /^(verify|fix|review)_(\d+)$/.exec(p.name);
+  if (m) return `${m[1]} #${m[2]}`;
+  m = /^commit_(\w+)$/.exec(p.name);
+  if (m) return `commit ${COMMIT_WHAT[m[1]] ?? m[1]}`;
+  if (p.name === "issue") return "read the issue";
+  if (p.name === "pr") return "read the review";
+  if (p.name === "changes") return "collect the diff";
+  return p.name;
+}
+
+/** How long the session has been in the phase it is in now (running or waiting). */
+export function inPhaseFor(s: Session): number {
+  const { phase } = whereNow(s);
+  return phase && (phase.status === "running" || phase.status === "waiting") ? Math.round((NOW - phase.at) / 1000) : 0;
 }
 
 export function fmtAgo(ms: number): string {

@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chapter, Phase, Session, Stage } from "@/lib/data";
 import {
   chapterSecs, chapterStatus, cost, allPhases, currentStageIndex, expandedByDefault, fmtCost, fmtDur,
-  hadRejection, stageSecs, stageStatus, type StageStatus,
+  hadRejection, phaseTitle, stageSecs, stageStatus, who, type StageStatus,
 } from "@/lib/model";
 import { useProto, type Variant } from "./state";
 import { Chevron, KindIcon, StatusIcon, cx } from "./ui";
@@ -34,12 +34,12 @@ function useGraph({ session, chapter }: GraphProps) {
   };
 }
 
-const phaseLabel = (p: Phase) => (p.gate ? `${p.gate.name} gate · round ${p.gate.round}` : p.name);
+const phaseLabel = phaseTitle;
 const phaseMeta = (p: Phase) =>
-  p.status === "rejected" ? `rejected by ${p.remark?.by}` :
-  p.status === "waiting" ? `waiting on ${p.owner}` :
+  p.status === "rejected" ? `rejected by ${who(p.remark?.by ?? "")}` :
+  p.status === "waiting" ? `waiting on ${who(p.owner)}` :
   p.status === "running" ? "running" :
-  p.remark?.verdict === "approve" && p.kind === "gate" ? `approved by ${p.remark.by}` :
+  p.remark?.verdict === "approve" && p.kind === "gate" ? `approved by ${who(p.remark.by)}` :
   p.secs ? fmtDur(p.secs) : "";
 
 const ringTone: Record<StageStatus, string> = {
@@ -105,7 +105,7 @@ function StageCard({ stage, i, g }: { stage: Stage; i: number; g: ReturnType<typ
       )}
     >
       {current ? (
-        <span className={cx("absolute -top-2.5 left-2.5 rounded px-1.5 text-[10px] font-semibold uppercase tracking-wider", st === "failed" ? "bg-bad text-white" : st === "waiting" ? "bg-wait text-white" : "bg-accent text-accent-fg")}>
+        <span className={cx("absolute -top-2.5 left-2.5 rounded px-1.5 text-[10px] font-semibold uppercase tracking-wider", st === "failed" ? "bg-bad text-bg" : st === "waiting" ? "bg-wait text-bg" : "bg-accent-strong text-accent-fg")}>
           now
         </span>
       ) : null}
@@ -162,58 +162,62 @@ function CardsFull(props: GraphProps) {
 }
 
 /**
- * One chain on one line, scrolled sideways when it does not fit: the edges fade where more
- * is hidden, and the current stage is scrolled into view when the chapter opens.
+ * One chain on one line, scrolled sideways when it does not fit. Only then does it get a gutter
+ * on each side for its arrows — so an arrow never sits on a card — and the inner edges fade where
+ * stages are hidden. No scrollbar: the arrows, a trackpad and the fades say it scrolls. The
+ * current stage is scrolled into view when the chapter opens.
  */
 function ScrollRow({ children, focus }: { children: ReactNode; focus: number }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [edge, setEdge] = useState({ left: false, right: false });
+  const [edge, setEdge] = useState({ overflow: false, left: false, right: false });
   const measure = () => {
     const el = ref.current;
     if (!el) return;
-    setEdge({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+    setEdge({
+      overflow: el.scrollWidth > el.clientWidth + 2,
+      left: el.scrollLeft > 2,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
+    });
   };
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !edge.overflow) return;
     const card = el.querySelector<HTMLElement>(`[data-stage="${focus}"]`);
     if (card && card.offsetLeft + card.offsetWidth > el.clientWidth) {
       el.scrollLeft = card.offsetLeft - el.clientWidth / 2 + card.offsetWidth / 2;
     }
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [focus]);
-  const mask = `linear-gradient(to right, ${edge.left ? "transparent, black 3rem" : "black"}, ${edge.right ? "black calc(100% - 3rem), transparent" : "black"})`;
+  }, [focus, edge.overflow]);
+  const mask = `linear-gradient(to right, ${edge.left ? "transparent, black 2.5rem" : "black"}, ${edge.right ? "black calc(100% - 2.5rem), transparent" : "black"})`;
+  const arrow = (dir: -1 | 1, enabled: boolean) => (
+    <button
+      onClick={() => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.6, behavior: "smooth" })}
+      disabled={!enabled}
+      className={cx("absolute top-[1.9rem] grid size-7 place-items-center rounded-full border border-line bg-surface text-muted shadow-card hover:text-fg disabled:opacity-0 cursor-pointer transition-opacity", dir < 0 ? "left-0" : "right-0")}
+      aria-label={dir < 0 ? "Scroll left" : "Scroll right"}
+    >
+      <Chevron className={dir < 0 ? "rotate-180" : undefined} />
+    </button>
+  );
   return (
-    <div className="relative hidden md:block">
+    <div className={cx("relative hidden md:block", edge.overflow && "px-9")}>
       <div
         ref={ref}
         onScroll={measure}
-        className="flex flex-row items-start overflow-x-auto px-1 pt-3 pb-3 [scrollbar-width:thin]"
+        className="no-scrollbar flex flex-row items-start overflow-x-auto px-1 pt-3 pb-3"
         style={{ maskImage: mask, WebkitMaskImage: mask }}
       >
         {children}
       </div>
-      {edge.right ? (
-        <button
-          onClick={() => ref.current?.scrollBy({ left: ref.current.clientWidth * 0.6, behavior: "smooth" })}
-          className="absolute top-[1.9rem] right-0 grid size-7 place-items-center rounded-full border border-line bg-surface text-muted shadow-card hover:text-fg cursor-pointer"
-          aria-label="Scroll right"
-        >
-          <Chevron />
-        </button>
-      ) : null}
-      {edge.left ? (
-        <button
-          onClick={() => ref.current?.scrollBy({ left: -ref.current.clientWidth * 0.6, behavior: "smooth" })}
-          className="absolute top-[1.9rem] left-0 grid size-7 place-items-center rounded-full border border-line bg-surface text-muted shadow-card hover:text-fg cursor-pointer"
-          aria-label="Scroll left"
-        >
-          <Chevron className="rotate-180" />
-        </button>
-      ) : null}
+      {edge.overflow ? <>{arrow(-1, edge.left)}{arrow(1, edge.right)}</> : null}
     </div>
   );
 }
@@ -510,7 +514,7 @@ export function SessionGraph({ session }: { session: Session }) {
               <span className="flex items-center gap-3 text-sm text-muted tabular-nums">
                 <span>{fmtDur(chapterSecs(c))}</span>
                 <span>{fmtCost(cost(allPhases(c)))}</span>
-                <StatusIcon status={st} />
+                {i === last && session.status !== "done" ? null : <StatusIcon status={st} />}
               </span>
             </button>
             {isOpen ? <div className="mt-4"><ChapterGraph session={session} chapter={c} variant={variant} /></div> : null}

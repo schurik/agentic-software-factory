@@ -10,6 +10,8 @@ export const NOW = Date.UTC(2026, 9, 3, 14, 30, 0);
 export const FORGE = "https://github.com";
 const min = 60_000;
 export const VIEWER = "schurik";
+/** "local": one person's cockpit on their own forge token. "team": shared, behind the GitHub App. */
+export const MODE: "local" | "team" = "local";
 
 export type PhaseStatus = "ok" | "running" | "waiting" | "failed" | "rejected" | "pending";
 export type Kind = "agent" | "code" | "gate";
@@ -499,7 +501,7 @@ function running(): Session {
     status: "running", chapters: [c1.chapter],
     station: "schurik@mbp:widgets", stationOnline: true, owner: "schurik",
     branch: "asf/7d2f90aa", base: "main at 3f1c2a9", triggeredBy: "label asf:queued + asf:ship",
-    issue: { n: 61, state: "open" }, startedAt: start, budget: 2.5, transcripts: true,
+    issue: { n: 61, state: "open" }, startedAt: start, budget: 0.25, transcripts: true,
     now: "The builder is implementing the plan — 3 tool calls so far.",
   };
 }
@@ -513,9 +515,9 @@ function runningReview(): Session {
     [commit("implement", "c0ffe12", "feat: sign webhook payloads")], [changes(), document()],
     [commit("document", "d0c5e11", "docs: signed payloads")], [integrate(14)],
   ], reportIssue(12), 0);
-  const c2 = chapter(sid, 2, "pr-review", "PR #14", NOW - 4 * min, prPhase("2 open threads of 2"), [
+  const c2 = chapter(sid, 2, "pr-review", "PR #14", NOW - 18 * min, prPhase("2 open threads of 2"), [
     [implement("addressed 2 threads: constant-time compare; header name", { cost: 0.06, tokens: 3100 })],
-    [verify(1, { status: "running", secs: 75, summary: undefined, command: { argv: "bun test", exit: -1, secs: 75 } })],
+    [verify(1, { status: "running", secs: 17 * 60, summary: undefined, command: { argv: "bun test", exit: -1, secs: 17 * 60 } })],
   ], null, c1.seq);
   return {
     id: sid, factory: "acme/gadgets", title: "Signed webhook payloads", ref: "#12",
@@ -523,7 +525,7 @@ function runningReview(): Session {
     station: "ci@gadgets", stationOnline: true, owner: "—",
     branch: "asf/3b8e11d0", base: "main at 91ab03e", triggeredBy: "review on PR #14",
     issue: { n: 12, state: "open" }, pr: { n: 14, state: "open" }, startedAt: start, budget: 2.5, transcripts: false,
-    now: "Running bun test after addressing 2 review threads on PR #14.",
+    now: "bun test has been running for 17 minutes after addressing 2 review threads on PR #14.",
   };
 }
 
@@ -732,7 +734,7 @@ export const OTHERS: Gate[] = [
 
 export type Attention =
   | { kind: "failed"; factory: string; session: string; title: string; ref: string; ago: number; reason: string }
-  | { kind: "claim"; factory: string; station: string; ref: string; away: number }
+  | { kind: "claim"; factory: string; station: string; ref: string; session: string; away: number }
   | { kind: "drift"; factory: string; station: string; what: string }
   | { kind: "check"; factory: string; what: string }
   | { kind: "unwatched"; factory: string; issues: number[] };
@@ -740,7 +742,7 @@ export type Attention =
 export const ATTENTION: Attention[] = [
   { kind: "failed", factory: "acme/gadgets", session: "e5b3a118", title: "Drop the legacy v1 API", ref: "#23", ago: 2 * 60 * min, reason: "verify failed twice" },
   { kind: "check", factory: "acme/widgets", what: "workflow nightly does not load: agent 'nobody' is not in the roster" },
-  { kind: "claim", factory: "acme/gadgets", station: "mira@thinkpad:gadgets", ref: "#23", away: 26 * 60 * min },
+  { kind: "claim", factory: "acme/gadgets", station: "mira@thinkpad:gadgets", ref: "#23", session: "e5b3a118", away: 26 * 60 * min },
   { kind: "unwatched", factory: "acme/docs-site", issues: [7, 9] },
   { kind: "drift", factory: "acme/widgets", station: "ci@widgets", what: "factory.yaml differs from main at 3f1c2a9" },
 ];

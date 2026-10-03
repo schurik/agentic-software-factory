@@ -105,3 +105,58 @@ remembered).
   as 7, 8, 9), so the Journal draws its own numbers and renders markdown inside each entry.
 - **Now:** Needs attention, Running and Waiting on others all fold behind the same Show/Hide.
   The first two start open and Waiting on others starts closed. Inbox never folds.
+
+### Round 3: the review's findings
+
+**Bugs**
+- **Now card:** the button is named for the gate ("Review the plan / the changes and answer"), and a failed session links its latest failure (verify #2).
+- **Away station:** Resume becomes "Queue resume", with a line saying it runs when the station is back.
+- **Graph overflow:** the chain gets gutters for its arrows only when it overflows, and its scrollbar is hidden.
+- **Phone gate footer:** it stacks, primary first.
+
+**Header**
+- **Layout:** it is flat, and the active place is underlined on the header's own rule. Now's content starts under the logo (x=104 on every page).
+- **Mode:** "local" sits under "cockpit" in a local cockpit; a team cockpit shows nothing there.
+- **Now count:** the Now item carries the amber count of gates waiting on you.
+- **Avatar menu:** Run a prompt plus an avatar menu (who you are, the mode, the theme) replace three controls, on phones too.
+
+**Now**
+- **Order:** no subtitle; Inbox, then Needs attention, Running and Waiting on others.
+- **Icons:** Inbox and Waiting on others show the gate's stage icon in amber, Running shows the current stage's icon in blue, and Needs attention keeps status marks.
+- **Needs attention:** every row opens its target.
+- **Running:** says "17m in verify" when a phase has run over 10 minutes, and shows "$0.21 of $0.25" when spend passes 80% of the ceiling. Nothing is shown otherwise.
+- **Folding:** a folded section is only its title. The chevron hangs in the gutter, so section titles keep one left edge.
+
+**Session page**
+- **Gate button:** the Now card holds it, and the header no longer has one.
+- **Details:** keeps only what is shown nowhere else.
+- **Purge:** moved to a ⋯ menu, alongside copying the session id.
+- **Numbers:** no chapter count on the Now card. Durations drop seconds past 10 minutes.
+- **Status:** the chapter in progress has no second status mark.
+- **Phone order:** the Now card comes first.
+
+**Drawers**
+- **Top bar:** one pattern, icon and name, for gate, stage and phase.
+- **Waiting gate phase:** opens as its gate.
+- **Phase tabs:** only tabs with content; cost moves into the header line.
+- **Names:** every phase name is humanised (plan revision 1, verify #2, commit code). Raw names stay in the Events tab and the journal.
+- **Viewer:** shown as "you" everywhere.
+- **Stage config:** the line is gone.
+
+**Colour:** every text token clears AA on both backgrounds:
+- `--faint` is `#6b6b74` in light and `#86868f` in dark.
+- The dark primary uses `--accent-strong` (`#3a64d8`).
+- Amber is `#925500`.
+- The page background is `#f4f4f5`, so white cards stand off it.
+- Badges on amber or red use dark text in dark mode.
+- The rule for the one extra hue (merged purple) is in `globals.css`.
+
+**Consistency**
+- A chevron on the left for everything that folds.
+- The pill / dot / icon rule is written in `ui.tsx`.
+- Refs carry their icon everywhere.
+- The run dialog uses Base UI Selects, can't run an empty prompt, and has a close button.
+- Only refs and shas are mono.
+- Key hints hide on touch screens.
+
+Left out on purpose: the Needs-attention warning triangle (the Inbox's gate icons were chosen instead) and the S items.

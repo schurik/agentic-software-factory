@@ -3,15 +3,29 @@
 // Answers "what needs me, and what's moving" on the first screen.
 //
 // Every list here is drawn with one Row, so the four line up on one vertical grid:
-// status icon · title + detail lines · where (factory) above when/what-next on the right.
+// icon · title + detail lines · where (factory) above when/what-next on the right.
+// The icon says what the row is about: a gate's stage in amber (Inbox, Waiting on others), the
+// stage a session is in, in blue (Running), and a status mark for what needs attention.
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useEffect, useState, type ReactNode } from "react";
 import { ATTENTION, GATES, NOW, OTHERS, SESSIONS, type Attention } from "@/lib/data";
-import { cost, elapsed, fmtAgo, fmtCost, fmtDur, sessionPhases, whereNow } from "@/lib/model";
+import { cost, elapsed, fmtAgo, fmtCost, fmtDur, inPhaseFor, sessionPhases, whereNow } from "@/lib/model";
 import { MiniGraph } from "./Graph";
 import { IssueRef, PrRef, StageIcon } from "./icons";
 import { PLink, useProto } from "./state";
 import { Card, Chevron, Kbd, StatusIcon, cx } from "./ui";
+
+/** A stage's icon on a tinted square: amber when it waits on a person, blue while it runs. */
+function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
+  return (
+    <span className={cx("-mt-0.5 -ml-1 grid size-6 place-items-center rounded-md", tone === "wait" ? "bg-wait-soft text-wait" : "bg-accent-soft text-accent")} title={name}>
+      <StageIcon name={name} size={14} />
+    </span>
+  );
+}
+
+const STUCK_AFTER = 10 * 60;
+const EXPENSIVE_AT = 0.8;
 
 type Icon = "waiting" | "failed" | "running";
 
@@ -66,18 +80,18 @@ function Section({ title, count, right, children }: { title: ReactNode; count: n
   );
 }
 
-/** A Section whose list folds away behind Show/Hide; Inbox is the one section that never folds. */
+/**
+ * A Section whose list folds away; Inbox is the one section that never folds. The chevron hangs
+ * in the gutter so every section title keeps the same left edge, and a folded section takes no
+ * more room than its title.
+ */
 function CollapsibleSection({ title, count, defaultOpen, children }: { title: ReactNode; count: number; defaultOpen?: boolean; children: ReactNode }) {
   return (
     <Collapsible.Root defaultOpen={defaultOpen} render={<section />}>
-      <Collapsible.Trigger className="group mb-3 flex w-full items-baseline gap-2 text-left cursor-pointer">
+      <Collapsible.Trigger className="group relative flex w-full items-baseline gap-2 text-left data-panel-open:mb-3 cursor-pointer">
+        <Chevron className="absolute top-1/2 -left-4 -translate-y-1/2 text-faint group-hover:text-fg group-data-panel-open:rotate-90" />
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
         <span className="text-sm text-faint tabular-nums">{count}</span>
-        <span className="grow" />
-        <span className="flex items-center gap-1 text-sm text-muted group-hover:text-fg">
-          <span className="group-data-panel-open:hidden">Show</span><span className="hidden group-data-panel-open:inline">Hide</span>
-          <Chevron className="group-data-panel-open:rotate-90" />
-        </span>
       </Collapsible.Trigger>
       <Collapsible.Panel>{children}</Collapsible.Panel>
     </Collapsible.Root>
@@ -122,6 +136,7 @@ function Inbox() {
             <Row
               key={g.id}
               icon="waiting"
+              glyph={<StageGlyph name={g.gate} tone="wait" />}
               title={g.title}
               lines={[<><span className="font-medium text-fg">{g.question}</span> {g.gate} gate · round {g.round}</>, g.subject]}
               where={<>{g.factory} <IssueRef plain factory={g.factory} n={Number(g.ref.slice(1))} state="open" /></>}
@@ -137,13 +152,14 @@ function Inbox() {
   );
 }
 
-function attentionRow(a: Attention): { icon: Icon; title: ReactNode; line: ReactNode; href?: string; action: string } {
+function attentionRow(a: Attention): { icon: Icon; title: ReactNode; line: ReactNode; href: string; action: string } {
+  const ref = (r: string) => <IssueRef plain factory={a.factory} n={Number(r.slice(1))} state="open" />;
   switch (a.kind) {
-    case "failed": return { icon: "failed", title: <>Session failed: {a.title}</>, line: <>{a.ref} · {a.reason} · {fmtAgo(a.ago)}</>, href: `/sessions/${a.session}`, action: "Open" };
-    case "check": return { icon: "failed", title: "Check failing on main", line: a.what, action: "See config" };
-    case "claim": return { icon: "waiting", title: <>Claim held by a station away for {Math.round(a.away / 3_600_000)}h</>, line: <>{a.station} · {a.ref}</>, action: "Release" };
-    case "unwatched": return { icon: "waiting", title: <>{a.issues.length} queued issues, no online station watching</>, line: a.issues.map((n) => `#${n}`).join(", "), action: "Stations" };
-    case "drift": return { icon: "waiting", title: "Station config drifted", line: <>{a.station} · {a.what}</>, action: "Compare" };
+    case "failed": return { icon: "failed", title: <>Session failed: {a.title}</>, line: <span className="inline-flex items-center gap-1.5">{ref(a.ref)} · {a.reason} · {fmtAgo(a.ago)}</span>, href: `/sessions/${a.session}`, action: "Open" };
+    case "check": return { icon: "failed", title: "Check failing on main", line: a.what, href: "/factories", action: "See config" };
+    case "claim": return { icon: "waiting", title: <>Claim held by a station away for {Math.round(a.away / 3_600_000)}h</>, line: <span className="inline-flex items-center gap-1.5">{a.station} · {ref(a.ref)}</span>, href: `/sessions/${a.session}`, action: "Release" };
+    case "unwatched": return { icon: "waiting", title: <>{a.issues.length} queued issues, no online station watching</>, line: <span className="inline-flex items-center gap-2">{a.issues.map((n) => <IssueRef key={n} plain factory={a.factory} n={n} state="open" />)}</span>, href: "/factories", action: "Stations" };
+    case "drift": return { icon: "waiting", title: "Station config drifted", line: <>{a.station} · {a.what}</>, href: "/factories", action: "Compare" };
   }
 }
 
@@ -167,19 +183,23 @@ function Running() {
       <Card className="divide-y divide-line overflow-hidden">
         {running.map((s) => {
           const { chapter, stage } = whereNow(s);
+          const spent = cost(sessionPhases(s));
+          const stuck = inPhaseFor(s) > STUCK_AFTER;
+          const expensive = spent >= s.budget * EXPENSIVE_AT;
           return (
             <Row
               key={s.id}
               icon="running"
-              glyph={
-                <span className="-mt-0.5 -ml-1 grid size-6 place-items-center rounded-md bg-accent-soft text-accent" title={stage?.name}>
-                  <StageIcon name={stage?.name ?? ""} size={14} />
-                </span>
-              }
+              glyph={<StageGlyph name={stage?.name ?? ""} tone="run" />}
               title={s.title}
-              lines={[<MiniGraph key="g" chapter={chapter} />]}
+              lines={[
+                <span key="g" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <MiniGraph chapter={chapter} />
+                  {stuck ? <span className="font-medium text-wait">{fmtDur(inPhaseFor(s))} in {stage?.name}</span> : null}
+                </span>,
+              ]}
               where={<>{s.factory} {s.pr ? <PrRef plain factory={s.factory} n={s.pr.n} state={s.pr.state} /> : s.issue ? <IssueRef plain factory={s.factory} n={s.issue.n} state={s.issue.state} /> : "· prompt"}</>}
-              when={<>{fmtCost(cost(sessionPhases(s)))} · {fmtDur(elapsed(s))}</>}
+              when={<>{expensive ? <span className="font-medium text-wait">{fmtCost(spent)} of {fmtCost(s.budget)}</span> : fmtCost(spent)} · {fmtDur(elapsed(s))}</>}
               href={`/sessions/${s.id}`}
             />
           );
@@ -197,6 +217,7 @@ function WaitingOnOthers() {
           <Row
             key={g.id}
             icon="waiting"
+            glyph={<StageGlyph name={g.gate} tone="wait" />}
             title={g.title}
             lines={[<>{g.question} {g.gate} gate · round {g.round} · asked of {g.askedOf}</>]}
             where={<>{g.factory} <IssueRef plain factory={g.factory} n={Number(g.ref.slice(1))} state="open" /></>}
@@ -211,17 +232,9 @@ function WaitingOnOthers() {
 }
 
 export function NowPage() {
-  const { answered } = useProto();
-  const mine = GATES.filter((g) => !answered[g.id]).length;
-  const running = SESSIONS.filter((s) => s.status === "running").length;
   return (
-    <div className="mx-auto flex max-w-[960px] flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Now</h1>
-        <p className="mt-1 text-muted">
-          {mine ? <><b className="font-medium text-wait">{mine} gate{mine > 1 ? "s" : ""}</b> wait on you</> : "Nothing waits on you"} · {ATTENTION.length} things need attention · {running} sessions running across 3 factories
-        </p>
-      </div>
+    <div className="flex max-w-[960px] flex-col gap-8">
+      <h1 className="text-2xl font-semibold tracking-tight">Now</h1>
       <Inbox />
       <NeedsAttention />
       <Running />

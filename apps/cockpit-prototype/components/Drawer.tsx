@@ -7,7 +7,7 @@ import { Drawer } from "@base-ui/react/drawer";
 import { ChevronDown, ChevronUp, MessageSquareQuote } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BRANCH_DIFF, GATES, NOW, OTHERS, SESSIONS, STAGE_ABOUT, type Gate, type Phase, type Session } from "@/lib/data";
-import { fmtAgo, fmtClock, fmtCost, fmtDur, fmtInt, stageSecs, stageStatus } from "@/lib/model";
+import { fmtAgo, fmtClock, fmtCost, fmtDur, fmtInt, phaseTitle, stageSecs, stageStatus, who } from "@/lib/model";
 import { DiffView } from "./Diff";
 import { BranchRef, CommitRef, IssueRef, StageIcon } from "./icons";
 import { Md } from "./Md";
@@ -42,6 +42,50 @@ export function findPhase(id: string): { session: Session; chapter: number; stag
 
 const gateById = (id: string) => GATES.find((g) => g.id === id) ?? OTHERS.find((g) => g.id === id);
 
+/**
+ * A gate phase still waiting on the viewer has nothing to show as a phase — what matters is the
+ * answer — so it opens straight into its gate.
+ */
+function resolve(t: DrawerTarget | undefined, answered: Record<string, unknown>): DrawerTarget | undefined {
+  if (t?.type !== "phase") return t;
+  const found = findPhase(t.phaseId);
+  if (found?.phase.status !== "waiting" || found.phase.kind !== "gate") return t;
+  const gate = GATES.find((g) => g.session === found.session.id && !answered[g.id]);
+  return gate ? { type: "gate", gateId: gate.id } : t;
+}
+
+/** What the top bar names: one icon, one name, for every kind of drawer. */
+function Heading({ t }: { t: DrawerTarget }) {
+  if (t.type === "gate") {
+    const gate = gateById(t.gateId)!;
+    return (
+      <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+        <StageIcon name={gate.gate} size={16} className="text-wait" />
+        {gate.gate} gate <span className="font-normal text-muted">· round {gate.round}</span>
+      </span>
+    );
+  }
+  if (t.type === "stage") {
+    const stage = SESSIONS.find((s) => s.id === t.session)!.chapters.find((c) => c.n === t.chapter)!.stages[t.stage];
+    return (
+      <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+        <StageIcon name={stage.name} size={16} className="text-muted" />
+        <Drawer.Title render={<span />}>{stage.name}</Drawer.Title>
+        <span className="font-normal text-muted">stage</span>
+      </span>
+    );
+  }
+  const p = findPhase(t.phaseId)?.phase;
+  if (!p) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+      <KindIcon kind={p.kind} className="size-4" />
+      <Drawer.Title render={<span className="truncate" />}>{phaseTitle(p)}</Drawer.Title>
+      <span className="font-normal text-muted">phase</span>
+    </span>
+  );
+}
+
 /** A view's body scrolls; its footer, if it has one, stays at the bottom. */
 function Pane({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
@@ -59,7 +103,7 @@ export function SideDrawer() {
   // Keep the last content while the drawer animates out.
   const [shown, setShown] = useState<DrawerTarget | undefined>(top);
   useEffect(() => { if (top) setShown(top); }, [top]);
-  const t = top ?? shown;
+  const t = resolve(top ?? shown, answered);
   const gate = t?.type === "gate" ? gateById(t.gateId) : undefined;
   const queue = GATES.filter((g) => !answered[g.id] || g.id === gate?.id);
   const at = gate ? queue.findIndex((g) => g.id === gate.id) : -1;
@@ -83,14 +127,7 @@ export function SideDrawer() {
               {drawer.length > 1 ? (
                 <Button variant="ghost" size="sm" onClick={back} className="-ml-2"><Chevron className="rotate-180" /> Back</Button>
               ) : null}
-              {gate ? (
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  <StageIcon name={gate.gate} size={16} className="text-wait" />
-                  {gate.gate} gate <span className="font-normal text-muted">· round {gate.round}</span>
-                </span>
-              ) : (
-                <span className="text-xs font-medium uppercase tracking-wider text-faint">{t?.type === "stage" ? "Stage" : "Phase"}</span>
-              )}
+              {t ? <Heading t={t} /> : null}
               <span className="grow" />
               {gate && at >= 0 && queue.length > 1 ? (
                 <span className="flex items-center gap-1 text-xs text-muted">
@@ -221,11 +258,11 @@ function GateView({ gateId }: { gateId: string }) {
         className={cx("w-full resize-none rounded-lg border bg-surface px-3 py-2 text-base outline-none placeholder:text-faint focus:border-accent focus:ring-4 focus:ring-accent-soft", needNote ? "border-bad" : "border-line-strong")}
       />
       {needNote ? <p className="-mt-1 text-sm text-bad">Say what should change — the next agent reads it as an instruction.</p> : null}
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" className="-ml-2 text-muted">Abort session</Button>
-        <span className="grow" />
-        <Button variant="secondary" onClick={() => decide("reject")}>{verbs.reject} <Kbd>r</Kbd></Button>
-        <Button variant="primary" onClick={() => decide("approve")}>{verbs.approve} <Kbd>a</Kbd></Button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Button variant="ghost" size="sm" className="text-muted max-sm:order-3 max-sm:self-center sm:-ml-2">Abort session</Button>
+        <span className="hidden grow sm:block" />
+        <Button variant="secondary" className="max-sm:order-2 max-sm:w-full" onClick={() => decide("reject")}>{verbs.reject} <Kbd>r</Kbd></Button>
+        <Button variant="primary" className="max-sm:order-1 max-sm:w-full" onClick={() => decide("approve")}>{verbs.approve} <Kbd>a</Kbd></Button>
       </div>
     </div>
   ) : (
@@ -251,7 +288,7 @@ function GateView({ gateId }: { gateId: string }) {
           <div className="flex gap-3 rounded-lg border border-wait/40 bg-wait-soft px-3.5 py-2.5">
             <MessageSquareQuote size={16} className="mt-0.5 shrink-0 text-wait" />
             <div className="text-sm">
-              <div className="text-muted">Round {lastNote.round}: {lastNote.verdict === "reject" ? "rejected" : "approved"} by {lastNote.by === "schurik" ? "you" : lastNote.by}</div>
+              <div className="text-muted">Round {lastNote.round}: {lastNote.verdict === "reject" ? "rejected" : "approved"} by {who(lastNote.by)}</div>
               <div className="text-base">“{lastNote.text}”</div>
               <div className="mt-0.5 text-xs text-muted">Check the changes below answer it.</div>
             </div>
@@ -281,52 +318,36 @@ function PhaseView({ phaseId }: { phaseId: string }) {
   if (!found) return null;
   const { session, chapter, stage, phase: p } = found;
   const agent = p.kind === "agent";
+  // Only tabs with something in them; what the work produced first, the debugger's tabs last.
   const tabs: { value: string; label: ReactNode; body: ReactNode }[] = [
     { value: "overview", label: "Overview", body: <PhaseOverview p={p} factory={session.factory} /> },
   ];
-  if (p.artifacts?.length) tabs.push({ value: "artifacts", label: `Artifacts · ${p.artifacts.length}`, body: <Artifacts p={p} /> });
   if (p.diff?.length) tabs.push({ value: "diff", label: "Diff", body: <DiffView files={p.diff} /> });
+  if (p.artifacts?.length) tabs.push({ value: "artifacts", label: `Artifacts · ${p.artifacts.length}`, body: <Artifacts p={p} /> });
   if (p.checks?.length || p.command) tabs.push({ value: "checks", label: "Checks", body: <Checks p={p} /> });
-  if (agent) {
-    tabs.push({ value: "tools", label: `Tools · ${p.tools?.length ?? 0}`, body: <Tools p={p} /> });
-    tabs.push({ value: "transcript", label: <>Transcript{session.transcripts ? null : <span className="text-faint"> · off</span>}</>, body: <Transcript p={p} on={session.transcripts} /> });
-    tabs.push({ value: "cost", label: "Cost", body: <dl className="grid grid-cols-[7rem_1fr] gap-y-1.5 text-sm tabular-nums"><Row k="Model">{p.model}</Row><Row k="Tokens">{fmtInt(p.tokens ?? 0)}</Row><Row k="Cost">{fmtCost(p.cost ?? 0)}</Row><Row k="Corrections">{p.corrections ?? 0}</Row></dl> });
-  }
+  if (agent && p.tools?.length) tabs.push({ value: "tools", label: `Tools · ${p.tools.length}`, body: <Tools p={p} /> });
+  if (agent) tabs.push({ value: "transcript", label: <>Transcript{session.transcripts ? null : <span className="text-faint"> · off</span>}</>, body: <Transcript p={p} on={session.transcripts} /> });
   tabs.push({ value: "events", label: "Events", body: <Events p={p} /> });
 
-  const waitingGate = p.status === "waiting" ? GATES.find((g) => g.session === session.id) : undefined;
   return (
-    <Pane footer={waitingGate ? <AnswerLink gateId={waitingGate.id} /> : undefined}>
-    <div className="flex flex-col gap-4">
-      <div>
-        <div className="text-sm text-muted">
-          {session.factory} · <span className="font-mono">{session.id}</span> · chapter {chapter}{stage ? <> · {stage} stage</> : <> · {p.name === "report" ? "end" : "start"}</>}
+    <Pane>
+      <div className="flex flex-col gap-4">
+        <div>
+          <div className="text-sm text-muted">
+            {session.factory} · <span className="font-mono">{session.id}</span> · chapter {chapter}{stage ? <> · {stage} stage</> : <> · {p.name === "report" ? "end" : "start"}</>}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+            <Pill status={p.status}>{p.status === "ok" ? "done" : p.status}</Pill>
+            <span>{p.kind === "agent" ? `agent · ${p.owner}` : p.kind === "gate" ? `person · ${who(p.owner)}` : `code · ${p.owner}`}</span>
+            <span className="tabular-nums">{fmtClock(p.at)}</span>
+            {p.secs ? <span className="tabular-nums">{fmtDur(p.secs)}</span> : null}
+            {agent ? <span className="tabular-nums">{p.model} · {fmtInt(p.tokens ?? 0)} tokens · {fmtCost(p.cost ?? 0)}{p.corrections ? ` · ${p.corrections} correction${p.corrections > 1 ? "s" : ""}` : ""}</span> : null}
+            {p.replayed ? <span className="rounded bg-surface-2 px-1.5 text-xs">replayed on resume</span> : null}
+          </div>
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <Drawer.Title className="text-xl font-semibold tracking-tight">{p.gate ? `${p.gate.name} gate · round ${p.gate.round}` : p.name}</Drawer.Title>
-          <Pill status={p.status}>{p.status === "ok" ? "done" : p.status}</Pill>
-          {p.replayed ? <span className="rounded bg-surface-2 px-1.5 text-xs text-muted">replayed on resume</span> : null}
-        </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-          <span className="flex items-center gap-1"><KindIcon kind={p.kind} />{p.kind === "agent" ? `agent · ${p.owner}` : p.kind === "gate" ? `person · ${p.owner}` : `code · ${p.owner}`}</span>
-          <span className="tabular-nums">{fmtClock(p.at)}</span>
-          {p.secs ? <span className="tabular-nums">{fmtDur(p.secs)}</span> : null}
-          {p.cost ? <span className="tabular-nums">{fmtCost(p.cost)}</span> : null}
-        </div>
+        <Tabbed key={p.id} tabs={tabs} />
       </div>
-      <Tabbed key={p.id} tabs={tabs} />
-    </div>
     </Pane>
-  );
-}
-
-function AnswerLink({ gateId }: { gateId: string }) {
-  const { open } = useProto();
-  return (
-    <div className="flex items-center gap-3">
-      <span className="grow text-sm text-muted">This gate is waiting on you.</span>
-      <Button variant="primary" onClick={() => open({ type: "gate", gateId })}>Answer it</Button>
-    </div>
   );
 }
 
@@ -364,7 +385,7 @@ function Remark({ p }: { p: Phase }) {
   const r = p.remark!;
   return (
     <div className={cx("rounded-lg border px-3 py-2.5", r.verdict === "reject" ? "border-bad/40 bg-bad-soft" : "border-ok/30 bg-ok-soft")}>
-      <div className="text-sm"><b>{r.verdict === "reject" ? "Rejected" : "Approved"}</b> by {r.by} · via the {r.channel}</div>
+      <div className="text-sm"><b>{r.verdict === "reject" ? "Rejected" : "Approved"}</b> by {who(r.by)} · via the {r.channel}</div>
       {r.text ? <div className="mt-1 text-base">✎ “{r.text}”</div> : null}
       {r.text ? <div className="mt-1 text-xs text-muted">An instruction: the next agent reads it, and it wins over the plan.</div> : null}
     </div>
@@ -462,13 +483,8 @@ function StageView({ session: sid, chapter: n, stage: i }: { session: string; ch
     <div className="flex flex-col gap-4">
       <div>
         <div className="text-sm text-muted">{session.factory} · <span className="font-mono">{session.id}</span> · chapter {n} · {chapter.workflow} · stage {i + 1} of {chapter.stages.length}</div>
-        <div className="mt-1 flex items-center gap-2">
-          <StageIcon name={stage.name} size={20} className="text-muted" />
-          <Drawer.Title className="text-xl font-semibold tracking-tight">{stage.name}</Drawer.Title>
-          <Pill status={st}>{st === "ok" ? "done" : st === "pending" ? "not yet" : st}</Pill>
-        </div>
+        <div className="mt-2"><Pill status={st}>{st === "ok" ? "done" : st === "pending" ? "not yet" : st}</Pill></div>
         <p className="mt-2 text-sm text-muted">{STAGE_ABOUT[stage.name]}</p>
-        {stage.gate ? <p className="mt-1 text-sm text-muted">Gate: {stage.gate}</p> : null}
       </div>
       {stage.phases.length ? (
         <div>
@@ -480,8 +496,8 @@ function StageView({ session: sid, chapter: n, stage: i }: { session: string; ch
               <button key={p.id} onClick={() => push({ type: "phase", session: sid, phaseId: p.id })} className="flex items-start gap-3 px-3 py-2.5 text-left hover:bg-surface-2 cursor-pointer">
                 <StatusIcon status={p.status} className="mt-0.5" />
                 <span className="min-w-0 grow">
-                  <span className="flex items-center gap-1.5 font-medium">{p.gate ? `${p.gate.name} gate · round ${p.gate.round}` : p.name}<KindIcon kind={p.kind} /></span>
-                  <span className="block text-sm text-muted">{p.remark?.text ? `✎ ${p.remark.text}` : p.summary ?? p.description}</span>
+                  <span className="flex items-center gap-1.5 font-medium">{phaseTitle(p)}<KindIcon kind={p.kind} /></span>
+                  <span className="block text-sm text-muted">{p.remark?.text ? `✎ ${who(p.remark.by)}: ${p.remark.text}` : p.summary ?? p.description}</span>
                 </span>
                 <span className="shrink-0 text-sm tabular-nums text-faint">{p.secs ? fmtDur(p.secs) : ""}</span>
                 <Chevron className="mt-1 text-faint" />

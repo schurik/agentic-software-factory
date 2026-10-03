@@ -1,13 +1,17 @@
 "use client";
-// PROTOTYPE, throwaway. The header (three places + Run a prompt + theme), the variant switcher,
-// the drawer and the toast — everything that sits around a page.
+// PROTOTYPE, throwaway. The header (brand + mode · three places · Run a prompt · the viewer's
+// avatar), the variant switcher, the drawer and the toast — everything that sits around a page.
+// The header is flat: the page's own background, one hairline, the active place underlined on it.
 import { Dialog } from "@base-ui/react/dialog";
+import { Menu } from "@base-ui/react/menu";
+import { Select } from "@base-ui/react/select";
+import { Check, ChevronsUpDown, Monitor, Moon, Play, Sun, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { FACTORIES, VIEWER } from "@/lib/data";
+import { FACTORIES, GATES, MODE, VIEWER } from "@/lib/data";
 import { SideDrawer } from "./Drawer";
 import { PLink, useProto, VARIANTS } from "./state";
-import { Button, cx } from "./ui";
+import { Button, cx, menuItem, menuLabel, menuPopup } from "./ui";
 
 function Logo() {
   return (
@@ -20,7 +24,8 @@ function Logo() {
 
 type Theme = "system" | "light" | "dark";
 
-function ThemeToggle() {
+/** The remembered theme, else the system's — applied to <html> and kept in step with the OS. */
+function useTheme(): [Theme, (t: Theme) => void] {
   const [theme, setTheme] = useState<Theme>("system");
   useEffect(() => {
     try { setTheme((localStorage.getItem("theme") as Theme) || "system"); } catch {}
@@ -38,47 +43,112 @@ function ThemeToggle() {
     setTheme(t);
     try { if (t === "system") localStorage.removeItem("theme"); else localStorage.setItem("theme", t); } catch {}
   };
-  const icons: Record<Theme, ReactNode> = {
-    system: <path d="M2.5 3.5h11v7h-11zM6 13.5h4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />,
-    light: <><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></>,
-    dark: <path d="M13 9.5A5.5 5.5 0 1 1 6.5 3a4.5 4.5 0 0 0 6.5 6.5z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />,
-  };
+  return [theme, set];
+}
+
+const THEME_ICON: Record<Theme, typeof Monitor> = { system: Monitor, light: Sun, dark: Moon };
+
+/** Who is looking, in which mode, and the theme: one avatar instead of three controls. */
+function AvatarMenu() {
+  const [theme, setTheme] = useTheme();
   return (
-    <div className="flex shrink-0 rounded-md border border-line p-0.5" role="radiogroup" aria-label="Theme">
-      {(["system", "light", "dark"] as Theme[]).map((t) => (
-        <button key={t} role="radio" aria-checked={theme === t} aria-label={t} onClick={() => set(t)}
-          className={cx("grid size-6 place-items-center rounded cursor-pointer", theme === t ? "bg-surface-3 text-fg" : "text-faint hover:text-fg")}>
-          <svg width="14" height="14" viewBox="0 0 16 16">{icons[t]}</svg>
-        </button>
-      ))}
-    </div>
+    <Menu.Root>
+      <Menu.Trigger className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent ring-offset-2 ring-offset-bg hover:ring-2 hover:ring-line-strong data-popup-open:ring-2 data-popup-open:ring-accent cursor-pointer" aria-label={`Signed in as ${VIEWER}`}>
+        {VIEWER[0].toUpperCase()}
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner sideOffset={8} align="end" className="z-50">
+          <Menu.Popup className={menuPopup}>
+            <div className="px-2.5 pt-2 pb-2">
+              <div className="font-medium">{VIEWER}</div>
+              <div className="text-xs text-muted">{MODE === "local" ? "Local cockpit · your own forge token" : "Team cockpit · signed in with GitHub"}</div>
+            </div>
+            <Menu.Separator className="my-1 h-px bg-line" />
+            <Menu.RadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+              <Menu.GroupLabel className={menuLabel}>Theme</Menu.GroupLabel>
+              {(["system", "light", "dark"] as Theme[]).map((t) => {
+                const Icon = THEME_ICON[t];
+                return (
+                  <Menu.RadioItem key={t} value={t} closeOnClick={false} className={menuItem}>
+                    <Icon size={14} className="text-muted" />
+                    <span className="grow capitalize">{t}</span>
+                    <Menu.RadioItemIndicator><Check size={14} className="text-accent" /></Menu.RadioItemIndicator>
+                  </Menu.RadioItem>
+                );
+              })}
+            </Menu.RadioGroup>
+            {MODE === "team" ? (
+              <>
+                <Menu.Separator className="my-1 h-px bg-line" />
+                <Menu.Item className={menuItem}>Sign out</Menu.Item>
+              </>
+            ) : null}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
+function Pick({ label, items, value, onChange }: { label: string; items: string[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <Select.Root items={items.map((i) => ({ label: i, value: i }))} value={value} onValueChange={(v) => onChange(v as string)}>
+      <div className="flex flex-col gap-1">
+        <Select.Label className="text-sm text-muted">{label}</Select.Label>
+        <Select.Trigger className="flex h-9 items-center justify-between gap-2 rounded-md border border-line-strong bg-surface px-3 text-base hover:bg-surface-2 data-popup-open:border-accent cursor-pointer">
+          <Select.Value />
+          <Select.Icon><ChevronsUpDown size={14} className="text-muted" /></Select.Icon>
+        </Select.Trigger>
+      </div>
+      <Select.Portal>
+        <Select.Positioner sideOffset={4} className="z-50">
+          <Select.Popup className={cx(menuPopup, "min-w-[var(--anchor-width)]")}>
+            <Select.List>
+              {items.map((i) => (
+                <Select.Item key={i} value={i} className={menuItem}>
+                  <Select.ItemText className="grow">{i}</Select.ItemText>
+                  <Select.ItemIndicator><Check size={14} className="text-accent" /></Select.ItemIndicator>
+                </Select.Item>
+              ))}
+            </Select.List>
+          </Select.Popup>
+        </Select.Positioner>
+      </Select.Portal>
+    </Select.Root>
   );
 }
 
 function RunPrompt() {
+  const [factory, setFactory] = useState(FACTORIES[0].name);
+  const [workflow, setWorkflow] = useState("quick");
+  const [prompt, setPrompt] = useState("");
   return (
-    <Dialog.Root>
-      <Dialog.Trigger render={<Button variant="secondary" size="sm" />}>
-        <svg width="12" height="12" viewBox="0 0 16 16"><path d="M4 2.5l9 5.5-9 5.5z" fill="currentColor" /></svg>
+    <Dialog.Root onOpenChange={(o) => { if (!o) setPrompt(""); }}>
+      <Dialog.Trigger render={<Button variant="secondary" size="sm" aria-label="Run a prompt" />}>
+        <Play size={12} fill="currentColor" />
         <span className="hidden sm:inline">Run a prompt</span>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/25 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0 dark:bg-black/60" />
         <Dialog.Popup className="fixed z-50 top-[12vh] left-1/2 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-line bg-surface p-5 shadow-pop transition-all data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
-          <Dialog.Title className="text-lg font-semibold">Run a prompt</Dialog.Title>
-          <Dialog.Description className="mt-1 text-sm text-muted">An online station of the factory starts a session from it.</Dialog.Description>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <label className="flex flex-col gap-1"><span className="text-muted">Factory</span>
-              <select className="h-9 rounded-md border border-line-strong bg-surface px-2">{FACTORIES.map((f) => <option key={f.name}>{f.name}</option>)}</select>
-            </label>
-            <label className="flex flex-col gap-1"><span className="text-muted">Workflow</span>
-              <select className="h-9 rounded-md border border-line-strong bg-surface px-2"><option>quick</option><option>sdlc</option><option>ship</option></select>
-            </label>
+          <div className="flex items-start gap-3">
+            <div className="grow">
+              <Dialog.Title className="text-lg font-semibold">Run a prompt</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted">An online station of the factory starts a session from it.</Dialog.Description>
+            </div>
+            <Dialog.Close className="-mt-1 -mr-1 grid size-8 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg cursor-pointer" aria-label="Close"><X size={16} /></Dialog.Close>
           </div>
-          <textarea rows={4} placeholder="What should change?" className="mt-3 w-full rounded-lg border border-line-strong bg-surface px-3 py-2 outline-none focus:border-accent focus:ring-4 focus:ring-accent-soft" />
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <Pick label="Factory" items={FACTORIES.map((f) => f.name)} value={factory} onChange={setFactory} />
+            <Pick label="Workflow" items={["quick", "sdlc", "ship"]} value={workflow} onChange={setWorkflow} />
+          </div>
+          <label className="mt-3 flex flex-col gap-1">
+            <span className="text-sm text-muted">Prompt</span>
+            <textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="What should change?" className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 outline-none placeholder:text-faint focus:border-accent focus:ring-4 focus:ring-accent-soft" />
+          </label>
           <div className="mt-4 flex justify-end gap-2">
             <Dialog.Close render={<Button variant="ghost" />}>Cancel</Dialog.Close>
-            <Dialog.Close render={<Button variant="primary" />}>Run</Dialog.Close>
+            <Dialog.Close render={<Button variant="primary" disabled={!prompt.trim()} />}>Run</Dialog.Close>
           </div>
         </Dialog.Popup>
       </Dialog.Portal>
@@ -86,18 +156,33 @@ function RunPrompt() {
   );
 }
 
+/** The active place is marked by a rule sitting on the header's own bottom line. */
 function Nav() {
   const path = usePathname();
+  const { answered } = useProto();
+  const waiting = GATES.filter((g) => !answered[g.id]).length;
   const items = [
-    { href: "/", label: "Now", on: path === "/" },
-    { href: "/sessions", label: "Sessions", on: path.startsWith("/sessions") },
-    { href: "/factories", label: "Factories", on: path.startsWith("/factories") },
+    { href: "/", label: "Now", on: path === "/", count: waiting },
+    { href: "/sessions", label: "Sessions", on: path.startsWith("/sessions"), count: 0 },
+    { href: "/factories", label: "Factories", on: path.startsWith("/factories"), count: 0 },
   ];
   return (
-    <nav className="flex items-center gap-0.5">
+    <nav className="flex h-full items-stretch gap-1 sm:gap-3">
       {items.map((i) => (
-        <PLink key={i.href} href={i.href} className={cx("rounded-md px-2 py-1 text-sm font-medium sm:px-2.5 sm:text-base", i.on ? "bg-surface-2 text-fg" : "text-muted hover:text-fg")}>
+        <PLink
+          key={i.href}
+          href={i.href}
+          aria-current={i.on ? "page" : undefined}
+          className={cx(
+            "relative flex items-center gap-1.5 px-1.5 text-sm font-medium sm:text-base",
+            "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
+            i.on ? "text-fg after:bg-fg" : "text-muted hover:text-fg",
+          )}
+        >
           {i.label}
+          {i.count ? (
+            <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-wait px-1 text-[11px] font-semibold text-bg tabular-nums" aria-label={`${i.count} gates wait on you`}>{i.count}</span>
+          ) : null}
         </PLink>
       ))}
     </nav>
@@ -132,14 +217,20 @@ export function Shell({ children }: { children: ReactNode }) {
   const { toast } = useProto();
   return (
     <>
-      <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-2 px-4 md:gap-3 md:px-6">
-          <PLink href="/" className="flex items-center gap-2 font-semibold tracking-tight"><Logo /><span className="hidden sm:inline">cockpit</span></PLink>
+      <header className="sticky top-0 z-30 border-b border-line bg-bg/90 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-3 px-4 md:gap-6 md:px-6">
+          <PLink href="/" className="flex shrink-0 items-center gap-2">
+            <Logo />
+            <span className="hidden flex-col leading-none sm:flex">
+              <span className="font-semibold tracking-tight">cockpit</span>
+              {/* Only a local cockpit says so; a team one is the default and says nothing. */}
+              {MODE === "local" ? <span className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-muted">local</span> : null}
+            </span>
+          </PLink>
           <Nav />
           <span className="grow" />
           <RunPrompt />
-          <ThemeToggle />
-          <span className="hidden h-7 items-center rounded-full bg-surface-2 px-2.5 text-xs text-muted md:flex">{VIEWER}</span>
+          <AvatarMenu />
         </div>
       </header>
       <main className="mx-auto max-w-[1280px] px-4 pt-6 pb-28 md:px-6 md:pt-8">{children}</main>

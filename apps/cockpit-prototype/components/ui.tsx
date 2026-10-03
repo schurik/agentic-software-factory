@@ -1,4 +1,10 @@
 // PROTOTYPE, throwaway. The few primitives every page shares: status marks, buttons, cards.
+//
+// One status, three sizes, one rule:
+//   Pill        — in a page or drawer header, next to the title it qualifies
+//   StatusDot   — in a table cell, where a row is one line (word on hover)
+//   StatusIcon  — in a list row and in the graph, where it leads the line
+// Same colours in all three (lib: ok · wait · bad · accent for running).
 import type { ComponentProps, ReactNode } from "react";
 import type { PhaseStatus, Kind } from "@/lib/data";
 import type { StageStatus } from "@/lib/model";
@@ -53,7 +59,8 @@ export function Pill({ status, children }: { status: S; children?: ReactNode }) 
 }
 
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line-strong bg-surface px-1 font-mono text-[11px] leading-none text-muted">{children}</kbd>;
+  // No keyboard on a phone: the hints go.
+  return <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line-strong bg-surface px-1 font-mono text-[11px] leading-none text-muted pointer-coarse:hidden">{children}</kbd>;
 }
 
 type Btn = ComponentProps<"button"> & { variant?: "primary" | "secondary" | "ghost" | "danger" | "approve"; size?: "sm" | "md" };
@@ -65,7 +72,7 @@ export function Button({ variant = "secondary", size = "md", className, ...rest 
       className={cx(
         "inline-flex items-center justify-center gap-2 rounded-md font-medium whitespace-nowrap transition-colors disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
         size === "sm" ? "h-7 px-2.5 text-sm" : "h-9 px-3.5 text-base",
-        variant === "primary" && "bg-accent text-accent-fg hover:brightness-110 shadow-card",
+        variant === "primary" && "bg-accent-strong text-accent-fg hover:brightness-110 shadow-card",
         variant === "approve" && "bg-ok text-white hover:brightness-110 shadow-card",
         variant === "secondary" && "border border-line-strong bg-surface text-fg hover:bg-surface-2 shadow-card",
         variant === "ghost" && "text-muted hover:bg-surface-2 hover:text-fg",
@@ -98,3 +105,8 @@ export function Chevron({ open, className }: { open?: boolean; className?: strin
     </svg>
   );
 }
+
+/** Shared styling for Base UI menus (the avatar menu, a page's ⋯ menu). */
+export const menuPopup = "min-w-52 origin-[var(--transform-origin)] rounded-lg border border-line bg-surface p-1 text-sm text-fg shadow-pop outline-none transition-[scale,opacity] duration-100 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0";
+export const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 outline-none select-none data-highlighted:bg-surface-2";
+export const menuLabel = "px-2.5 pt-1.5 pb-1 text-xs font-medium text-muted";

@@ -1,10 +1,15 @@
 "use client";
 // PROTOTYPE, throwaway. The session page, top to bottom: header (title, status, the one
-// applicable action) → the graph, one row per chapter → the Now card → Details · Timeline · Journal.
-import { BRANCH_DIFF, GATES, OTHERS, type Phase, type Session } from "@/lib/data";
+// applicable action, a ⋯ menu) → the graph, one row per chapter → the Now card →
+// Details · Timeline · Journal (· Changes). On a phone the Now card comes first, under the header:
+// it is where an answer starts. A gate is answered from the Now card, and only from there.
+import { Menu } from "@base-ui/react/menu";
+import { Copy, MoreHorizontal, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { BRANCH_DIFF, GATES, OTHERS, type Session } from "@/lib/data";
 import { RECORDED_JOURNAL } from "@/lib/journals";
 import {
-  allPhases, cost, elapsed, fmtClock, fmtCost, fmtDur, fmtInt, sessionPhases, tokens, whereNow,
+  allPhases, cost, elapsed, fmtClock, fmtCost, fmtDur, fmtInt, phaseTitle, sessionPhases, tokens, whereNow, who,
 } from "@/lib/model";
 import { SessionGraph } from "./Graph";
 import { DiffView } from "./Diff";
@@ -12,13 +17,13 @@ import { BranchRef, CommitRef, ExternalLink, IssueRef, PrRef, prUrl } from "./ic
 import { Md } from "./Md";
 import { PLink, useProto } from "./state";
 import { Tabbed } from "./Tabs";
-import { Button, Card, KindIcon, Pill, StatusIcon, cx } from "./ui";
+import { Button, Card, KindIcon, Pill, StatusIcon, cx, menuItem, menuPopup } from "./ui";
 
 const statusWord = { done: "done", running: "running", waiting: "waiting", failed: "failed" } as const;
 
+/** The one action the header offers. Answering a gate is not one: that starts in the Now card. */
 function Action({ s }: { s: Session }) {
-  const { open, answered } = useProto();
-  const gate = GATES.find((g) => g.session === s.id && !answered[g.id]);
+  const [queued, setQueued] = useState(false);
   if (s.status === "done" && s.pr) {
     return (
       <a href={prUrl(s.factory, s.pr.n)} target="_blank" rel="noreferrer">
@@ -26,40 +31,71 @@ function Action({ s }: { s: Session }) {
       </a>
     );
   }
-  if (gate) return <Button variant="primary" onClick={() => open({ type: "gate", gateId: gate.id })}>Answer the {gate.gate} gate</Button>;
-  if (s.status === "waiting") return <span className="text-sm text-muted">Waiting on {OTHERS.find((g) => g.session === s.id)?.askedOf ?? "someone"}</span>;
+  if (s.status === "waiting" && !GATES.some((g) => g.session === s.id)) {
+    return <span className="text-sm text-muted">Waiting on {OTHERS.find((g) => g.session === s.id)?.askedOf ?? "someone"}</span>;
+  }
   if (s.status === "running") return <Button variant="danger">Kill</Button>;
-  if (s.status === "failed") return <Button variant="primary">Resume</Button>;
+  if (s.status === "failed") {
+    // A command reaches a station only while it is online; an away one gets it when it is back.
+    if (s.stationOnline) return <Button variant="primary">Resume</Button>;
+    return <Button variant="primary" disabled={queued} onClick={() => setQueued(true)}>{queued ? "Resume queued" : "Queue resume"}</Button>;
+  }
   return null;
 }
 
-function NowCard({ s }: { s: Session }) {
+/** What is rarely needed and never first: copying the id, purging. */
+function MoreMenu({ s }: { s: Session }) {
+  return (
+    <Menu.Root>
+      <Menu.Trigger className="grid size-9 place-items-center rounded-md border border-line-strong bg-surface text-muted shadow-card hover:bg-surface-2 hover:text-fg data-popup-open:bg-surface-2 cursor-pointer" aria-label="More">
+        <MoreHorizontal size={16} />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner sideOffset={6} align="end" className="z-50">
+          <Menu.Popup className={menuPopup}>
+            <Menu.Item className={menuItem} onClick={() => navigator.clipboard?.writeText(s.id)}>
+              <Copy size={14} className="text-muted" /> Copy session id <span className="ml-auto font-mono text-xs text-faint">{s.id}</span>
+            </Menu.Item>
+            <Menu.Separator className="my-1 h-px bg-line" />
+            <Menu.Item className={cx(menuItem, "text-bad data-highlighted:bg-bad-soft")}>
+              <Trash2 size={14} /> Purge session…
+            </Menu.Item>
+            <div className="px-2.5 pb-1.5 text-xs text-muted">Deletes its events from this cockpit. The factory&apos;s own record is untouched.</div>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}
+
+const ANSWER: Record<string, string> = { plan: "Review the plan and answer", integrate: "Review the changes and answer" };
+
+function NowCard({ s, className }: { s: Session; className?: string }) {
   const { open, answered } = useProto();
   const gate = GATES.find((g) => g.session === s.id && !answered[g.id]);
   const { phase } = whereNow(s);
   const spent = cost(sessionPhases(s));
   const tone = s.status === "failed" ? "border-l-bad" : s.status === "waiting" ? "border-l-wait" : s.status === "running" ? "border-l-accent" : "border-l-ok";
   return (
-    <Card className={cx("flex flex-col gap-4 border-l-[3px] px-5 py-4 md:flex-row md:items-center", tone)}>
+    <Card className={cx("flex flex-col gap-4 border-l-[3px] px-5 py-4 md:flex-row md:items-center", tone, className)}>
       <div className="min-w-0 grow">
         <div className="text-xs font-medium uppercase tracking-wider text-faint">Now</div>
         <p className="mt-0.5 text-lg">{s.now}</p>
-        {phase && (s.status === "failed" || gate) ? (
-          <button onClick={() => (gate ? open({ type: "gate", gateId: gate.id }) : open({ type: "phase", session: s.id, phaseId: phase.id }))} className="mt-1 text-sm text-accent hover:underline cursor-pointer">
-            {gate ? "Open the plan and answer →" : `See ${phase.name}'s output →`}
+        {gate ? (
+          <Button variant="primary" className="mt-3" onClick={() => open({ type: "gate", gateId: gate.id })}>{ANSWER[gate.kind] ?? "Answer"}</Button>
+        ) : phase && s.status === "failed" ? (
+          <button onClick={() => open({ type: "phase", session: s.id, phaseId: phase.id })} className="mt-1 text-sm text-accent hover:underline cursor-pointer">
+            See {phaseTitle(phase)}&apos;s output →
           </button>
         ) : null}
       </div>
       <div className="flex shrink-0 gap-6 text-right tabular-nums">
         <div><div className="text-lg font-semibold">{fmtCost(spent)}</div><div className="text-xs text-faint">of {fmtCost(s.budget)}</div></div>
         <div><div className="text-lg font-semibold">{fmtDur(elapsed(s))}</div><div className="text-xs text-faint">{s.status === "done" || s.status === "failed" ? "took" : "elapsed"}</div></div>
-        <div><div className="text-lg font-semibold">{s.chapters.length}</div><div className="text-xs text-faint">chapter{s.chapters.length > 1 ? "s" : ""}</div></div>
       </div>
     </Card>
   );
 }
-
-const label = (p: Phase) => (p.gate ? `${p.gate.name} gate · round ${p.gate.round}` : p.name);
 
 function Timeline({ s }: { s: Session }) {
   const { open } = useProto();
@@ -74,10 +110,10 @@ function Timeline({ s }: { s: Session }) {
                 <button onClick={() => open({ type: "phase", session: s.id, phaseId: p.id })} className="grid w-full grid-cols-[3rem_1rem_1fr_auto] items-start gap-x-3 rounded-md px-2 py-2 text-left hover:bg-surface-2 cursor-pointer md:grid-cols-[3.5rem_1rem_10rem_1fr_auto]">
                   <span className="pt-px text-sm tabular-nums text-faint">{fmtClock(p.at)}</span>
                   <StatusIcon status={p.status} className="mt-1" />
-                  <span className="flex items-center gap-1.5 font-medium"><span className="truncate">{label(p)}</span><KindIcon kind={p.kind} /></span>
+                  <span className="flex items-center gap-1.5 font-medium"><span className="truncate">{phaseTitle(p)}</span><KindIcon kind={p.kind} /></span>
                   <span className="col-start-3 min-w-0 text-sm text-muted md:col-start-auto">
-                    <span className="block truncate">{p.owner}{p.summary && !p.commit ? ` — ${p.summary}` : p.commit ? ` — ${p.commit.message}` : ""}</span>
-                    {p.remark?.text ? <span className="mt-0.5 block text-fg">✎ {p.remark.by}: “{p.remark.text}”</span> : null}
+                    <span className="block truncate">{who(p.owner)}{p.summary && !p.commit ? ` — ${p.summary}` : p.commit ? ` — ${p.commit.message}` : ""}</span>
+                    {p.remark?.text ? <span className="mt-0.5 block text-fg">✎ {who(p.remark.by)}: “{p.remark.text}”</span> : null}
                     {p.notes?.map((n) => <span key={n.what} className="mt-0.5 block">⚑ {n.kind}: {n.what}</span>)}
                     {p.commit?.sha ? <span className="mt-0.5 block"><CommitRef factory={s.factory} sha={p.commit.sha} className="text-accent" /></span> : null}
                   </span>
@@ -160,34 +196,30 @@ function Journal({ s }: { s: Session }) {
   );
 }
 
+/**
+ * What the page shows nowhere else. Issue, pull request and branch are under the title; spend is
+ * in the Now card; purge is in the ⋯ menu.
+ */
 function Details({ s }: { s: Session }) {
-  const spent = cost(sessionPhases(s));
   const tok = tokens(sessionPhases(s));
+  const [baseRef, , sha] = s.base.split(" ");
   const meter = (v: number) => (
     <span className="mt-1 block h-1 w-48 overflow-hidden rounded-full bg-surface-3"><span className="block h-full rounded-full bg-accent" style={{ width: `${Math.min(100, v * 100)}%` }} /></span>
   );
   return (
-    <div className="grid gap-8 md:grid-cols-2">
+    <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
       <dl className="grid grid-cols-[7.5rem_1fr] gap-y-2.5 text-sm">
         <dt className="text-muted">Station</dt>
-        <dd><span className="font-mono">{s.station}</span><span className="block text-muted">{s.owner !== "—" ? `owned by ${s.owner} · ` : "a CI station · "}{s.stationOnline ? <span className="text-ok">online</span> : <span className="text-wait">away 26h</span>}</span></dd>
+        <dd><span className="font-mono">{s.station}</span><span className="block text-muted">{s.owner !== "—" ? `owned by ${who(s.owner)} · ` : "a CI station · "}{s.stationOnline ? <span className="text-ok">online</span> : <span className="text-wait">away 26h</span>}</span></dd>
         <dt className="text-muted">Triggered by</dt><dd>{s.triggeredBy}</dd>
-        <dt className="text-muted">Started</dt><dd className="tabular-nums">{fmtClock(s.startedAt)} · {fmtDur(elapsed(s))}</dd>
-        <dt className="text-muted">Cost</dt><dd className="tabular-nums">{fmtCost(spent)} of {fmtCost(s.budget)} per-session ceiling · {Math.round((spent / s.budget) * 100)}%{meter(spent / s.budget)}</dd>
+        <dt className="text-muted">Started</dt><dd className="tabular-nums">{fmtClock(s.startedAt)}</dd>
         <dt className="text-muted">Tokens</dt><dd className="tabular-nums">{fmtInt(tok)} of 2,000,000{meter(tok / 2_000_000)}</dd>
       </dl>
       <dl className="grid grid-cols-[7.5rem_1fr] gap-y-2.5 text-sm">
-        <dt className="text-muted">Branch</dt><dd><BranchRef factory={s.factory} branch={s.branch} className="text-accent" /></dd>
-        <dt className="text-muted">Base</dt><dd className="font-mono">{s.base}</dd>
-        <dt className="text-muted">Issue</dt><dd>{s.issue ? <span className="flex items-center gap-2"><IssueRef factory={s.factory} n={s.issue.n} state={s.issue.state} className="text-accent" /><span className="text-muted">{s.issue.state}</span></span> : <span className="text-muted">none — started from a prompt</span>}</dd>
-        <dt className="text-muted">Pull request</dt><dd>{s.pr ? <span className="flex items-center gap-2"><PrRef factory={s.factory} n={s.pr.n} state={s.pr.state} className="text-accent" /><span className="text-muted">{s.pr.state}</span></span> : <span className="text-muted">not opened yet</span>}</dd>
-        <dt className="text-muted">Claim</dt><dd>{s.status === "done" ? "released when it finished" : `held by ${s.station}`}</dd>
+        <dt className="text-muted">Base</dt><dd><span className="font-mono">{baseRef}</span> at <span className="font-mono">{sha}</span></dd>
+        <dt className="text-muted">Claim</dt><dd>{s.status === "done" ? "released when it finished" : <>held by <span className="font-mono">{s.station}</span></>}</dd>
         <dt className="text-muted">Transcripts</dt><dd>{s.transcripts ? "on — prompts and harness output are kept" : "off — no prompt or tool argument leaves the machine"}</dd>
       </dl>
-      <div className="flex items-center gap-4 rounded-lg border border-line px-4 py-3 md:col-span-2">
-        <div className="grow text-sm"><b className="font-medium">Purge this session</b><div className="text-muted">Deletes its events from this cockpit. The factory&apos;s own record is untouched.</div></div>
-        <Button variant="danger" size="sm">Purge…</Button>
-      </div>
     </div>
   );
 }
@@ -208,15 +240,21 @@ export function SessionPage({ s }: { s: Session }) {
               <span className="flex min-w-0 items-center gap-1"><BranchRef factory={s.factory} branch={s.branch} /><span className="text-faint">→ {s.base.split(" ")[0]}</span></span>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <Pill status={s.status}>{statusWord[s.status]}</Pill>
-            <Action s={s} />
+          <div className="flex shrink-0 flex-col gap-1 md:items-end">
+            <div className="flex items-center gap-3">
+              <Pill status={s.status}>{statusWord[s.status]}</Pill>
+              <Action s={s} />
+              <MoreMenu s={s} />
+            </div>
+            {s.status === "failed" && !s.stationOnline ? (
+              <span className="text-xs text-muted"><span className="font-mono">{s.station}</span> is away — resume runs when it is back</span>
+            ) : null}
           </div>
         </div>
       </div>
-      <SessionGraph session={s} />
-      <NowCard s={s} />
-      <Card className="px-5 pb-5 md:px-6">
+      <div className="max-md:order-2"><SessionGraph session={s} /></div>
+      <NowCard s={s} className="max-md:order-1" />
+      <Card className="px-5 pb-5 max-md:order-3 md:px-6">
         <Tabbed tabs={[
           { value: "details", label: "Details", body: <Details s={s} /> },
           { value: "timeline", label: "Timeline", body: <Timeline s={s} /> },

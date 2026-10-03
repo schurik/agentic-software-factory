@@ -1,25 +1,32 @@
 /* PROTOTYPE, throwaway. The quiet look: neutral greys, one accent (the icon's blue), colour
-   otherwise only for status. Tokens are CSS variables so light/dark is one attribute flip. */
+   otherwise only for status. Tokens are CSS variables so light/dark is one attribute flip.
+
+   Status colours are ok (green) · wait (amber) · bad (red), plus running in the accent. One more
+   hue is allowed, and only for one thing: --merged (purple) is the forge's own colour for a
+   merged pull request and a completed issue, so a ref reads the way it does on the forge.
+
+   Every text token clears WCAG AA (4.5:1) on --surface and --bg; --faint included. */
 @import "tailwindcss";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  --bg: #fafafa;
+  --bg: #f4f4f5;
   --surface: #ffffff;
   --surface-2: #f4f4f5;
-  --surface-3: #ececee;
-  --line: #e4e4e7;
-  --line-strong: #d4d4d8;
+  --surface-3: #e9e9ec;
+  --line: #e1e1e5;
+  --line-strong: #d0d0d6;
   --fg: #18181b;
-  --muted: #63636b;
-  --faint: #9f9fa8;
+  --muted: #5d5d66;
+  --faint: #6b6b74;
   --accent: #2f5bd3;
+  --accent-strong: #2f5bd3;
   --accent-fg: #ffffff;
   --accent-soft: color-mix(in oklab, #2f5bd3 9%, transparent);
   --ok: #1a7f45;
   --ok-soft: color-mix(in oklab, #1a7f45 10%, transparent);
-  --wait: #a35f00;
+  --wait: #925500;
   --wait-soft: color-mix(in oklab, #d98a00 13%, transparent);
   --bad: #c42b2b;
   --bad-soft: color-mix(in oklab, #c42b2b 9%, transparent);
@@ -42,8 +49,9 @@
   --line-strong: #36363d;
   --fg: #ececef;
   --muted: #a0a0aa;
-  --faint: #6c6c76;
+  --faint: #86868f;
   --accent: #5b83f2;
+  --accent-strong: #3a64d8;
   --accent-fg: #ffffff;
   --accent-soft: color-mix(in oklab, #5b83f2 16%, transparent);
   --ok: #45c07a;
@@ -74,6 +82,7 @@
   --color-faint: var(--faint);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
+  --color-accent-strong: var(--accent-strong);
   --color-accent-soft: var(--accent-soft);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
@@ -138,4 +147,5 @@ body { font-family: var(--font-sans); font-size: var(--text-base); line-height: 
 .md table { border-collapse: collapse; font-size: var(--text-sm); } .md th, .md td { border: 1px solid var(--line); padding: 0.3rem 0.6rem; }
 .md hr { border-color: var(--line); }
 .md-sm { font-size: var(--text-sm); }
+.no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
