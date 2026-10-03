@@ -1,14 +1,70 @@
 "use client";
 // PROTOTYPE, throwaway. Now (/): Inbox → Needs attention → Running → Waiting on others.
 // Answers "what needs me, and what's moving" on the first screen.
+//
+// Every list here is drawn with one Row, so the four line up on one vertical grid:
+// status icon · title + detail lines · where (factory) above when/what-next on the right.
 import { Collapsible } from "@base-ui/react/collapsible";
-import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { ATTENTION, GATES, NOW, OTHERS, SESSIONS, type Attention } from "@/lib/data";
 import { cost, elapsed, fmtAgo, fmtCost, fmtDur, sessionPhases, whereNow } from "@/lib/model";
 import { MiniGraph } from "./Graph";
 import { PLink, useProto } from "./state";
-import { Card, Chevron, Kbd, SectionTitle, StatusIcon, cx } from "./ui";
+import { Card, Chevron, Kbd, StatusIcon, cx } from "./ui";
+
+type Icon = "waiting" | "failed" | "running";
+
+function Row({ icon, title, lines, where, when, whenTone, href, onClick, active }: {
+  icon: Icon;
+  title: ReactNode;
+  lines?: ReactNode[];
+  where: ReactNode;
+  when: ReactNode;
+  whenTone?: string;
+  href?: string;
+  onClick?: () => void;
+  active?: boolean;
+}) {
+  const body = (
+    <>
+      {active ? <span className="absolute inset-y-0 left-0 w-0.5 bg-accent" /> : null}
+      <StatusIcon status={icon} size={16} className="mt-0.5" />
+      <span className="min-w-0">
+        <span className="block truncate font-semibold">{title}</span>
+        {lines?.map((l, i) => <span key={i} className="mt-0.5 block min-w-0 truncate text-sm text-muted">{l}</span>)}
+        <span className="mt-1 block truncate text-sm text-muted sm:hidden">{where} · <span className={whenTone}>{when}</span></span>
+      </span>
+      <span className="hidden w-44 flex-col items-end gap-0.5 text-right text-sm sm:flex">
+        <span className="max-w-full truncate text-muted">{where}</span>
+        <span className={cx("max-w-full truncate tabular-nums", whenTone ?? "text-faint")}>{when}</span>
+      </span>
+    </>
+  );
+  const cls = cx(
+    "relative grid w-full grid-cols-[16px_minmax(0,1fr)] items-start gap-x-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2 sm:grid-cols-[16px_minmax(0,1fr)_auto] md:px-5",
+    active && "bg-surface-2",
+  );
+  if (href) return <PLink href={href} className={cls}>{body}</PLink>;
+  if (onClick) return <button onClick={onClick} className={cx(cls, "cursor-pointer")}>{body}</button>;
+  return <div className={cls}>{body}</div>;
+}
+
+function Section({ title, count, right, children }: { title: ReactNode; count: number; right?: ReactNode; children: ReactNode }) {
+  return (
+    <section>
+      <div className="mb-3 flex items-baseline gap-2">
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <span className="text-sm text-faint tabular-nums">{count}</span>
+        <span className="grow" />
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+const waited = (since: number) => `waiting ${fmtAgo(NOW - since).replace(" ago", "")}`;
+const late = (since: number) => (NOW - since > 30 * 60_000 ? "text-wait" : undefined);
 
 function Inbox() {
   const { answered, open, drawer } = useProto();
@@ -32,139 +88,108 @@ function Inbox() {
   });
 
   return (
-    <section>
-      <SectionTitle count={gates.length} right={
-        <span className="hidden items-center gap-1 text-xs text-faint md:flex">
-          <Kbd>j</Kbd><Kbd>k</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>a</Kbd> approve · <Kbd>r</Kbd> reject
-        </span>
-      }>Inbox</SectionTitle>
+    <Section title="Inbox" count={gates.length} right={
+      <span className="hidden items-center gap-1 text-xs text-faint md:flex">
+        <Kbd>j</Kbd><Kbd>k</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>a</Kbd> approve · <Kbd>r</Kbd> reject
+      </span>
+    }>
       {gates.length === 0 ? (
         <Card className="px-5 py-6 text-center text-muted">Nothing is waiting on you.</Card>
       ) : (
         <Card className="divide-y divide-line overflow-hidden">
-          {gates.map((g, i) => {
-            const active = openGate?.type === "gate" ? openGate.gateId === g.id : i === sel;
-            return (
-              <button
-                key={g.id}
-                onClick={() => { setSel(i); open({ type: "gate", gateId: g.id }); }}
-                className={cx("relative flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2 cursor-pointer md:px-5", active && "bg-surface-2")}
-              >
-                {active ? <span className="absolute inset-y-0 left-0 w-0.5 bg-accent" /> : null}
-                <StatusIcon status="waiting" size={16} className="mt-0.5" />
-                <span className="min-w-0 grow">
-                  <span className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="font-semibold">{g.question.replace("?", "")}</span>
-                    <span className="text-sm text-muted">{g.gate} gate · round {g.round}</span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-base">{g.title}</span>
-                  <span className="mt-0.5 block truncate text-sm text-muted">{g.subject}</span>
-                  <span className="mt-1 block text-sm text-muted sm:hidden">{g.factory} · {g.ref} · <span className={NOW - g.since > 30 * 60_000 ? "text-wait" : ""}>waiting {fmtAgo(NOW - g.since).replace(" ago", "")}</span></span>
-                </span>
-                <span className="hidden shrink-0 flex-col items-end gap-0.5 text-sm sm:flex">
-                  <span className="text-muted">{g.factory} · {g.ref}</span>
-                  <span className={cx("tabular-nums", NOW - g.since > 30 * 60_000 ? "text-wait" : "text-faint")}>waiting {fmtAgo(NOW - g.since).replace(" ago", "")}</span>
-                </span>
-              </button>
-            );
-          })}
+          {gates.map((g, i) => (
+            <Row
+              key={g.id}
+              icon="waiting"
+              title={g.title}
+              lines={[<><span className="font-medium text-fg">{g.question}</span> {g.gate} gate · round {g.round}</>, g.subject]}
+              where={<>{g.factory} · {g.ref}</>}
+              when={waited(g.since)}
+              whenTone={late(g.since)}
+              onClick={() => { setSel(i); open({ type: "gate", gateId: g.id }); }}
+              active={openGate?.type === "gate" ? openGate.gateId === g.id : i === sel}
+            />
+          ))}
         </Card>
       )}
-    </section>
+    </Section>
   );
 }
 
-const attentionIcon = (a: Attention): "failed" | "waiting" =>
-  a.kind === "failed" || a.kind === "check" ? "failed" : "waiting";
-
-function attentionText(a: Attention): { head: ReactNode; sub: ReactNode; href?: string; action: string } {
+function attentionRow(a: Attention): { icon: Icon; title: ReactNode; line: ReactNode; href?: string; action: string } {
   switch (a.kind) {
-    case "failed": return { head: <>Session failed: {a.title}</>, sub: <>{a.ref} · {a.reason} · {fmtAgo(a.ago)}</>, href: `/sessions/${a.session}`, action: "Open" };
-    case "check": return { head: <>Check failing on main</>, sub: a.what, action: "See config" };
-    case "claim": return { head: <>Claim held by a station away for {Math.round(a.away / 3_600_000)}h</>, sub: <>{a.station} · {a.ref}</>, action: "Release" };
-    case "unwatched": return { head: <>{a.issues.length} queued issues, no online station watching</>, sub: a.issues.map((n) => `#${n}`).join(", "), action: "Stations" };
-    case "drift": return { head: <>Station config drifted</>, sub: <>{a.station} · {a.what}</>, action: "Compare" };
+    case "failed": return { icon: "failed", title: <>Session failed: {a.title}</>, line: <>{a.ref} · {a.reason} · {fmtAgo(a.ago)}</>, href: `/sessions/${a.session}`, action: "Open" };
+    case "check": return { icon: "failed", title: "Check failing on main", line: a.what, action: "See config" };
+    case "claim": return { icon: "waiting", title: <>Claim held by a station away for {Math.round(a.away / 3_600_000)}h</>, line: <>{a.station} · {a.ref}</>, action: "Release" };
+    case "unwatched": return { icon: "waiting", title: <>{a.issues.length} queued issues, no online station watching</>, line: a.issues.map((n) => `#${n}`).join(", "), action: "Stations" };
+    case "drift": return { icon: "waiting", title: "Station config drifted", line: <>{a.station} · {a.what}</>, action: "Compare" };
   }
 }
 
 function NeedsAttention() {
-  const byFactory = ATTENTION.reduce<Record<string, Attention[]>>((m, a) => ((m[a.factory] ??= []).push(a), m), {});
   return (
-    <section>
-      <SectionTitle count={ATTENTION.length}>Needs attention</SectionTitle>
+    <Section title="Needs attention" count={ATTENTION.length}>
       <Card className="divide-y divide-line overflow-hidden">
-        {Object.entries(byFactory).map(([factory, items]) => (
-          <div key={factory} className="flex flex-col gap-0 py-1 md:flex-row">
-            <div className="shrink-0 px-4 pt-2 text-sm font-medium text-muted md:w-40 md:px-5 md:py-2.5">{factory}</div>
-            <div className="min-w-0 grow">
-              {items.map((a, i) => {
-                const t = attentionText(a);
-                const body = (
-                  <>
-                    <StatusIcon status={attentionIcon(a)} size={14} className="mt-1" />
-                    <span className="min-w-0 grow">
-                      <span className="block">{t.head}</span>
-                      <span className="block truncate text-sm text-muted">{t.sub}</span>
-                    </span>
-                    <span className="shrink-0 text-sm text-accent">{t.action} →</span>
-                  </>
-                );
-                const cls = "flex items-start gap-3 px-4 py-2 hover:bg-surface-2 md:pr-5 md:pl-0";
-                return t.href ? <PLink key={i} href={t.href} className={cls}>{body}</PLink> : <div key={i} className={cls}>{body}</div>;
-              })}
-            </div>
-          </div>
-        ))}
+        {ATTENTION.map((a, i) => {
+          const r = attentionRow(a);
+          return <Row key={i} icon={r.icon} title={r.title} lines={[r.line]} where={a.factory} when={<span className="text-accent">{r.action} →</span>} href={r.href} />;
+        })}
       </Card>
-    </section>
+    </Section>
   );
 }
 
 function Running() {
-  const router = useRouter();
   const running = SESSIONS.filter((s) => s.status === "running");
   return (
-    <section>
-      <SectionTitle count={running.length}>Running</SectionTitle>
+    <Section title="Running" count={running.length}>
       <Card className="divide-y divide-line overflow-hidden">
         {running.map((s) => {
-          const { chapter, stage, phase } = whereNow(s);
+          const { chapter, phase } = whereNow(s);
           return (
-            <PLink key={s.id} href={`/sessions/${s.id}`} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 hover:bg-surface-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.6fr)_6rem_5rem] md:px-5" onMouseEnter={() => router.prefetch(`/sessions/${s.id}`)}>
-              <span className="min-w-0">
-                <span className="block truncate font-semibold">{s.title}</span>
-                <span className="block truncate text-sm text-muted">{s.factory} · {s.ref} · <span className="font-mono">{s.id}</span>{s.chapters.length > 1 ? ` · chapter ${chapter.n}` : ""}</span>
-              </span>
-              <span className="col-span-2 row-start-2 min-w-0 md:col-span-1 md:row-start-auto">
-                <MiniGraph chapter={chapter} />
-                <span className="mt-1 block truncate text-xs text-muted">{chapter.workflow} · {stage?.name} · {phase?.owner} {phase?.kind === "code" ? "runs" : "is on"} {phase?.name}</span>
-              </span>
-              <span className="text-right text-sm tabular-nums">{fmtCost(cost(sessionPhases(s)))}<span className="block text-xs text-faint">spent</span></span>
-              <span className="hidden text-right text-sm tabular-nums md:block">{fmtDur(elapsed(s))}<span className="block text-xs text-faint">elapsed</span></span>
-            </PLink>
+            <Row
+              key={s.id}
+              icon="running"
+              title={s.title}
+              lines={[
+                <span key="g" className="flex flex-wrap items-center gap-x-3 gap-y-1"><MiniGraph chapter={chapter} /><span className="truncate">{phase?.owner} {phase?.kind === "code" ? "runs" : "is on"} {phase?.name}</span></span>,
+              ]}
+              where={<>{s.factory} · {s.ref}{s.chapters.length > 1 ? ` · ch. ${chapter.n}` : ""}</>}
+              when={<>{fmtCost(cost(sessionPhases(s)))} · {fmtDur(elapsed(s))}</>}
+              href={`/sessions/${s.id}`}
+            />
           );
         })}
       </Card>
-    </section>
+    </Section>
   );
 }
 
 function WaitingOnOthers() {
   return (
     <Collapsible.Root>
-      <Collapsible.Trigger className="group flex w-full items-center gap-2 text-left cursor-pointer">
-        <Chevron className="text-faint group-data-panel-open:rotate-90" />
+      <Collapsible.Trigger className="group mb-3 flex w-full items-baseline gap-2 text-left cursor-pointer">
         <h2 className="text-lg font-semibold tracking-tight">Waiting on others</h2>
-        <span className="text-sm text-faint">{OTHERS.length}</span>
+        <span className="text-sm text-faint tabular-nums">{OTHERS.length}</span>
+        <span className="grow" />
+        <span className="flex items-center gap-1 text-sm text-muted group-hover:text-fg">
+          <span className="group-data-panel-open:hidden">Show</span><span className="hidden group-data-panel-open:inline">Hide</span>
+          <Chevron className="group-data-panel-open:rotate-90" />
+        </span>
       </Collapsible.Trigger>
-      <Collapsible.Panel className="mt-3">
-        <Card className="divide-y divide-line">
+      <Collapsible.Panel>
+        <Card className="divide-y divide-line overflow-hidden">
           {OTHERS.map((g) => (
-            <PLink key={g.id} href={`/sessions/${g.session}`} className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 md:px-5">
-              <StatusIcon status="waiting" size={14} />
-              <span className="min-w-0 grow truncate">{g.title} <span className="text-muted">· {g.gate} gate · round {g.round}</span></span>
-              <span className="shrink-0 text-sm text-muted">on {g.askedOf} · {fmtAgo(NOW - g.since)}</span>
-            </PLink>
+            <Row
+              key={g.id}
+              icon="waiting"
+              title={g.title}
+              lines={[<>{g.question} {g.gate} gate · round {g.round} · asked of {g.askedOf}</>]}
+              where={<>{g.factory} · {g.ref}</>}
+              when={waited(g.since)}
+              whenTone={late(g.since)}
+              href={`/sessions/${g.session}`}
+            />
           ))}
         </Card>
       </Collapsible.Panel>

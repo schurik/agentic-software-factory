@@ -1,6 +1,6 @@
 "use client";
 // PROTOTYPE, throwaway. The session page, top to bottom: header (title, status, the one
-// applicable action) → the graph, one row per chapter → the Now card → Timeline · Journal · Details.
+// applicable action) → the graph, one row per chapter → the Now card → Details · Timeline · Journal.
 import { GATES, OTHERS, type Phase, type Session } from "@/lib/data";
 import {
   allPhases, cost, elapsed, fmtClock, fmtCost, fmtDur, fmtInt, sessionPhases, tokens, whereNow,
@@ -172,9 +172,9 @@ export function SessionPage({ s }: { s: Session }) {
       <NowCard s={s} />
       <Card className="px-5 pb-5 md:px-6">
         <Tabbed tabs={[
+          { value: "details", label: "Details", body: <Details s={s} /> },
           { value: "timeline", label: "Timeline", body: <Timeline s={s} /> },
           { value: "journal", label: "Journal", body: <Journal s={s} /> },
-          { value: "details", label: "Details", body: <Details s={s} /> },
         ]} />
       </Card>
     </div>

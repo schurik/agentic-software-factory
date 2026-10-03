@@ -1,12 +1,33 @@
 "use client";
 // PROTOTYPE, throwaway. Sessions and Factories only so far as navigation needs them —
 // the prototype's questions are about Now and the session page.
+import { Tooltip } from "@base-ui/react/tooltip";
 import { useSearchParams } from "next/navigation";
-import { FACTORIES, HISTORY, NOW, SESSIONS } from "@/lib/data";
+import { FACTORIES, HISTORY, NOW, SESSIONS, type SessionStatus } from "@/lib/data";
 import { cost, fmtAgo, fmtCost, sessionPhases } from "@/lib/model";
 import { MiniGraph } from "./Graph";
 import { PLink } from "./state";
-import { Card, Pill, cx } from "./ui";
+import { Card, cx } from "./ui";
+
+const dotTone: Record<SessionStatus, string> = { done: "bg-ok", running: "bg-accent", waiting: "bg-wait", failed: "bg-bad" };
+
+/** A session's status as a dot; the word only on hover. */
+function StatusDot({ status }: { status: SessionStatus }) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger render={<span />} className="grid size-5 place-items-center" aria-label={status}>
+        <span className={cx("size-2 rounded-full", dotTone[status], status === "running" && "pulse")} />
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Positioner side="right" sideOffset={6}>
+          <Tooltip.Popup className="rounded-md bg-fg px-2 py-1 text-xs font-medium text-bg shadow-pop transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0">
+            {status}
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
 
 export function SessionsList() {
   const factory = useSearchParams().get("factory");
@@ -26,25 +47,42 @@ export function SessionsList() {
         <input placeholder="Search title, #issue, id…" className="ml-auto h-8 w-full rounded-md border border-line-strong bg-surface px-3 text-sm outline-none focus:border-accent md:w-64" />
       </div>
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="border-b border-line text-left text-xs text-muted">
-            <tr><th className="px-4 py-2 font-medium">Session</th><th className="hidden px-2 py-2 font-medium md:table-cell">Where</th><th className="px-2 py-2 font-medium">Status</th><th className="px-2 py-2 text-right font-medium">Cost</th><th className="hidden px-4 py-2 text-right font-medium sm:table-cell">Started</th></tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {rows.map((r) => (
-              <tr key={r.id} className="hover:bg-surface-2">
-                <td className="max-w-0 px-4 py-2">
-                  <PLink href={r.live ? `/sessions/${r.id}` : "#"} className="block truncate font-medium hover:text-accent">{r.title}</PLink>
-                  <span className="block truncate text-xs text-muted">{r.factory} · {r.ref} · <span className="font-mono">{r.id}</span></span>
-                </td>
-                <td className="hidden px-2 py-2 md:table-cell">{r.live && r.status !== "done" ? <MiniGraph chapter={r.live.chapters.at(-1)!} /> : <span className="text-muted">{r.workflow}</span>}</td>
-                <td className="px-2 py-2"><Pill status={r.status} /></td>
-                <td className="px-2 py-2 text-right tabular-nums">{fmtCost(r.cost)}</td>
-                <td className="hidden px-4 py-2 text-right text-muted tabular-nums sm:table-cell">{fmtAgo(NOW - r.at)}</td>
+        <Tooltip.Provider delay={150}>
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-10" />
+              <col />
+              <col className="hidden w-[38%] md:table-column" />
+              <col className="w-16" />
+              <col className="hidden w-20 sm:table-column" />
+            </colgroup>
+            <thead className="border-b border-line text-left text-xs text-muted">
+              <tr>
+                <th className="py-2" aria-label="Status" />
+                <th className="py-2 pr-3 font-medium">Session</th>
+                <th className="hidden py-2 pr-3 font-medium md:table-cell">Where</th>
+                <th className="py-2 pr-2 text-right font-medium">Cost</th>
+                <th className="hidden py-2 pr-4 text-right font-medium sm:table-cell">Started</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {rows.map((r) => (
+                <tr key={r.id} className="hover:bg-surface-2">
+                  <td className="py-2.5 pl-3 align-top"><StatusDot status={r.status} /></td>
+                  <td className="py-2.5 pr-3 align-top">
+                    <PLink href={r.live ? `/sessions/${r.id}` : "#"} className="block font-medium hover:text-accent">{r.title}</PLink>
+                    <span className="block text-xs text-muted">{r.factory} · {r.ref} · <span className="font-mono">{r.id}</span></span>
+                  </td>
+                  <td className="hidden py-2.5 pr-3 align-top md:table-cell">
+                    {r.live && r.status !== "done" ? <MiniGraph chapter={r.live.chapters.at(-1)!} /> : <span className="text-muted">{r.workflow}</span>}
+                  </td>
+                  <td className="py-2.5 pr-2 text-right align-top tabular-nums">{fmtCost(r.cost)}</td>
+                  <td className="hidden py-2.5 pr-4 text-right align-top text-muted tabular-nums sm:table-cell">{fmtAgo(NOW - r.at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Tooltip.Provider>
       </Card>
     </div>
   );

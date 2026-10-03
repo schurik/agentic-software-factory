@@ -45,9 +45,10 @@ remembered).
 
 ## What building it already showed
 
-- **A (Cards)** doesn't fit the 10-stage `issue` workflow with an expanded stage on one row at
-  1440. It wraps, and the expanded card leaves a hole beneath the rest of the row. It reads best on
-  a phone, where it is just a vertical list.
+- **A (Cards)** doesn't fit the 10-stage `issue` workflow on one row at 1440 once a stage is
+  expanded. Wrapping left a hole under the expanded card, so the chain now scrolls sideways:
+  the edges fade where stages are hidden, an arrow scrolls, and the current stage is scrolled
+  into view. On a phone it is a vertical list.
 - **B (Rail)** always fits, because stage columns are equal width. With the 3-stage `pr-review`
   workflow those columns are very wide. Beads have to overflow their column to stay readable.
 - **C (Ribbon)** is the only one that shows *where time went*: a 36-minute wait at a gate dominates
@@ -59,3 +60,16 @@ remembered).
   note and Approve/Reject; a phase shows the existing tab set. On a phone it becomes a bottom sheet.
 - A gate is a phase of a stage (`approve_plan` belongs to `plan`). Drawn as a sub-node with a
   diamond, it needs no vocabulary of its own.
+
+## Feedback so far (2026-10-03)
+
+**A (Cards) is preferred.** Folded in on this branch:
+
+- Now: all four lists use one row grid (status icon · title + detail lines · factory above
+  when/next on the right), so their icons and text line up. Needs attention lost its
+  per-factory column to that right-hand meta, Running gained an icon, and Waiting on others
+  has a title that lines up with the others and a Show/Hide on the right.
+- Sessions: status is a coloured dot in an untitled first column, with the word on hover. The
+  Status column is gone, Cost and Started are narrow, and Session and Where take the room.
+- Session page: the Cards chain scrolls sideways instead of wrapping.
+- Session page tabs: **Details · Timeline · Journal**, with Details open first.

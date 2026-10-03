@@ -5,7 +5,7 @@
 //   C Ribbon — one bar, each stage a segment sized by its time, phases as slices inside
 // Each has a full form (session page) and a mini form (a row on Now). Horizontal on desktop,
 // vertical on a phone. Hand-built: flex/grid + borders, no graph library.
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chapter, Phase, Session, Stage } from "@/lib/data";
 import {
   chapterSecs, chapterStatus, cost, allPhases, currentStageIndex, expandedByDefault, fmtCost, fmtDur,
@@ -96,6 +96,7 @@ function StageCard({ stage, i, g }: { stage: Stage; i: number; g: ReturnType<typ
   const current = i === g.current;
   return (
     <div
+      data-stage={i}
       className={cx(
         "relative flex shrink-0 flex-col rounded-lg border bg-surface transition-[width]",
         ringTone[st],
@@ -152,7 +153,69 @@ function CardsFull(props: GraphProps) {
   });
   nodes.push(<Connector key="cend" done={!!chapter.end} />);
   nodes.push(<EndNode key="end" phase={chapter.end} label="report" onClick={chapter.end ? () => g.openPhase(chapter.end!) : undefined} />);
-  return <div className="flex flex-col items-stretch pt-3 md:flex-row md:flex-wrap md:items-start md:gap-y-4 md:pb-2">{nodes}</div>;
+  return (
+    <>
+      <div className="flex flex-col items-stretch pt-3 md:hidden">{nodes}</div>
+      <ScrollRow focus={g.current}>{nodes}</ScrollRow>
+    </>
+  );
+}
+
+/**
+ * One chain on one line, scrolled sideways when it does not fit: the edges fade where more
+ * is hidden, and the current stage is scrolled into view when the chapter opens.
+ */
+function ScrollRow({ children, focus }: { children: ReactNode; focus: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ left: false, right: false });
+  const measure = () => {
+    const el = ref.current;
+    if (!el) return;
+    setEdge({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+  };
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const card = el.querySelector<HTMLElement>(`[data-stage="${focus}"]`);
+    if (card && card.offsetLeft + card.offsetWidth > el.clientWidth) {
+      el.scrollLeft = card.offsetLeft - el.clientWidth / 2 + card.offsetWidth / 2;
+    }
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [focus]);
+  const mask = `linear-gradient(to right, ${edge.left ? "transparent, black 3rem" : "black"}, ${edge.right ? "black calc(100% - 3rem), transparent" : "black"})`;
+  return (
+    <div className="relative hidden md:block">
+      <div
+        ref={ref}
+        onScroll={measure}
+        className="flex flex-row items-start overflow-x-auto px-1 pt-3 pb-3 [scrollbar-width:thin]"
+        style={{ maskImage: mask, WebkitMaskImage: mask }}
+      >
+        {children}
+      </div>
+      {edge.right ? (
+        <button
+          onClick={() => ref.current?.scrollBy({ left: ref.current.clientWidth * 0.6, behavior: "smooth" })}
+          className="absolute top-[1.9rem] right-0 grid size-7 place-items-center rounded-full border border-line bg-surface text-muted shadow-card hover:text-fg cursor-pointer"
+          aria-label="Scroll right"
+        >
+          <Chevron />
+        </button>
+      ) : null}
+      {edge.left ? (
+        <button
+          onClick={() => ref.current?.scrollBy({ left: -ref.current.clientWidth * 0.6, behavior: "smooth" })}
+          className="absolute top-[1.9rem] left-0 grid size-7 place-items-center rounded-full border border-line bg-surface text-muted shadow-card hover:text-fg cursor-pointer"
+          aria-label="Scroll left"
+        >
+          <Chevron className="rotate-180" />
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function CardsMini({ chapter }: { chapter: Chapter }) {
