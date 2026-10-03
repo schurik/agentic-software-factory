@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cockpit-prototype",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["--cwd=apps/cockpit-prototype", "run", "dev"],
+      "port": 3100
+    }
+  ]
+}
