@@ -295,7 +295,8 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
                                      repo=_project(cfg, workflow.input)), invocation)
     run = session.ensure(cfg, SessionSpec(
         adw_id=adw_id, resume=invocation.resume, hitl=invocation.hitl, name=workflow.name,
-        input=workflow.input, request=request if workflow.input == "prompt" else ""))
+        input=workflow.input, request=request if workflow.input == "prompt" else "",
+        stages=[step.stage.name for step in workflow.steps]))
 
     if workflow.input == "issue":
         opened = inputs.open_issue(run, cfg, number)
@@ -316,9 +317,10 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
     ctx.baseline = run.pin("baseline", lambda: git_helper.rev(run.repo_root, "HEAD"))
     accepted, reason = True, ""
     try:
-        for step in workflow.steps:
+        for index, step in enumerate(workflow.steps):
             ctx.begin(step)
-            output = step.stage.run(ctx, step.opts)
+            with run.stage(index):
+                output = step.stage.run(ctx, step.opts)
             ctx.end(step, output)
     except StageStop as stop:
         accepted, reason = False, str(stop)

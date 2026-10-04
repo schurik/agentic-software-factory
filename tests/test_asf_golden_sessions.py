@@ -53,7 +53,7 @@ from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forg
 THIS_REPO = Path(__file__).resolve().parent.parent
 SESSIONS = Path(__file__).resolve().parent / "golden" / "sessions"
 EVENT_FIXTURES = Path(__file__).resolve().parent / "golden" / "events"
-RECORDING = "issue-then-two-reviews"
+RECORDING = "issue-then-two-reviews-in-stages"
 # The recording apps/cockpit/tests/parity.test.tsx reads: the one made under the old factory.
 # RECORDING moves on when a new story is recorded; this one stays.
 PARITY = "issue-then-two-reviews"
@@ -289,6 +289,17 @@ def test_the_recorded_story_still_runs_and_is_written_only_when_asked(tmp_path: 
     chapters = [(line.payload["workflow"], line.payload["chapter"])
                 for line in lines if line.kind == "workflow_started"]
     assert chapters == [("issue", 1), ("pr-review", 2), ("pr-review", 3)]
+    # A gate, a revision, a verify and a commit belong to the stage that opened them.
+    second = next(at for at, line in enumerate(lines)
+                  if line.kind == "workflow_started" and line.payload["chapter"] == 2)
+    stage_of = {line.payload["name"]: line.payload["stage_index"]
+                for line in lines[:second] if line.kind == "phase_started"}
+    assert {name: stage_of[name] for name in (
+        "issue", "plan", "approve_plan", "plan_revise_1", "approve_plan_2", "commit_plan",
+        "verify_1", "review_1", "commit_implement", "integrate", "report")} == {
+        "issue": None, "plan": 1, "approve_plan": 1, "plan_revise_1": 1, "approve_plan_2": 1,
+        "commit_plan": 2, "verify_1": 4, "review_1": 5, "commit_implement": 6, "integrate": 9,
+        "report": None}
     assert json.loads((session_dir(repo, ID) / "run.json").read_text())["status"] == "success"
     assert git(repo, "log", "-1", "--format=%s", f"asf/{ID}") == "fix: one date format throughout"
 

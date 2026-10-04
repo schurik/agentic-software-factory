@@ -83,6 +83,7 @@ class Phase(BaseModel):
     adw_id: str
     seq: int
     params: PhaseParams
+    stage_index: Optional[int] = None   # the workflow's stage it opened in; None outside one
     status: PhaseStatus = "fail"    # success must be earned
     attempt: int = 0
     error: Optional[str] = None
@@ -1443,6 +1444,7 @@ class SessionSpec(BaseModel):
     # What the chapter this opens answers. A work item unless the caller says
     # otherwise: a factory is reached from a tracker, and a prompt is the exception.
     input: ChapterInput = "issue"
+    stages: list[str] = Field(default_factory=list)   # the workflow's, in order, for its chapter
 
 
 class Invocation(BaseModel):
@@ -2214,13 +2216,20 @@ class WorkflowStarted(DomainEvent):
     issue's workflow, then a round of pull-request review for each round of
     feedback, so the same workflow twice is two chapters. `input` is what the
     chapter answers: a prompt, an issue or a pull request's review.
+
+    v2: `stages`, the workflow's stages in order, each by its name in the
+    closed vocabulary — so a chapter's shape comes from the session's own
+    record, not from a self-description the workflow may have outgrown since.
+    A phase says which of them it belongs to (`phase_started.stage_index`).
     """
 
     KIND: ClassVar[str] = "workflow_started"
+    VERSION: ClassVar[int] = 2      # v2: stages
 
     workflow: str
     chapter: int                    # from 1, in the order the session opened them
     input: ChapterInput
+    stages: list[str] = Field(default_factory=list)
 
 
 class WorkflowFinished(DomainEvent):
@@ -2262,10 +2271,18 @@ class PhaseStarted(DomainEvent):
     to transcripts. A phase answered from the record was sent nothing and has
     no digest; one whose replay its gates refused is announced a second time,
     with the digest of what the agent was then sent.
+
+    v3: `stage_index`, the stage the phase belongs to, as its index into the
+    chapter's `workflow_started.stages` — so two `commit`s are two stages. A
+    gate, a revision, a verify or a commit belongs to the stage that opened it;
+    the work item's phase (`issue`, `pr`, a prompt's `request`) and `report`
+    belong to none, and say None. A resume says no `workflow_started` of its
+    own, so a `workflow.yaml` edited while its session waited at a gate
+    numbers the stages it walks afresh against the list its chapter recorded.
     """
 
     KIND: ClassVar[str] = "phase_started"
-    VERSION: ClassVar[int] = 2      # v2: task, prompt_digest
+    VERSION: ClassVar[int] = 3      # v2: task, prompt_digest; v3: stage_index
 
     phase_id: str
     seq: int
@@ -2275,6 +2292,7 @@ class PhaseStarted(DomainEvent):
     description: str = ""
     task: str = ""
     prompt_digest: str = ""
+    stage_index: Optional[int] = None
 
 
 class PhaseEnded(DomainEvent):

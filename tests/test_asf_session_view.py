@@ -173,6 +173,45 @@ def test_a_session_reads_in_chapters_one_per_workflow_it_passes_through(told: Pa
         assert kinds[-2:] == ["workflow_finished", "session_finished"]
 
 
+def test_a_chapter_names_its_stages_and_every_phase_the_stage_it_belongs_to(told: Path):
+    opened = lines_of(told, "workflow_started")
+    assert [line.payload["stages"] for line in opened] == [
+        ["scout", "plan", "commit", "implement", "commit"], ["implement", "commit"]]
+
+    # One row per walk of a phase: the resume re-walks chapter 1 and says the same again.
+    walks = [(line.payload["name"], line.payload["stage_index"])
+             for line in lines_of(told, "phase_started")]
+    first, resumed, joined = [[(line.payload["name"], line.payload["stage_index"])
+                               for line in process if line.kind == "phase_started"]
+                              for process in processes(lines_of(told))]
+    # The work item and the report belong to no stage; each stage's phases to
+    # its index in the chapter's list, so the two commits are told apart.
+    assert first == [("issue", None), ("scout", 0), ("plan", 1), ("commit_plan", 2),
+                     ("implement", 3)]                     # ...where the build failed
+    assert resumed == [("issue", None), ("scout", 0), ("plan", 1), ("commit_plan", 2),
+                       ("implement", 3), ("commit_implement", 4), ("report", None)]
+    assert joined == [("request", None), ("implement", 0), ("commit_implement", 1)]
+    assert len(walks) == len(first) + len(resumed) + len(joined)
+
+
+def test_a_checkpoint_belongs_to_the_stage_whose_phase_it_follows(stamped: Path):
+    fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
+    write_workflow(stamped, "checked", {
+        "description": "build and commit, with a person after every agent phase",
+        "stages": [{"implement": {}}, {"commit": {"of": "implement"}}]})
+    commit_all(stamped)
+
+    asked = asf(stamped, "run", "checked", "add app.py", "--hitl", "every")
+    assert asked.returncode == 75, asked.stdout + asked.stderr
+
+    started = [(line.payload["name"], line.payload["stage_index"])
+               for line in events.read(session_dir(stamped, adw_id_of(asked)))
+               if line.kind == "phase_started"]
+    # `run.phase` opens the checkpoint itself, after the build closed: no stage
+    # placed it, and it is still the build's stage.
+    assert started == [("request", None), ("implement", 0), ("approve_implement", 0)]
+
+
 def test_a_resume_continues_its_own_workflow_s_chapter_and_opens_one_when_it_has_none(
         stamped: Path):
     fake_roster(stamped, builder=[

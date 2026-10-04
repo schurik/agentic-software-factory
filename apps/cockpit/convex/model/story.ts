@@ -78,6 +78,7 @@ interface Placed {
 interface PhaseFacts extends Placed {
   phaseId: string;
   name: string;
+  stageIndex: number | null;  // into its chapter's stages; null for the work item, the report, or a factory before them
   owner: string;
   description: string;
   status: string;
@@ -112,6 +113,7 @@ export interface GateItem extends Placed {
   type: "gate";
   phaseId: string;
   name: string;
+  stageIndex: number | null;  // the stage that asked it
   gate: string;
   round: number;
   kind: string;           // gate | questions
@@ -149,6 +151,10 @@ export interface Chapter {
   workflow: string;
   title: string;
   input: string;          // issue | pr | prompt
+  // The workflow's stages in order, by their names in the closed vocabulary,
+  // as the chapter's `workflow_started` (v2) recorded them. [] from a factory
+  // before it: the chapter is a flat chain of phases, and no stage is guessed.
+  stages: string[];
   answering: Answering | null;
   startedAt: string;
   endedAt: string;
@@ -200,6 +206,7 @@ interface PhaseState {
   seq: number;
   at: string;
   chapter: number;
+  stageIndex: number | null;
   name: string;
   kind: string;
   owner: string;
@@ -236,6 +243,7 @@ interface ChapterState {
   number: number;
   workflow: string;
   input: string;
+  stages: string[];
   startedAt: string;
   endedAt: string;
   status: string;
@@ -291,7 +299,7 @@ export function tell(state: StoryState, kind: string, version: number, p: Payloa
 function chapter(state: StoryState, number: number, workflow = ""): ChapterState {
   let found = state.chapters.find((each) => each.number === number);
   if (found === undefined) {
-    found = { number, workflow: workflow || state.workflow, input: "", startedAt: "", endedAt: "",
+    found = { number, workflow: workflow || state.workflow, input: "", stages: [], startedAt: "", endedAt: "",
               status: "running", reason: "", issueNumber: 0, issueUrl: "", prUrl: "" };
     state.chapters.push(found);
   }
@@ -321,7 +329,7 @@ function phaseStarted(state: StoryState, p: Payload, { seq, ts }: At): void {
   if (found === undefined) {
     found = {
       phaseId: p.str("phase_id"), number: p.num("seq"), seq, at: ts, chapter: current(state).number,
-      name: "", kind: "", owner: "", description: "", task: "", status: "", error: "", runs: [],
+      stageIndex: null, name: "", kind: "", owner: "", description: "", task: "", status: "", error: "", runs: [],
       replayed: false, outputType: "", summary: "", corrections: 0, toolCalls: 0, toolFailures: 0,
       cost: 0, tokens: 0, changedFiles: [], artifacts: [], request: null, commits: [], commands: [],
       gate: "", round: 0, gateKind: "gate", channel: "", issueNumber: 0, headSha: "",
@@ -359,6 +367,14 @@ function withPhase(fold: (phase: PhaseState, p: Payload, at: At) => void): Telle
   };
 }
 
+function workflowStarted(state: StoryState, p: Payload, { ts }: At): ChapterState {
+  const opened = chapter(state, p.num("chapter"), p.str("workflow"));
+  Object.assign(opened, { workflow: p.str("workflow") || opened.workflow, input: p.str("input"),
+                          startedAt: ts, status: "running" });
+  state.current = opened.number;
+  return opened;
+}
+
 const tellStarted: Teller = (state, p) => {
   state.workflow ||= p.str("workflow");
   state.resumed = null;             // a new process: whatever it replays, it says so itself
@@ -375,11 +391,9 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     3: tellStarted,                 // v3 adds the transcript's retention: the summary's, not the story's
   },
   workflow_started: {
-    1: (state, p, { ts }) => {
-      const opened = chapter(state, p.num("chapter"), p.str("workflow"));
-      Object.assign(opened, { workflow: p.str("workflow") || opened.workflow, input: p.str("input"),
-                              startedAt: ts, status: "running" });
-      state.current = opened.number;
+    1: workflowStarted,
+    2: (state, p, at) => {
+      workflowStarted(state, p, at).stages = p.strs("stages");
     },
   },
   workflow_finished: {
@@ -399,7 +413,15 @@ const TELLERS: Record<string, Record<number, Teller>> = {
   },
   // v2 adds the issue's author and assignees, which the story does not tell.
   provenance_recorded: { 1: provenance, 2: provenance },
-  phase_started: { 1: phaseStarted, 2: phaseStarted },
+  phase_started: {
+    1: phaseStarted,
+    2: phaseStarted,
+    // v3: the stage it belongs to. Each walk of a phase says it again, and the latest stands.
+    3: (state, p, at) => {
+      phaseStarted(state, p, at);
+      phaseOf(state, p.str("phase_id"))!.stageIndex = p.numOrNull("stage_index");
+    },
+  },
   phase_replayed: {
     1: (state, p) => {
       const found = phaseOf(state, p.str("phase_id"));
@@ -553,7 +575,8 @@ function duration(phase: PhaseState): number | null {
 }
 
 function item(phase: PhaseState, journal: Entry[]): Item {
-  const placed = { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name };
+  const placed = { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name,
+                   stageIndex: phase.stageIndex };
   if (phase.kind === "engineer") {
     const status = phase.decision ? VERDICTS[phase.decision.verdict] ?? phase.decision.verdict
       : phase.status === "waiting" ? "waiting"
@@ -578,7 +601,8 @@ function item(phase: PhaseState, journal: Entry[]): Item {
 
 /** What an agent card and a code row both say of their phase. */
 function factsOf(phase: PhaseState) {
-  return { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name, owner: phase.owner,
+  return { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name,
+           stageIndex: phase.stageIndex, owner: phase.owner,
            description: phase.description, status: phase.status, error: phase.error, duration: duration(phase) };
 }
 
@@ -612,7 +636,7 @@ export function finish(state: StoryState, summary: Summary): Story {
     const round = (rounds.get(each.workflow) ?? 0) + 1;
     rounds.set(each.workflow, round);
     return {
-      number: each.number, workflow: each.workflow, input: each.input,
+      number: each.number, workflow: each.workflow, input: each.input, stages: each.stages,
       title: each.input === "pr" ? `${each.workflow}, round ${round}` : each.workflow,
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
       endedAt: each.endedAt, status: each.status, reason: each.reason,
