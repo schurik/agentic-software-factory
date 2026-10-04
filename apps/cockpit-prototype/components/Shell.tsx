@@ -1,7 +1,8 @@
 "use client";
 // PROTOTYPE, throwaway. The header (brand + mode · three places · Run a prompt · the viewer's
-// avatar), the variant switcher, the drawer and the toast — everything that sits around a page.
-// The header is flat: the page's own background, one hairline, the active place underlined on it.
+// avatar), the drawer and the toast — everything that sits around a page. The header is the card
+// surface over the page's grey, with a hairline and a soft shadow, so it reads as a bar above the
+// page; the active place is underlined in the accent on its bottom rule.
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
@@ -11,7 +12,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { FACTORIES, GATES, MODE, VIEWER, sessionById } from "@/lib/data";
 import { factoryByName } from "@/lib/factories";
 import { SideDrawer } from "./Drawer";
-import { PLink, useProto, VARIANTS } from "./state";
+import { PLink, useProto } from "./state";
 import { Button, cx, menuItem, menuLabel, menuPopup } from "./ui";
 
 function Logo() {
@@ -227,35 +228,11 @@ function Nav() {
   );
 }
 
-function Switcher() {
-  const { variant, setVariant } = useProto();
-  const i = VARIANTS.findIndex((v) => v.key === variant);
-  const go = (d: number) => setVariant(VARIANTS[(i + d + VARIANTS.length) % VARIANTS.length].key);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      if (el.closest("input, textarea, select, [contenteditable]")) return;
-      if (e.key === "ArrowLeft") go(-1);
-      else if (e.key === "ArrowRight") go(1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-  if (process.env.NODE_ENV === "production") return null;
-  return (
-    <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[#111] px-1.5 py-1.5 text-white shadow-[0_8px_30px_rgba(0,0,0,0.35)] ring-1 ring-white/10" style={{ fontFamily: "ui-monospace, monospace" }}>
-      <button onClick={() => go(-1)} className="grid size-7 place-items-center rounded-full hover:bg-white/15 cursor-pointer" aria-label="Previous variant">←</button>
-      <span className="px-2 text-xs whitespace-nowrap"><span className="text-white/50">style</span> {variant} · {VARIANTS[i].name}</span>
-      <button onClick={() => go(1)} className="grid size-7 place-items-center rounded-full hover:bg-white/15 cursor-pointer" aria-label="Next variant">→</button>
-    </div>
-  );
-}
-
 export function Shell({ children }: { children: ReactNode }) {
   const { toast } = useProto();
   return (
     <>
-      <header className="sticky top-0 z-30 border-b border-line bg-bg/90 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-line bg-surface/95 shadow-[0_1px_3px_rgb(0_0_0/0.05)] backdrop-blur dark:border-line-strong dark:shadow-[0_1px_0_rgb(0_0_0/0.6)]">
         <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-3 px-4 md:gap-6 md:px-6">
           <PLink href="/" className="flex shrink-0 items-center gap-2">
             <Logo />
@@ -277,7 +254,6 @@ export function Shell({ children }: { children: ReactNode }) {
       {toast ? (
         <div className="fixed bottom-16 left-1/2 z-50 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-line bg-surface px-4 py-3 text-sm shadow-pop">{toast}</div>
       ) : null}
-      <Switcher />
     </>
   );
 }

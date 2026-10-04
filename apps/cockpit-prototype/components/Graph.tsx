@@ -1,9 +1,8 @@
 "use client";
 // PROTOTYPE, throwaway. The stage graph: stages as cards on a chain, phases as sub-nodes inside
-// the card (the Cards graph, chosen over Rail and Ribbon — both in the branch history). Its
-// contrast against the page is what ?variant=A|B|C|D compares now (see Skins below). A full form
-// (session page, Workflows tab) and a mini form (a row on Now). Horizontal on desktop, vertical on
-// a phone. Hand-built: flex + borders, no graph library.
+// the card (the Cards graph, chosen over Rail and Ribbon — both in the branch history). A full
+// form (session page, Workflows tab) and a mini form (a row on Now). Horizontal on desktop,
+// vertical on a phone. Hand-built: flex + borders, no graph library.
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chapter, Phase, Session, Stage } from "@/lib/data";
@@ -13,7 +12,7 @@ import {
   chapterSecs, chapterStatus, cost, allPhases, currentStageIndex, expandedByDefault, fmtCost, fmtDur,
   hadRejection, phaseTitle, stageSecs, stageStatus, who, type StageStatus,
 } from "@/lib/model";
-import { useProto, type Variant } from "./state";
+import { useProto } from "./state";
 import { Chevron, KindIcon, StatusIcon, cx } from "./ui";
 
 interface GraphProps {
@@ -45,38 +44,27 @@ const phaseMeta = (p: Phase) =>
   p.secs ? fmtDur(p.secs) : "";
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Skins (?variant=A|B|C|D): one Cards graph, four ways to give it contrast
-//   A Well — the chain sits on a tinted canvas; white cards with a real border and a shadow
-//   B Tint — each card filled with its status' tint; connectors coloured by progress
-//   C Edge — white cards, a stronger border and a status-coloured top edge; arrowed connectors
-//   D Ink  — finished stages in ink outline; the current one with a solid status header
-//   E Edge + progress — C's cards, its title row tinted by status; connectors coloured by progress
-//   F Edge + wash     — E, with a light status wash over the whole card
+// The look (chosen from six; the others are in the branch history): white cards with a stronger
+// border and a 3px status-coloured top edge, a light status wash over each card, connectors
+// coloured by progress with arrowheads. A workflow's stages, which have no status, get a
+// neutral tint instead.
 // ═════════════════════════════════════════════════════════════════════════════
 
 type Tone = "ok" | "accent" | "wait" | "bad" | "none";
 const toneOf: Record<StageStatus, Tone> = { ok: "ok", running: "accent", waiting: "wait", failed: "bad", pending: "none" };
 const ringSoft: Record<Tone, string> = { ok: "", accent: "ring-4 ring-accent-soft", wait: "ring-4 ring-wait-soft", bad: "ring-4 ring-bad-soft", none: "" };
-const border: Record<Tone, string> = { ok: "border-ok", accent: "border-accent", wait: "border-wait", bad: "border-bad", none: "border-line-strong" };
-const solid: Record<Tone, string> = { ok: "bg-ok text-bg", accent: "bg-accent-strong text-accent-fg", wait: "bg-wait text-bg", bad: "bg-bad text-bg", none: "" };
 
 interface Skin {
-  /** Around the whole chain. */
-  canvas: string;
   card: (st: StageStatus, current: boolean) => string;
-  /** The card's title row; D fills it on the current stage. */
-  head: (st: StageStatus, current: boolean) => string;
   /** A workflow's stage card, which has no status. */
   shape: string;
   connector: (done: boolean) => string;
-  arrow?: boolean;
-  /** The arrowhead's colour, when it differs from C's neutral one. */
-  arrowTone?: (done: boolean) => string;
+  arrowTone: string;
   end: (done: boolean) => string;
   mini: string;
 }
 
-const PENDING = "border border-dashed border-line-strong bg-transparent";
+const PENDING = "border border-dashed border-line-strong border-t-[3px] bg-transparent";
 
 /**
  * A workflow's stage has no status, so it gets a neutral tint instead: a little of the text
@@ -87,60 +75,9 @@ const NEUTRAL_TINT = "bg-[color-mix(in_oklab,var(--fg)_3%,var(--surface))] dark:
 const NEUTRAL_SHAPE = cx("border border-line-strong border-t-[3px] border-t-fg/40 shadow-card dark:border-fg/25 dark:border-t-fg/55", NEUTRAL_TINT);
 const NEUTRAL_END = cx("border border-line-strong shadow-card dark:border-fg/25", NEUTRAL_TINT);
 
-const SKINS: Partial<Record<Variant, Skin>> = {
-  A: {
-    canvas: "rounded-xl bg-surface-2 p-2 md:px-3 dark:bg-bg",
-    card: (st, cur) => st === "pending" ? PENDING : cx("border bg-surface shadow-card", cur ? cx(border[toneOf[st]], ringSoft[toneOf[st]]) : "border-line-strong"),
-    head: () => "",
-    shape: "border border-line-strong bg-surface shadow-card",
-    connector: (done) => (done ? "bg-line-strong" : "dashed"),
-    end: (done) => (done ? "border-line-strong bg-surface shadow-card" : "border-dashed border-line-strong text-faint"),
-    mini: "bg-fg/20",
-  },
-  B: {
-    canvas: "",
-    card: (st, cur) => {
-      const tint = { ok: "bg-ok-soft border-ok/40", running: "bg-accent-soft border-accent/60", waiting: "bg-wait-soft border-wait/60", failed: "bg-bad-soft border-bad/60", pending: "" }[st];
-      return st === "pending" ? PENDING : cx("border", tint, cur && ringSoft[toneOf[st]]);
-    },
-    head: () => "",
-    shape: "border border-line-strong bg-surface-2",
-    connector: (done) => (done ? "bg-ok/50" : "dashed"),
-    end: (done) => (done ? "border-ok/40 bg-ok-soft" : "border-dashed border-line-strong text-faint"),
-    mini: "bg-ok/45",
-  },
-  C: {
-    canvas: "",
-    card: (st, cur) => st === "pending" ? cx(PENDING, "border-t-[3px]") : cx(
-      "border border-line-strong border-t-[3px] bg-surface shadow-card",
-      { ok: "border-t-ok", running: "border-t-accent", waiting: "border-t-wait", failed: "border-t-bad", pending: "" }[st],
-      cur && ringSoft[toneOf[st]],
-    ),
-    head: () => "",
-    shape: NEUTRAL_SHAPE,
-    connector: (done) => (done ? "bg-fg/35" : "dashed"),
-    arrow: true,
-    end: (done) => (done ? "border-line-strong bg-surface shadow-card" : "border-dashed border-line-strong text-faint"),
-    mini: "bg-fg/30",
-  },
-  D: {
-    canvas: "",
-    card: (st, cur) => st === "pending" ? PENDING : cx("border-[1.5px] bg-surface", cur ? border[toneOf[st]] : "border-fg/55"),
-    // The header fills to the card's rounded top without clipping the NOW badge above it.
-    // The icon takes the header's text colour: white on blue; on amber and red, white in light
-    // and dark in dark (where those fills are light).
-    head: (st, cur) => (cur && st !== "ok" ? cx(solid[toneOf[st]], "rounded-t-[6px] pt-3 [&_svg]:[filter:brightness(0)_invert(1)]", toneOf[st] !== "accent" && "dark:[&_svg]:[filter:brightness(0)]") : ""),
-    shape: "border-[1.5px] border-fg/55 bg-surface",
-    connector: (done) => (done ? "bg-fg/60" : "dashed"),
-    end: (done) => (done ? "border-[1.5px] border-fg/55 bg-surface" : "border-dashed border-line-strong text-faint"),
-    mini: "bg-fg/55",
-  },
-};
-
-/** C's frame, shared by the blends: white card, a stronger border, a 3px status top edge. */
 const edgeTop: Record<StageStatus, string> = { ok: "border-t-ok", running: "border-t-accent", waiting: "border-t-wait", failed: "border-t-bad", pending: "" };
-// Written out whole: Tailwind only generates the classes it can read in the source.
-// Dark surfaces need more of the hue for the same visible wash.
+// Written out whole: Tailwind only generates the classes it can read in the source. Dark surfaces
+// need more of the hue for the same visible wash.
 const wash: Record<StageStatus, string> = {
   ok: "bg-[color-mix(in_oklab,var(--ok)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--ok)_9%,var(--surface))]",
   running: "bg-[color-mix(in_oklab,var(--accent)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--accent)_10%,var(--surface))]",
@@ -148,29 +85,17 @@ const wash: Record<StageStatus, string> = {
   failed: "bg-[color-mix(in_oklab,var(--bad)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--bad)_10%,var(--surface))]",
   pending: "",
 };
-const headTint: Record<StageStatus, string> = { ok: "bg-ok-soft", running: "bg-accent-soft", waiting: "bg-wait-soft", failed: "bg-bad-soft", pending: "" };
 
-SKINS.E = {
-  canvas: "",
-  card: (st, cur) => st === "pending" ? cx(PENDING, "border-t-[3px]") : cx("border border-line-strong border-t-[3px] bg-surface shadow-card", edgeTop[st], cur && ringSoft[toneOf[st]]),
-  head: (st) => (st === "pending" ? "" : cx(headTint[st], "rounded-t-[5px] pb-2")),
+const SKIN: Skin = {
+  card: (st, cur) => st === "pending" ? PENDING : cx("border border-line-strong border-t-[3px] shadow-card", wash[st], edgeTop[st], cur && ringSoft[toneOf[st]]),
   shape: NEUTRAL_SHAPE,
   connector: (done) => (done ? "bg-ok/60" : "dashed"),
-  arrow: true,
-  arrowTone: () => "border-l-ok/60",
-  end: (done) => (done ? "border-ok/40 bg-surface shadow-card" : "border-dashed border-line-strong text-faint"),
+  arrowTone: "border-l-ok/60",
+  end: (done) => (done ? "border-ok/40 bg-[color-mix(in_oklab,var(--ok)_5%,var(--surface))] shadow-card dark:bg-[color-mix(in_oklab,var(--ok)_9%,var(--surface))]" : "border-dashed border-line-strong text-faint"),
   mini: "bg-ok/45",
 };
-SKINS.F = {
-  ...SKINS.E!,
-  card: (st, cur) => st === "pending" ? cx(PENDING, "border-t-[3px]") : cx("border border-line-strong border-t-[3px] shadow-card", wash[st], edgeTop[st], cur && ringSoft[toneOf[st]]),
-  head: () => "",
-  end: (done) => (done ? "border-ok/40 bg-[color-mix(in_oklab,var(--ok)_5%,var(--surface))] shadow-card" : "border-dashed border-line-strong text-faint"),
-};
 
-function useSkin(): Skin {
-  return SKINS[useProto().variant] ?? SKINS.A!;
-}
+const useSkin = (): Skin => SKIN;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // The Cards graph
@@ -235,15 +160,15 @@ function StageCard({ stage, i, g }: { stage: Stage; i: number; g: ReturnType<typ
           now
         </span>
       ) : null}
-      <button onClick={() => g.openStage(i)} className={cx("flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-left cursor-pointer", skin.head(st, current), skin.head(st, current) && "pb-2")}>
+      <button onClick={() => g.openStage(i)} className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-left cursor-pointer">
         <StatusIcon status={st} size={14} />
         <span className={cx("text-base font-semibold", st === "pending" && "text-faint font-medium")}>{stage.name}</span>
-        {hadRejection(stage) ? <span className={cx("rounded px-1 text-[10px] font-semibold text-bad", skin.head(st, current) ? "bg-surface" : "bg-bad-soft")}>↺ {stage.phases.filter((p) => p.status === "rejected").length}</span> : null}
+        {hadRejection(stage) ? <span className="rounded bg-bad-soft px-1 text-[10px] font-semibold text-bad">↺ {stage.phases.filter((p) => p.status === "rejected").length}</span> : null}
       </button>
       {stage.phases.length === 0 ? (
         <span className="pb-1.5" />
       ) : open ? (
-        <div className={cx("flex flex-col gap-0.5 px-1.5 pb-1.5", skin.head(st, current) && "pt-1.5")}>
+        <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
           {stage.phases.map((p) => <PhaseRow key={p.id} p={p} onClick={() => g.openPhase(p)} />)}
           {!g.isDefault(i) ? (
             <button onClick={() => g.toggle(i)} className="px-2 py-1 text-left text-xs text-faint hover:text-fg cursor-pointer">collapse</button>
@@ -268,7 +193,7 @@ function Connector({ done, neutral }: { done: boolean; neutral?: boolean }) {
     <>
       <span aria-hidden className="relative mt-[1.1rem] hidden w-4 shrink-0 md:block">
         <span className={cx("block", dashed ? "border-t border-dashed border-line-strong" : cx("h-0.5", tone))} />
-        {skin.arrow && !dashed ? <span className={cx("absolute -top-[3px] right-0 size-0 border-y-4 border-l-[5px] border-y-transparent", skin.arrowTone && !neutral ? skin.arrowTone(done) : "border-l-fg/35 dark:border-l-fg/45")} /> : null}
+        {!dashed ? <span className={cx("absolute -top-[3px] right-0 size-0 border-y-4 border-l-[5px] border-y-transparent", neutral ? "border-l-fg/35 dark:border-l-fg/45" : skin.arrowTone)} /> : null}
       </span>
       <span aria-hidden className={cx("ml-5 h-3 md:hidden", dashed ? "border-l border-dashed border-line-strong" : cx("w-0.5", tone))} />
     </>
@@ -295,7 +220,7 @@ function CardsFull(props: GraphProps) {
 }
 
 function Canvas({ children }: { children: ReactNode }) {
-  return <div className={useSkin().canvas}>{children}</div>;
+  return <div>{children}</div>;
 }
 
 /**
