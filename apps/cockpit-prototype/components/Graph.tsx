@@ -78,6 +78,15 @@ interface Skin {
 
 const PENDING = "border border-dashed border-line-strong bg-transparent";
 
+/**
+ * A workflow's stage has no status, so it gets a neutral tint instead: a little of the text
+ * colour mixed into the surface (more in dark, where the surfaces sit close together), and a
+ * border that stays visible on a dark card.
+ */
+const NEUTRAL_TINT = "bg-[color-mix(in_oklab,var(--fg)_3%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--fg)_8%,var(--surface))]";
+const NEUTRAL_SHAPE = cx("border border-line-strong border-t-[3px] border-t-fg/40 shadow-card dark:border-fg/25 dark:border-t-fg/55", NEUTRAL_TINT);
+const NEUTRAL_END = cx("border border-line-strong shadow-card dark:border-fg/25", NEUTRAL_TINT);
+
 const SKINS: Partial<Record<Variant, Skin>> = {
   A: {
     canvas: "rounded-xl bg-surface-2 p-2 md:px-3 dark:bg-bg",
@@ -108,7 +117,7 @@ const SKINS: Partial<Record<Variant, Skin>> = {
       cur && ringSoft[toneOf[st]],
     ),
     head: () => "",
-    shape: "border border-line-strong border-t-[3px] border-t-fg/40 bg-surface shadow-card",
+    shape: NEUTRAL_SHAPE,
     connector: (done) => (done ? "bg-fg/35" : "dashed"),
     arrow: true,
     end: (done) => (done ? "border-line-strong bg-surface shadow-card" : "border-dashed border-line-strong text-faint"),
@@ -145,7 +154,7 @@ SKINS.E = {
   canvas: "",
   card: (st, cur) => st === "pending" ? cx(PENDING, "border-t-[3px]") : cx("border border-line-strong border-t-[3px] bg-surface shadow-card", edgeTop[st], cur && ringSoft[toneOf[st]]),
   head: (st) => (st === "pending" ? "" : cx(headTint[st], "rounded-t-[5px] pb-2")),
-  shape: "border border-line-strong border-t-[3px] border-t-fg/40 bg-surface shadow-card",
+  shape: NEUTRAL_SHAPE,
   connector: (done) => (done ? "bg-ok/60" : "dashed"),
   arrow: true,
   arrowTone: () => "border-l-ok/60",
@@ -250,15 +259,16 @@ function StageCard({ stage, i, g }: { stage: Stage; i: number; g: ReturnType<typ
   );
 }
 
-function Connector({ done }: { done: boolean }) {
+function Connector({ done, neutral }: { done: boolean; neutral?: boolean }) {
   const skin = useSkin();
-  const tone = skin.connector(done);
+  // A workflow's graph has no progress to colour: its connectors are neutral ink.
+  const tone = neutral ? "bg-fg/35 dark:bg-fg/45" : skin.connector(done);
   const dashed = tone === "dashed";
   return (
     <>
       <span aria-hidden className="relative mt-[1.1rem] hidden w-4 shrink-0 md:block">
         <span className={cx("block", dashed ? "border-t border-dashed border-line-strong" : cx("h-0.5", tone))} />
-        {skin.arrow && !dashed ? <span className={cx("absolute -top-[3px] right-0 size-0 border-y-4 border-l-[5px] border-y-transparent", skin.arrowTone ? skin.arrowTone(done) : "border-l-fg/35")} /> : null}
+        {skin.arrow && !dashed ? <span className={cx("absolute -top-[3px] right-0 size-0 border-y-4 border-l-[5px] border-y-transparent", skin.arrowTone && !neutral ? skin.arrowTone(done) : "border-l-fg/35 dark:border-l-fg/45")} /> : null}
       </span>
       <span aria-hidden className={cx("ml-5 h-3 md:hidden", dashed ? "border-l border-dashed border-line-strong" : cx("w-0.5", tone))} />
     </>
@@ -442,13 +452,13 @@ export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
   const slowest = stats ? stats.reduce((m, x, i) => (x.medianSecs > stats[m].medianSecs ? i : m), 0) : -1;
   const nodes: ReactNode[] = [];
   const start = (
-    <span key="start" className={cx("flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap text-muted", skin.end(true))}>
+    <span key="start" className={cx("flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm whitespace-nowrap text-muted", NEUTRAL_END)}>
       {INPUT_LABEL[workflow.input]}
     </span>
   );
   nodes.push(start);
   workflow.stages.forEach((s, i) => {
-    nodes.push(<Connector key={`c${i}`} done />);
+    nodes.push(<Connector key={`c${i}`} done neutral />);
     nodes.push(
       <div key={i} data-stage={i} className={cx("flex w-full shrink-0 flex-col gap-1 rounded-lg px-2.5 py-2 md:w-auto", skin.shape)}>
         <span className="flex items-center gap-1.5 text-base font-semibold whitespace-nowrap">
@@ -469,9 +479,9 @@ export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
       </div>,
     );
   });
-  nodes.push(<Connector key="cend" done />);
+  nodes.push(<Connector key="cend" done neutral />);
   nodes.push(
-    <span key="end" className={cx("flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap text-muted", skin.end(true))}>report</span>,
+    <span key="end" className={cx("flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm whitespace-nowrap text-muted", NEUTRAL_END)}>report</span>,
   );
   return (
     <Canvas>

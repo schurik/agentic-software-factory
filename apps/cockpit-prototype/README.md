@@ -280,3 +280,4 @@ Two blends followed, "more C than B":
 |---|---|---|
 | E | **Edge + progress** | C's white cards, stronger border and status top edge, plus B's progress-coloured connectors (green up to the current stage) and a status-tinted title row. The body stays white |
 | F | **Edge + wash** | E's connectors, plus a light status wash over the whole card (5% in light, about 10% in dark), about half of B's tint |
+- **Workflows tab:** a workflow's stages have no status, so their cards get a **neutral tint**: the text colour mixed into the surface at 3% in light and 8% in dark, where the surfaces sit close together. Dark also gets a visible border. The tab's connectors and end pills are neutral ink, because a static workflow has no progress to colour.
