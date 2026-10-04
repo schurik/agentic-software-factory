@@ -169,3 +169,32 @@ Left out on purpose: the Needs-attention warning triangle (the Inbox's gate icon
 - **⋯ menu:** purge's note is shortened to two lines.
 - **Chapters:** each one is a Base UI Collapsible. The header keeps one size open or closed, so nothing jumps. The panel animates its height and fades in, and the small graph in the header fades out as the big one arrives, then back on close.
 - **Now sections:** they fold the same way as chapters (Base UI Collapsible). The title row keeps one size, the gap under it folds away with the list, and the panel animates its height and opacity.
+
+### Round 5: Factories
+
+Not in the first rounds; prototyped before the spec. Shown at `/factories` and `/factories/<owner>/<repo>`, with sample data in `lib/factories.ts` that follows today's cockpit and the self-description fixture.
+
+- **Factories list:** drawn with Now's rows. A factory that needs attention comes first, then the most recently active. Each row has:
+  - what needs you (gates on you, a failing check, other attention)
+  - what's moving (running, stations online, workflows)
+  - spend this month, and the last activity
+- **Factory page:**
+  - **Header:** the name (with a forge link), the check status, the default branch at its sha, stations online, and the per-session budget. **Run a prompt** opens with this factory chosen.
+  - **Tabs:** **Overview · Workflows · Stations · Config**, kept in the URL (`?tab=`), so Now's attention rows land on the tab that answers them. A dot on a tab flags something there: a broken workflow, a drifted station, a failing check. **All sessions →** links to `/sessions?factory=…`.
+- **Overview:**
+  - waiting on you (gate rows, which open the gate drawer)
+  - needs attention
+  - running (no factory column; it's the page's own)
+  - **Spend** for this month or the last 30 days: the total, then bars by workflow, by station ("whose key paid") and by person ("who started it"). This replaces the old top-level Cost page and the factory Cost tab.
+  - recent sessions
+- **Workflows:**
+  - **Broken workflows:** listed first, with `asf check`'s error.
+  - **Each workflow:** its input kind, what it does, what starts it, and its shape drawn with the **session page's stage graph**, so a workflow and a run of it read alike. Each stage shows its icon, the agents bound to it, and whether its gate asks a person or passes by policy.
+  - **Agents:** a collapsible agent table (model and effort, tools, writes).
+  - **Run:** prompt workflows get a **Run** button with the workflow chosen.
+- **Stations:** a table with a state dot (online / away / never polled), whose machine it is (or CI and its jobs), last seen, claims held, and the config sha it runs, either the same as main or drifted (with what differs). This replaces the old top-level Stations page.
+- **Config:**
+  - **`asf check`:** its status on the default branch, with each workflow ✓/✗.
+  - **Settings from `asf/factory.yaml`:** per-session budget and tokens, gates that ask a person, transcripts and their retention, with a link to the file.
+  - **Drift:** a pointer to Stations.
+  - **Retention:** the purge log.

@@ -16,7 +16,7 @@ import { PLink, useProto } from "./state";
 import { Card, Chevron, Kbd, StatusIcon, cx } from "./ui";
 
 /** A stage's icon on a tinted square: amber when it waits on a person, blue while it runs. */
-function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
+export function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
   return (
     <span className={cx("-mt-0.5 -ml-1 grid size-6 place-items-center rounded-md", tone === "wait" ? "bg-wait-soft text-wait" : "bg-accent-soft text-accent")} title={name}>
       <StageIcon name={name} size={14} />
@@ -29,7 +29,7 @@ const EXPENSIVE_AT = 0.8;
 
 type Icon = "waiting" | "failed" | "running";
 
-function Row({ icon, glyph, title, lines, where, when, whenTone, href, onClick, active }: {
+export function Row({ icon, glyph, title, lines, where, when, whenTone, href, onClick, active }: {
   icon: Icon;
   /** Drawn in the icon column instead of the status icon. */
   glyph?: ReactNode;
@@ -49,7 +49,7 @@ function Row({ icon, glyph, title, lines, where, when, whenTone, href, onClick, 
       <span className="min-w-0">
         <span className="block truncate font-semibold">{title}</span>
         {lines?.map((l, i) => <span key={i} className="mt-0.5 block min-w-0 truncate text-sm text-muted">{l}</span>)}
-        <span className="mt-1 flex items-center gap-1 truncate text-sm text-muted sm:hidden">{where} · <span className={whenTone}>{when}</span></span>
+        <span className="mt-1 flex items-center gap-1 truncate text-sm text-muted sm:hidden">{where ? <>{where} · </> : null}<span className={whenTone}>{when}</span></span>
       </span>
       <span className="hidden w-44 flex-col items-end gap-0.5 text-right text-sm sm:flex">
         <span className="flex max-w-full items-center gap-1 truncate text-muted">{where}</span>
@@ -66,12 +66,12 @@ function Row({ icon, glyph, title, lines, where, when, whenTone, href, onClick, 
   return <div className={cls}>{body}</div>;
 }
 
-function Section({ title, count, right, children }: { title: ReactNode; count: number; right?: ReactNode; children: ReactNode }) {
+export function Section({ title, count, right, children }: { title: ReactNode; count?: number; right?: ReactNode; children: ReactNode }) {
   return (
     <section>
       <div className="mb-3 flex items-baseline gap-2">
         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        <span className="text-sm text-faint tabular-nums">{count}</span>
+        {count !== undefined ? <span className="text-sm text-faint tabular-nums">{count}</span> : null}
         <span className="grow" />
         {right}
       </div>
@@ -85,7 +85,7 @@ function Section({ title, count, right, children }: { title: ReactNode; count: n
  * Base UI's Collapsible, animated the way a session's chapters are: the title row keeps one
  * size, and the panel grows to its list's height and fades in (and back on close).
  */
-function CollapsibleSection({ title, count, defaultOpen, children }: { title: ReactNode; count: number; defaultOpen?: boolean; children: ReactNode }) {
+export function CollapsibleSection({ title, count, defaultOpen, children }: { title: ReactNode; count: number; defaultOpen?: boolean; children: ReactNode }) {
   return (
     <Collapsible.Root defaultOpen={defaultOpen} render={<section />}>
       <Collapsible.Trigger className="group flex w-full items-baseline gap-2 text-left cursor-pointer">
@@ -163,22 +163,82 @@ function attentionRow(a: Attention): { icon: Icon; title: ReactNode; line: React
   const ref = (r: string) => <IssueRef plain factory={a.factory} n={Number(r.slice(1))} state="open" />;
   switch (a.kind) {
     case "failed": return { icon: "failed", title: <>Session failed: {a.title}</>, line: <span className="inline-flex items-center gap-1.5">{ref(a.ref)} · {a.reason} · {fmtAgo(a.ago)}</span>, href: `/sessions/${a.session}`, action: "Open" };
-    case "check": return { icon: "failed", title: "Check failing on main", line: a.what, href: "/factories", action: "See config" };
+    case "check": return { icon: "failed", title: "Check failing on main", line: a.what, href: `/factories/${a.factory}?tab=config`, action: "See config" };
     case "claim": return { icon: "waiting", title: <>Claim held by a station away for {Math.round(a.away / 3_600_000)}h</>, line: <span className="inline-flex items-center gap-1.5">{a.station} · {ref(a.ref)}</span>, href: `/sessions/${a.session}`, action: "Release" };
-    case "unwatched": return { icon: "waiting", title: <>{a.issues.length} queued issues, no online station watching</>, line: <span className="inline-flex items-center gap-2">{a.issues.map((n) => <IssueRef key={n} plain factory={a.factory} n={n} state="open" />)}</span>, href: "/factories", action: "Stations" };
-    case "drift": return { icon: "waiting", title: "Station config drifted", line: <>{a.station} · {a.what}</>, href: "/factories", action: "Compare" };
+    case "unwatched": return { icon: "waiting", title: <>{a.issues.length} queued issues, no online station watching</>, line: <span className="inline-flex items-center gap-2">{a.issues.map((n) => <IssueRef key={n} plain factory={a.factory} n={n} state="open" />)}</span>, href: `/factories/${a.factory}?tab=stations`, action: "Stations" };
+    case "drift": return { icon: "waiting", title: "Station config drifted", line: <>{a.station} · {a.what}</>, href: `/factories/${a.factory}?tab=stations`, action: "Compare" };
   }
+}
+
+/** Attention rows, for all factories (Now) or one (a factory's Overview). */
+export function AttentionRows({ items, showFactory = true }: { items: Attention[]; showFactory?: boolean }) {
+  return (
+    <Card className="divide-y divide-line overflow-hidden">
+      {items.map((a, i) => {
+        const r = attentionRow(a);
+        return <Row key={i} icon={r.icon} title={r.title} lines={[r.line]} where={showFactory ? a.factory : ""} when={<span className="text-accent">{r.action} →</span>} href={r.href} />;
+      })}
+    </Card>
+  );
+}
+
+/** Running sessions as rows: the stage they are in, the mini graph, stuck and expensive said in amber. */
+export function RunningRows({ sessions, showFactory = true }: { sessions: typeof SESSIONS; showFactory?: boolean }) {
+  return (
+    <Card className="divide-y divide-line overflow-hidden">
+      {sessions.map((s) => {
+        const { chapter, stage } = whereNow(s);
+        const spent = cost(sessionPhases(s));
+        const stuck = inPhaseFor(s) > STUCK_AFTER;
+        const expensive = spent >= s.budget * EXPENSIVE_AT;
+        return (
+          <Row
+            key={s.id}
+            icon="running"
+            glyph={<StageGlyph name={stage?.name ?? ""} tone="run" />}
+            title={s.title}
+            lines={[
+              <span key="g" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <MiniGraph chapter={chapter} />
+                {stuck ? <span className="font-medium text-wait">{fmtDur(inPhaseFor(s))} in {stage?.name}</span> : null}
+              </span>,
+            ]}
+            where={<>{showFactory ? s.factory : null} {s.pr ? <PrRef plain factory={s.factory} n={s.pr.n} state={s.pr.state} /> : s.issue ? <IssueRef plain factory={s.factory} n={s.issue.n} state={s.issue.state} /> : "· prompt"}</>}
+            when={<>{expensive ? <span className="font-medium text-wait">{fmtCost(spent)} of {fmtCost(s.budget)}</span> : fmtCost(spent)} · {fmtDur(elapsed(s))}</>}
+            href={`/sessions/${s.id}`}
+          />
+        );
+      })}
+    </Card>
+  );
+}
+
+/** Gates as rows, each opening its drawer. Inbox adds the keyboard; a factory's Overview does not. */
+export function GateRows({ gates }: { gates: typeof GATES }) {
+  const { open } = useProto();
+  return (
+    <Card className="divide-y divide-line overflow-hidden">
+      {gates.map((g) => (
+        <Row
+          key={g.id}
+          icon="waiting"
+          glyph={<StageGlyph name={g.gate} tone="wait" />}
+          title={g.title}
+          lines={[<><span className="font-medium text-fg">{g.question}</span> {g.gate} gate · round {g.round}</>, g.subject]}
+          where={<IssueRef plain factory={g.factory} n={Number(g.ref.slice(1))} state="open" />}
+          when={waited(g.since)}
+          whenTone={late(g.since)}
+          onClick={() => open({ type: "gate", gateId: g.id })}
+        />
+      ))}
+    </Card>
+  );
 }
 
 function NeedsAttention() {
   return (
     <CollapsibleSection title="Needs attention" count={ATTENTION.length} defaultOpen>
-      <Card className="divide-y divide-line overflow-hidden">
-        {ATTENTION.map((a, i) => {
-          const r = attentionRow(a);
-          return <Row key={i} icon={r.icon} title={r.title} lines={[r.line]} where={a.factory} when={<span className="text-accent">{r.action} →</span>} href={r.href} />;
-        })}
-      </Card>
+      <AttentionRows items={ATTENTION} />
     </CollapsibleSection>
   );
 }
@@ -187,31 +247,7 @@ function Running() {
   const running = SESSIONS.filter((s) => s.status === "running");
   return (
     <CollapsibleSection title="Running" count={running.length} defaultOpen>
-      <Card className="divide-y divide-line overflow-hidden">
-        {running.map((s) => {
-          const { chapter, stage } = whereNow(s);
-          const spent = cost(sessionPhases(s));
-          const stuck = inPhaseFor(s) > STUCK_AFTER;
-          const expensive = spent >= s.budget * EXPENSIVE_AT;
-          return (
-            <Row
-              key={s.id}
-              icon="running"
-              glyph={<StageGlyph name={stage?.name ?? ""} tone="run" />}
-              title={s.title}
-              lines={[
-                <span key="g" className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <MiniGraph chapter={chapter} />
-                  {stuck ? <span className="font-medium text-wait">{fmtDur(inPhaseFor(s))} in {stage?.name}</span> : null}
-                </span>,
-              ]}
-              where={<>{s.factory} {s.pr ? <PrRef plain factory={s.factory} n={s.pr.n} state={s.pr.state} /> : s.issue ? <IssueRef plain factory={s.factory} n={s.issue.n} state={s.issue.state} /> : "· prompt"}</>}
-              when={<>{expensive ? <span className="font-medium text-wait">{fmtCost(spent)} of {fmtCost(s.budget)}</span> : fmtCost(spent)} · {fmtDur(elapsed(s))}</>}
-              href={`/sessions/${s.id}`}
-            />
-          );
-        })}
-      </Card>
+      <RunningRows sessions={running} />
     </CollapsibleSection>
   );
 }

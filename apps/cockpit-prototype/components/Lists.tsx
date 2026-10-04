@@ -1,6 +1,5 @@
 "use client";
-// PROTOTYPE, throwaway. Sessions and Factories only so far as navigation needs them —
-// the prototype's questions are about Now and the session page.
+// PROTOTYPE, throwaway. The sessions list; Factories lives in Factory.tsx.
 import { Tooltip } from "@base-ui/react/tooltip";
 import { useSearchParams } from "next/navigation";
 import { FACTORIES, HISTORY, NOW, SESSIONS, type SessionStatus } from "@/lib/data";
@@ -90,27 +89,6 @@ export function SessionsList() {
           </table>
         </Tooltip.Provider>
       </Card>
-    </div>
-  );
-}
-
-export function FactoriesList() {
-  return (
-    <div className="flex flex-col gap-5">
-      <h1 className="text-2xl font-semibold tracking-tight">Factories</h1>
-      <p className="text-muted">Not prototyped: a factory page would be Overview · Workflows (drawn with the same stage graph) · Stations · Config.</p>
-      <div className="grid gap-3 md:grid-cols-3">
-        {FACTORIES.map((f) => (
-          <Card key={f.name} className="p-4">
-            <div className="font-semibold">{f.name}</div>
-            <div className="mt-2 flex gap-4 text-sm text-muted tabular-nums">
-              <span>{f.online}/{f.stations} stations online</span><span>{f.running} running</span>
-            </div>
-            {f.attention ? <div className="mt-2 text-sm text-wait">{f.attention} need attention</div> : null}
-            <PLink href={`/sessions?factory=${f.name}`} className="mt-3 block text-sm text-accent hover:underline">Sessions →</PLink>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }

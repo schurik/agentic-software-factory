@@ -244,7 +244,7 @@ export function SessionPage({ s }: { s: Session }) {
     <div className="flex flex-col gap-5">
       <div>
         <div className="text-sm text-muted">
-          <PLink href="/factories" className="hover:text-fg">{s.factory}</PLink> / <PLink href="/sessions" className="hover:text-fg">sessions</PLink> / <span className="font-mono">{s.id}</span>
+          <PLink href={`/factories/${s.factory}`} className="hover:text-fg">{s.factory}</PLink> / <PLink href="/sessions" className="hover:text-fg">sessions</PLink> / <span className="font-mono">{s.id}</span>
         </div>
         <div className="mt-1.5 flex flex-col gap-3 md:flex-row md:items-start">
           <div className="min-w-0 grow">

@@ -118,15 +118,24 @@ function Pick({ label, items, value, onChange }: { label: string; items: string[
   );
 }
 
-function RunPrompt() {
-  const [factory, setFactory] = useState(FACTORIES[0].name);
-  const [workflow, setWorkflow] = useState("quick");
+/** Run a prompt — from the header with nothing chosen, or from a factory page with its factory (and a workflow) chosen. */
+export function RunPrompt({ factory: initialFactory, workflow: initialWorkflow, label = "Run a prompt", variant = "secondary", workflows = ["quick", "sdlc", "ship"], iconOnlyOnPhone = false }: {
+  factory?: string;
+  workflow?: string;
+  label?: string;
+  variant?: "primary" | "secondary";
+  workflows?: string[];
+  /** The header's button: on a phone, the icon alone. */
+  iconOnlyOnPhone?: boolean;
+}) {
+  const [factory, setFactory] = useState(initialFactory ?? FACTORIES[0].name);
+  const [workflow, setWorkflow] = useState(initialWorkflow ?? workflows[0]);
   const [prompt, setPrompt] = useState("");
   return (
     <Dialog.Root onOpenChange={(o) => { if (!o) setPrompt(""); }}>
-      <Dialog.Trigger render={<Button variant="secondary" size="sm" aria-label="Run a prompt" />}>
+      <Dialog.Trigger render={<Button variant={variant} size="sm" aria-label={label} />}>
         <Play size={12} fill="currentColor" />
-        <span className="hidden sm:inline">Run a prompt</span>
+        <span className={iconOnlyOnPhone ? "hidden sm:inline" : undefined}>{label}</span>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/25 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0 dark:bg-black/60" />
@@ -140,7 +149,7 @@ function RunPrompt() {
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <Pick label="Factory" items={FACTORIES.map((f) => f.name)} value={factory} onChange={setFactory} />
-            <Pick label="Workflow" items={["quick", "sdlc", "ship"]} value={workflow} onChange={setWorkflow} />
+            <Pick label="Workflow" items={workflows} value={workflow} onChange={setWorkflow} />
           </div>
           <label className="mt-3 flex flex-col gap-1">
             <span className="text-sm text-muted">Prompt</span>
@@ -229,7 +238,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </PLink>
           <Nav />
           <span className="grow" />
-          <RunPrompt />
+          <RunPrompt iconOnlyOnPhone />
           <AvatarMenu />
         </div>
       </header>

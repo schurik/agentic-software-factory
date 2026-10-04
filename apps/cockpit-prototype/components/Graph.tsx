@@ -8,6 +8,8 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chapter, Phase, Session, Stage } from "@/lib/data";
+import type { Workflow } from "@/lib/factories";
+import { StageIcon } from "./icons";
 import {
   chapterSecs, chapterStatus, cost, allPhases, currentStageIndex, expandedByDefault, fmtCost, fmtDur,
   hadRejection, phaseTitle, stageSecs, stageStatus, who, type StageStatus,
@@ -531,5 +533,52 @@ export function SessionGraph({ session }: { session: Session }) {
         );
       })}
     </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// A workflow's shape (factory page): the same chain, read from the self-description
+// ═════════════════════════════════════════════════════════════════════════════
+
+const INPUT_LABEL: Record<Workflow["input"], string> = { issue: "an issue", pr: "a pull request", prompt: "a prompt" };
+
+/**
+ * The stage graph with no session behind it: what a workflow WILL do, stage by stage, with the
+ * agents bound to each and whether its gate asks a person. Same chain, cards, connectors and
+ * sideways scroll as a session's chapter, so a workflow and a run of it read alike.
+ */
+export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
+  const nodes: ReactNode[] = [];
+  const start = (
+    <span key="start" className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-sm whitespace-nowrap text-muted">
+      {INPUT_LABEL[workflow.input]}
+    </span>
+  );
+  nodes.push(start);
+  workflow.stages.forEach((s, i) => {
+    nodes.push(<Connector key={`c${i}`} done />);
+    nodes.push(
+      <div key={i} data-stage={i} className="flex w-full shrink-0 flex-col gap-1 rounded-lg border border-line bg-surface px-2.5 py-2 md:w-auto">
+        <span className="flex items-center gap-1.5 text-base font-semibold whitespace-nowrap">
+          <StageIcon name={s.name} size={14} className="text-muted" />{s.name}
+        </span>
+        <span className="text-xs whitespace-nowrap text-muted">{s.agents.length ? s.agents.join(", ") : "code"}</span>
+        {s.gate ? (
+          <span className={cx("w-fit rounded px-1.5 py-px text-[11px] font-medium whitespace-nowrap", s.gate.on ? "bg-wait-soft text-wait" : "bg-surface-2 text-muted")}>
+            {s.gate.name} gate · {s.gate.on ? "asks a person" : "passes by policy"}
+          </span>
+        ) : null}
+      </div>,
+    );
+  });
+  nodes.push(<Connector key="cend" done />);
+  nodes.push(
+    <span key="end" className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-sm whitespace-nowrap text-muted">report</span>,
+  );
+  return (
+    <>
+      <div className="flex flex-col items-stretch md:hidden">{nodes}</div>
+      <ScrollRow focus={-1}>{nodes}</ScrollRow>
+    </>
   );
 }

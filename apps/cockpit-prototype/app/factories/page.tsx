@@ -1,4 +1,4 @@
-import { FactoriesList } from "@/components/Lists";
+import { FactoriesList } from "@/components/Factory";
 
 export default function Page() {
   return <FactoriesList />;

@@ -3,12 +3,13 @@
 // forge colours them: open green, merged purple, closed red, draft grey.
 import {
   BookOpen, CircleCheck, CircleDot, Code, ExternalLink, Eye, FlaskConical, GitBranch, GitCommitHorizontal,
-  GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, ListChecks, Telescope, type LucideIcon,
+  GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, ListChecks, MessageCircleQuestionMark, Telescope, type LucideIcon,
 } from "lucide-react";
 import { FORGE, type IssueState, type PrState } from "@/lib/data";
 import { cx } from "./ui";
 
 export const STAGE_ICON: Record<string, LucideIcon> = {
+  refine: MessageCircleQuestionMark,
   scout: Telescope,
   plan: ListChecks,
   commit: GitCommitHorizontal,
