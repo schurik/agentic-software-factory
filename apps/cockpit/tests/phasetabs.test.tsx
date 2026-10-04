@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { ViewerLogin } from "../components/viewer";
 import { describe, expect, it } from "vitest";
 import { PhaseTabs, RepoFile, tabsFor, type Where } from "../components/session/PhaseTabs";
 import type { Artifact, PhaseDetail } from "../convex/model/phase";
@@ -171,6 +172,15 @@ describe("a pruned body", () => {
   it("Transcript: says who purged it, and when", () => {
     const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" });
     expect(tab("a9f259f0_05_plan_revise_1", "transcript", events)).toContain("transcript purged on Nov 1, 2026 by alex");
+  });
+
+  it("Transcript: says the viewer purged it as you", () => {
+    const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" });
+    const html = renderToStaticMarkup(
+      <ViewerLogin.Provider value="alex">
+        <PhaseTabs detail={detail("a9f259f0_05_plan_revise_1", events)} where={WHERE} initial="transcript" />
+      </ViewerLogin.Provider>);
+    expect(shown(html)).toContain("transcript purged on Nov 1, 2026 by you");
   });
 
   it("Artifacts: says a handoff file's content was purged", () => {

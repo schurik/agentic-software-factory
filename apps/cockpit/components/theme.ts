@@ -10,7 +10,8 @@ export const THEMES: Theme[] = ["system", "light", "dark"];
 
 export const THEME_KEY = "theme";
 
-const DARK = "(prefers-color-scheme: dark)";
+/** The media query a choice of System follows. */
+export const DARK = "(prefers-color-scheme: dark)";
 
 /** What a stored value is as a choice: System for nothing, or for anything else it does not know. */
 function asTheme(value: string | null): Theme {

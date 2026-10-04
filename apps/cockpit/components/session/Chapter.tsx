@@ -2,11 +2,11 @@ import { useState } from "react";
 import type {
   AgentItem, Asked, AutomaticItem, Chapter as ChapterData, CodeItem, GateItem, Item, ResumedItem,
 } from "@/convex/model/story";
-import { formatClock, formatCost, formatDuration, formatPruned } from "../format";
+import { formatClock, formatCost, formatDuration } from "../format";
 import { Card, cx, LinkButton, Pre, StatusPill, Tag } from "../ui";
 import { useWho } from "../viewer";
 import { PhaseDetails } from "./PhaseDetails";
-import type { Where } from "./PhaseTabs";
+import { PrunedWords, type Where } from "./PhaseTabs";
 import { channelWords, glyphOf, toneOf } from "./words";
 
 export const phaseAnchor = (phaseId: string) => `phase-${phaseId}`;
@@ -48,7 +48,7 @@ function AskedCard({ asked, reader, where }: { asked: Asked; reader: CodeItem | 
           <span className="text-xs font-medium tracking-wider text-accent uppercase">Asked</span> <code className="text-muted">{asked.path.split("/").pop()}</code>
           <span className="mt-0.5 block">{firstLine(asked.content)}</span>
         </summary>
-        {asked.pruned ? <p className="mt-2 text-sm text-muted">Its {formatPruned("content", asked.pruned)}.</p> : <Pre className="mt-2">{asked.content}</Pre>}
+        {asked.pruned ? <p className="mt-2 text-sm text-muted">Its <PrunedWords what={"content"} pruned={asked.pruned} />.</p> : <Pre className="mt-2">{asked.content}</Pre>}
         {asked.truncated && !asked.pruned ? <p className="mt-1 text-sm text-muted">Cut at the factory&apos;s cap: the file was {asked.size} bytes.</p> : null}
       </details>
       {reader ? (
@@ -196,7 +196,7 @@ function CodeRow({ phase, where }: { phase: CodeItem; where: Where }) {
           <span className="ml-auto text-muted tabular-nums">{formatDuration(phase.duration)}</span>
           {toggle}
         </div>
-        {failed?.pruned ? <p className="mt-1 text-sm text-muted">Its {formatPruned("output", failed.pruned)}.</p>
+        {failed?.pruned ? <p className="mt-1 text-sm text-muted">Its <PrunedWords what={"output"} pruned={failed.pruned} />.</p>
           : failed?.outputTail ? <Pre className="mt-1">{failed.outputTail}</Pre> : null}
         {phase.error ? <div className="mt-1 text-sm text-bad">{phase.error}</div> : null}
         {opened !== null ? (

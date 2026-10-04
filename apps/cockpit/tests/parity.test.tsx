@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { formatClock, formatCost, formatDollars, formatDuration, formatTokenCount as n, formatTokens } from "../components/format";
+import { formatClock, formatCost, formatDollars, formatDuration, formatTokenCount, formatTokens } from "../components/format";
 import { PhaseTabs, tabsFor, type Where } from "../components/session/PhaseTabs";
 import { SessionView, type Page } from "../components/session/SessionView";
 import { phaseView, view } from "../convex/model/session";
@@ -175,12 +175,13 @@ describe("parity with the legacy trace UI, over the session recorded under the o
       const tokens = mine.reduce((sum, turn) => sum + turn.tokens, 0);
       expect(tab, id).toContain(`${formatCost(cost)} · ${formatTokens(tokens)} · list-price equivalent`);
       for (const { model, tokens: spent, cost: paid, usage } of mine) {
-        expect(tab, id).toContain([model, n(spent), formatCost(paid), n(usage.input_tokens), n(usage.output_tokens),
-          n(usage.cache_read_tokens), n(usage.cache_write_tokens), n(usage.reasoning_tokens)].join(" "));
+        expect(tab, id).toContain([model, formatTokenCount(spent), formatCost(paid), formatTokenCount(usage.input_tokens),
+          formatTokenCount(usage.output_tokens), formatTokenCount(usage.cache_read_tokens), formatTokenCount(usage.cache_write_tokens),
+          formatTokenCount(usage.reasoning_tokens)].join(" "));
       }
       const last = mine.filter((turn) => turn.context_window > 0).at(-1);
       if (last) {
-        expect(tab, id).toContain(`Context window ${n(last.context_tokens)} of ${formatTokens(last.context_window)} · ` +
+        expect(tab, id).toContain(`Context window ${formatTokenCount(last.context_tokens)} of ${formatTokens(last.context_window)} · ` +
           `${Math.round((last.context_tokens / last.context_window) * 100)}%`);
       }
     }

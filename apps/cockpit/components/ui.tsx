@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-import { toneOf } from "./session/words";
+import { type Tone, toneOf } from "./session/words";
 
 /**
  * The few primitives every page shares (#105), drawn in the tokens of
@@ -14,7 +14,7 @@ import { toneOf } from "./session/words";
 
 export const cx = (...classes: (string | false | null | undefined)[]) => classes.filter(Boolean).join(" ");
 
-type Variant = "primary" | "secondary" | "ghost" | "danger" | "approve";
+type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md";
 
 /** A button's look, for a link that acts as one too. */
@@ -24,7 +24,6 @@ export function buttonClass(variant: Variant = "secondary", size: Size = "md"): 
     "hover:no-underline disabled:pointer-events-none disabled:opacity-50",
     size === "sm" ? "h-7 px-2.5 text-sm" : "h-9 px-3.5 text-base",
     variant === "primary" && "bg-accent-strong text-accent-fg shadow-card hover:brightness-110",
-    variant === "approve" && "bg-ok text-bg shadow-card hover:brightness-110",
     variant === "secondary" && "border border-line-strong bg-surface text-fg shadow-card hover:bg-surface-2",
     variant === "ghost" && "text-muted hover:bg-surface-2 hover:text-fg",
     variant === "danger" && "border border-line-strong bg-surface text-bad shadow-card hover:bg-bad-soft",
@@ -44,8 +43,6 @@ export function Card({ className, children, ...rest }: ComponentProps<"div">) {
   return <div {...rest} className={cx("rounded-xl border border-line bg-surface shadow-card", className)}>{children}</div>;
 }
 
-type Tone = "ok" | "wait" | "bad" | "run" | "none";
-
 const SOFT: Record<Tone, string> = {
   ok: "bg-ok-soft text-ok", wait: "bg-wait-soft text-wait", bad: "bg-bad-soft text-bad",
   run: "bg-accent-soft text-accent", none: "bg-surface-2 text-muted",
@@ -54,7 +51,7 @@ const SOFT: Record<Tone, string> = {
 /** A status, as a pill beside the title it qualifies: the word, coloured by what it means. */
 export function StatusPill({ status, children }: { status: string; children?: ReactNode }) {
   return (
-    <span className={cx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap", SOFT[toneOf(status) as Tone])}>
+    <span className={cx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap", SOFT[toneOf(status)])}>
       <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
       {children ?? status}
     </span>

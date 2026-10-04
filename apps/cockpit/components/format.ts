@@ -145,6 +145,6 @@ export function formatDay(ts: string): string {
 }
 
 /** What became of a pruned body (`model/retention.ts`): "transcript aged out on Oct 3, 2026", "content purged on … by alex". */
-export function formatPruned(what: string, pruned: Pruned): string {
-  return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${pruned.by}` : ""}`;
+export function formatPruned(what: string, pruned: Pruned, who: (login: string) => string = (login) => login): string {
+  return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${who(pruned.by)}` : ""}`;
 }

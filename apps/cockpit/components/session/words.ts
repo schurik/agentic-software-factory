@@ -4,18 +4,19 @@
  * so a status never reads one way in one place and another where it links to.
  */
 
-type Tone = "ok" | "bad" | "wait" | "run";
+/** The colour a status is drawn in; `none` for one that says nothing about how things went. */
+export type Tone = "ok" | "bad" | "wait" | "run" | "none";
 
 // Every status a session, a phase or a gate can be in, as the colour it is drawn in.
-const TONES: Record<string, Tone> = {
+const TONES: Record<string, Exclude<Tone, "none">> = {
   success: "ok", passed: "ok", approved: "ok", answered: "ok",
   fail: "bad", failed: "bad", rejected: "bad", aborted: "bad",
   running: "run", waiting: "wait",
 };
 
-const GLYPHS: Record<Tone, string> = { ok: "✓", bad: "✕", run: "●", wait: "◐" };
+const GLYPHS: Record<Exclude<Tone, "none">, string> = { ok: "✓", bad: "✕", run: "●", wait: "◐" };
 
-export const toneOf = (status: string): string => TONES[status] ?? "none";
+export const toneOf = (status: string): Tone => TONES[status] ?? "none";
 export const glyphOf = (status: string): string => (TONES[status] ? GLYPHS[TONES[status]] : "·");
 
 const CHANNELS: Record<string, string> = {

@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import type { Read } from "@/convex/artifacts";
 import { type Artifact, type PhaseDetail, READ_BYTES } from "@/convex/model/phase";
-import { prunedWord } from "@/convex/model/retention";
+import { type Pruned, prunedWord } from "@/convex/model/retention";
 import { formatBytes, formatClock, formatCost, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, pretty } from "../format";
 import { Facts, num, Pre, Table, Tabs } from "../ui";
+import { useWho } from "../viewer";
 
 /** Which session a phase is of, and the forge's web origin its links go to ("" when unknown). */
 export interface Where {
@@ -116,7 +117,7 @@ function ArtifactCard({ artifact, where, read }: { artifact: Artifact; where: Wh
 
 function HandoffFile({ artifact }: { artifact: Artifact }) {
   if (artifact.pruned) {
-    return <p className={quiet}>Not shown: its {formatPruned("content", artifact.pruned)} ({formatBytes(artifact.size)}).</p>;
+    return <p className={quiet}>Not shown: its <PrunedWords what={"content"} pruned={artifact.pruned} /> ({formatBytes(artifact.size)}).</p>;
   }
   if (artifact.truncated && artifact.content === "") {
     return <p className={quiet}>Not text: the factory did not send it ({formatBytes(artifact.size)}).</p>;
@@ -160,6 +161,12 @@ export function RepoFile({ artifact, got }: { artifact: Artifact; got: Read | nu
       {got.binary ? <p className={quiet}>Not text: nothing to show.</p> : <pre className={body}>{got.content}</pre>}
     </>
   );
+}
+
+/** What became of a pruned body, in words, with the viewer who purged it as "you". */
+export function PrunedWords({ what, pruned }: { what: string; pruned: Pruned }) {
+  const who = useWho();
+  return <>{formatPruned(what, pruned, who)}</>;
 }
 
 // An artifact's body, a remark about it, and a line saying why there is none.
@@ -243,7 +250,7 @@ function Checks({ detail }: { detail: PhaseDetail }) {
         <span className={command.exitCode ? "text-bad" : "text-ok"}>{command.exitCode ? "✕" : "✓"}</span> <b className="font-semibold">{command.name}</b>{" "}
         <code>{command.argv.join(" ")}</code>
         <span className="text-muted"> · exit {command.exitCode} · {formatDuration(command.durationSeconds)}</span>
-        {command.pruned ? <p className="text-muted">Its {formatPruned("output", command.pruned)}.</p>
+        {command.pruned ? <p className="text-muted">Its <PrunedWords what={"output"} pruned={command.pruned} />.</p>
           : command.outputTail ? <Pre className="mt-1">{command.outputTail}</Pre> : null}
       </div>
     ) })),
@@ -312,7 +319,7 @@ function Transcript({ detail }: { detail: PhaseDetail }) {
   if (transcript.pruned) {
     return (
       <>
-        <p className={off}>This {formatPruned("transcript", transcript.pruned)}: the prompts this phase sent and its
+        <p className={off}>This <PrunedWords what={"transcript"} pruned={transcript.pruned} />: the prompts this phase sent and its
           harness&apos;s output are no longer kept.{transcript.pruned.reason === "aged_out"
             ? " A finished session's transcript is kept for as long as the cockpit's retention allows." : ""}</p>
         {detail.promptDigest ? <p className="text-muted">The prompt&apos;s digest was <code>{detail.promptDigest.slice(0, 16)}</code>.</p> : null}

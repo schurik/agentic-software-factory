@@ -3,10 +3,11 @@
 import { Menu } from "@base-ui/react/menu";
 import { Check, LogOut, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
-import { applied, browserStorage, chosen, keep, prefersDark, type Theme, THEME_KEY, THEMES } from "./theme";
+import { type Theme, THEMES } from "./theme";
+import { useTheme } from "./useTheme";
 import { cx } from "./ui";
 
 export type Me = FunctionReturnType<typeof api.viewer.me>;
@@ -60,11 +61,9 @@ const PLACES: { id: Place; href: string; label: string }[] = [
 
 /** Which of the three places `path` is in; Stations, Cost and Run are in none, though their pages still work. */
 export function placeOf(path: string): Place | null {
-  if (path === "/") return "now";
-  for (const place of PLACES.slice(1)) {
-    if (path === place.href || path.startsWith(`${place.href}/`)) return place.id;
-  }
-  return null;
+  // "/" is Now itself, not every path under it.
+  const place = PLACES.find(({ href }) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`)));
+  return place?.id ?? null;
 }
 
 function Places({ path }: { path: string }) {
@@ -159,39 +158,4 @@ function Avatar({ url, login }: { url: string; login: string }) {
     return <img src={url} alt="" width={32} height={32} className="size-8" onError={() => setBroken(true)} />;
   }
   return <>{login ? login[0].toUpperCase() : "?"}</>;
-}
-
-// ── the theme ───────────────────────────────────────────────────────────────
-
-const CHANGED = "cockpit-theme";
-
-function subscribe(changed: () => void): () => void {
-  const onStorage = (event: StorageEvent) => { if (event.key === THEME_KEY) changed(); };
-  window.addEventListener(CHANGED, changed);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(CHANGED, changed);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-/**
- * The viewer's theme: kept in their browser, applied to <html> and — on
- * System — kept in step with the OS. The first paint already has it, from
- * the script in app/layout.tsx; this keeps it as the viewer changes it.
- */
-function useTheme(): [Theme, (theme: Theme) => void] {
-  const theme = useSyncExternalStore(subscribe, () => chosen(browserStorage()), () => "system" as Theme);
-  useEffect(() => {
-    const system = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => { document.documentElement.dataset.theme = applied(theme, prefersDark()); };
-    apply();
-    system.addEventListener("change", apply);
-    return () => system.removeEventListener("change", apply);
-  }, [theme]);
-  const set = (next: Theme) => {
-    keep(browserStorage(), next);
-    window.dispatchEvent(new Event(CHANGED));
-  };
-  return [theme, set];
 }
