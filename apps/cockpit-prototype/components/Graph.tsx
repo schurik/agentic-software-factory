@@ -50,6 +50,8 @@ const phaseMeta = (p: Phase) =>
 //   B Tint — each card filled with its status' tint; connectors coloured by progress
 //   C Edge — white cards, a stronger border and a status-coloured top edge; arrowed connectors
 //   D Ink  — finished stages in ink outline; the current one with a solid status header
+//   E Edge + progress — C's cards, its title row tinted by status; connectors coloured by progress
+//   F Edge + wash     — E, with a light status wash over the whole card
 // ═════════════════════════════════════════════════════════════════════════════
 
 type Tone = "ok" | "accent" | "wait" | "bad" | "none";
@@ -68,13 +70,15 @@ interface Skin {
   shape: string;
   connector: (done: boolean) => string;
   arrow?: boolean;
+  /** The arrowhead's colour, when it differs from C's neutral one. */
+  arrowTone?: (done: boolean) => string;
   end: (done: boolean) => string;
   mini: string;
 }
 
 const PENDING = "border border-dashed border-line-strong bg-transparent";
 
-const SKINS: Record<Variant, Skin> = {
+const SKINS: Partial<Record<Variant, Skin>> = {
   A: {
     canvas: "rounded-xl bg-surface-2 p-2 md:px-3 dark:bg-bg",
     card: (st, cur) => st === "pending" ? PENDING : cx("border bg-surface shadow-card", cur ? cx(border[toneOf[st]], ringSoft[toneOf[st]]) : "border-line-strong"),
@@ -124,8 +128,39 @@ const SKINS: Record<Variant, Skin> = {
   },
 };
 
+/** C's frame, shared by the blends: white card, a stronger border, a 3px status top edge. */
+const edgeTop: Record<StageStatus, string> = { ok: "border-t-ok", running: "border-t-accent", waiting: "border-t-wait", failed: "border-t-bad", pending: "" };
+// Written out whole: Tailwind only generates the classes it can read in the source.
+// Dark surfaces need more of the hue for the same visible wash.
+const wash: Record<StageStatus, string> = {
+  ok: "bg-[color-mix(in_oklab,var(--ok)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--ok)_9%,var(--surface))]",
+  running: "bg-[color-mix(in_oklab,var(--accent)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--accent)_10%,var(--surface))]",
+  waiting: "bg-[color-mix(in_oklab,#d98a00_7%,var(--surface))] dark:bg-[color-mix(in_oklab,#e5a73f_10%,var(--surface))]",
+  failed: "bg-[color-mix(in_oklab,var(--bad)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--bad)_10%,var(--surface))]",
+  pending: "",
+};
+const headTint: Record<StageStatus, string> = { ok: "bg-ok-soft", running: "bg-accent-soft", waiting: "bg-wait-soft", failed: "bg-bad-soft", pending: "" };
+
+SKINS.E = {
+  canvas: "",
+  card: (st, cur) => st === "pending" ? cx(PENDING, "border-t-[3px]") : cx("border border-line-strong border-t-[3px] bg-surface shadow-card", edgeTop[st], cur && ringSoft[toneOf[st]]),
+  head: (st) => (st === "pending" ? "" : cx(headTint[st], "rounded-t-[5px] pb-2")),
+  shape: "border border-line-strong border-t-[3px] border-t-fg/40 bg-surface shadow-card",
+  connector: (done) => (done ? "bg-ok/60" : "dashed"),
+  arrow: true,
+  arrowTone: () => "border-l-ok/60",
+  end: (done) => (done ? "border-ok/40 bg-surface shadow-card" : "border-dashed border-line-strong text-faint"),
+  mini: "bg-ok/45",
+};
+SKINS.F = {
+  ...SKINS.E!,
+  card: (st, cur) => st === "pending" ? cx(PENDING, "border-t-[3px]") : cx("border border-line-strong border-t-[3px] shadow-card", wash[st], edgeTop[st], cur && ringSoft[toneOf[st]]),
+  head: () => "",
+  end: (done) => (done ? "border-ok/40 bg-[color-mix(in_oklab,var(--ok)_5%,var(--surface))] shadow-card" : "border-dashed border-line-strong text-faint"),
+};
+
 function useSkin(): Skin {
-  return SKINS[useProto().variant];
+  return SKINS[useProto().variant] ?? SKINS.A!;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -223,7 +258,7 @@ function Connector({ done }: { done: boolean }) {
     <>
       <span aria-hidden className="relative mt-[1.1rem] hidden w-4 shrink-0 md:block">
         <span className={cx("block", dashed ? "border-t border-dashed border-line-strong" : cx("h-0.5", tone))} />
-        {skin.arrow && !dashed ? <span className="absolute -top-[3px] right-0 size-0 border-y-4 border-l-[5px] border-y-transparent border-l-fg/35" /> : null}
+        {skin.arrow && !dashed ? <span className={cx("absolute -top-[3px] right-0 size-0 border-y-4 border-l-[5px] border-y-transparent", skin.arrowTone ? skin.arrowTone(done) : "border-l-fg/35")} /> : null}
       </span>
       <span aria-hidden className={cx("ml-5 h-3 md:hidden", dashed ? "border-l border-dashed border-line-strong" : cx("w-0.5", tone))} />
     </>

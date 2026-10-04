@@ -273,3 +273,10 @@ the Cards graph, on session chapters, Now's mini graphs and the Workflows tab, i
 
 Not-yet stages stay dashed and quiet in every treatment: they are the least important part of
 the graph.
+
+Two blends followed, "more C than B":
+
+| key | name | what it takes from each |
+|---|---|---|
+| E | **Edge + progress** | C's white cards, stronger border and status top edge, plus B's progress-coloured connectors (green up to the current stage) and a status-tinted title row. The body stays white |
+| F | **Edge + wash** | E's connectors, plus a light status wash over the whole card (5% in light, about 10% in dark), about half of B's tint |

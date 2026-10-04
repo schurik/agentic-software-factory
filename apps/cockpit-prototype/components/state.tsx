@@ -10,6 +10,8 @@ export const VARIANTS = [
   { key: "B", name: "Tint" },
   { key: "C", name: "Edge" },
   { key: "D", name: "Ink" },
+  { key: "E", name: "Edge + progress" },
+  { key: "F", name: "Edge + wash" },
 ] as const;
 export type Variant = (typeof VARIANTS)[number]["key"];
 
