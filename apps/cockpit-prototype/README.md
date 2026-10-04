@@ -209,3 +209,46 @@ Not in the first rounds; prototyped before the spec. Shown at `/factories` and `
   - **Outcomes:** sessions (done · failed · open), the share that finished well, median time to finish, and the median wait at gates (rounds, and how many were rejected).
   - **By workflow:** sessions, how they finished, median time, spend with a bar, and the last run. This is what a factory's owner tunes.
 - **Run a prompt:** one dialog, owned by the app header, which **preselects the factory in context**: a factory page, a session's factory, or the sessions list filtered to one. The factory page's own button is gone. A workflow's **Run** opens the same dialog with that workflow chosen. The workflow list follows the chosen factory's prompt workflows.
+
+### Round 7: Workflows, Stations and Config rethought from the data that exists
+
+**What exists** (checked against the code):
+- **Self-description** (`asf check --json`), per workflow:
+  - description, input, trigger (labels + whether a station loop watches)
+  - stages (kind, agents, gate)
+  - agents (harness, model, thinking, purpose, tools, writes)
+  - gates on/off, warnings
+- **A station's report on every poll:** watchers it runs, commands it obeys, its checkout's head and config hash. Plus `seenAt`, claims, queued commands, and pending registrations.
+- **From the events:** a station's release (`skill_version`), the sessions it ran, and the spend through its key.
+- **`factory.yaml`:** budget, hitl, cockpit, worktree/integration, issues, pull_requests.
+- **The forge:** the cockpit speaks only GitHub, through the App or the person's `gh` token. The factory reaches the tracker through configurable `gh` commands.
+- **Config editing exists today** (spec #40/#58): someone with write access edits `asf/` as text, and the cockpit proposes a pull request in their name.
+
+**Workflows:**
+- **Header:** the trigger labels, and how many online stations watch for it (amber when none do).
+- **Record:** the last 30 days (sessions, done/failed, median time, spend) with a link to sessions.
+- **Warnings:** `asf check` warnings sit on the workflow they belong to.
+- **Graph:** annotated per stage with median time and cost, the **slowest stage**, **failures**, and, on gates that ask a person, rejections and median wait.
+- **Agent table:** harness, model and thinking, tools, and the **writes boundary** (with the rollback rule stated).
+
+**Stations:**
+- **Registrations:** pending ones on top. Approve only when the code matches what its terminal shows.
+- **One card per station:**
+  - online/away/never, and whose it is
+  - what it **watches** and what **commands it takes**
+  - the **release** it runs (behind main's, in amber), its checkout commit, config same/drifted (with what differs)
+  - running now and claims held
+  - last 30 days (sessions, failed, spend on its key)
+  - **commands waiting for it** with their expiry
+  - Revoke
+
+**Config:**
+- **Top:** "Edit config" opens an editor of the files under `asf/` with a live diff, a pull-request title and the branch it will use (`cockpit/<login>/<slug>`). It proposes the PR in your name. Open proposals are listed.
+- **Grouped by what each part decides:**
+  - **Check:** per workflow ✓ / warning / ✗.
+  - **Forge and tracker:** GitHub · github.com, how this cockpit reaches it, GitHub Issues of the project through `gh`, which workflow answers reviews.
+  - **Where work comes from:** label → workflow routes, the queued label, trusted authors, concurrency, review behaviour, ignored bots, prompt workflows.
+  - **People at gates:** which gates ask a person, the attended wait then suspend, unattended behaviour, rounds, notify.
+  - **How work lands:** PR or merge, branches, base, worktrees.
+  - **Limits and data:** budget, transcripts, which commands the cockpit may send, drift, purges.
+- **Not shown:** the raw `gh` command arrays. They only name the tracker, and the editor still has them.

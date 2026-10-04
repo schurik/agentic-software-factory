@@ -8,7 +8,7 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chapter, Phase, Session, Stage } from "@/lib/data";
-import type { Workflow } from "@/lib/factories";
+import type { StageStat, Workflow } from "@/lib/factories";
 import { StageIcon } from "./icons";
 import {
   chapterSecs, chapterStatus, cost, allPhases, currentStageIndex, expandedByDefault, fmtCost, fmtDur,
@@ -548,6 +548,9 @@ const INPUT_LABEL: Record<Workflow["input"], string> = { issue: "an issue", pr: 
  * sideways scroll as a session's chapter, so a workflow and a run of it read alike.
  */
 export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
+  const stats = workflow.stats;
+  // The slowest stage by median time, among the stages that do work (not the 2s commits).
+  const slowest = stats ? stats.reduce((m, x, i) => (x.medianSecs > stats[m].medianSecs ? i : m), 0) : -1;
   const nodes: ReactNode[] = [];
   const start = (
     <span key="start" className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-sm whitespace-nowrap text-muted">
@@ -563,9 +566,15 @@ export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
           <StageIcon name={s.name} size={14} className="text-muted" />{s.name}
         </span>
         <span className="text-xs whitespace-nowrap text-muted">{s.agents.length ? s.agents.join(", ") : "code"}</span>
+        {stats?.[i] ? <StageRecord stat={stats[i]} slowest={i === slowest} /> : null}
         {s.gate ? (
           <span className={cx("w-fit rounded px-1.5 py-px text-[11px] font-medium whitespace-nowrap", s.gate.on ? "bg-wait-soft text-wait" : "bg-surface-2 text-muted")}>
             {s.gate.name} gate · {s.gate.on ? "asks a person" : "passes by policy"}
+          </span>
+        ) : null}
+        {s.gate?.on && stats?.[i]?.gate ? (
+          <span className="text-[11px] whitespace-nowrap text-muted">
+            {stats[i].gate!.rejected} of {stats[i].gate!.rounds} rejected · wait {fmtDur(stats[i].gate!.medianWait)}
           </span>
         ) : null}
       </div>,
@@ -580,5 +589,16 @@ export function WorkflowGraph({ workflow }: { workflow: Workflow }) {
       <div className="flex flex-col items-stretch md:hidden">{nodes}</div>
       <ScrollRow focus={-1}>{nodes}</ScrollRow>
     </>
+  );
+}
+
+/** A stage's last 30 days on its card: median time and cost; failures and the slowest said in colour, with words. */
+function StageRecord({ stat, slowest }: { stat: StageStat; slowest: boolean }) {
+  return (
+    <span className="flex flex-col gap-0.5 border-t border-line pt-1 text-[11px] whitespace-nowrap tabular-nums text-muted">
+      <span>{fmtDur(stat.medianSecs)}{stat.medianCost ? ` · ${fmtCost(stat.medianCost)}` : ""} <span className="text-faint">median</span></span>
+      {slowest ? <span className="font-medium text-wait">slowest stage</span> : null}
+      {stat.failures ? <span className="font-medium text-bad">{stat.failures} failure{stat.failures > 1 ? "s" : ""}</span> : null}
+    </span>
   );
 }

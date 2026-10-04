@@ -31,6 +31,8 @@ interface State {
   closeRun: () => void;
   answered: Record<string, "approve" | "reject">;
   answer: (gateId: string, verdict: "approve" | "reject", note: string, where: string) => void;
+  /** Say what a prototype action would have done; nothing is ever sent. */
+  openToast: (message: string) => void;
   toast: string | null;
 }
 
@@ -59,6 +61,11 @@ export function Provider({ children }: { children: ReactNode }) {
     router.replace(`${pathname}?${next.toString()}`, { scroll: false });
   }, [params, pathname, router]);
 
+  const openToast = useCallback((message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast(null), 4200);
+  }, []);
+
   const answer = useCallback((gateId: string, verdict: "approve" | "reject", note: string, where: string) => {
     setAnswered((a) => ({ ...a, [gateId]: verdict }));
     setToast(`${verdict === "approve" ? "Approved" : "Rejected"} — would post as a comment on ${where}${note ? ` with “${note}”` : ""}. Prototype: nothing was sent.`);
@@ -74,11 +81,13 @@ export function Provider({ children }: { children: ReactNode }) {
     run,
     openRun: (preset) => setRun({ open: true, ...preset }),
     closeRun: () => setRun((r) => ({ ...r, open: false })),
-    answered, answer, toast,
-  }), [variant, setVariant, drawer, run, answered, answer, toast]);
+    answered, answer, openToast, toast,
+  }), [variant, setVariant, drawer, run, answered, answer, openToast, toast]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
+
+export const useToast = () => ({ openToast: useProto().openToast });
 
 /** A link that keeps `?variant=` so the chosen graph survives navigation. */
 export function PLink({ href, ...rest }: ComponentProps<typeof Link> & { href: string }) {
