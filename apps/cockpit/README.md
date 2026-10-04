@@ -577,6 +577,22 @@ cockpit's public functions.
 `convex/_generated/` is committed, so typecheck and tests run on a fresh clone. Regenerate it with
 `bun x convex codegen` (or `bun x convex dev`) after changing a function's signature.
 
+### Previews come with the golden sessions
+
+A preview deploy is seeded with the recorded sessions, so every preview has something to look at:
+`bun run seed:golden` after the build sends each one to `POST /ingest`, as a station would, and
+sending them again is a no-op. On Vercel the build command is `bun run build && bun run seed:golden`
+(the golden sessions sit outside `apps/cockpit`, so keep "Include files outside the root directory"
+on). It seeds only when `VERCEL_ENV=preview`; production holds what real stations shipped and
+nothing else. A preview that cannot be seeded fails its build instead of coming up empty. Set these
+for Preview only:
+
+- `COCKPIT_DEMO_INGEST_TOKEN`, from `npx convex run tokens:issue '{"factory": "owner/repo"}'` against the
+  preview backend. The sessions land in that factory, so in a team's cockpit name one the people
+  looking can read.
+- `CONVEX_URL`, the backend. On Convex cloud its site (`.convex.site`) is found beside it; anywhere
+  else, `COCKPIT_DEMO_SITE_URL` names the site (self-hosted: the `SITE_PROXY_PORT`, `:3211`).
+
 ## Licence of what it runs on
 
 The Convex backend and dashboard images (`ghcr.io/get-convex/convex-backend`,

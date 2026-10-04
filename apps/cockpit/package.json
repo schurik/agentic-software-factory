@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "codegen": "convex codegen"
+    "codegen": "convex codegen",
+    "seed:golden": "bun scripts/seed-golden.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
