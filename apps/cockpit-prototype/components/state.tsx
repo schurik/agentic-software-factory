@@ -25,6 +25,10 @@ interface State {
   push: (t: DrawerTarget) => void;
   back: () => void;
   close: () => void;
+  /** The one Run-a-prompt dialog, opened from the header or from a workflow, with what is chosen. */
+  run: { open: boolean; factory?: string; workflow?: string };
+  openRun: (preset: { factory?: string; workflow?: string }) => void;
+  closeRun: () => void;
   answered: Record<string, "approve" | "reject">;
   answer: (gateId: string, verdict: "approve" | "reject", note: string, where: string) => void;
   toast: string | null;
@@ -47,6 +51,7 @@ export function Provider({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState<DrawerTarget[]>([]);
   const [answered, setAnswered] = useState<Record<string, "approve" | "reject">>({});
   const [toast, setToast] = useState<string | null>(null);
+  const [run, setRun] = useState<State["run"]>({ open: false });
 
   const setVariant = useCallback((v: Variant) => {
     const next = new URLSearchParams(params.toString());
@@ -66,8 +71,11 @@ export function Provider({ children }: { children: ReactNode }) {
     push: (t) => setDrawer((d) => [...d, t]),
     back: () => setDrawer((d) => d.slice(0, -1)),
     close: () => setDrawer([]),
+    run,
+    openRun: (preset) => setRun({ open: true, ...preset }),
+    closeRun: () => setRun((r) => ({ ...r, open: false })),
     answered, answer, toast,
-  }), [variant, setVariant, drawer, answered, answer, toast]);
+  }), [variant, setVariant, drawer, run, answered, answer, toast]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

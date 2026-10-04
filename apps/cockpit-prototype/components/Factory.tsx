@@ -3,23 +3,23 @@
 // Overview · Workflows · Stations · Config, and Sessions as a link to the sessions list filtered
 // to it. What used to be top-level Stations and Cost lives here now, per factory.
 //
-// The list and the Overview are drawn with Now's rows, so a factory reads the way Now does; the
-// Workflows tab draws each workflow with the session page's stage graph.
+// The list is drawn with Now's rows. The Overview is about the factory itself — what it costs,
+// how its workflows do over a period — and shows nothing Now, Sessions or a session page shows.
+// The Workflows tab draws each workflow with the session page's stage graph.
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Tabs } from "@base-ui/react/tabs";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { CircleDot, ExternalLink, GitPullRequest, SquareTerminal } from "lucide-react";
+import { CircleDot, ExternalLink, GitPullRequest, Play, SquareTerminal } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { ATTENTION, FORGE, GATES, HISTORY, NOW, SESSIONS } from "@/lib/data";
-import { FACTORY_DETAILS, factoryByName, type FactoryDetail, type Spend, type Station, type Workflow } from "@/lib/factories";
-import { cost, fmtAgo, fmtCost, fmtInt, sessionPhases, who } from "@/lib/model";
+import { ATTENTION, FORGE, GATES, NOW, SESSIONS } from "@/lib/data";
+import { FACTORY_DETAILS, factoryByName, type FactoryDetail, type Period, type Station, type Workflow } from "@/lib/factories";
+import { fmtAgo, fmtCost, fmtDur, fmtInt, who } from "@/lib/model";
 import { WorkflowGraph } from "./Graph";
 import { CommitRef } from "./icons";
-import { AttentionRows, CollapsibleSection, GateRows, Row, RunningRows, Section } from "./Now";
-import { RunPrompt } from "./Shell";
-import { PLink } from "./state";
-import { Card, Chevron, Pill, StatusIcon, cx } from "./ui";
+import { Row, Section } from "./Now";
+import { PLink, useProto } from "./state";
+import { Button, Card, Chevron, Pill, StatusIcon, cx } from "./ui";
 
 // ── shared facts per factory ───────────────────────────────────────────────
 
@@ -65,7 +65,7 @@ export function FactoriesList() {
                 needs.length ? <span className="flex flex-wrap gap-x-1.5">{needs.flatMap((n, i) => (i ? [<span key={`s${i}`}>·</span>, n] : [n]))}</span> : <span>Nothing needs attention</span>,
                 <span key="facts">{running.length} running · {online}/{f.stations.length} stations online · {f.workflows.filter((w) => !w.broken).length} workflows</span>,
               ]}
-              where={<>{fmtCost(f.spend.month.total)} this month</>}
+              where={<>{fmtCost(f.spend.last30.total)} in 30 days</>}
               when={<>active {fmtAgo(NOW - f.lastActivity)}</>}
               href={`/factories/${f.name}`}
             />
@@ -116,7 +116,6 @@ export function FactoryPage({ name }: { name: string }) {
               <span className="tabular-nums">{fmtCost(f.budget)} · {fmtInt(f.tokensCap)} tokens per session</span>
             </div>
           </div>
-          <div className="shrink-0 self-start"><RunPrompt factory={f.name} workflows={f.workflows.filter((w) => w.input === "prompt" && !w.broken).map((w) => w.name)} /></div>
         </div>
       </div>
 
@@ -143,70 +142,148 @@ export function FactoryPage({ name }: { name: string }) {
   );
 }
 
-// ── Overview: what needs this factory's people, what is moving, what it costs ──
+// ── Overview: the factory itself, over a period ────────────────────────────
+//
+// Not what is happening now (that is Now) nor any one session (Sessions): what the factory costs
+// and how its workflows do, so the people who own it can tune budgets, gates and workflows.
+
+const PERIODS: [Period, string][] = [["last7", "Last 7 days"], ["last30", "Last 30 days"]];
+const DAY = 24 * 3600_000;
+const fmtDay = (t: number) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 function Overview({ f }: { f: FactoryDetail }) {
-  const { running, gates, attention } = factsOf(f);
-  const recent = [
-    ...SESSIONS.filter((s) => s.factory === f.name && s.status !== "running").map((s) => ({ id: s.id, title: s.title, status: s.status, cost: cost(sessionPhases(s)), at: s.startedAt, live: true })),
-    ...HISTORY.filter((h) => h.factory === f.name).map((h) => ({ id: h.id, title: h.title, status: h.status, cost: h.cost, at: h.at, live: false })),
-  ].sort((a, b) => b.at - a.at).slice(0, 5);
+  const [period, setPeriod] = useState<Period>("last30");
+  const days = period === "last7" ? 7 : 30;
+  const daily = f.daily.slice(-days);
+  const total = daily.reduce((a, b) => a + b, 0);
+  const share = total / f.daily.reduce((a, b) => a + b, 0);
+  const o = f.outcomes[period];
+  const scale = (rows: [string, number][]) => rows.map(([k, v]) => [k, v * share] as [string, number]);
   return (
     <div className="flex max-w-[960px] flex-col gap-8">
-      {gates.length ? (
-        <Section title="Waiting on you" count={gates.length}><GateRows gates={gates} /></Section>
-      ) : null}
-      {attention.length ? (
-        <CollapsibleSection title="Needs attention" count={attention.length} defaultOpen><AttentionRows items={attention} showFactory={false} /></CollapsibleSection>
-      ) : null}
-      <CollapsibleSection title="Running" count={running.length} defaultOpen>
-        {running.length ? <RunningRows sessions={running} showFactory={false} /> : <Card className="px-5 py-4 text-muted">Nothing is running.</Card>}
-      </CollapsibleSection>
-      <SpendSection f={f} />
-      <CollapsibleSection title="Recent" count={recent.length} defaultOpen>
-        <Card className="divide-y divide-line overflow-hidden">
-          {recent.map((r) => (
-            <Row
-              key={r.id}
-              icon={r.status === "failed" ? "failed" : r.status === "waiting" ? "waiting" : "running"}
-              glyph={r.status === "done" ? <StatusIcon status="ok" size={16} className="mt-0.5" /> : undefined}
-              title={r.title}
-              lines={[<span key="id" className="font-mono">{r.id}</span>]}
-              where={fmtCost(r.cost)}
-              when={fmtAgo(NOW - r.at)}
-              href={r.live ? `/sessions/${r.id}` : undefined}
-            />
+      {/* One filter row above everything it filters. */}
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-muted">{fmtDay(NOW - (days - 1) * DAY)} – {fmtDay(NOW)}</span>
+        <span className="grow" />
+        <div className="flex rounded-md border border-line p-0.5 text-xs" role="radiogroup" aria-label="Period">
+          {PERIODS.map(([k, l]) => (
+            <button key={k} role="radio" aria-checked={period === k} onClick={() => setPeriod(k)} className={cx("h-6 rounded px-2 cursor-pointer", period === k ? "bg-surface-3 text-fg" : "text-muted hover:text-fg")}>{l}</button>
           ))}
+        </div>
+      </div>
+
+      <Section title="Spend">
+        <Card className="p-5">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-3xl font-semibold tracking-tight">{fmtCost(total)}</span>
+            <span className="text-sm text-muted tabular-nums">{fmtInt(Math.round((f.spend.last30.tokens * share) / 100) * 100)} tokens · list-price equivalent</span>
+            <span className="grow" />
+            <span className="text-sm text-muted tabular-nums">{fmtCost(total / days)} a day · {fmtCost(o.sessions ? total / o.sessions : 0)} a session</span>
+          </div>
+          <SpendChart daily={daily} />
+          <div className="mt-6 grid gap-6 md:grid-cols-2">
+            <Breakdown title="By station — whose key paid" rows={scale(f.spend.last30.byStation)} total={total} mono />
+            <Breakdown title="By person — who started it" rows={scale(f.spend.last30.byPerson).map(([p, v]) => [who(p), v])} total={total} />
+          </div>
         </Card>
-      </CollapsibleSection>
+      </Section>
+
+      <Section title="Outcomes">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Stat label="Sessions" value={fmtInt(o.sessions)} sub={<>{o.done} done · <span className={o.failed ? "text-bad" : undefined}>{o.failed} failed</span> · {o.open} open</>} />
+          <Stat label="Finished well" value={o.done + o.failed ? `${Math.round((o.done / (o.done + o.failed)) * 100)}%` : "—"} sub="of the sessions that finished" />
+          <Stat label="Time to finish" value={o.medianSecs ? fmtDur(o.medianSecs) : "—"} sub="median, start to last phase" />
+          <Stat label="Wait at gates" value={o.gateRounds ? fmtDur(o.medianGateWait) : "—"} sub={o.gateRounds ? <>median · {o.gateRounds} rounds, {o.rejectedRounds} rejected</> : "no gate asked a person"} />
+        </div>
+      </Section>
+
+      <Section title="By workflow">
+        <Card className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="border-b border-line text-left text-xs text-muted">
+              <tr>
+                <th className="px-4 py-2 font-medium md:px-5">Workflow</th>
+                <th className="px-2 py-2 text-right font-medium">Sessions</th>
+                <th className="px-2 py-2 font-medium">Finished</th>
+                <th className="px-2 py-2 text-right font-medium">Median time</th>
+                <th className="w-44 px-2 py-2 font-medium">Spend</th>
+                <th className="px-4 py-2 text-right font-medium md:px-5">Last run</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {o.byWorkflow.map((w) => (
+                <tr key={w.workflow}>
+                  <td className="px-4 py-2.5 font-medium whitespace-nowrap md:px-5">{w.workflow}</td>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{w.sessions}</td>
+                  <td className="px-2 py-2.5 tabular-nums">{w.done} done{w.failed ? <span className="text-bad"> · {w.failed} failed</span> : null}{w.sessions - w.done - w.failed ? <span className="text-muted"> · {w.sessions - w.done - w.failed} open</span> : null}</td>
+                  <td className="px-2 py-2.5 text-right tabular-nums">{w.medianSecs ? fmtDur(w.medianSecs) : "—"}</td>
+                  <td className="px-2 py-2.5">
+                    <span className="flex items-center gap-2">
+                      <span className="h-1.5 grow overflow-hidden rounded-full bg-accent-soft"><span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(...o.byWorkflow.map((x) => x.spend)) ? (w.spend / Math.max(...o.byWorkflow.map((x) => x.spend))) * 100 : 0}%` }} /></span>
+                      <span className="w-12 text-right tabular-nums">{fmtCost(w.spend)}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-muted tabular-nums md:px-5">{fmtAgo(NOW - w.lastRun)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      </Section>
     </div>
   );
 }
 
-/** Spend over a period, and who it went to: by workflow, by the station whose machine and key paid, by the person who triggered the run. */
-function SpendSection({ f }: { f: FactoryDetail }) {
-  const [period, setPeriod] = useState<"month" | "last30">("month");
-  const s: Spend = f.spend[period];
+function Stat({ label, value, sub }: { label: string; value: ReactNode; sub: ReactNode }) {
   return (
-    <Section title="Spend" right={
-      <div className="flex rounded-md border border-line p-0.5 text-xs">
-        {([["month", "This month"], ["last30", "Last 30 days"]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setPeriod(k)} className={cx("h-6 rounded px-2 cursor-pointer", period === k ? "bg-surface-3 text-fg" : "text-muted hover:text-fg")}>{l}</button>
-        ))}
+    <Card className="px-4 py-3">
+      <div className="text-xs text-muted">{label}</div>
+      <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
+      <div className="mt-0.5 text-xs text-muted">{sub}</div>
+    </Card>
+  );
+}
+
+/**
+ * Spend per day: one series, so no legend (the section names it). Columns capped at 24px with a
+ * 2px gap, square at the baseline and 4px round at the top; hairline gridlines at clean values;
+ * a tooltip on each day, whose hit target is the whole column, not just the bar.
+ */
+function SpendChart({ daily }: { daily: number[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const max = Math.max(...daily, 0.01);
+  const step = [0.05, 0.1, 0.2, 0.25, 0.5, 1].find((s) => max / s <= 4) ?? 1;
+  const top = Math.ceil(max / step) * step;
+  const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
+  const first = NOW - (daily.length - 1) * DAY;
+  return (
+    <div className="mt-8">
+      <div className="flex gap-2">
+        <div className="relative h-36 w-10 shrink-0 text-right text-[11px] text-muted tabular-nums">
+          {ticks.map((t) => <span key={t} className="absolute right-0 -translate-y-1/2" style={{ bottom: `${(t / top) * 100}%`, transform: "translateY(50%)" }}>{fmtCost(t)}</span>)}
+        </div>
+        <div className="relative h-36 grow" onMouseLeave={() => setHover(null)}>
+          {ticks.map((t) => <span key={t} aria-hidden className="absolute inset-x-0 h-px bg-line" style={{ bottom: `${(t / top) * 100}%` }} />)}
+          <div className="absolute inset-0 flex items-end gap-0.5" role="img" aria-label={`Spend per day, ${daily.length} days`}>
+            {daily.map((v, i) => (
+              <div key={i} className="relative flex h-full min-w-0 flex-1 items-end justify-center" onMouseEnter={() => setHover(i)}>
+                <span className={cx("block w-full max-w-6 rounded-t-[4px] transition-opacity", hover !== null && hover !== i ? "bg-accent opacity-40" : "bg-accent")} style={{ height: v ? `${Math.max(2, (v / top) * 100)}%` : 0 }} />
+                {hover === i ? (
+                  <span className="pointer-events-none absolute bottom-full z-10 mb-1 rounded-md border border-line bg-surface px-2 py-1 text-xs whitespace-nowrap shadow-pop" style={{ bottom: `${(v / top) * 100}%` }}>
+                    <span className="text-muted">{fmtDay(first + i * DAY)}</span> <b className="font-semibold tabular-nums">{fmtCost(v)}</b>
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-    }>
-      <Card className="p-5">
-        <div className="flex flex-wrap items-baseline gap-x-3">
-          <span className="text-2xl font-semibold tabular-nums">{fmtCost(s.total)}</span>
-          <span className="text-sm text-muted tabular-nums">{fmtInt(s.tokens)} tokens · list-price equivalent</span>
-        </div>
-        <div className="mt-5 grid gap-6 md:grid-cols-3">
-          <Breakdown title="By workflow" rows={s.byWorkflow} total={s.total} />
-          <Breakdown title="By station — whose key paid" rows={s.byStation} total={s.total} mono />
-          <Breakdown title="By person — who started it" rows={s.byPerson.map(([p, v]) => [who(p), v])} total={s.total} />
-        </div>
-      </Card>
-    </Section>
+      <div className="mt-1.5 ml-12 flex justify-between text-[11px] text-muted">
+        <span>{fmtDay(first)}</span>
+        <span>{fmtDay(first + Math.floor(daily.length / 2) * DAY)}</span>
+        <span>{fmtDay(NOW)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -221,7 +298,7 @@ function Breakdown({ title, rows, total, mono }: { title: string; rows: [string,
               <span className={cx("min-w-0 grow truncate", mono && "font-mono text-[13px]")}>{label}</span>
               <span className="tabular-nums">{fmtCost(v)}</span>
             </div>
-            <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-accent" style={{ width: `${total ? (v / total) * 100 : 0}%` }} /></div>
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-accent-soft"><div className="h-full rounded-full bg-accent" style={{ width: `${total ? (v / total) * 100 : 0}%` }} /></div>
           </div>
         ))}
       </div>
@@ -253,6 +330,12 @@ function Workflows({ f }: { f: FactoryDetail }) {
   );
 }
 
+/** Opens the header's Run-a-prompt dialog with this factory and workflow chosen: one dialog, two ways in. */
+function RunWorkflow({ factory, workflow }: { factory: string; workflow: string }) {
+  const { openRun } = useProto();
+  return <Button variant="secondary" size="sm" onClick={() => openRun({ factory, workflow })} aria-label={`Run ${workflow}`}><Play size={12} fill="currentColor" />Run</Button>;
+}
+
 function WorkflowCard({ f, w }: { f: FactoryDetail; w: Workflow }) {
   const used = [...new Set(w.stages.flatMap((s) => s.agents))];
   const agents = f.agents.filter((a) => used.includes(a.name));
@@ -262,7 +345,7 @@ function WorkflowCard({ f, w }: { f: FactoryDetail; w: Workflow }) {
         <span className="text-lg font-semibold">{w.name}</span>
         <span className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-xs text-muted">{INPUT_ICON[w.input]}{INPUT_WORD[w.input]}</span>
         <span className="grow" />
-        {w.input === "prompt" ? <RunPrompt factory={f.name} workflow={w.name} workflows={[w.name]} label="Run" /> : null}
+        {w.input === "prompt" ? <RunWorkflow factory={f.name} workflow={w.name} /> : null}
       </div>
       <p className="mt-1">{w.about}</p>
       <p className="mt-0.5 text-sm text-muted">Started by {w.startedBy}.</p>

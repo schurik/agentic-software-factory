@@ -29,6 +29,21 @@ export interface Station {
   ciJobs?: string;
 }
 export interface Spend { total: number; tokens: number; byWorkflow: [string, number][]; byStation: [string, number][]; byPerson: [string, number][] }
+/** How a workflow did over a period: what a factory's owner tunes — not any one session. */
+export interface WorkflowStats { workflow: string; sessions: number; done: number; failed: number; medianSecs: number; spend: number; lastRun: number }
+export interface Outcomes {
+  sessions: number;
+  done: number;
+  failed: number;
+  open: number;
+  medianSecs: number;
+  /** How long sessions waited on people at gates, median. */
+  medianGateWait: number;
+  gateRounds: number;
+  rejectedRounds: number;
+  byWorkflow: WorkflowStats[];
+}
+export type Period = "last7" | "last30";
 export interface FactoryDetail {
   name: string;
   defaultBranch: string;
@@ -44,6 +59,9 @@ export interface FactoryDetail {
   agents: Agent[];
   stations: Station[];
   spend: { month: Spend; last30: Spend };
+  /** Spend per day, oldest first, for the last 30 days. */
+  daily: number[];
+  outcomes: Record<Period, Outcomes>;
   purged: { session: string; by: string; at: number; why: string }[];
 }
 
@@ -82,6 +100,21 @@ const WORKFLOWS: Workflow[] = [
   { name: "nightly", input: "prompt", about: "", startedBy: "", stages: [], broken: "workflow 'nightly' (asf/workflows/nightly/workflow.yaml) is not runnable:\n- stages[1] implement: agent 'nobody' is neither in the roster nor bound under agents: (analyst, builder, documenter, planner, reviewer, scout)" },
 ];
 
+/** Thirty days of spend that add up to `total`: a seeded wobble, weekends nearly idle. */
+function dailyOf(total: number, seed: number): number[] {
+  let x = seed;
+  const rnd = () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+  const raw = Array.from({ length: 30 }, (_, i) => {
+    const day = new Date(NOW - (29 - i) * 24 * hour).getUTCDay();
+    const weekend = day === 0 || day === 6;
+    return weekend ? (rnd() < 0.7 ? 0 : rnd() * 0.2) : 0.3 + rnd();
+  });
+  const sum = raw.reduce((a, b) => a + b, 0);
+  return raw.map((v) => Math.round((v / sum) * total * 100) / 100);
+}
+
+const ago = (h: number) => NOW - h * hour;
+
 function spend(total: number, tokens: number, wf: [string, number][], st: [string, number][], pe: [string, number][]): Spend {
   return { total, tokens, byWorkflow: wf, byStation: st, byPerson: pe };
 }
@@ -100,6 +133,18 @@ export const FACTORY_DETAILS: FactoryDetail[] = [
       month: spend(1.48, 92_100, [["issue", 1.32], ["pr-review", 0.08], ["quick", 0.08]], [["schurik@mbp:widgets", 1.48]], [["schurik", 1.48]]),
       last30: spend(2.11, 131_400, [["issue", 1.85], ["pr-review", 0.14], ["quick", 0.12]], [["schurik@mbp:widgets", 1.97], ["ci@widgets", 0.14]], [["schurik", 1.97], ["not named by the factory", 0.14]]),
     },
+    daily: dailyOf(2.11, 7),
+    outcomes: {
+      last30: { sessions: 11, done: 7, failed: 1, open: 3, medianSecs: 41 * 60, medianGateWait: 14 * 60, gateRounds: 9, rejectedRounds: 2, byWorkflow: [
+        { workflow: "issue", sessions: 6, done: 3, failed: 1, medianSecs: 58 * 60, spend: 1.85, lastRun: ago(0.1) },
+        { workflow: "pr-review", sessions: 4, done: 4, failed: 0, medianSecs: 2 * 60, spend: 0.14, lastRun: ago(2) },
+        { workflow: "quick", sessions: 1, done: 0, failed: 0, medianSecs: 0, spend: 0.12, lastRun: ago(30) },
+      ] },
+      last7: { sessions: 6, done: 3, failed: 0, open: 3, medianSecs: 49 * 60, medianGateWait: 21 * 60, gateRounds: 5, rejectedRounds: 1, byWorkflow: [
+        { workflow: "issue", sessions: 4, done: 1, failed: 0, medianSecs: 61 * 60, spend: 0.91, lastRun: ago(0.1) },
+        { workflow: "pr-review", sessions: 2, done: 2, failed: 0, medianSecs: 2 * 60, spend: 0.08, lastRun: ago(2) },
+      ] },
+    },
     purged: [],
   },
   {
@@ -116,6 +161,17 @@ export const FACTORY_DETAILS: FactoryDetail[] = [
       month: spend(1.17, 71_800, [["issue", 0.97], ["pr-review", 0.2]], [["ci@gadgets", 0.52], ["mira@thinkpad:gadgets", 0.45], ["schurik@mbp:gadgets", 0.2]], [["mira", 0.45], ["schurik", 0.2], ["not named by the factory", 0.52]]),
       last30: spend(1.62, 99_000, [["issue", 1.31], ["pr-review", 0.31]], [["ci@gadgets", 0.74], ["mira@thinkpad:gadgets", 0.68], ["schurik@mbp:gadgets", 0.2]], [["mira", 0.68], ["schurik", 0.2], ["not named by the factory", 0.74]]),
     },
+    daily: dailyOf(1.62, 3),
+    outcomes: {
+      last30: { sessions: 9, done: 4, failed: 2, open: 3, medianSecs: 1 * 3600 + 12 * 60, medianGateWait: 52 * 60, gateRounds: 6, rejectedRounds: 0, byWorkflow: [
+        { workflow: "issue", sessions: 6, done: 2, failed: 2, medianSecs: 84 * 60, spend: 1.31, lastRun: ago(0.4) },
+        { workflow: "pr-review", sessions: 3, done: 2, failed: 0, medianSecs: 9 * 60, spend: 0.31, lastRun: ago(0.1) },
+      ] },
+      last7: { sessions: 5, done: 1, failed: 1, open: 3, medianSecs: 1 * 3600 + 30 * 60, medianGateWait: 61 * 60, gateRounds: 3, rejectedRounds: 0, byWorkflow: [
+        { workflow: "issue", sessions: 4, done: 1, failed: 1, medianSecs: 92 * 60, spend: 0.82, lastRun: ago(0.4) },
+        { workflow: "pr-review", sessions: 1, done: 0, failed: 0, medianSecs: 0, spend: 0.2, lastRun: ago(0.1) },
+      ] },
+    },
     purged: [{ session: "4c2d0e11", by: "mira", at: NOW - 9 * 24 * hour, why: "a customer's address in the issue body" }],
   },
   {
@@ -129,6 +185,16 @@ export const FACTORY_DETAILS: FactoryDetail[] = [
     spend: {
       month: spend(0.1, 6_200, [["quick", 0.1]], [["schurik@mbp:docs-site", 0.1]], [["schurik", 0.1]]),
       last30: spend(0.24, 15_100, [["quick", 0.17], ["issue", 0.07]], [["schurik@mbp:docs-site", 0.24]], [["schurik", 0.24]]),
+    },
+    daily: dailyOf(0.24, 11),
+    outcomes: {
+      last30: { sessions: 5, done: 4, failed: 0, open: 1, medianSecs: 3 * 60, medianGateWait: 0, gateRounds: 0, rejectedRounds: 0, byWorkflow: [
+        { workflow: "quick", sessions: 4, done: 3, failed: 0, medianSecs: 3 * 60, spend: 0.17, lastRun: ago(0.05) },
+        { workflow: "issue", sessions: 1, done: 1, failed: 0, medianSecs: 14 * 60, spend: 0.07, lastRun: ago(200) },
+      ] },
+      last7: { sessions: 2, done: 1, failed: 0, open: 1, medianSecs: 3 * 60, medianGateWait: 0, gateRounds: 0, rejectedRounds: 0, byWorkflow: [
+        { workflow: "quick", sessions: 2, done: 1, failed: 0, medianSecs: 3 * 60, spend: 0.1, lastRun: ago(0.05) },
+      ] },
     },
     purged: [],
   },

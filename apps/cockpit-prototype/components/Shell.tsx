@@ -6,9 +6,10 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { Select } from "@base-ui/react/select";
 import { Check, ChevronsUpDown, Monitor, Moon, Play, Sun, X } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { FACTORIES, GATES, MODE, VIEWER } from "@/lib/data";
+import { FACTORIES, GATES, MODE, VIEWER, sessionById } from "@/lib/data";
+import { factoryByName } from "@/lib/factories";
 import { SideDrawer } from "./Drawer";
 import { PLink, useProto, VARIANTS } from "./state";
 import { Button, cx, menuItem, menuLabel, menuPopup } from "./ui";
@@ -118,25 +119,53 @@ function Pick({ label, items, value, onChange }: { label: string; items: string[
   );
 }
 
-/** Run a prompt — from the header with nothing chosen, or from a factory page with its factory (and a workflow) chosen. */
-export function RunPrompt({ factory: initialFactory, workflow: initialWorkflow, label = "Run a prompt", variant = "secondary", workflows = ["quick", "sdlc", "ship"], iconOnlyOnPhone = false }: {
-  factory?: string;
-  workflow?: string;
-  label?: string;
-  variant?: "primary" | "secondary";
-  workflows?: string[];
-  /** The header's button: on a phone, the icon alone. */
-  iconOnlyOnPhone?: boolean;
-}) {
-  const [factory, setFactory] = useState(initialFactory ?? FACTORIES[0].name);
-  const [workflow, setWorkflow] = useState(initialWorkflow ?? workflows[0]);
-  const [prompt, setPrompt] = useState("");
+/** The factory the page is about, if any: a factory page, a session's factory, the sessions list filtered to one. */
+function useFactoryInContext(): string | undefined {
+  const path = usePathname();
+  const params = useSearchParams();
+  const m = /^\/factories\/(.+)$/.exec(path);
+  if (m) return decodeURIComponent(m[1]);
+  const s = /^\/sessions\/([^/]+)$/.exec(path);
+  if (s) return sessionById(s[1])?.factory;
+  if (path === "/sessions") return params.get("factory") ?? undefined;
+  return undefined;
+}
+
+const promptWorkflows = (factory: string) =>
+  factoryByName(factory)?.workflows.filter((w) => w.input === "prompt" && !w.broken).map((w) => w.name) ?? ["quick"];
+
+/** The header's button: one way to run a prompt, with the factory you are looking at already chosen. */
+function RunPromptButton() {
+  const { openRun } = useProto();
+  const factory = useFactoryInContext();
   return (
-    <Dialog.Root onOpenChange={(o) => { if (!o) setPrompt(""); }}>
-      <Dialog.Trigger render={<Button variant={variant} size="sm" aria-label={label} />}>
-        <Play size={12} fill="currentColor" />
-        <span className={iconOnlyOnPhone ? "hidden sm:inline" : undefined}>{label}</span>
-      </Dialog.Trigger>
+    <Button variant="secondary" size="sm" onClick={() => openRun({ factory })} aria-label={factory ? `Run a prompt on ${factory}` : "Run a prompt"} title={factory ? `Run a prompt on ${factory}` : undefined}>
+      <Play size={12} fill="currentColor" />
+      <span className="hidden sm:inline">Run a prompt</span>
+    </Button>
+  );
+}
+
+/** The one Run-a-prompt dialog. Whoever opens it says what to choose; the workflows follow the factory. */
+function RunPromptDialog() {
+  const { run, closeRun } = useProto();
+  const [factory, setFactory] = useState(FACTORIES[0].name);
+  const [workflow, setWorkflow] = useState("quick");
+  const [prompt, setPrompt] = useState("");
+  const workflows = promptWorkflows(factory);
+  useEffect(() => {
+    if (!run.open) return;
+    const f = run.factory ?? FACTORIES[0].name;
+    setFactory(f);
+    setWorkflow(run.workflow ?? promptWorkflows(f)[0]);
+    setPrompt("");
+  }, [run]);
+  const pickFactory = (f: string) => {
+    setFactory(f);
+    if (!promptWorkflows(f).includes(workflow)) setWorkflow(promptWorkflows(f)[0]);
+  };
+  return (
+    <Dialog.Root open={run.open} onOpenChange={(o) => { if (!o) closeRun(); }}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/25 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0 dark:bg-black/60" />
         <Dialog.Popup className="fixed z-50 top-[12vh] left-1/2 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-line bg-surface p-5 shadow-pop transition-all data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
@@ -148,7 +177,7 @@ export function RunPrompt({ factory: initialFactory, workflow: initialWorkflow, 
             <Dialog.Close className="-mt-1 -mr-1 grid size-8 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg cursor-pointer" aria-label="Close"><X size={16} /></Dialog.Close>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <Pick label="Factory" items={FACTORIES.map((f) => f.name)} value={factory} onChange={setFactory} />
+            <Pick label="Factory" items={FACTORIES.map((f) => f.name)} value={factory} onChange={pickFactory} />
             <Pick label="Workflow" items={workflows} value={workflow} onChange={setWorkflow} />
           </div>
           <label className="mt-3 flex flex-col gap-1">
@@ -238,12 +267,13 @@ export function Shell({ children }: { children: ReactNode }) {
           </PLink>
           <Nav />
           <span className="grow" />
-          <RunPrompt iconOnlyOnPhone />
+          <RunPromptButton />
           <AvatarMenu />
         </div>
       </header>
       <main className="mx-auto max-w-[1280px] px-4 pt-6 pb-28 md:px-6 md:pt-8">{children}</main>
       <SideDrawer />
+      <RunPromptDialog />
       {toast ? (
         <div className="fixed bottom-16 left-1/2 z-50 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-line bg-surface px-4 py-3 text-sm shadow-pop">{toast}</div>
       ) : null}

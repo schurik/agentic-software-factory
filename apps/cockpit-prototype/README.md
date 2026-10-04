@@ -198,3 +198,14 @@ Not in the first rounds; prototyped before the spec. Shown at `/factories` and `
   - **Settings from `asf/factory.yaml`:** per-session budget and tokens, gates that ask a person, transcripts and their retention, with a link to the file.
   - **Drift:** a pointer to Stations.
   - **Retention:** the purge log.
+
+### Round 6: the factory Overview is about the factory
+
+- **Overview** shows only what no other page shows. Waits, attention, running and recent sessions are gone; they are Now's and Sessions'. In their place, for a chosen period (last 7 / 30 days, one filter row above everything it filters):
+  - **Spend:**
+    - the total with tokens, per day, and per session
+    - a **daily spend column chart**: one series so no legend, 24px-capped columns, a hairline grid at clean values, and a tooltip per day
+    - spend by station ("whose key paid") and by person ("who started it")
+  - **Outcomes:** sessions (done · failed · open), the share that finished well, median time to finish, and the median wait at gates (rounds, and how many were rejected).
+  - **By workflow:** sessions, how they finished, median time, spend with a bar, and the last run. This is what a factory's owner tunes.
+- **Run a prompt:** one dialog, owned by the app header, which **preselects the factory in context**: a factory page, a session's factory, or the sessions list filtered to one. The factory page's own button is gone. A workflow's **Run** opens the same dialog with that workflow chosen. The workflow list follows the chosen factory's prompt workflows.
