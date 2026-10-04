@@ -245,7 +245,7 @@ function Switcher() {
   return (
     <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[#111] px-1.5 py-1.5 text-white shadow-[0_8px_30px_rgba(0,0,0,0.35)] ring-1 ring-white/10" style={{ fontFamily: "ui-monospace, monospace" }}>
       <button onClick={() => go(-1)} className="grid size-7 place-items-center rounded-full hover:bg-white/15 cursor-pointer" aria-label="Previous variant">←</button>
-      <span className="px-2 text-xs whitespace-nowrap"><span className="text-white/50">graph</span> {variant} · {VARIANTS[i].name}</span>
+      <span className="px-2 text-xs whitespace-nowrap"><span className="text-white/50">style</span> {variant} · {VARIANTS[i].name}</span>
       <button onClick={() => go(1)} className="grid size-7 place-items-center rounded-full hover:bg-white/15 cursor-pointer" aria-label="Next variant">→</button>
     </div>
   );

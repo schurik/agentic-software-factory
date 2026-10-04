@@ -6,9 +6,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useCallback, useContext, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 
 export const VARIANTS = [
-  { key: "A", name: "Cards" },
-  { key: "B", name: "Rail" },
-  { key: "C", name: "Ribbon" },
+  { key: "A", name: "Well" },
+  { key: "B", name: "Tint" },
+  { key: "C", name: "Edge" },
+  { key: "D", name: "Ink" },
 ] as const;
 export type Variant = (typeof VARIANTS)[number]["key"];
 

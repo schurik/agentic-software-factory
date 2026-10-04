@@ -16,6 +16,10 @@ updates in-memory state and shows a toast. Nothing is sent.
 
 ## The question
 
+*(Rounds 1–7: which **stage graph**: Cards, Rail or Ribbon. Cards won, and Rail and Ribbon are
+in this branch's history. Since round 8 the switch compares **contrast treatments** of the Cards
+graph instead; see "Round 8".)*
+
 Three variants of the **stage graph** sit on one route, switched with `?variant=A|B|C`, the
 floating bar at the bottom, or the ← → keys. The variant changes the full graph on the session page
 and the one-row mini graph on Now. Everything else is the IA the grilling session settled.
@@ -252,3 +256,20 @@ Not in the first rounds; prototyped before the spec. Shown at `/factories` and `
   - **How work lands:** PR or merge, branches, base, worktrees.
   - **Limits and data:** budget, transcripts, which commands the cockpit may send, drift, purges.
 - **Not shown:** the raw `gh` command arrays. They only name the tracker, and the editor still has them.
+
+### Round 8: the Cards graph's contrast
+
+The graph was hard to read: white cards on a white chapter card, with finished stages bordered in
+`--line` (about 1.3:1 against white). Finished stages are the most common kind, so most of the
+graph nearly vanished. The `?variant=` switch (bottom bar, ← →) now compares four treatments of
+the Cards graph, on session chapters, Now's mini graphs and the Workflows tab, in both themes:
+
+| key | name | how it gets contrast |
+|---|---|---|
+| A | **Well** | the chain sits on a tinted canvas (page background in dark), white cards with a real border and a shadow |
+| B | **Tint** | each card filled with its status' tint: done green, running blue, waiting amber, failed red. Connectors are coloured by progress |
+| C | **Edge** | white cards, a stronger border and a 3px status-coloured top edge. Connectors carry arrowheads |
+| D | **Ink** | finished stages outlined in ink. The current stage gets a solid status header (NOW stays on top), with its phases on white below |
+
+Not-yet stages stay dashed and quiet in every treatment: they are the least important part of
+the graph.
