@@ -18,7 +18,7 @@ export function PhaseDetails({ phaseId, where, initial }: { phaseId: string; whe
   const read = useCallback(
     (seq: number) => readArtifact({ factory: where.factory, session: where.session, seq, signIn }),
     [readArtifact, where.factory, where.session, signIn]);
-  if (detail === undefined) return <p className="muted small">Loading…</p>;
-  if (detail === null) return <p className="muted small">This phase is not in a session you can see.</p>;
+  if (detail === undefined) return <p className="text-sm text-muted">Loading…</p>;
+  if (detail === null) return <p className="text-sm text-muted">This phase is not in a session you can see.</p>;
   return <PhaseTabs detail={detail} where={where} initial={initial} read={read} />;
 }

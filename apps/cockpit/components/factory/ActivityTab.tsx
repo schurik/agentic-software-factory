@@ -3,7 +3,7 @@ import type { SessionRow } from "@/convex/activity";
 import type { Attention } from "@/convex/model/attention";
 import type { ClaimView } from "@/convex/model/claim";
 import { ClaimRow } from "../ClaimRow";
-import { Status } from "../Status";
+import { Loading, num, Section, StatusPill, Table } from "../ui";
 import { formatAgoAt as ago, formatCost, plural, sessionHref } from "../format";
 
 /** What runs now, by workflow, and what finished last (activity.page). */
@@ -33,31 +33,30 @@ export function ActivityTab({ factory, forge, now, attention, page, onRelease }:
   onRelease?: (claim: ClaimView) => void;
 }) {
   return (
-    <div className="activity">
-      <section>
-        <h2>Needs attention</h2>
-        {attention === undefined ? <p className="muted">Loading…</p>
-          : attention.length === 0 ? <p className="muted">Nothing needs attention.</p>
-          : <ul className="attention">{attention.map((item, at) => (
-              <li key={`${item.kind}-${at}`}><Needs item={item} factory={factory} forge={forge} now={now} onRelease={onRelease} /></li>
+    <div>
+      <Section title="Needs attention">
+        {attention === undefined ? <Loading />
+          : attention.length === 0 ? <p className="text-muted">Nothing needs attention.</p>
+          : <ul className="grid gap-2">{attention.map((item, at) => (
+              <li key={`${item.kind}-${at}`} className="rounded-lg border border-l-[3px] border-line border-l-wait bg-surface px-3.5 py-2.5">
+                <Needs item={item} factory={factory} forge={forge} now={now} onRelease={onRelease} />
+              </li>
             ))}</ul>}
-      </section>
-      <section>
-        <h2>Running now</h2>
-        {page === undefined ? <p className="muted">Loading…</p>
-          : !page?.running.length ? <p className="muted">Nothing is running.</p>
+      </Section>
+      <Section title="Running now">
+        {page === undefined ? <Loading />
+          : !page?.running.length ? <p className="text-muted">Nothing is running.</p>
           : page.running.map((group) => (
-              <div key={group.workflow}>
-                <h3>{group.workflow || "—"}</h3>
+              <div key={group.workflow} className="mt-3 first:mt-0">
+                <h3 className="mb-2">{group.workflow || "—"}</h3>
                 <Sessions factory={factory} rows={group.sessions} now={now} />
               </div>
             ))}
-      </section>
-      <section>
-        <h2>Recent</h2>
-        {!page?.recent.length ? <p className="muted">No session has finished yet.</p>
+      </Section>
+      <Section title="Recent">
+        {!page?.recent.length ? <p className="text-muted">No session has finished yet.</p>
           : <Sessions factory={factory} rows={page.recent} now={now} workflow />}
-      </section>
+      </Section>
     </div>
   );
 }
@@ -80,7 +79,7 @@ function Needs({ item, factory, forge, now, onRelease }: {
           {item.sessions.map((failed, at) => (
             <span key={failed.session}>
               {at ? ", " : ""}<Link href={sessionHref(factory, failed.session)}><code>{failed.session}</code></Link>{" "}
-              <span className="muted small">{failed.workflow} on {failed.station || "its station"}, {ago(failed.endedAt, now)}</span>
+              <span className="text-sm text-muted">{failed.workflow} on {failed.station || "its station"}, {ago(failed.endedAt, now)}</span>
             </span>
           ))}
         </>
@@ -93,7 +92,7 @@ function Needs({ item, factory, forge, now, onRelease }: {
           <strong>Config drifted</strong> from the default branch on{" "}
           {item.stations.map((station, at) => (
             <span key={station.station}>
-              {at ? ", " : ""}<code>{station.name}</code>{station.badges.length ? <span className="muted small"> ({station.badges.join(", ")})</span> : null}
+              {at ? ", " : ""}<code>{station.name}</code>{station.badges.length ? <span className="text-sm text-muted"> ({station.badges.join(", ")})</span> : null}
             </span>
           ))}
         </>
@@ -119,22 +118,25 @@ export function Sessions({ factory, rows, now, workflow = false, station = true 
   factory: string; rows: SessionRow[]; now: number; workflow?: boolean; station?: boolean;
 }) {
   return (
-    <table className="table small">
+    <Table className="text-sm">
       <thead>
-        <tr><th>session</th>{workflow ? <th>workflow</th> : null}<th>status</th>{station ? <th>station</th> : null}<th className="num">cost</th><th>last</th></tr>
+        <tr>
+          <th>session</th>{workflow ? <th>workflow</th> : null}<th>status</th>{station ? <th>station</th> : null}
+          <th className={num}>cost</th><th>last</th>
+        </tr>
       </thead>
       <tbody>
         {rows.map((row) => (
           <tr key={row.session}>
             <td><Link href={sessionHref(factory, row.session)}><code>{row.session}</code></Link></td>
             {workflow ? <td>{row.workflow || "—"}</td> : null}
-            <td><Status status={row.status} />{row.gate ? <span className="muted"> at {row.gate}</span> : null}</td>
+            <td className="whitespace-nowrap"><StatusPill status={row.status} />{row.gate ? <span className="text-muted"> at {row.gate}</span> : null}</td>
             {station ? <td>{row.station || "—"}</td> : null}
-            <td className="num">{formatCost(row.cost)}</td>
-            <td>{ago(row.endedAt, now)}</td>
+            <td className={num}>{formatCost(row.cost)}</td>
+            <td className="whitespace-nowrap">{ago(row.endedAt, now)}</td>
           </tr>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }

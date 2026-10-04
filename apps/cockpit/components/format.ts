@@ -1,4 +1,5 @@
 import { type Pruned, prunedWord } from "@/convex/model/retention";
+import { sameLogin } from "@/convex/model/inbox";
 import type { WaitingFor } from "@/convex/model/session";
 
 export function sessionHref(factory: string, session: string): string {
@@ -10,38 +11,78 @@ export function inboxHref(factory: string, session: string): string {
   return `/?open=${encodeURIComponent(`${factory}/${session}`)}`;
 }
 
+// ── One set of formats, every page (#105) ────────────────────────────────────
+// Numbers are grouped the en-US way whatever the browser's locale, so a page
+// never says "10.400" in one place and "10,400" in the next; durations keep
+// seconds only while they matter; a clock is the viewer's own, on 24 hours.
+
+const grouped = new Intl.NumberFormat("en-US");
+const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** "10,400". */
+export function formatNumber(value: number): string {
+  return grouped.format(value);
+}
+
 export function formatCost(value: number): string {
   return value ? formatDollars(value) : "—";
 }
 
-/** An amount in USD, zero included: what a roll-up or a ceiling says. */
+/** An amount in USD, zero included: what a roll-up or a ceiling says. "$1,234.50". */
 export function formatDollars(value: number): string {
-  return `$${value.toFixed(2)}`;
+  return dollars.format(value);
 }
 
-/** "27,100 tokens". */
+/** A token count: exact below ten thousand, then "12.3k", then "2.5M". */
+export function formatTokenCount(count: number): string {
+  if (count < 10_000) return formatNumber(count);
+  const thousands = Math.round(count / 100) / 10;
+  if (thousands < 1000) return `${trim(thousands)}k`;
+  return `${trim(Math.round(count / 100_000) / 10)}M`;
+}
+
+const trim = (value: number) => value.toFixed(1).replace(/\.0$/, "");
+
+/** "27.1k tokens". */
 export function formatTokens(count: number): string {
-  return `${count.toLocaleString("en-US")} tokens`;
+  return `${formatTokenCount(count)} ${count === 1 ? "token" : "tokens"}`;
 }
 
-export function formatTime(ts: string): string {
+const clock = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+const dayOfYear = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+/** "Oct 4, 14:05" in the viewer's timezone — with the year when it is not `now`'s. */
+export function formatTime(ts: string, now = Date.now()): string {
   if (!ts) return "—";
   const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? ts : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return ts;
+  const thisYear = date.getFullYear() === new Date(now).getFullYear();
+  return `${(thisYear ? day : dayOfYear).format(date)}, ${clock.format(date)}`;
 }
 
 export function formatWaitingFor(waiting: WaitingFor | null): string {
   return waiting ? `${waiting.gate} · round ${waiting.round}` : "—";
 }
 
-/** How long something took, to the precision a person reads it at. */
+/** How long something took, to the precision a person reads it at: "28s", "4m 34s", "58m", "2h 8m", "2d 5h". */
 export function formatDuration(seconds: number | null): string {
   if (seconds === null) return "…";
   if (seconds < 1) return "<1s";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${Math.round(seconds % 60)}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  const whole = Math.round(seconds);
+  if (whole < 60) return `${whole}s`;
+  const minutes = Math.floor(whole / 60);
+  if (whole < 600) return `${minutes}m ${String(whole % 60).padStart(2, "0")}s`;
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`;
+}
+
+/** Who a login is to the viewer: "you" for their own, the login for anyone else. */
+export function who(login: string, viewer: string | null): string {
+  return login && viewer && sameLogin(login, viewer) ? "you" : login;
 }
 
 /** "1 job", "3 jobs". */
@@ -65,19 +106,19 @@ export function formatAgo(ts: string, now: number): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-/** A span of time in its largest whole unit: "2 d", "5 h", "12 m", "40 s". */
+/** A span of time in its largest whole unit: "2d", "5h", "12m", "40s". */
 export function formatSpan(ms: number): string {
   const seconds = Math.max(0, ms / 1000);
-  if (seconds < 60) return `${Math.floor(seconds)} s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h`;
-  return `${Math.floor(seconds / 86400)} d`;
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
 }
 
+/** "14:05", in the viewer's timezone. */
 export function formatClock(ts: string): string {
   const date = new Date(ts);
-  return !ts || Number.isNaN(date.getTime()) ? "" :
-    date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return !ts || Number.isNaN(date.getTime()) ? "" : clock.format(date);
 }
 
 /** A size in bytes, the way a file listing says it. */
@@ -96,14 +137,14 @@ export function pretty(raw: string): string {
   }
 }
 
-/** "3 Oct 2026": the day `ts` fell on, in UTC, so every viewer reads the same day. */
+/** "Oct 3, 2026": the day `ts` fell on, in UTC, so every viewer reads the same day. */
 export function formatDay(ts: string): string {
   const date = new Date(ts);
   if (!ts || Number.isNaN(date.getTime())) return "an unknown day";
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  return date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-/** What became of a pruned body (`model/retention.ts`): "transcript aged out on 3 Oct 2026", "content purged on … by alex". */
+/** What became of a pruned body (`model/retention.ts`): "transcript aged out on Oct 3, 2026", "content purged on … by alex". */
 export function formatPruned(what: string, pruned: Pruned): string {
   return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${pruned.by}` : ""}`;
 }

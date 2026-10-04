@@ -1,5 +1,6 @@
 import type { Look } from "@/convex/factory";
 import type { Drift } from "@/convex/model/drift";
+import { Button, PageHeader, Tag } from "../ui";
 import { budgetWords, checkWords, type Page, short } from "./view";
 
 /**
@@ -21,28 +22,30 @@ export function FactoryHeader({ page, look, drifts, forge, running, onRun }: {
   const tip = (look?.ok ? look.tip : null) ?? page.check?.head ?? null;
   const drifted = [...drifts.values()].filter((each) => each.drifted).length;
   return (
-    <header className="topbar factory-head">
-      <div className="grow">
-        <h1>
-          {page.onForge ? <a href={`${forge}/${page.repo}`}>{page.repo}</a> : page.repo}
-          {page.private ? <> <span className="tag">private</span></> : null}
-        </h1>
-        <p className="muted small">
-          {page.defaultBranch ? <><code>{page.defaultBranch}</code>{tip ? <> at <code>{short(tip)}</code></> : null}</>
-            : "no default branch the forge shows"}
-          {page.check ? <> · budget {budgetWords(page.check.description.budget)}</> : null}
-        </p>
-        <p className="flags">
-          <span className={`tag${check.tone === "bad" ? " tag-bad" : check.tone === "ok" ? " tag-ok" : ""}`}>{check.text}</span>
-          {drifted ? <span className="tag tag-wait">{drifted} {drifted === 1 ? "station" : "stations"} drifted</span> : null}
-          {page.check?.description.newer ? <span className="tag tag-wait">upgrade the cockpit</span> : null}
-        </p>
-      </div>
-      <div className="action">
-        <button type="button" className="button" aria-expanded={running} onClick={onRun}>
-          {running ? "Close" : "Run a prompt"}
-        </button>
-      </div>
-    </header>
+    <PageHeader
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          {page.onForge ? <a href={`${forge}/${page.repo}`} className="text-fg">{page.repo}</a> : page.repo}
+          {page.private ? <Tag>private</Tag> : null}
+        </span>
+      }
+      sub={
+        <div className="grid gap-2">
+          <p className="text-sm">
+            {page.defaultBranch ? <><code>{page.defaultBranch}</code>{tip ? <> at <code>{short(tip)}</code></> : null}</>
+              : "no default branch the forge shows"}
+            {page.check ? <> · budget {budgetWords(page.check.description.budget)}</> : null}
+          </p>
+          <p className="flex flex-wrap gap-1.5">
+            <Tag tone={check.tone}>{check.text}</Tag>
+            {drifted ? <Tag tone="wait">{drifted} {drifted === 1 ? "station" : "stations"} drifted</Tag> : null}
+            {page.check?.description.newer ? <Tag tone="wait">upgrade the cockpit</Tag> : null}
+          </p>
+        </div>
+      }>
+      <Button variant={running ? "secondary" : "primary"} aria-expanded={running} onClick={onRun}>
+        {running ? "Close" : "Run a prompt"}
+      </Button>
+    </PageHeader>
   );
 }

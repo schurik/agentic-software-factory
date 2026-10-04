@@ -6,6 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import { liveness, pending } from "@/convex/model/command";
 import { formatAgo, formatClock, sessionHref } from "../format";
+import { Button, control, Field, Notice } from "../ui";
 
 export type Targets = NonNullable<FunctionReturnType<typeof api.commands.runTargets>>;
 export type RunRow = FunctionReturnType<typeof api.commands.runs>[number];
@@ -73,46 +74,39 @@ export function RunForm({ factory, targets, runs, now, busy, problem, onRun, wor
     : targets.refused ?? (chosen === null ? `you have no station on ${factory}: run \`asf station register\` in a checkout of it`
       : chosen.refused);
   return (
-    <form className="form run-form" onSubmit={(event) => {
+    <form className="grid max-w-2xl gap-4" onSubmit={(event) => {
       event.preventDefault();
       if (cannot === null && !busy) onRun({ workflow: workflow.trim(), prompt, station });
     }}>
-      <label>
-        Workflow
+      <Field label="Workflow" hint={workflows.length ? <>One that takes a prompt: {workflows.join(", ")}.</>
+        : <>One that takes a prompt: `asf list` in the repository names them.</>}>
         <input value={workflow} placeholder={workflows[0] ?? "quick"} list={workflows.length ? `prompt-workflows-${factory}` : undefined}
-               onChange={(event) => setWorkflow(event.target.value)} />
+               className={control} onChange={(event) => setWorkflow(event.target.value)} />
         {workflows.length ? (
           <datalist id={`prompt-workflows-${factory}`}>
             {workflows.map((name) => <option key={name} value={name} />)}
           </datalist>
         ) : null}
-        <small>
-          {workflows.length ? <>One that takes a prompt: {workflows.join(", ")}.</>
-            : <>One that takes a prompt: `asf list` in the repository names them.</>}
-        </small>
-      </label>
-      <label>
-        Prompt
-        <textarea value={prompt} rows={5} placeholder="what the run is for" onChange={(event) => setPrompt(event.target.value)} />
-      </label>
-      <label>
-        Station
-        <select value={station} onChange={(event) => setPicked(event.target.value)} disabled={!targets?.stations.length}>
+      </Field>
+      <Field label="Prompt">
+        <textarea value={prompt} rows={5} placeholder="what the run is for" className={control} onChange={(event) => setPrompt(event.target.value)} />
+      </Field>
+      <Field label="Station" hint={<>Only your own stations: a run starts an agent on that machine, on its owner&apos;s budget.</>}>
+        <select value={station} onChange={(event) => setPicked(event.target.value)} disabled={!targets?.stations.length} className={control}>
           {(targets?.stations ?? []).map((each) => (
             <option key={each.station} value={each.station}>{choice(each, now)}</option>
           ))}
         </select>
-        <small>Only your own stations: a run starts an agent on that machine, on its owner&apos;s budget.</small>
-      </label>
-      {cannot ? <p className="notice small">{cannot}</p> : null}
-      {problem ? <p className="error small">Not queued: {problem}.</p> : null}
-      <button type="submit" className="button" disabled={cannot !== null || busy || !workflow.trim() || !prompt.trim()}>
+      </Field>
+      {cannot ? <Notice className="text-sm">{cannot}</Notice> : null}
+      {problem ? <p className="text-sm text-bad">Not queued: {problem}.</p> : null}
+      <Button type="submit" variant="primary" className="justify-self-start" disabled={cannot !== null || busy || !workflow.trim() || !prompt.trim()}>
         Run on {chosen?.name ?? "your station"}
-      </button>
+      </Button>
       {runs.length ? (
         <section>
-          <h3>Your latest runs here</h3>
-          <ul className="runs small">
+          <h4 className="mb-2">Your latest runs here</h4>
+          <ul className="grid list-disc gap-1 pl-5 text-sm">
             {runs.map((run) => (
               <li key={run.id}>
                 <strong>{run.workflow}</strong> · {run.prompt.split("\n")[0]} — {runWords(run, now)}

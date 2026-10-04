@@ -12,6 +12,7 @@ import { InboxList, keyOf, onlyOf } from "./inbox/InboxList";
 import { keyed } from "./inbox/keys";
 import { said } from "./Shell";
 import { useSignIn } from "./signIn";
+import { Kbd, Loading, Notice, PageHeader } from "./ui";
 
 /**
  * The home page: every gate the viewer is permitted to answer, across every
@@ -44,14 +45,12 @@ export function Inbox({ open, factory }: { open?: string; factory?: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [rows, at]);
 
-  if (inbox === undefined) return <p className="muted">Loading…</p>;
+  if (inbox === undefined) return <Loading />;
   if (rows.length === 0) {
     return (
-      <>
-        <h1>Inbox</h1>
-        {factory ? <p className="muted">Nothing at {factory} is waiting on you. <Link href="/">Every factory&apos;s waits</Link></p>
-          : <p className="muted">Nothing is waiting on you. A gate any factory you can see suspends at, and that you may answer, appears here.</p>}
-      </>
+      <PageHeader title="Inbox" sub={factory
+        ? <>Nothing at {factory} is waiting on you. <Link href="/">Every factory&apos;s waits</Link></>
+        : "Nothing is waiting on you. A gate any factory you can see suspends at, and that you may answer, appears here."} />
     );
   }
   const answered = (row: Row, url: string) => {
@@ -62,22 +61,26 @@ export function Inbox({ open, factory }: { open?: string; factory?: string }) {
   };
   return (
     <>
-      <div className="inbox-head">
-        <h1>Inbox</h1>
-        <span className="muted small">
-          {factory ? <>only {factory} (<Link href="/">all</Link>) · </> : null}{rows.length} waiting · <kbd>j</kbd>/<kbd>k</kbd> next/previous · <kbd>a</kbd> approve · <kbd>r</kbd> reject</span>
-      </div>
+      <PageHeader title="Inbox" sub={
+        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+          {factory ? <>only {factory} (<Link href="/">all</Link>) ·</> : null}
+          <span>{rows.length} waiting</span>
+          <span className="flex items-center gap-1.5 pointer-coarse:hidden">
+            · <Kbd>j</Kbd>/<Kbd>k</Kbd> next/previous · <Kbd>a</Kbd> approve · <Kbd>r</Kbd> reject
+          </span>
+        </span>
+      } />
       {posted?.url ? (
-        <p className="notice small">
+        <Notice tone="ok" className="text-sm">
           Answered {posted.what}: <a href={posted.url} target="_blank" rel="noreferrer">the comment</a>. It goes on
           when the factory&apos;s answers watcher picks it up.
-        </p>
+        </Notice>
       ) : posted ? (
-        <p className="notice small">
+        <Notice tone="ok" className="text-sm">
           Answered {posted.what}: sent to {posted.to}. It goes on once the station records it as your decision.
-        </p>
+        </Notice>
       ) : null}
-      <div className="inbox">
+      <div className="grid items-start gap-6 md:grid-cols-[20rem_minmax(0,1fr)]">
         <InboxList rows={rows} selected={current && keyOf(current)} now={now} onSelect={setSelected} />
         {current ? <Answering key={keyOf(current)} row={current} signIn={signIn} now={now} onAnswered={answered} /> : null}
       </div>
@@ -110,8 +113,8 @@ function Answering({ row, signIn, now, onAnswered }: {
     return () => { current = false; };
   }, [readSubject, row.factory, row.session, signIn, digest]);
 
-  if (gate === undefined) return <p className="muted">Loading…</p>;
-  if (gate === null) return <p className="notice">This wait is no longer one you may answer.</p>;
+  if (gate === undefined) return <Loading />;
+  if (gate === null) return <Notice>This wait is no longer one you may answer.</Notice>;
   const give = async (given: Answer) => {
     setPosting(true);
     setProblem("");

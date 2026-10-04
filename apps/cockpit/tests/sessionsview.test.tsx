@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type Choice, SessionFilters } from "../components/sessions/SessionFilters";
 import { type Listed, SessionsTable } from "../components/sessions/SessionsTable";
+import { ViewerLogin } from "../components/viewer";
 import { CI, type Facets } from "../convex/model/filter";
 import { EMPTY_SUMMARY, type Summary } from "../convex/model/session";
 
@@ -25,11 +26,13 @@ function listed(session: string, fields: Partial<Summary> = {}, factory = "acme/
   };
 }
 
+const NOW = Date.parse("2026-10-01T12:00:00.000Z");
+
 describe("the sessions table", () => {
   const rows = [listed("a1"), listed("g1", { stationId: "st_ci0001", stationName: "runner@fv-az1:gadgets", stationKind: "ci" }, "acme/gadgets")];
 
   it("across factories names each session's factory, linked to its page", () => {
-    const html = renderToStaticMarkup(<SessionsTable rows={rows} across />);
+    const html = renderToStaticMarkup(<SessionsTable rows={rows} across now={NOW} />);
 
     expect(text(html)).toContain("Factory");
     expect(html).toContain('href="/factories/acme/gadgets"');
@@ -37,14 +40,14 @@ describe("the sessions table", () => {
   });
 
   it("in a factory's tab leaves the factory out: every row is that factory's", () => {
-    const html = renderToStaticMarkup(<SessionsTable rows={[rows[0]]} across={false} />);
+    const html = renderToStaticMarkup(<SessionsTable rows={[rows[0]]} across={false} now={NOW} />);
 
     expect(text(html)).not.toContain("Factory");
     expect(html).toContain('href="/sessions/acme/widgets/a1"');
   });
 
   it("says of each session the workflows it passed through, who triggered it, where it ran and what it cost", () => {
-    const said = text(renderToStaticMarkup(<SessionsTable rows={rows} across />));
+    const said = text(renderToStaticMarkup(<SessionsTable rows={rows} across now={NOW} />));
 
     expect(said).toContain("Triggered by");
     expect(said).toContain("issue → pr-review");
@@ -52,6 +55,12 @@ describe("the sessions table", () => {
     expect(said).toContain("alex@mbp:widgets");
     expect(said).toContain("runner@fv-az1:gadgets CI");
     expect(said).toContain("$1.25");
+  });
+
+  it("says the viewer's own runs were triggered by you", () => {
+    const said = text(renderToStaticMarkup(
+      <ViewerLogin.Provider value="sam"><SessionsTable rows={rows} across now={NOW} /></ViewerLogin.Provider>));
+    expect(said).toContain("issue → pr-review success — you alex@mbp:widgets");
   });
 });
 
@@ -69,7 +78,8 @@ describe("the filters", () => {
 
     for (const value of ["issue", "pr-review", "alex", "sam", "st_alex", CI]) expect(html).toContain(`value="${value}"`);
     expect(text(html)).toContain("Triggered by");
-    expect(text(html)).toContain("alex (you)");
+    expect(html).toMatch(/<option value="alex">you<\/option>/);    // the viewer's own login reads "you"
+    expect(html).toMatch(/<option value="sam">sam<\/option>/);
     expect(text(html)).toContain("CI");
   });
 

@@ -1,7 +1,7 @@
 /**
- * How the session page says a status and a channel — one table each, shared by
- * the top bar, the now card, the timeline and the outline, so a status never
- * reads one way in the sidebar and another in the chapter it links to.
+ * How the cockpit says a status and a channel — one table each, shared by the
+ * status pill (components/ui.tsx), the now card, the timeline and the outline,
+ * so a status never reads one way in one place and another where it links to.
  */
 
 type Tone = "ok" | "bad" | "wait" | "run";
@@ -14,12 +14,9 @@ const TONES: Record<string, Tone> = {
 };
 
 const GLYPHS: Record<Tone, string> = { ok: "✓", bad: "✕", run: "●", wait: "◐" };
-// A tone as the `.status` pill's colour class.
-const PILLS: Record<Tone, string> = { ok: "success", bad: "fail", wait: "waiting", run: "running" };
 
 export const toneOf = (status: string): string => TONES[status] ?? "none";
 export const glyphOf = (status: string): string => (TONES[status] ? GLYPHS[TONES[status]] : "·");
-export const pillOf = (status: string): string => (TONES[status] ? PILLS[TONES[status]] : "unknown");
 
 const CHANNELS: Record<string, string> = {
   issue: "the issue", pr: "the pull request", cli: "the terminal", terminal: "the terminal",

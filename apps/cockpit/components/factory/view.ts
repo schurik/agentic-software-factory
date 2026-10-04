@@ -3,6 +3,7 @@ import type { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
 import type { Budget } from "@/convex/model/description";
 import { type Drift, drift, type Reference } from "@/convex/model/drift";
+import { formatDollars, formatTokens } from "../format";
 
 export type Page = NonNullable<FunctionReturnType<typeof api.factory.page>>;
 export type Check = NonNullable<Page["check"]>;
@@ -17,8 +18,8 @@ export function checkWords(check: Page["check"]): { text: string; tone: "ok" | "
 /** The per-session budget, as factory.yaml sets it — the only ceiling the factory enforces. */
 export function budgetWords(budget: Budget): string {
   const parts = [
-    ...(budget.maxCostUsd ? [`$${budget.maxCostUsd.toFixed(2)}`] : []),
-    ...(budget.maxTokens ? [`${budget.maxTokens.toLocaleString("en-US")} tokens`] : []),
+    ...(budget.maxCostUsd ? [formatDollars(budget.maxCostUsd)] : []),
+    ...(budget.maxTokens ? [formatTokens(budget.maxTokens)] : []),
   ];
   return parts.length ? `${parts.join(" · ")} per session` : "no per-session budget";
 }

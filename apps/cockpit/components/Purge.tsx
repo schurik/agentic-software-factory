@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Purged } from "@/convex/retention";
+import { Button, control, Field } from "./ui";
 
 /**
  * A purge, asked for in two steps: open it, say why, confirm. What it removes
@@ -25,15 +26,19 @@ export function Purge({ label, explains, onPurge }: {
       .finally(() => setBusy(false));
   };
   return (
-    <details className="purge small">
-      <summary className="muted">{label}…</summary>
-      <p className="muted">{explains}</p>
-      <label>
-        Why <input type="text" value={reason} onChange={(event) => setReason(event.target.value)}
+    <details className="mt-4 text-sm">
+      <summary className="text-muted">{label}…</summary>
+      <div className="mt-2 grid gap-2">
+        <p className="text-muted">{explains}</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Why" className="min-w-0 grow">
+            <input type="text" value={reason} className={control} onChange={(event) => setReason(event.target.value)}
                    placeholder="a token leaked into an artifact" />
-      </label>{" "}
-      <button type="button" className="button danger" disabled={busy || !reason.trim()} onClick={purge}>{label}</button>
-      {said ? <p className="small">{said}</p> : null}
+          </Field>
+          <Button variant="danger" disabled={busy || !reason.trim()} onClick={purge}>{label}</Button>
+        </div>
+        {said ? <p>{said}</p> : null}
+      </div>
     </details>
   );
 }

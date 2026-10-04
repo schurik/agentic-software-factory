@@ -26,7 +26,7 @@ describe("the trigger button", () => {
 
   it("is enabled from triage up", () => {
     const html = renderToStaticMarkup(<TriggerButton role="triage" open={false} onToggle={() => undefined} />);
-    expect(html).not.toContain("disabled");
+    expect(html).not.toContain(' disabled=""');
   });
 });
 
@@ -35,7 +35,7 @@ describe("the trigger form", () => {
     const html = form({ issue: "42", label: "asf:refine" });
     expect(html).toContain("Adds <code>asf:refine</code> and <code>asf:queued</code> to the issue as alex");
     expect(html).toContain("Trigger refine");
-    expect(html).not.toContain("disabled");
+    expect(html).not.toContain(' disabled=""');
   });
 
   it("waits for an issue number before it can be sent", () => {

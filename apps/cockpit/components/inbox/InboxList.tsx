@@ -1,6 +1,7 @@
 import { type ForYou, type Row, stationWords } from "@/convex/model/inbox";
 import { repoKey } from "@/convex/forge/forge";
 import { formatAgo } from "../format";
+import { cx, Tag } from "../ui";
 
 /** A wait older than this is flagged: a day is long enough for a run to be noticed missing. */
 export const STALE_AFTER = 24 * 3600_000;
@@ -43,27 +44,30 @@ export function InboxList({ rows, selected, now, onSelect }: {
   onSelect: (key: string) => void;
 }) {
   return (
-    <ul className="inbox-list" role="listbox" aria-label="Waiting to be answered">
+    <ul role="listbox" aria-label="Waiting to be answered"
+        className="overflow-hidden rounded-xl border border-line bg-surface shadow-card md:sticky md:top-20 md:max-h-[calc(100dvh-7rem)] md:overflow-auto">
       {rows.map((row) => {
         const key = keyOf(row);
+        const open = key === selected;
         const stale = now - Date.parse(row.since) > STALE_AFTER;
         return (
-          <li key={key} role="option" aria-selected={key === selected}
-              className={`inbox-row${key === selected ? " open" : ""}${row.blocked ? " blocked" : ""}`}>
-            <button type="button" onClick={() => onSelect(key)}>
-              <span className="line">
-                <strong>{row.factory}</strong>
-                {row.forYou.length ? <span className="tag tag-mine" title={whyYours(row.forYou)}>for you</span> : null}
-                <span className={`waited${stale ? " stale" : ""}`}>{formatAgo(row.since, now)}</span>
+          <li key={key} role="option" aria-selected={open} className="border-b border-line last:border-b-0">
+            <button type="button" onClick={() => onSelect(key)}
+                    className={cx("grid w-full gap-1 px-3.5 py-2.5 text-left hover:bg-surface-2",
+                                  open && "bg-surface-2 shadow-[inset_3px_0_var(--accent)]")}>
+              <span className="flex flex-wrap items-center gap-1.5">
+                <strong className={cx("min-w-0 font-medium", row.blocked && "text-muted")}>{row.factory}</strong>
+                {row.forYou.length ? <Tag tone="mine" title={whyYours(row.forYou)}>for you</Tag> : null}
+                <span className={cx("ml-auto text-xs tabular-nums", stale ? "text-bad" : "text-muted")}>{formatAgo(row.since, now)}</span>
               </span>
-              <span className="line">
-                <span className={`tag ${row.kind === "questions" ? "tag-wait" : "tag-gate"}`}>{asks(row)}</span>
-                {row.round > 1 ? <span className="tag">round {row.round}</span> : null}
-                {stale ? <span className="tag tag-bad">waiting {formatAgo(row.since, now).replace(/ ago$/, "")}</span> : null}
+              <span className="flex flex-wrap items-center gap-1.5">
+                <Tag tone={row.kind === "questions" ? "wait" : "run"}>{asks(row)}</Tag>
+                {row.round > 1 ? <Tag>round {row.round}</Tag> : null}
+                {stale ? <Tag tone="bad">waiting {formatAgo(row.since, now).replace(/ ago$/, "")}</Tag> : null}
               </span>
-              <span className="work small">{workItem(row)}</span>
+              <span className="truncate text-sm text-muted">{workItem(row)}</span>
               {row.blocked ? (
-                <span className="why small">{row.blocked}{row.queued ? `: ${stationWords(row, now)}` : ""}</span>
+                <span className="text-sm text-muted italic">{row.blocked}{row.queued ? `: ${stationWords(row, now)}` : ""}</span>
               ) : null}
             </button>
           </li>

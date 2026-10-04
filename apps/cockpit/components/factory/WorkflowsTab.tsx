@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import type { DescribedWorkflow } from "@/convex/model/description";
+import { Button, Card, cx, Notice, Pre, Table, Tag } from "../ui";
 import { budgetWords, type Check } from "./view";
 
 /** How a run of the workflow starts, in the words a person would use. */
@@ -28,49 +29,52 @@ export function WorkflowAbout({ workflow, onRun, run }: {
   run?: ReactNode;
 }) {
   return (
-    <section className="workflow" id={`workflow-${workflow.name}`}>
-      <div className="ch-head">
-        <h2>{workflow.name}</h2>
-        <span className="tag">{workflow.input}</span>
-        <span className="grow" />
-        {workflow.input === "prompt" && onRun ? (
-          <button type="button" className="button small" aria-expanded={run !== undefined} onClick={onRun}>
-            {run !== undefined ? "Close" : "Run"}
-          </button>
+    <Card className="mb-4 p-4 sm:p-5" id={`workflow-${workflow.name}`}>
+      <section>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2>{workflow.name}</h2>
+          <Tag>{workflow.input}</Tag>
+          <span className="grow" />
+          {workflow.input === "prompt" && onRun ? (
+            <Button size="sm" variant={run !== undefined ? "secondary" : "primary"} aria-expanded={run !== undefined} onClick={onRun}>
+              {run !== undefined ? "Close" : "Run"}
+            </Button>
+          ) : null}
+        </div>
+        {run !== undefined ? <div className="my-4 border-y border-line py-4">{run}</div> : null}
+        <p className="mt-2">{workflow.description}</p>
+        <p className="mt-1 text-sm text-muted">Started by {triggerWords(workflow)}.</p>
+        <ol className="my-4 flex flex-wrap items-stretch gap-1.5" aria-label="stages">
+          {workflow.stages.map((step, at) => (
+            <Fragment key={`${step.stage}-${at}`}>
+              {at > 0 ? <li className="self-center text-faint" aria-hidden="true">→</li> : null}
+              <li className={cx("grid content-start gap-0.5 rounded-lg border bg-surface-2 px-2.5 py-1.5",
+                                step.kind === "code" ? "border-dashed border-line-strong" : "border-line")}>
+                <strong className="font-medium">{step.stage}</strong>
+                {step.agents.length ? <span className="text-sm">{step.agents.join(", ")}</span> : <span className="text-sm text-muted">code</span>}
+                {step.gate ? <GateTag workflow={workflow} name={step.gate} /> : null}
+              </li>
+            </Fragment>
+          ))}
+        </ol>
+        {workflow.agents.length ? (
+          <Table className="text-sm">
+            <thead><tr><th>agent</th><th>model</th><th>tools</th><th>writes</th></tr></thead>
+            <tbody>
+              {workflow.agents.map((agent) => (
+                <tr key={agent.name}>
+                  <td><strong className="font-medium">{agent.name}</strong>{agent.purpose ? <div className="text-muted">{agent.purpose}</div> : null}</td>
+                  <td>{agent.harness} · {agent.model}{agent.thinking ? ` · ${agent.thinking}` : ""}</td>
+                  <td>{agent.tools === null ? "every tool" : agent.tools.join(", ") || "none"}</td>
+                  <td>{agent.writes === null ? "anything not protected" : agent.writes.length ? agent.writes.join(", ") : "read-only"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
         ) : null}
-      </div>
-      {run !== undefined ? <div className="run-here">{run}</div> : null}
-      <p>{workflow.description}</p>
-      <p className="muted small">Started by {triggerWords(workflow)}.</p>
-      <ol className="chain" aria-label="stages">
-        {workflow.stages.map((step, at) => (
-          <Fragment key={`${step.stage}-${at}`}>
-            {at > 0 ? <li className="arrow" aria-hidden="true">→</li> : null}
-            <li className={`stage stage-${step.kind}`}>
-              <strong>{step.stage}</strong>
-              {step.agents.length ? <span className="small">{step.agents.join(", ")}</span> : <span className="small muted">code</span>}
-              {step.gate ? <GateTag workflow={workflow} name={step.gate} /> : null}
-            </li>
-          </Fragment>
-        ))}
-      </ol>
-      {workflow.agents.length ? (
-        <table className="table small">
-          <thead><tr><th>agent</th><th>model</th><th>tools</th><th>writes</th></tr></thead>
-          <tbody>
-            {workflow.agents.map((agent) => (
-              <tr key={agent.name}>
-                <td><strong>{agent.name}</strong>{agent.purpose ? <div className="muted">{agent.purpose}</div> : null}</td>
-                <td>{agent.harness} · {agent.model}{agent.thinking ? ` · ${agent.thinking}` : ""}</td>
-                <td>{agent.tools === null ? "every tool" : agent.tools.join(", ") || "none"}</td>
-                <td>{agent.writes === null ? "anything not protected" : agent.writes.length ? agent.writes.join(", ") : "read-only"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : null}
-      {workflow.warnings.map((warning) => <p key={warning} className="notice small">{warning}</p>)}
-    </section>
+        {workflow.warnings.map((warning) => <Notice key={warning} className="text-sm">{warning}</Notice>)}
+      </section>
+    </Card>
   );
 }
 
@@ -78,7 +82,7 @@ function GateTag({ workflow, name }: { workflow: DescribedWorkflow; name: string
   const gate = workflow.gates.find((each) => each.name === name);
   if (gate === undefined) return null;
   const words = gate.kind === "questions" ? `asks: ${gate.name}` : `gate: ${gate.name} · ${gate.on ? "on" : "off"}`;
-  return <span className={`tag${gate.on ? " tag-wait" : ""}`}>{words}</span>;
+  return <Tag tone={gate.on ? "wait" : "none"}>{words}</Tag>;
 }
 
 /**
@@ -96,28 +100,28 @@ export function WorkflowsTab({ check, onRun, running = null, runner }: {
 }) {
   if (check === null) {
     return (
-      <div className="notice">
+      <Notice tone="none">
         <p><strong>Unchecked.</strong> This factory has not described itself to the cockpit yet, so there is no workflow to show.</p>
-        <p className="small">
+        <p className="mt-1 text-sm">
           The cockpit never reads workflow files: it shows what the factory&apos;s own <code>asf check --json</code> says. Stamp the
           optional CI workflow (<code>install.py --ci</code>) and set <code>vars.ASF_COCKPIT_URL</code> and{" "}
           <code>secrets.ASF_COCKPIT_TOKEN</code>; its next run on the default branch fills this in.
         </p>
-      </div>
+      </Notice>
     );
   }
   const { description } = check;
   return (
     <>
-      <p className="muted small">
+      <p className="mb-4 text-sm text-muted">
         As described by <code>asf check --json</code> on <code>{check.ref || "?"}</code> at <code>{check.head.slice(0, 7)}</code>.
         Budget: {budgetWords(description.budget)}.
       </p>
       {description.problems.map((problem) => (
-        <div key={problem.workflow} className="notice">
+        <Notice key={problem.workflow} tone="bad">
           <strong>{problem.workflow}</strong> does not load, so a run of it is refused:
-          <pre className="small">{problem.error}</pre>
-        </div>
+          <Pre className="mt-2">{problem.error}</Pre>
+        </Notice>
       ))}
       {description.workflows.map((workflow) => (
         <WorkflowAbout key={workflow.name} workflow={workflow} onRun={onRun && (() => onRun(workflow.name))}
