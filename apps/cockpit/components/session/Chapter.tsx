@@ -2,11 +2,12 @@ import { useState } from "react";
 import type {
   AgentItem, Asked, AutomaticItem, Chapter as ChapterData, CodeItem, GateItem, Item, ResumedItem,
 } from "@/convex/model/story";
-import { Status } from "../Status";
-import { formatClock, formatCost, formatDuration, formatPruned } from "../format";
+import { formatClock, formatCost, formatDuration } from "../format";
+import { Card, cx, LinkButton, Pre, StatusPill, Tag } from "../ui";
+import { useWho } from "../viewer";
 import { PhaseDetails } from "./PhaseDetails";
-import type { Where } from "./PhaseTabs";
-import { channelWords, glyphOf, pillOf, toneOf } from "./words";
+import { PrunedWords, type Where } from "./PhaseTabs";
+import { channelWords, glyphOf, toneOf } from "./words";
 
 export const phaseAnchor = (phaseId: string) => `phase-${phaseId}`;
 export const chapterAnchor = (number: number) => `chapter-${number}`;
@@ -15,21 +16,22 @@ export const chapterAnchor = (number: number) => `chapter-${number}`;
 export function Chapter({ chapter, where }: { chapter: ChapterData; where: Where }) {
   const { answering } = chapter;
   return (
-    <section className="chapter" id={chapterAnchor(chapter.number)}>
-      <header className="ch-head">
-        <span className="ch-no">{chapter.number ? `Chapter ${chapter.number}` : "Chapter"}</span>
+    <section className="mt-8 scroll-mt-20" id={chapterAnchor(chapter.number)}>
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-xs font-medium tracking-wider text-muted uppercase">{chapter.number ? `Chapter ${chapter.number}` : "Chapter"}</span>
         <h2>{chapter.title}</h2>
-        <span className="muted small">
+        <span className="text-sm text-muted">
           {answering ? <>answering <a href={answering.url}>{answering.kind === "issue" ? "issue" : "pull request"} #{answering.number}</a> · </> : null}
           {formatClock(chapter.startedAt)}
         </span>
-        <span className="grow" />
-        <Status status={chapter.status} />
-        <span className="small">{formatCost(chapter.cost)}</span>
+        <span className="ml-auto flex items-center gap-2">
+          <StatusPill status={chapter.status} />
+          <span className="text-sm tabular-nums">{formatCost(chapter.cost)}</span>
+        </span>
       </header>
-      {chapter.reason ? <p className="error small">{chapter.reason}</p> : null}
+      {chapter.reason ? <p className="mt-1 text-sm text-bad">{chapter.reason}</p> : null}
       {chapter.asked ? <AskedCard asked={chapter.asked} reader={chapter.reader} where={where} /> : null}
-      <ol className="timeline">
+      <ol className="mt-3 grid gap-2">
         {chapter.items.map((item) => <TimelineItem key={`${item.type}-${item.seq}`} item={item} where={where} />)}
       </ol>
     </section>
@@ -40,25 +42,25 @@ export function Chapter({ chapter, where }: { chapter: ChapterData; where: Where
 function AskedCard({ asked, reader, where }: { asked: Asked; reader: CodeItem | null; where: Where }) {
   const [opened, , toggle] = useOpened();
   return (
-    <div className="asked" id={reader ? phaseAnchor(reader.phaseId) : undefined}>
+    <Card className="mt-3 scroll-mt-20 border-l-[3px] border-l-accent px-3.5 py-2.5" id={reader ? phaseAnchor(reader.phaseId) : undefined}>
       <details>
         <summary>
-          <span className="label">Asked</span> <code className="muted">{asked.path.split("/").pop()}</code>
-          <span className="first">{firstLine(asked.content)}</span>
+          <span className="text-xs font-medium tracking-wider text-accent uppercase">Asked</span> <code className="text-muted">{asked.path.split("/").pop()}</code>
+          <span className="mt-0.5 block">{firstLine(asked.content)}</span>
         </summary>
-        {asked.pruned ? <p className="muted small">Its {formatPruned("content", asked.pruned)}.</p> : <pre>{asked.content}</pre>}
-        {asked.truncated && !asked.pruned ? <p className="muted small">Cut at the factory&apos;s cap: the file was {asked.size} bytes.</p> : null}
+        {asked.pruned ? <p className="mt-2 text-sm text-muted">Its <PrunedWords what={"content"} pruned={asked.pruned} />.</p> : <Pre className="mt-2">{asked.content}</Pre>}
+        {asked.truncated && !asked.pruned ? <p className="mt-1 text-sm text-muted">Cut at the factory&apos;s cap: the file was {asked.size} bytes.</p> : null}
       </details>
       {reader ? (
-        <div className="reader small muted">
-          {glyphOf(reader.status)} read by <b>{reader.name}</b>
+        <div className="mt-1.5 text-sm text-muted">
+          {glyphOf(reader.status)} read by <b className="font-medium">{reader.name}</b>
           {" · "}{formatClock(reader.at)} · {formatDuration(reader.duration)} {toggle}
         </div>
       ) : null}
       {reader && opened !== null ? (
-        <div className="detail boxed"><PhaseDetails phaseId={reader.phaseId} where={where} /></div>
+        <div className="mt-3 border-t border-line pt-3"><PhaseDetails phaseId={reader.phaseId} where={where} /></div>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -95,25 +97,40 @@ function TimelineItem({ item, where }: { item: Item; where: Where }) {
 function useOpened(): [string | null, (tab: string | null) => void, React.ReactNode] {
   const [opened, open] = useState<string | null>(null);
   const toggle = (
-    <button className="link small" aria-expanded={opened !== null} onClick={() => open(opened === null ? "" : null)}>
+    <LinkButton className="text-sm" aria-expanded={opened !== null} onClick={() => open(opened === null ? "" : null)}>
       {opened === null ? "details" : "hide"}
-    </button>
+    </LinkButton>
   );
   return [opened, open, toggle];
+}
+
+/** A phase's place on the timeline: its clock time in a gutter, then what happened. */
+function Row({ at, id, children }: { at: string; id?: string; children: React.ReactNode }) {
+  return (
+    <li className="grid scroll-mt-20 grid-cols-[3rem_minmax(0,1fr)] gap-2 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-3" id={id}>
+      <span className="pt-2.5 text-right text-xs whitespace-nowrap text-muted tabular-nums">{formatClock(at)}</span>
+      {children}
+    </li>
+  );
+}
+
+const EDGE: Record<string, string> = { ok: "border-l-ok", bad: "border-l-bad", wait: "border-l-wait", run: "border-l-accent" };
+
+/** A phase's card, its left edge in the colour of how it went. */
+function Box({ status, fallback = "border-l-line-strong", children }: { status: string; fallback?: string; children: React.ReactNode }) {
+  return <Card className={cx("min-w-0 border-l-[3px] px-3.5 py-2.5", EDGE[toneOf(status)] ?? fallback)}>{children}</Card>;
 }
 
 function AgentCard({ phase, where }: { phase: AgentItem; where: Where }) {
   const [opened, open, toggle] = useOpened();
   return (
-    <li className={`item agent tone-${toneOf(phase.status)}`} id={phaseAnchor(phase.phaseId)}>
-      <span className="when">{formatClock(phase.at)}</span>
-      <div className="box">
-        <div className="head">
-          <strong>{phase.name}</strong>
-          <span className="muted small">{phase.owner}{phase.task ? <> · <code>{phase.task}</code></> : null}</span>
-          {phase.replayed ? <span className="tag">replayed on resume</span> : null}
-          <span className="grow" />
-          <span className="meta">
+    <Row at={phase.at} id={phaseAnchor(phase.phaseId)}>
+      <Box status={phase.status}>
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <strong className="font-semibold">{phase.name}</strong>
+          <span className="text-sm text-muted">{phase.owner}{phase.task ? <> · <code>{phase.task}</code></> : null}</span>
+          {phase.replayed ? <Tag>replayed on resume</Tag> : null}
+          <span className="ml-auto hidden gap-3.5 text-sm whitespace-nowrap text-muted tabular-nums md:flex">
             <span>{phase.toolCalls} tool call{phase.toolCalls === 1 ? "" : "s"}
               {phase.toolFailures ? `, ${phase.toolFailures} failed` : ""}</span>
             <span>{formatDuration(phase.duration)}</span>
@@ -121,39 +138,39 @@ function AgentCard({ phase, where }: { phase: AgentItem; where: Where }) {
           </span>
           {toggle}
         </div>
-        <div className="summary">
-          {phase.outputType ? <><b>{phase.outputType}</b>{phase.summary ? ` · ${phase.summary}` : ""}</>
-            : phase.status === "running" ? <span className="muted">working…</span> : <span className="muted">no envelope accepted</span>}
-          {phase.corrections ? <> <span className="tag">{phase.corrections} correction{phase.corrections === 1 ? "" : "s"}</span></> : null}
+        <div className="mt-1">
+          {phase.outputType ? <><b className="font-medium">{phase.outputType}</b>{phase.summary ? ` · ${phase.summary}` : ""}</>
+            : phase.status === "running" ? <span className="text-muted">working…</span> : <span className="text-muted">no envelope accepted</span>}
+          {phase.corrections ? <> <Tag tone="wait">{phase.corrections} correction{phase.corrections === 1 ? "" : "s"}</Tag></> : null}
         </div>
         {phase.changedFiles.length ? (
-          <div className="files">{phase.changedFiles.length} file{phase.changedFiles.length === 1 ? "" : "s"} · {phase.changedFiles.join(" · ")}</div>
+          <div className="mt-1 font-mono text-xs text-muted">{phase.changedFiles.length} file{phase.changedFiles.length === 1 ? "" : "s"} · {phase.changedFiles.join(" · ")}</div>
         ) : null}
         {phase.artifacts.length ? (
-          <div className="chips">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {phase.artifacts.map((chip) => (
-              <button className="chip" key={chip.path} onClick={() => open("artifacts")}>
-                <code>{chip.path.split("/").pop()}</code> <span className="muted">{chip.location === "repo" ? "repo" : "handoff"}</span>
+              <button type="button" className="rounded-md border border-line px-1.5 text-sm hover:border-accent" key={chip.path} onClick={() => open("artifacts")}>
+                <code>{chip.path.split("/").pop()}</code> <span className="text-muted">{chip.location === "repo" ? "repo" : "handoff"}</span>
               </button>
             ))}
           </div>
         ) : null}
         {phase.notes.map((note) => (
-          <div className="note" key={`${note.kind}:${note.what}`}>
-            <span className="label">⚑ {note.kind}</span>
+          <div className="mt-2 flex gap-2 rounded-md border border-dashed border-line-strong px-2 py-1 text-sm" key={`${note.kind}:${note.what}`}>
+            <span className="pt-px text-xs font-semibold tracking-wide whitespace-nowrap uppercase">⚑ {note.kind}</span>
             <span>
               {note.what}
-              {note.insteadOf ? <span className="muted"> — instead of {note.insteadOf}</span> : null}
-              {note.because ? <span className="muted"> — because {note.because}</span> : null}
+              {note.insteadOf ? <span className="text-muted"> — instead of {note.insteadOf}</span> : null}
+              {note.because ? <span className="text-muted"> — because {note.because}</span> : null}
             </span>
           </div>
         ))}
-        {phase.error ? <div className="error small">{phase.error}</div> : null}
+        {phase.error ? <div className="mt-1 text-sm text-bad">{phase.error}</div> : null}
         {opened !== null ? (
-          <div className="detail"><PhaseDetails phaseId={phase.phaseId} where={where} initial={opened || undefined} /></div>
+          <div className="mt-3 border-t border-line pt-3"><PhaseDetails phaseId={phase.phaseId} where={where} initial={opened || undefined} /></div>
         ) : null}
-      </div>
-    </li>
+      </Box>
+    </Row>
   );
 }
 
@@ -161,81 +178,76 @@ function CodeRow({ phase, where }: { phase: CodeItem; where: Where }) {
   const [opened, , toggle] = useOpened();
   const failed = phase.commands.filter((command) => command.exitCode !== 0).at(-1);
   return (
-    <li className={`item code tone-${toneOf(phase.status)}`} id={phaseAnchor(phase.phaseId)}>
-      <span className="when">{formatClock(phase.at)}</span>
-      <div className="row">
-        <div className="step">
-          <span className="name">{phase.name}</span>
-          <span className="what">
+    <Row at={phase.at} id={phaseAnchor(phase.phaseId)}>
+      <div className="min-w-0 px-1 pt-2">
+        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-sm">
+          <span className={cx("font-semibold", toneOf(phase.status) === "bad" && "text-bad")}>{phase.name}</span>
+          <span className="flex min-w-0 flex-wrap gap-x-3">
             {phase.commits.map((commit) => (
               <span key={commit.sha}><code>{commit.sha.slice(0, 7)}</code> {commit.message}</span>
             ))}
             {phase.commands.map((command, index) => (
-              <span key={index} className={command.exitCode ? "error" : undefined}>
+              <span key={index} className={command.exitCode ? "text-bad" : undefined}>
                 {command.exitCode ? "✕" : "✓"} <code>{command.name}</code>
               </span>
             ))}
-            {!phase.commits.length && !phase.commands.length ? <span className="muted">{phase.description}</span> : null}
+            {!phase.commits.length && !phase.commands.length ? <span className="text-muted">{phase.description}</span> : null}
           </span>
-          <span className="grow" />
-          <span className="muted small">{formatDuration(phase.duration)}</span>
+          <span className="ml-auto text-muted tabular-nums">{formatDuration(phase.duration)}</span>
           {toggle}
         </div>
-        {failed?.pruned ? <p className="muted small">Its {formatPruned("output", failed.pruned)}.</p>
-          : failed?.outputTail ? <pre className="tail">{failed.outputTail}</pre> : null}
-        {phase.error ? <div className="error small">{phase.error}</div> : null}
+        {failed?.pruned ? <p className="mt-1 text-sm text-muted">Its <PrunedWords what={"output"} pruned={failed.pruned} />.</p>
+          : failed?.outputTail ? <Pre className="mt-1">{failed.outputTail}</Pre> : null}
+        {phase.error ? <div className="mt-1 text-sm text-bad">{phase.error}</div> : null}
         {opened !== null ? (
-          <div className="detail boxed"><PhaseDetails phaseId={phase.phaseId} where={where} /></div>
+          <Card className="mt-2 p-3.5"><PhaseDetails phaseId={phase.phaseId} where={where} /></Card>
         ) : null}
       </div>
-    </li>
+    </Row>
   );
 }
 
 function GateCard({ gate }: { gate: GateItem }) {
+  const who = useWho();
   const { decision } = gate;
   const waited = decision ? (Date.parse(decision.decidedAt) - Date.parse(gate.at)) / 1000 : NaN;
   return (
-    <li className={`item gate tone-${toneOf(gate.status)}`} id={phaseAnchor(gate.phaseId)}>
-      <span className="when">{formatClock(gate.at)}</span>
-      <div className="box">
-        <div className="head">
-          <strong>◐ {gate.gate || gate.name} {gate.kind === "questions" ? "questions" : "gate"} · round {gate.round || 1}</strong>
-          <span className={`status status-${pillOf(gate.status)}`}>
-            {decision ? `${gate.status} by ${decision.by}` : gate.status}
-          </span>
+    <Row at={gate.at} id={phaseAnchor(gate.phaseId)}>
+      <Box status={gate.status} fallback="border-l-wait">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <strong className="font-semibold">◐ {gate.gate || gate.name} {gate.kind === "questions" ? "questions" : "gate"} · round {gate.round || 1}</strong>
+          <StatusPill status={gate.status}>{decision ? `${gate.status} by ${who(decision.by)}` : gate.status}</StatusPill>
         </div>
-        <div className="small">
+        <div className="mt-1 text-sm">
           {gate.channel ? <>Asked on {channelWords(gate.channel, gate.issueNumber)}</> : <>Asked</>}
           {gate.headSha ? <> · subject at <code>{gate.headSha.slice(0, 7)}</code></> : null}
-          {gate.summary ? <span className="muted"> · {gate.summary}</span> : null}
+          {gate.summary ? <span className="text-muted"> · {gate.summary}</span> : null}
         </div>
         {decision ? (
-          <div className="small muted">
+          <div className="text-sm text-muted">
             Answered {formatClock(decision.decidedAt)} via {channelWords(decision.channel)}
             {Number.isFinite(waited) ? ` · waited ${formatDuration(Math.max(0, waited))}` : ""}
           </div>
         ) : null}
         {/* A person's words at a gate amend the request: they read as an instruction. */}
         {decision?.notes ? (
-          <div className="remark"><span className="label">✎ instruction</span> {decision.notes}</div>
+          <div className="mt-2 flex gap-2 rounded-md border border-wait px-2 py-1 text-sm">
+            <span className="pt-px text-xs font-semibold tracking-wide whitespace-nowrap text-wait uppercase">✎ instruction</span> {decision.notes}
+          </div>
         ) : null}
         {gate.status === "waiting" ? (
-          <div className="small muted">Answering happens in the inbox, not here.</div>
+          <div className="text-sm text-muted">Answering happens in the inbox, not here.</div>
         ) : null}
-      </div>
-    </li>
+      </Box>
+    </Row>
   );
 }
 
 function AutomaticRow({ row }: { row: AutomaticItem }) {
   return (
-    <li className="item automatic">
-      <span className="when">{formatClock(row.at)}</span>
-      <div className="step">
-        <span className="tag">⚙ {row.gate} gate passed by policy · automatic, nobody was asked</span>
-      </div>
-    </li>
+    <Row at={row.at}>
+      <div className="px-1 pt-2 text-sm text-muted">⚙ <b className="font-semibold">{row.gate} gate</b> passed by policy · automatic, nobody was asked</div>
+    </Row>
   );
 }
 
@@ -243,9 +255,8 @@ function ResumedRow({ row }: { row: ResumedItem }) {
   const replayed = row.replayed.length === 0 ? "nothing replayed"
     : `${row.replayed.join(", ")} replayed from the record, not run again`;
   return (
-    <li className="item resumed">
-      <span className="when">{formatClock(row.at)}</span>
-      <div className="step muted">▶ <b>Resumed</b> · {replayed}</div>
-    </li>
+    <Row at={row.at}>
+      <div className="px-1 pt-2 text-sm text-muted">▶ <b className="font-semibold">Resumed</b> · {replayed}</div>
+    </Row>
   );
 }

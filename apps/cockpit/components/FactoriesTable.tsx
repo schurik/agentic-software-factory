@@ -4,8 +4,9 @@ import type { FactoryRow } from "@/convex/factories";
 import type { Attention } from "@/convex/model/attention";
 import type { Ranked } from "@/convex/model/factories";
 import { factoryHref } from "./factory/view";
-import { formatAgoAt, formatCost, formatSpan, plural } from "./format";
+import { formatAgoAt, formatCost, formatSpan, formatTokens, plural } from "./format";
 import { TriggerButton } from "./trigger/Trigger";
+import { num, Table, Tag } from "./ui";
 
 /**
  * The Factories list's rows (spec #40), in the order `rank` put them: each
@@ -27,14 +28,14 @@ export function FactoriesTable({ rows, now, host, period, triggering, onTrigger,
   form?: ReactNode;
 }) {
   return (
-    <table className="table">
+    <Table>
       <thead>
         <tr>
           <th>Factory</th>
-          <th className="num">Live</th>
+          <th className={num}>Live</th>
           <th>Gates waiting</th>
           <th>Stations</th>
-          <th className="num" title="list-price equivalent: what the tokens would cost at the provider's list price, subscription or not">
+          <th className={num} title="list-price equivalent: what the tokens would cost at the provider's list price, subscription or not">
             Spend {period}
           </th>
           <th>Needs attention</th>
@@ -47,32 +48,34 @@ export function FactoriesTable({ rows, now, host, period, triggering, onTrigger,
           <Fragment key={row.repo}>
             <tr>
               <td>
-                <Link href={factoryHref(row.repo)}>{row.repo}</Link>
-                {row.onForge ? <> <a className="small muted" href={`https://${host}/${row.repo}`}>on {host}</a></> : null}
-                {row.private ? <> <span className="tag">private</span></> : null}
-                {!row.onForge ? <> <span className="tag tag-wait">not found on the forge</span></> : null}
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <Link href={factoryHref(row.repo)} className="font-medium">{row.repo}</Link>
+                  {row.onForge ? <a className="text-sm text-muted" href={`https://${host}/${row.repo}`}>on {host}</a> : null}
+                  {row.private ? <Tag>private</Tag> : null}
+                  {!row.onForge ? <Tag tone="wait">not found on the forge</Tag> : null}
+                </span>
               </td>
-              <td className="num">{row.live ? `${row.live} live` : "—"}</td>
-              <td>
+              <td className={num}>{row.live ? `${row.live} live` : "—"}</td>
+              <td className="whitespace-nowrap">
                 {row.facts.gates.total === 0 ? "—" : (
-                  <><span className={row.facts.gates.mine ? "tag tag-mine" : undefined}>{row.facts.gates.mine} on you</span> / {row.facts.gates.total}</>
+                  <>{row.facts.gates.mine ? <Tag tone="mine">{row.facts.gates.mine} on you</Tag> : <>0 on you</>} / {row.facts.gates.total}</>
                 )}
               </td>
-              <td>
+              <td className="whitespace-nowrap">
                 {row.seen.length ? `${online} / ${row.seen.length} online`
-                  : row.reporting ? "—" : <span className="tag tag-wait">no station yet</span>}
+                  : row.reporting ? "—" : <Tag tone="wait">no station yet</Tag>}
               </td>
-              <td className="num">
+              <td className={num}>
                 {row.spend === null ? "—" : (
-                  <>{formatCost(row.spend.cost)} <span className="muted small">{row.spend.tokens.toLocaleString("en-US")} tokens</span></>
+                  <>{formatCost(row.spend.cost)} <span className="text-sm text-muted">{formatTokens(row.spend.tokens)}</span></>
                 )}
               </td>
               <td>
-                <span className="flags">{attention.map((item, at) => (
+                <span className="flex flex-wrap gap-1.5">{attention.map((item, at) => (
                   <Flag key={`${item.kind}-${at}`} item={item} />
                 ))}</span>
               </td>
-              <td>{row.lastActivity === null ? "—" : formatAgoAt(row.lastActivity, now)}</td>
+              <td className="whitespace-nowrap">{row.lastActivity === null ? "—" : formatAgoAt(row.lastActivity, now)}</td>
               <td>
                 {row.onForge ? (
                   <TriggerButton role={row.role} open={triggering === row.repo} onToggle={() => onTrigger(row.repo)} />
@@ -83,7 +86,7 @@ export function FactoriesTable({ rows, now, host, period, triggering, onTrigger,
           </Fragment>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -93,27 +96,27 @@ function Flag({ item }: { item: Attention }) {
     case "gates":
       return null;                      // its own column
     case "failed":
-      return <span className="tag tag-bad">{item.sessions.length} failed in 24 h</span>;
+      return <Tag tone="bad">{item.sessions.length} failed in 24h</Tag>;
     case "claim":
       // Never "orphaned": a laptop shut over a weekend is not dead.
       return (
-        <span className="tag tag-wait" title={`a writer can release it on the Factory page, which ${item.claim.consequence}`}>
+        <Tag tone="wait" title={`a writer can release it on the Factory page, which ${item.claim.consequence}`}>
           #{item.claim.number} held by {item.claim.stationName}, offline {formatSpan(item.away)}
-        </span>
+        </Tag>
       );
     case "drift":
       return (
-        <span className="tag tag-wait" title={item.stations.map((station) => station.name).join(", ")}>
+        <Tag tone="wait" title={item.stations.map((station) => station.name).join(", ")}>
           {plural(item.stations.length, "station")} drifted
-        </span>
+        </Tag>
       );
     case "check":
-      return <span className="tag tag-bad">check failing</span>;
+      return <Tag tone="bad">check failing</Tag>;
     case "unwatched":
       return (
-        <span className="tag tag-wait" title={`${item.issues.map((number) => `#${number}`).join(", ")} queued, and no issues watcher online`}>
+        <Tag tone="wait" title={`${item.issues.map((number) => `#${number}`).join(", ")} queued, and no issues watcher online`}>
           nobody watching
-        </span>
+        </Tag>
       );
   }
 }

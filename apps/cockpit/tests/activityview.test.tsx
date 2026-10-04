@@ -56,7 +56,7 @@ describe("the Activity tab", () => {
     expect(html).toContain('href="/?factory=acme%2Fwidgets"');            // the inbox, filtered to this factory
     expect(said).toContain("f1");
     expect(html).toContain('href="/sessions/acme/widgets/f1"');
-    expect(said).toContain("issue #42 held by bob@desk:widgets , offline 2 d");
+    expect(said).toContain("issue #42 held by bob@desk:widgets , offline 2d");
     expect(html).toContain(">Release claim</button>");
     expect(said).toContain("alex@mbp:widgets");
     expect(said).toContain("on 89abcde");
@@ -116,7 +116,7 @@ describe("the Stations tab", () => {
 
     const bob = text(render("st_bob"));
     expect(bob).toContain("takes no commands");
-    expect(bob).toContain("issue #42 held by bob@desk:widgets , offline 2 d");
+    expect(bob).toContain("issue #42 held by bob@desk:widgets , offline 2d");
     expect(bob).toMatch(/Release claim/);
   });
 

@@ -5,6 +5,7 @@ import { ConfigTab } from "../components/factory/ConfigTab";
 import { unified } from "../components/factory/diff";
 import type { Page } from "../components/factory/view";
 import type { Look } from "../convex/factory";
+import { ViewerLogin } from "../components/viewer";
 import { editRefusal } from "../convex/model/config";
 
 // The Config tab's editor, rendered to static markup with no backend (spec
@@ -26,12 +27,15 @@ function page(fields: Partial<Page> = {}): Page {
 
 const LOOK: Look = { ok: true, tip: BASE, files: ["asf/factory.yaml", "asf/agents/planner/agent.md"], distances: {} };
 
+// Rendered for alex, the viewer the pull request goes up as.
 function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorView>[0]> = {}): string {
   return renderToStaticMarkup(
-    <ConfigEditorView base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
-                      asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
-                      onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
-                      onChange={() => undefined} onSubmit={() => undefined} {...given} />);
+    <ViewerLogin.Provider value="alex">
+      <ConfigEditorView base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
+                        asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
+                        onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
+                        onChange={() => undefined} onSubmit={() => undefined} {...given} />
+    </ViewerLogin.Provider>);
 }
 
 describe("the Config tab's files", () => {
@@ -40,7 +44,7 @@ describe("the Config tab's files", () => {
       <ConfigTab page={page()} look={LOOK} drifts={new Map()} forge={FORGE} now={NOW} onEdit={() => undefined} />);
 
     expect(html.match(/<button[^>]*>Edit<\/button>/g)?.length).toBe(2);
-    expect(html).not.toContain("disabled");
+    expect(html).not.toContain(' disabled=""');
   });
 
   it("cannot be edited without write access, and say why", () => {
@@ -59,12 +63,15 @@ describe("the editor", () => {
     const html = editor([{ path: "asf/factory.yaml", original: YAML, crlf: false, text: YAML.replace("2.5", "5") }]);
 
     expect(html).toContain("<textarea");
-    expect(html).toContain('<span class="del">-  max_cost_usd: 2.5   # per session\n</span>');
-    expect(html).toContain('<span class="add">+  max_cost_usd: 5   # per session\n</span>');
+    expect(html).toMatch(/<span data-line="del"[^>]*>-  max_cost_usd: 2.5   # per session\n<\/span>/);
+    expect(html).toMatch(/<span data-line="add"[^>]*>\+  max_cost_usd: 5   # per session\n<\/span>/);
+    expect(html).not.toMatch(/<span data-line="(add|del)"[^>]*>(\+\+\+|---) /);       // the file's own header lines are no change
     expect(html).toContain("cockpit/alex/raise-the-budget");
     expect(html).toContain(`<code>main</code> at <code>${BASE.slice(0, 7)}</code>`);
-    expect(html).toMatch(/<button type="submit"[^>]*>Open pull request as alex<\/button>/);
-    expect(html).not.toMatch(/<button type="submit"[^>]*disabled/);
+    // The viewer's own login reads "you"; the branch keeps the login it is named by.
+    expect(html).toContain("comments and all — as you, on");
+    expect(html).toMatch(/<button type="submit"[^>]*>Open pull request as you<\/button>/);
+    expect(html).not.toMatch(/<button type="submit"[^>]* disabled=""/);
   });
 
   it("blocks submission with the parse error while the YAML does not parse", () => {

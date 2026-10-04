@@ -37,14 +37,14 @@ describe("the run form", () => {
     expect(form({ refused: "commands need write or higher on this repository, and the forge says you have read", stations: [] }))
       .toContain("commands need write or higher");
     expect(form({ refused: null, stations: [] })).toContain("asf station register");
-    expect(form({ refused: null, stations: [] })).toMatch(/<button[^>]*disabled/);
+    expect(form({ refused: null, stations: [] })).toMatch(/<button[^>]* disabled=""/);
   });
 
   it("says why the chosen station would refuse a run — off unless opted in", () => {
     const because = "alex@desk:widgets does not take run: its asf/factory.yaml's cockpit.commands does not list it — run is off unless it is listed";
     const html = form({ ...TARGETS, stations: [{ ...TARGETS.stations[0], refused: because }, TARGETS.stations[1]] });
     expect(html.replace(/&#x27;/g, "'")).toContain(because);
-    expect(html).toMatch(/<button[^>]*disabled/);
+    expect(html).toMatch(/<button[^>]* disabled=""/);
   });
 });
 

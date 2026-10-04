@@ -7,6 +7,8 @@ import type { Role } from "@/convex/forge/forge";
 import { refusal } from "@/convex/model/trigger";
 import type { Offered, Triggered } from "@/convex/trigger";
 import { said } from "../Shell";
+import { Button, control, Field, Notice } from "../ui";
+import { useWho } from "../viewer";
 
 /**
  * The trigger on a factory's row: enabled from triage up, which is what the
@@ -17,11 +19,10 @@ export function TriggerButton({ role, open, onToggle }: { role: Role | null; ope
   const because = refusal(role);
   return (
     <>
-      <button type="button" className="button quiet" disabled={because !== null} title={because ?? undefined}
-              aria-expanded={open} onClick={onToggle}>
+      <Button size="sm" disabled={because !== null} title={because ?? undefined} aria-expanded={open} onClick={onToggle}>
         Trigger…
-      </button>
-      {because !== null ? <span className="small muted"> {because}</span> : null}
+      </Button>
+      {because !== null ? <span className="text-sm text-muted"> {because}</span> : null}
     </>
   );
 }
@@ -47,38 +48,40 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
   onChange: (asked: Asked) => void;
   onSubmit: () => void;
 }) {
-  if (routes === null) return <p className="muted small">Reading {factory}&apos;s route labels from the forge…</p>;
-  if (!routes.ok) return <p className="notice small">Nothing can be triggered on {factory} from here: {routes.because}.</p>;
+  const who = useWho();
+  if (routes === null) return <p className="text-sm text-muted">Reading {factory}&apos;s route labels from the forge…</p>;
+  if (!routes.ok) return <Notice className="text-sm">Nothing can be triggered on {factory} from here: {routes.because}.</Notice>;
   const route = routes.routes.find(({ label }) => label === asked.label) ?? routes.routes[0];
+  const by = as ? who(as) : "you";
   const number = Number(asked.issue);
   const ready = Number.isInteger(number) && number > 0 && !busy;
   return (
-    <form className="form trigger-form" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
-      <label>
-        Workflow
-        <select value={route.label} onChange={(event) => onChange({ ...asked, label: event.target.value })}>
+    <form className="my-2 grid max-w-lg gap-3" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
+      <Field label="Workflow">
+        <select value={route.label} className={control} onChange={(event) => onChange({ ...asked, label: event.target.value })}>
           {routes.routes.map(({ label, workflow }) => (
             <option key={label} value={label}>{workflow} ({label})</option>
           ))}
         </select>
-      </label>
-      <label>
-        Issue
-        <input inputMode="numeric" placeholder="42" value={asked.issue}
+      </Field>
+      <Field label="Issue">
+        <input inputMode="numeric" placeholder="42" value={asked.issue} className={control}
                onChange={(event) => onChange({ ...asked, issue: event.target.value.replace(/^#/, "") })} />
-      </label>
-      <small>
-        Adds <code>{route.label}</code> and <code>{routes.queued}</code> to the issue as {as || "you"}. The
-        factory&apos;s issues watcher starts {route.workflow} on its next poll, and records {as || "you"} as who
+      </Field>
+      <p className="text-sm text-muted">
+        Adds <code>{route.label}</code> and <code>{routes.queued}</code> to the issue as {by}. The
+        factory&apos;s issues watcher starts {route.workflow} on its next poll, and records {by} as who
         triggered it.
-      </small>
-      <button type="submit" className="button" disabled={!ready}>{busy ? "Labelling…" : `Trigger ${route.workflow}`}</button>
+      </p>
+      <Button type="submit" variant="primary" className="justify-self-start" disabled={!ready}>
+        {busy ? "Labelling…" : `Trigger ${route.workflow}`}
+      </Button>
       {outcome?.ok ? (
-        <p className="notice small">
+        <Notice tone="ok" className="text-sm">
           Labelled <a href={outcome.url} target="_blank" rel="noreferrer">#{asked.issue} {outcome.title}</a>: {outcome.workflow} starts
           when the factory&apos;s issues watcher next polls.
-        </p>
-      ) : outcome ? <p className="notice small">Not triggered: {outcome.because}.</p> : null}
+        </Notice>
+      ) : outcome ? <Notice tone="bad" className="text-sm">Not triggered: {outcome.because}.</Notice> : null}
     </form>
   );
 }

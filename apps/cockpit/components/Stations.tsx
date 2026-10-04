@@ -9,6 +9,8 @@ import { useClock } from "./clock";
 import { formatAgo } from "./format";
 import { said, useCockpit } from "./Shell";
 import { useSignIn } from "./signIn";
+import { Button, Loading, Notice, PageHeader, Table } from "./ui";
+import { useWho } from "./viewer";
 
 /**
  * The stations the viewer owns — on a local cockpit, the machine's — with
@@ -19,24 +21,26 @@ import { useSignIn } from "./signIn";
 export function Stations() {
   const signIn = useSignIn();
   const { mode } = useCockpit();
+  const who = useWho();
   const stations = useQuery(api.stations.mine, { signIn });
   const revoke = useMutation(api.stations.revoke);
   const [problem, setProblem] = useState("");
   const now = useClock();
-  if (stations === undefined) return <p className="muted">Loading…</p>;
+  if (stations === undefined) return <Loading />;
   return (
     <>
-      <h1>Stations</h1>
-      <p className="muted">
-        {mode === "local"
-          ? <>The stations on this machine: a local cockpit&apos;s are yours without approving them.</>
-          : <>The stations you approved. A station takes commands from the cockpit for you; run{" "}
-              <code>asf station register</code> in a checkout to add one.</>}
-      </p>
-      <p><Link href="/stations/approve">Approve a station by its code…</Link> · <Link href="/run">Run a prompt on one of them…</Link></p>
-      {problem ? <p className="notice">{problem}</p> : null}
-      {stations.length === 0 ? <p className="muted">No stations yet.</p> : (
-        <table className="table">
+      <PageHeader title="Stations" sub={
+        <>
+          {mode === "local"
+            ? <>The stations on this machine: a local cockpit&apos;s are yours without approving them.</>
+            : <>The stations you approved. A station takes commands from the cockpit for you; run{" "}
+                <code>asf station register</code> in a checkout to add one.</>}
+          <span className="mt-2 block"><Link href="/stations/approve">Approve a station by its code…</Link> · <Link href="/run">Run a prompt on one of them…</Link></span>
+        </>
+      } />
+      {problem ? <Notice tone="bad">{problem}</Notice> : null}
+      {stations.length === 0 ? <p className="text-muted">No stations yet.</p> : (
+        <Table>
           <thead>
             <tr><th>station</th><th>factory</th><th>owner</th><th>liveness</th><th>obeys</th><th /></tr>
           </thead>
@@ -47,27 +51,27 @@ export function Stations() {
                 <tr key={`${row.factory}/${row.station}`}>
                   <td><code>{row.name}</code></td>
                   <td>{row.factory}</td>
-                  <td>{row.owner || "—"}</td>
-                  <td className="small">
+                  <td>{who(row.owner) || "—"}</td>
+                  <td className="text-sm whitespace-nowrap">
                     {!row.registered ? "revoked" : live.online ? "● online" : "○ offline"}
                     {live.lastSeen !== null ? ` · ${formatAgo(new Date(live.lastSeen).toISOString(), now)}` : " · never polled"}
                   </td>
-                  <td className="small">{row.report?.verbs.join(", ") || "—"}</td>
+                  <td className="text-sm">{row.report?.verbs.join(", ") || "—"}</td>
                   <td>
                     {row.registered ? (
-                      <button type="button" className="button bad"
+                      <Button size="sm" variant="danger"
                               onClick={() => void revoke({ factory: row.factory, station: row.station, signIn })
                                 .then((done) => setProblem(done.ok ? "" : done.because))
                                 .catch((error: unknown) => setProblem(said(error)))}>
                         Revoke
-                      </button>
+                      </Button>
                     ) : null}
                   </td>
                 </tr>
               );
             })}
           </tbody>
-        </table>
+        </Table>
       )}
     </>
   );

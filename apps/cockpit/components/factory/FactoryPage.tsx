@@ -13,6 +13,7 @@ import { SessionsList } from "../SessionsList";
 import { RunPanel } from "../run/RunPrompt";
 import { said, useCockpit } from "../Shell";
 import { useSignIn } from "../signIn";
+import { Card, Loading, Notice, Tabs } from "../ui";
 import { ActivityTab } from "./ActivityTab";
 import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
@@ -75,8 +76,8 @@ export function FactoryPage({ factory }: { factory: string }) {
     return each?.drifted ? [{ station: row.station, name: row.name, badges: each.badges }] : [];
   }) : undefined), [page, look, measured]);
   const attention = useMemo(() => (facts ? needsAttention(facts, now, drifted) : undefined), [facts, now, drifted]);
-  if (page === undefined) return <p className="muted">Loading…</p>;
-  if (page === null) return <p className="notice">{factory} is not a factory you can read. <Link href="/factories">All factories</Link></p>;
+  if (page === undefined) return <Loading />;
+  if (page === null) return <Notice>{factory} is not a factory you can read. <Link href="/factories">All factories</Link></Notice>;
   const web = `https://${forge.host}`;
   const onRelease = (claim: ClaimView) => {
     setReleased("");
@@ -86,43 +87,40 @@ export function FactoryPage({ factory }: { factory: string }) {
   };
 
   return (
-    <div className="factory">
+    <div>
       <FactoryHeader page={page} look={look} drifts={measured} forge={web}
                      running={running !== null && running.workflow === undefined}
                      onRun={() => setRunning(running && running.workflow === undefined ? null : {})} />
       {running && running.workflow === undefined ? (
-        <section className="run-here">
+        <Card className="mb-6 p-4 sm:p-5">
           <RunPanel factory={page.repo} workflows={promptWorkflows(page.check)} />
-        </section>
+        </Card>
       ) : null}
-      <div className="tabs" role="tablist">
-        {(Object.keys(TABS) as Tab[]).map((each) => (
-          <button key={each} role="tab" aria-selected={each === tab} onClick={() => setTab(each)}>{TABS[each]}</button>
-        ))}
-      </div>
-      {released ? <p className="notice">{released}</p> : null}
-      <div hidden={tab !== "activity"}>
+      <Tabs label="Factory" selected={tab} onSelect={setTab}
+            tabs={(Object.keys(TABS) as Tab[]).map((id) => ({ id, label: TABS[id] }))} />
+      {released ? <Notice>{released}</Notice> : null}
+      <div className="pt-6" hidden={tab !== "activity"}>
         <ActivityTab factory={factory} forge={web} now={now} attention={attention} page={happening} onRelease={onRelease} />
       </div>
-      <div hidden={tab !== "workflows"}>
+      <div className="pt-6" hidden={tab !== "workflows"}>
         <WorkflowsTab check={page.check} running={running?.workflow ?? null}
                       onRun={(workflow) => setRunning(running?.workflow === workflow ? null : { workflow })}
                       runner={(workflow) => (
                         <RunPanel factory={page.repo} workflow={workflow} workflows={promptWorkflows(page.check)} />
                       )} />
       </div>
-      <div hidden={tab !== "stations"}>
+      <div className="pt-6" hidden={tab !== "stations"}>
         {stations ? <StationsTab stations={stations.stations} ci={stations.ci} drifts={measured} now={now} factory={factory}
                              selected={station} onSelect={setStation} onRelease={onRelease} />
-          : <p className="muted">Loading…</p>}
+          : <Loading />}
       </div>
-      <div hidden={tab !== "sessions"}>
+      <div className="pt-6" hidden={tab !== "sessions"}>
         <SessionsList factory={factory} />
       </div>
-      <div hidden={tab !== "cost"}>
+      <div className="pt-6" hidden={tab !== "cost"}>
         <CostPanel factory={factory} />
       </div>
-      <div hidden={tab !== "config"}>
+      <div className="pt-6" hidden={tab !== "config"}>
         <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges}
                    onPurge={(reason) => purge({ factory, reason, signIn })}
                    onEdit={(path) => {

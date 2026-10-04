@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { dayOf, daysOf, type PeriodKind, PERIODS, periodOf } from "@/convex/model/period";
 import { useClock, viewersTimeZone } from "../clock";
 import { useSignIn } from "../signIn";
+import { control, Field, Loading, Notice } from "../ui";
 import { CostView } from "./CostView";
 
 type Choice = PeriodKind | "range";
@@ -31,27 +32,26 @@ export function CostPanel({ factory }: { factory?: string }) {
 
   return (
     <>
-      <p className="list-controls">
-        <label>
-          Spend{" "}
-          <select value={choice} onChange={(event) => setChoice(event.target.value as Choice)}>
+      <div className="mb-4 flex flex-wrap items-end gap-x-3 gap-y-2">
+        <Field label="Spend">
+          <select value={choice} className={control} onChange={(event) => setChoice(event.target.value as Choice)}>
             {Object.entries(PERIODS).map(([value, each]) => <option key={value} value={value}>{each}</option>)}
             <option value="range">from … to …</option>
           </select>
-        </label>
+        </Field>
         {choice === "range" ? (
           <>
-            <input type="date" aria-label="first day" value={days.first} max={days.last}
+            <input type="date" aria-label="first day" value={days.first} max={days.last} className={control}
                    onChange={(event) => setDays({ ...days, first: event.target.value })} />
-            <input type="date" aria-label="last day" value={days.last} min={days.first}
+            <input type="date" aria-label="last day" value={days.last} min={days.first} className={control}
                    onChange={(event) => setDays({ ...days, last: event.target.value })} />
           </>
         ) : null}
-        <span className="muted small">Calendar days in {timeZone}.</span>
-      </p>
-      {period === null ? <p className="notice">Pick a first day on or before the last.</p>
-        : rollup === undefined ? <p className="muted">Loading…</p>
-          : rollup === null ? <p className="notice">{factory ? `${factory} is not a factory you can read.` : "Sign in to see what was spent."}</p>
+        <span className="pb-2 text-sm text-muted">Calendar days in {timeZone}.</span>
+      </div>
+      {period === null ? <Notice>Pick a first day on or before the last.</Notice>
+        : rollup === undefined ? <Loading />
+          : rollup === null ? <Notice>{factory ? `${factory} is not a factory you can read.` : "Sign in to see what was spent."}</Notice>
             : <CostView rollup={rollup} period={words} factory={factory} />}
     </>
   );

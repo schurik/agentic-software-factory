@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { formatClock, formatCost, formatDollars, formatDuration, formatTokens } from "../components/format";
+import { formatClock, formatCost, formatDollars, formatDuration, formatTokenCount, formatTokens } from "../components/format";
 import { PhaseTabs, tabsFor, type Where } from "../components/session/PhaseTabs";
 import { SessionView, type Page } from "../components/session/SessionView";
 import { phaseView, view } from "../convex/model/session";
@@ -105,7 +105,8 @@ describe("parity with the legacy trace UI, over the session recorded under the o
 
     // How long each one took, in the outline beside its name: the time it ran,
     // where a run a resume answered from the record ran nothing.
-    const outline = read(html.slice(html.indexOf('<nav class="outline">'), html.indexOf("</nav>")));
+    const nav = html.indexOf('<nav aria-label="Outline"');
+    const outline = read(html.slice(nav, html.indexOf("</nav>", nav)));
     for (const started of OPENED) {
       expect(outline, phaseOf(started)).toContain(`${started.payload.name} ${formatDuration(ran(phaseOf(started)))}`);
     }
@@ -166,21 +167,21 @@ describe("parity with the legacy trace UI, over the session recorded under the o
       model: string; tokens: number; cost: number; context_tokens: number; context_window: number;
       usage: Record<string, number>;
     }) }));
-    const n = (count: number) => count.toLocaleString("en-US");
 
     for (const id of new Set(usages.map(({ event }) => phaseOf(event)))) {
       const mine = usages.filter(({ event }) => phaseOf(event) === id);
       const tab = read(tabHtml(id, "cost"));
       const cost = mine.reduce((sum, turn) => sum + turn.cost, 0);
       const tokens = mine.reduce((sum, turn) => sum + turn.tokens, 0);
-      expect(tab, id).toContain(`${formatCost(cost)} · ${n(tokens)} tokens · list-price equivalent`);
+      expect(tab, id).toContain(`${formatCost(cost)} · ${formatTokens(tokens)} · list-price equivalent`);
       for (const { model, tokens: spent, cost: paid, usage } of mine) {
-        expect(tab, id).toContain([model, n(spent), formatCost(paid), n(usage.input_tokens), n(usage.output_tokens),
-          n(usage.cache_read_tokens), n(usage.cache_write_tokens), n(usage.reasoning_tokens)].join(" "));
+        expect(tab, id).toContain([model, formatTokenCount(spent), formatCost(paid), formatTokenCount(usage.input_tokens),
+          formatTokenCount(usage.output_tokens), formatTokenCount(usage.cache_read_tokens), formatTokenCount(usage.cache_write_tokens),
+          formatTokenCount(usage.reasoning_tokens)].join(" "));
       }
       const last = mine.filter((turn) => turn.context_window > 0).at(-1);
       if (last) {
-        expect(tab, id).toContain(`Context window ${n(last.context_tokens)} of ${n(last.context_window)} tokens · ` +
+        expect(tab, id).toContain(`Context window ${formatTokenCount(last.context_tokens)} of ${formatTokens(last.context_window)} · ` +
           `${Math.round((last.context_tokens / last.context_window) * 100)}%`);
       }
     }
@@ -197,7 +198,7 @@ describe("parity with the legacy trace UI, over the session recorded under the o
     const ms = (took: number) => (took < 1000 ? `${took}ms` : formatDuration(took / 1000));
     for (const id of new Set(calls.map(phaseOf))) {
       const mine = calls.filter((event) => phaseOf(event) === id);
-      const rows = [...tabHtml(id, "tools").matchAll(/<tr><td>([^<]*)<\/td><td><code>([^<]+)<\/code><\/td><td[^>]*>([^<]+)<\/td><td class="num">([^<]+)<\/td><\/tr>/g)]
+      const rows = [...tabHtml(id, "tools").matchAll(/<tr><td>([^<]*)<\/td><td><code>([^<]+)<\/code><\/td><td[^>]*>([^<]+)<\/td><td[^>]*>([^<]+)<\/td><\/tr>/g)]
         .map((row) => row.slice(1));
       expect(rows, id).toEqual(mine.map((event) => {
         const { tool, ok, duration_ms: took } = event.payload as { tool: string; ok: boolean; duration_ms: number };
@@ -212,7 +213,7 @@ describe("parity with the legacy trace UI, over the session recorded under the o
 
   it("events: every event the session wrote, listed in order and said in words, and each in the phase it is about", () => {
     const rows = [...sessionHtml().matchAll(
-      /<tr( class="generic")?><td class="num">(\d+)<\/td><td><code>([^<]+)<\/code>(?:<span[^>]*>[^<]*<\/span>)?<\/td><td>([^<]*)<\/td>/g)];
+      /<tr( class="text-muted")?><td[^>]*>(\d+)<\/td><td><code>([^<]+)<\/code>(?:<span[^>]*>[^<]*<\/span>)?<\/td><td>([^<]*)<\/td>/g)];
     expect(rows.map((row) => [Number(row[2]), row[3]])).toEqual(RECORDED.map((event) => [event.seq, event.kind]));
     for (const row of rows) {
       expect(row[1], `seq ${row[2]} is a generic row`).toBeUndefined();
@@ -223,7 +224,7 @@ describe("parity with the legacy trace UI, over the session recorded under the o
       const id = phaseOf(started);
       const tab = tabHtml(id, "events");
       for (const event of RECORDED.filter((each) => phaseOf(each) === id)) {
-        expect(tab, `seq ${event.seq}`).toContain(`<td class="num">${event.seq}</td><td><code>${event.kind}</code>`);
+        expect(tab, `seq ${event.seq}`).toMatch(new RegExp(`<td[^>]*>${event.seq}</td><td><code>${event.kind}</code>`));
         expect(read(tab), `seq ${event.seq}`).toContain(collapsed(JSON.stringify(event.payload, null, 2)));
       }
     }
@@ -241,7 +242,7 @@ describe("parity with the legacy trace UI, over the session recorded under the o
     expect(html).toContain(`answering <a href="${issue}">issue #${issueNumber}</a>`);
     expect(html.split(`answering <a href="${pr}">pull request #${pr.split("/").pop()}</a>`)).toHaveLength(
       of("workflow_started").filter((event) => event.payload.input === "pr").length + 1);
-    expect(html).toContain(`<a class="button" href="${pr}">Open pull request ↗</a>`);
+    expect(html).toContain(` href="${pr}">Open pull request ↗</a>`);
   });
 
   it("compiled prompts, opted in: every prompt sent to an agent, corrections included, with the identity it was given", () => {

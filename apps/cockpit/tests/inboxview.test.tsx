@@ -3,6 +3,7 @@ import { keyed } from "../components/inbox/keys";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AnswerView, type Gate } from "../components/inbox/AnswerView";
 import { InboxList, onlyOf } from "../components/inbox/InboxList";
+import { ViewerLogin } from "../components/viewer";
 import type { Row } from "../convex/model/inbox";
 
 // The inbox's pages, rendered to static markup with no backend: the list, the
@@ -66,7 +67,8 @@ describe("the inbox list", () => {
     expect(html).toContain("3 questions");
     expect(html).toContain("waiting 2d");                       // stale: flagged
     expect(html).toContain("started from a prompt, with no work item to answer on");
-    expect(html).toMatch(/<li role="option" aria-selected="true" class="inbox-row open">/);
+    expect(html.match(/<li role="option" aria-selected="true"/g)).toHaveLength(1);    // the open one: the first
+    expect(html.indexOf('aria-selected="true"')).toBeLessThan(html.indexOf('aria-selected="false"'));
     expect(html).not.toContain("for you");
   });
 
@@ -82,17 +84,26 @@ describe("the answer view", () => {
   it("says what it asks, shows the subject at the pinned commit and where the answer will land", () => {
     const html = answerView(GATE, READ);
     expect(html).toContain("Approve the plan?");
-    expect(html).toContain("<code>docs/asf/spec/plan.md</code> <span class=\"muted\">at 89abcde</span>");
+    expect(html).toMatch(/<code>docs\/asf\/spec\/plan.md<\/code> <span[^>]*>at 89abcde<\/span>/);
     expect(html).toContain("Posts a comment on issue #42 as alex");
     expect(html).toContain("Round 1: <strong>reject</strong> by schurik");
     expect(html).toContain("current");
-    expect(html).not.toContain("disabled");
+    expect(html).not.toContain(' disabled=""');
+  });
+
+  it("says the viewer's own login as you", () => {
+    const html = renderToStaticMarkup(
+      <ViewerLogin.Provider value="Schurik">
+        <AnswerView gate={{ ...GATE, as: "schurik" }} read={READ} now={NOW} posting={false} problem="" onAnswer={() => undefined} />
+      </ViewerLogin.Provider>);
+    expect(html).toContain("Posts a comment on issue #42 as you");
+    expect(html).toContain("Round 1: <strong>reject</strong> by you");
   });
 
   it("offers no verdict on a subject that is not what the factory asked about", () => {
     const html = answerView(GATE, { ...READ, current: false });
     expect(html).toContain("Cannot be answered here: digest changed");
-    for (const button of html.match(/<button[^>]*>/g) ?? []) expect(button).toContain("disabled");
+    for (const button of html.match(/<button[^>]*>/g) ?? []) expect(button).toContain(' disabled=""');
   });
 
   it("puts each question with its recommendation and a box to answer it, and one action to take them all", () => {

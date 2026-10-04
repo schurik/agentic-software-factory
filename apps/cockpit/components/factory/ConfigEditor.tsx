@@ -7,6 +7,8 @@ import type { Proposed } from "@/convex/config";
 import { asCommitted, branchFor, type Edited, proposalProblem, yamlProblem } from "@/convex/model/config";
 import { said } from "../Shell";
 import { unified } from "./diff";
+import { Button, Card, control, cx, DiffBlock, Field, Notice, Section, Tabs } from "../ui";
+import { useWho } from "../viewer";
 import { short } from "./view";
 
 /**
@@ -77,74 +79,70 @@ export function ConfigEditorView({
   onChange: (asked: Asked) => void;
   onSubmit: () => void;
 }) {
+  const who = useWho();
+  const by = as ? who(as) : "you";
   const current = drafts.find((draft) => draft.path === shown) ?? null;
   const changed = drafts.filter((draft) => draft.text !== draft.original);
   const because = blocked(drafts, asked);
   const problem = current && problemOf(current);
   return (
-    <section className="config-editor">
-      <h2>Edit</h2>
-      <p className="muted small">
-        The files as <code>{into}</code> at <code>{short(base)}</code> held them. What is typed here is committed exactly — comments
-        and all — as {as || "you"}, on <code>{branchFor(as || "you", asked.title)}</code>, and proposed to <code>{into}</code> as a
-        pull request. The cockpit checks only that the YAML parses: the repository&apos;s CI and its branch protection decide the rest.
-      </p>
-      {drafts.length > 1 ? (
-        <div className="tabs" role="tablist">
-          {drafts.map((draft) => (
-            <button key={draft.path} type="button" role="tab" aria-selected={draft.path === shown} onClick={() => onOpen(draft.path)}>
-              <code>{draft.path}</code>{draft.text !== draft.original ? " •" : ""}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {loading !== null ? (
-        loading.because === null ? <p className="muted small">Reading <code>{loading.path}</code> from the forge…</p>
-          : <p className="notice small">Cannot edit <code>{loading.path}</code>: {loading.because}.</p>
-      ) : null}
-      {current !== null ? (
-        <div className="draft">
-          <label className="small">
-            <code>{current.path}</code>
-            <textarea className="code" spellCheck={false} value={current.text} rows={Math.min(40, current.text.split("\n").length + 2)}
-                      onChange={(event) => onText(current.path, event.target.value)} />
-          </label>
-          {problem ? <p className="notice small" role="alert">The YAML does not parse — {problem}</p> : null}
-          {current.text !== current.original ? (
-            <button type="button" className="button quiet" onClick={() => onDiscard(current.path)}>Discard these changes</button>
-          ) : null}
-        </div>
-      ) : null}
-
-      <h3>Diff</h3>
-      {changed.length === 0 ? <p className="muted small">Nothing changed yet.</p> : changed.map((draft) => (
-        <pre key={draft.path} className="diff">{unified(draft.path, draft.original, draft.text).replace(/\n$/, "").split("\n").map((line, at) => (
-          <span key={at} className={/^\+(?!\+\+ )/.test(line) ? "add" : /^-(?!-- )/.test(line) ? "del" : undefined}>{line}{"\n"}</span>
-        ))}</pre>
-      ))}
-
-      <form className="form" onSubmit={(event) => { event.preventDefault(); if (because === null && !busy) onSubmit(); }}>
-        <label>
-          Title
-          <input value={asked.title} placeholder="config: raise the per-session budget"
-                 onChange={(event) => onChange({ ...asked, title: event.target.value })} />
-        </label>
-        <label>
-          Description <small>optional — it opens the pull request&apos;s body, above where it says it came from</small>
-          <textarea value={asked.description} onChange={(event) => onChange({ ...asked, description: event.target.value })} />
-        </label>
-        <button type="submit" className="button" disabled={because !== null || busy}>
-          {busy ? "Opening…" : `Open pull request as ${as || "you"}`}
-        </button>
-        {because !== null && changed.length > 0 ? <small>Not yet: {because}.</small> : null}
-      </form>
-      {outcome?.ok ? (
-        <p className="notice small">
-          Opened <a href={outcome.url} target="_blank" rel="noreferrer">#{outcome.number}</a> from <code>{outcome.branch}</code>: the
-          repository&apos;s CI checks it, and its branch protection governs the merge.
+    <Section title="Edit">
+      <Card className="p-4 sm:p-5">
+        <p className="text-sm text-muted">
+          The files as <code>{into}</code> at <code>{short(base)}</code> held them. What is typed here is committed exactly — comments
+          and all — as {by}, on <code>{branchFor(as || "you", asked.title)}</code>, and proposed to <code>{into}</code> as a
+          pull request. The cockpit checks only that the YAML parses: the repository&apos;s CI and its branch protection decide the rest.
         </p>
-      ) : outcome ? <p className="notice small">Not opened: {outcome.because}.</p> : null}
-    </section>
+        {drafts.length > 1 ? (
+          <Tabs label="Files being edited" className="mt-4" selected={shown ?? ""} onSelect={onOpen}
+                tabs={drafts.map((draft) => ({ id: draft.path, label: <><code>{draft.path}</code>{draft.text !== draft.original ? " •" : ""}</> }))} />
+        ) : null}
+        {loading !== null ? (
+          loading.because === null ? <p className="mt-3 text-sm text-muted">Reading <code>{loading.path}</code> from the forge…</p>
+            : <Notice className="text-sm">Cannot edit <code>{loading.path}</code>: {loading.because}.</Notice>
+        ) : null}
+        {current !== null ? (
+          <div className="mt-4 grid gap-2">
+            <Field label={<code>{current.path}</code>}>
+              <textarea spellCheck={false} value={current.text} rows={Math.min(40, current.text.split("\n").length + 2)}
+                        className={cx(control, "w-full overflow-x-auto font-mono text-sm [overflow-wrap:normal] [tab-size:2] whitespace-pre")}
+                        onChange={(event) => onText(current.path, event.target.value)} />
+            </Field>
+            {problem ? <Notice tone="bad" className="text-sm" role="alert">The YAML does not parse — {problem}</Notice> : null}
+            {current.text !== current.original ? (
+              <Button variant="ghost" size="sm" className="justify-self-start" onClick={() => onDiscard(current.path)}>Discard these changes</Button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <h4 className="mt-6 mb-2">Diff</h4>
+        {changed.length === 0 ? <p className="text-sm text-muted">Nothing changed yet.</p> : (
+          <div className="grid gap-2">
+            {changed.map((draft) => <DiffBlock key={draft.path} text={unified(draft.path, draft.original, draft.text)} />)}
+          </div>
+        )}
+
+        <form className="mt-6 grid max-w-2xl gap-3" onSubmit={(event) => { event.preventDefault(); if (because === null && !busy) onSubmit(); }}>
+          <Field label="Title">
+            <input value={asked.title} placeholder="config: raise the per-session budget" className={control}
+                   onChange={(event) => onChange({ ...asked, title: event.target.value })} />
+          </Field>
+          <Field label="Description" hint="optional — it opens the pull request's body, above where it says it came from">
+            <textarea value={asked.description} rows={3} className={control} onChange={(event) => onChange({ ...asked, description: event.target.value })} />
+          </Field>
+          <Button type="submit" variant="primary" className="justify-self-start" disabled={because !== null || busy}>
+            {busy ? "Opening…" : `Open pull request as ${by}`}
+          </Button>
+          {because !== null && changed.length > 0 ? <p className="text-sm text-muted">Not yet: {because}.</p> : null}
+        </form>
+        {outcome?.ok ? (
+          <Notice tone="ok" className="text-sm">
+            Opened <a href={outcome.url} target="_blank" rel="noreferrer">#{outcome.number}</a> from <code>{outcome.branch}</code>: the
+            repository&apos;s CI checks it, and its branch protection governs the merge.
+          </Notice>
+        ) : outcome ? <Notice tone="bad" className="text-sm">Not opened: {outcome.because}.</Notice> : null}
+      </Card>
+    </Section>
   );
 }
 

@@ -44,18 +44,18 @@ describe("cost across factories", () => {
   const page = shown(ROLLUP);
 
   it("totals the period as list-price equivalent, tokens alongside", () => {
-    expect(page).toContain("$0.52 · 30,700 tokens this month");
+    expect(page).toContain("$0.52 · 30.7k tokens this month");
     expect(page).toContain("list-price equivalent");
   });
 
   it("rolls up by factory, workflow, station with its owner, person and session", () => {
-    expect(page).toContain("acme/widgets $0.50 29,500 tokens");
+    expect(page).toContain("acme/widgets $0.50 29.5k tokens");
     expect(page).toContain("acme/gadgets ship $0.02 1,200 tokens");
-    expect(page).toContain("alex@mbp:widgets acme/widgets alex $0.46 27,100 tokens");
+    expect(page).toContain("alex@mbp:widgets acme/widgets alex $0.46 27.1k tokens");
     expect(page).toContain("runner@ci:gadgets acme/gadgets not registered $0.02 1,200 tokens");
-    expect(page).toContain("sam $0.46 27,100 tokens");
+    expect(page).toContain("sam $0.46 27.1k tokens");
     expect(page).toContain("not named by the factory $0.02 1,200 tokens");
-    expect(page).toContain("a9f259f0 acme/widgets resolve relative due dates issue → pr-review $0.46 27,100 tokens");
+    expect(page).toContain("a9f259f0 acme/widgets resolve relative due dates issue → pr-review $0.46 27.1k tokens");
   });
 
   it("tells who paid from who asked", () => {
@@ -73,8 +73,8 @@ describe("one factory's Cost tab", () => {
 
   it("drops what only tells factories apart", () => {
     expect(tab).not.toContain("By factory");
-    expect(tab).toContain("alex@mbp:widgets alex $0.46 27,100 tokens");
-    expect(tab).toContain("issue $0.38 23,100 tokens");
+    expect(tab).toContain("alex@mbp:widgets alex $0.46 27.1k tokens");
+    expect(tab).toContain("issue $0.38 23.1k tokens");
     expect(tab).toContain("a9f259f0 resolve relative due dates issue → pr-review $0.46");
   });
 });

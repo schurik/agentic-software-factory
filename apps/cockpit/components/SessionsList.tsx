@@ -11,6 +11,7 @@ import { ANY, type Choice, SessionFilters } from "./sessions/SessionFilters";
 import { SessionsTable } from "./sessions/SessionsTable";
 import { useCockpit } from "./Shell";
 import { useSignIn } from "./signIn";
+import { Loading, Notice, PageHeader } from "./ui";
 
 /**
  * Every session the viewer can read, as a table they narrow by workflow,
@@ -29,17 +30,17 @@ export function SessionsList({ factory }: { factory?: string }) {
   if (asked !== undefined && asked !== last) setLast(asked);
   const list = asked ?? last;
   const across = factory === undefined;
-  const heading = across ? <h1>Sessions</h1> : null;
-  if (list === undefined) return <>{heading}<p className="muted">Loading…</p></>;
+  const heading = across ? <PageHeader title="Sessions" /> : null;
+  if (list === undefined) return <>{heading}<Loading /></>;
   if (list === null) return null;       // signed out, or a factory the page already said cannot be read
   if (list.looked === 0) {
     return (
       <>
         {heading}
-        <p className="notice">
+        <Notice>
           No station has shipped a session{across ? "" : " of this factory"} yet. A station sends its events to{" "}
           <code>POST /ingest</code> on this deployment&apos;s site URL with a factory&apos;s ingest token.
-        </p>
+        </Notice>
       </>
     );
   }
@@ -47,11 +48,11 @@ export function SessionsList({ factory }: { factory?: string }) {
     <>
       {heading}
       <SessionFilters choice={choice} facets={list.facets} me={viewer?.login ?? ""} onChange={setChoice} />
-      <p className="muted small">
+      <p className="mt-4 mb-2 text-sm text-muted">
         {list.sessions.length} of {plural(list.looked, "session")} looked at, most recently active first
         {list.cut ? "; older ones were not looked at, and may match too" : ""}.
       </p>
-      {list.sessions.length ? <SessionsTable rows={list.sessions} across={across} /> : <p className="muted">No session matches.</p>}
+      {list.sessions.length ? <SessionsTable rows={list.sessions} across={across} now={now} /> : <p className="text-muted">No session matches.</p>}
     </>
   );
 }

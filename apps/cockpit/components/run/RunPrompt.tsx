@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { useClock } from "../clock";
 import { said } from "../Shell";
 import { useSignIn } from "../signIn";
+import { control, Field, Loading, PageHeader } from "../ui";
 import { RunForm } from "./RunForm";
 
 /**
@@ -23,19 +24,19 @@ export function RunPrompt({ factory }: { factory: string }) {
 
   return (
     <>
-      <h1>Run a prompt</h1>
-      <p className="muted">
-        Starts a workflow that takes a prompt on one of your own stations, as you. A station runs it only if its{" "}
-        <code>asf/factory.yaml</code> lists <code>run</code> under <code>cockpit.commands</code> — it is off unless it does.
-      </p>
-      <form className="form" onSubmit={(event) => event.preventDefault()}>
-        <label>
-          Factory
-          <select value={factory} onChange={(event) => router.push(`/run?factory=${encodeURIComponent(event.target.value)}`)}>
+      <PageHeader title="Run a prompt" sub={
+        <>
+          Starts a workflow that takes a prompt on one of your own stations, as you. A station runs it only if its{" "}
+          <code>asf/factory.yaml</code> lists <code>run</code> under <code>cockpit.commands</code> — it is off unless it does.
+        </>
+      } />
+      <form className="mb-4 grid max-w-2xl" onSubmit={(event) => event.preventDefault()}>
+        <Field label="Factory">
+          <select value={factory} className={control} onChange={(event) => router.push(`/run?factory=${encodeURIComponent(event.target.value)}`)}>
             <option value="" disabled>{factories.length ? "pick a factory" : "no station of yours yet"}</option>
             {factories.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
-        </label>
+        </Field>
       </form>
       {factory ? <RunPanel key={factory} factory={factory} /> : null}
     </>
@@ -55,7 +56,7 @@ export function RunPanel({ factory, workflow, workflows }: { factory: string; wo
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const now = useClock();
-  if (targets === undefined || runs === undefined) return <p className="muted">Loading…</p>;
+  if (targets === undefined || runs === undefined) return <Loading />;
   return (
     <RunForm key={workflow ?? ""} factory={factory} targets={targets} runs={runs} now={now} busy={busy} problem={problem}
              workflow={workflow} workflows={workflows}

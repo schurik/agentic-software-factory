@@ -77,7 +77,7 @@ describe("the finished session", () => {
 
   it("offers the pull request, says where the work went, and fills the sidebar", () => {
     const html = renderToStaticMarkup(<SessionView page={page(RECORDED)} now={LATER} />);
-    expect(html).toContain('<a class="button" href="https://forge/acme/widgets/pull/9">Open pull request ↗</a>');
+    expect(html).toMatch(/<a [^>]*href="https:\/\/forge\/acme\/widgets\/pull\/9">Open pull request ↗<\/a>/);
     expect(text).toContain("Now All work landed in pull request #9 over 3 chapters");
     expect(text).toContain("Chapter pr-review, round 2");
     expect(text).toContain("Station schurik@mbp:widgets run by asf tests");
@@ -101,11 +101,11 @@ describe("a phase, one click from its tabs", () => {
       .filter((item) => item.type === "agent" || item.type === "code");
     expect(story.chapters.map((chapter) => chapter.reader?.name)).toEqual(["issue", "pr", "pr"]);
     expect(html.match(/<button[^>]*aria-expanded="false"[^>]*>details<\/button>/g)).toHaveLength(phases.length);
-    expect(html).not.toContain('class="phase-tabs"');
+    expect(html).not.toContain('aria-label="Phase"');
   });
 
   it("makes each artifact chip a way into the Artifacts tab", () => {
-    expect(html).toMatch(/<button class="chip"[^>]*><code>scout_findings.md<\/code>/);
+    expect(html).toMatch(/<button[^>]*><code>scout_findings.md<\/code>/);
   });
 });
 
@@ -124,13 +124,15 @@ describe("a session on its way", () => {
     expect(text).toContain("◐ plan gate · round 1 waiting");
     expect(text).toContain("Answering happens in the inbox, not here.");
     const html = renderToStaticMarkup(<SessionView page={page(upTo("suspended"))} now={LATER} />);
-    expect(html).toContain('<a class="button" href="/?open=acme%2Fwidgets%2Fa9f259f0">Answer in inbox</a>');
+    expect(html).toMatch(/<a [^>]*href="\/\?open=acme%2Fwidgets%2Fa9f259f0">Answer in inbox<\/a>/);
   });
 
   it("never offers a button that does nothing", () => {
     for (const events of [upTo("tool_called"), upTo("suspended")]) {
       const html = renderToStaticMarkup(<SessionView page={page(events)} now={LATER} />);
-      for (const button of html.match(/<button class="button"[^>]*>/g) ?? []) expect(button).toContain("disabled");
+      // The top bar's verb: offered only when it would do something.
+      const bar = html.slice(0, html.indexOf("</header>"));
+      for (const button of bar.match(/<button[^>]*>/g) ?? []) expect(button).toContain(' disabled=""');
     }
   });
 });
@@ -141,10 +143,10 @@ describe("killing a live session", () => {
   const attended: SteeringView = { station, attendedAt: LATER - 2000, kill: null, killRefused: null, resume: null, resumeRefused: null };
   const killButton = (steering: SteeringView) =>
     renderToStaticMarkup(<SessionView page={page(working)} now={LATER} steering={steering} onCommand={() => {}} />)
-      .match(/<button class="button"[^>]*>Kill session<\/button>/)![0];
+      .match(/<button[^>]*>Kill session<\/button>/)![0];
 
   it("is offered while the run is attended, and the sidebar says it is and whose station it is", () => {
-    expect(killButton(attended)).not.toContain("disabled");
+    expect(killButton(attended)).not.toContain(' disabled=""');
     const text = shown(working, attended);
     expect(text).toContain("owned by schurik");
     expect(text).toContain("● attended · last seen 2s ago");
@@ -153,13 +155,13 @@ describe("killing a live session", () => {
   it("is greyed out, saying why, when the station's report says it would refuse", () => {
     const because = "schurik@mbp:widgets does not take kill: its asf/factory.yaml's cockpit.commands does not list it";
     const refused = { ...attended, killRefused: because };
-    expect(killButton(refused)).toContain("disabled");
+    expect(killButton(refused)).toContain(' disabled=""');
     expect(shown(working, refused)).toContain(because);
   });
 
   it("says a station that is not polling is offline, when it was last seen, and that a kill waits for it", () => {
     const away = { ...attended, attendedAt: LATER - 4 * 60_000, station: { ...station, seenAt: LATER - 3 * 60_000 } };
-    expect(killButton(away)).not.toContain("disabled");
+    expect(killButton(away)).not.toContain(' disabled=""');
     const text = shown(working, away);
     expect(text).toContain("○ offline · last seen 3m ago");
     expect(text).toContain("is offline: a kill waits for it");
@@ -168,7 +170,7 @@ describe("killing a live session", () => {
   it("shows a queued kill as queued — station offline — until the station takes it, and never as done", () => {
     const kill = { state: "queued" as const, by: "alex", issuedAt: LATER - 1000, expiresAt: LATER + 60_000, detail: "" };
     const queued = { ...attended, attendedAt: null, kill };
-    expect(killButton(queued)).toContain("disabled");
+    expect(killButton(queued)).toContain(' disabled=""');
     expect(shown(working, queued)).toContain("queued, station offline: schurik@mbp:widgets takes it when it is back");
     expect(shown(working, { ...queued, kill: { ...kill, state: "delivered" } }))
       .toContain("sent to schurik@mbp:widgets by alex: waiting for it to say it stopped");
@@ -191,22 +193,22 @@ describe("resuming a failed session", () => {
   const online: SteeringView = { station, attendedAt: null, kill: null, killRefused: null, resume: null, resumeRefused: null };
   const resumeButton = (steering: SteeringView) =>
     renderToStaticMarkup(<SessionView page={page(failed)} now={LATER} steering={steering} onCommand={() => {}} />)
-      .match(/<button class="button"[^>]*>Resume<\/button>/)![0];
+      .match(/<button[^>]*>Resume<\/button>/)![0];
 
   it("is offered on the station that holds it", () => {
-    expect(resumeButton(online)).not.toContain("disabled");
+    expect(resumeButton(online)).not.toContain(' disabled=""');
   });
 
   it("is disabled for a session that ran in CI, saying to re-trigger it from the forge", () => {
     const ci = { ...online, station: null, resumeRefused: "ran in CI: re-trigger from the forge" };
-    expect(resumeButton(ci)).toContain("disabled");
+    expect(resumeButton(ci)).toContain(' disabled=""');
     expect(shown(failed, ci)).toContain("ran in CI: re-trigger from the forge");
   });
 
   it("shows a queued resume as queued — station offline — and a done one as what the station said", () => {
     const resume = { state: "queued" as const, by: "alex", issuedAt: LATER - 1000, expiresAt: LATER + 3_600_000, detail: "" };
     const away = { ...online, station: { ...station, seenAt: LATER - 5 * 60_000 }, resume };
-    expect(resumeButton(away)).toContain("disabled");
+    expect(resumeButton(away)).toContain(' disabled=""');
     expect(shown(failed, away)).toContain("queued, station offline: schurik@mbp:widgets takes it when it is back");
     expect(shown(failed, { ...online, resume: { ...resume, state: "done", detail: "relaunched a9f259f0" } }))
       .toContain("resumed by alex: relaunched a9f259f0");
@@ -231,13 +233,13 @@ describe("a claim the session holds", () => {
 
   it("says which station holds it and how long it has been away — never that it is orphaned", () => {
     const { text } = withClaims([held]);
-    expect(text).toContain("issue #42 held by alex@mbp:widgets, offline 2 d");
+    expect(text).toContain("issue #42 held by alex@mbp:widgets, offline 2d");
     expect(text).not.toMatch(/orphan/i);
   });
 
   it("offers a writer Release claim, spelling out what it does", () => {
     const { html } = withClaims([held]);
-    expect(html).toMatch(/<button class="button small"[^>]*title="Relabels #42 `asf:queued` and abandons session a9f259f0"[^>]*>Release claim<\/button>/);
+    expect(html).toMatch(/<button[^>]*title="Relabels #42 `asf:queued` and abandons session a9f259f0"[^>]*>Release claim<\/button>/);
   });
 
   it("tells anyone else why they may not, and shows a released one as who let it go", () => {
@@ -254,7 +256,7 @@ describe("a session from a newer factory", () => {
     const unknown = { seq: 2, ts: "2026-09-29T12:00:00.000+00:00", kind: "phase_paused", v: 1, payload: {} };
     const html = renderToStaticMarkup(
       <SessionView page={page([fixture("session_started", 1), unknown, fixture("phase_started", 3, 2)])} now={LATER} />);
-    expect(html).toContain('<details class="all-events" open="">');
+    expect(html).toMatch(/<details[^>]* open=""><summary[^>]*>Every event/);
     expect(html).toContain("unknown kind — shown as sent");
     expect(html).toContain("upgrade the cockpit to read them");
   });
@@ -277,14 +279,14 @@ describe("the sidebar's cost", () => {
   it("is spend against the factory's per-session ceiling, in money and in tokens", () => {
     const text = against({ maxCostUsd: 2.5, maxTokens: 2_000_000 });
     expect(text).toContain("$0.46 of $2.50 per-session ceiling · 19%");
-    expect(text).toContain("27,100 of 2,000,000 tokens · 1%");
+    expect(text).toContain("27.1k of 2M tokens · 1%");
     expect(text).toContain("list-price equivalent");
   });
 
   it("names only the ceiling the factory sets, and says when it sets none", () => {
     const text = against({ maxCostUsd: 0, maxTokens: 50_000 });
     expect(text).toContain("$0.46 · no cost ceiling");
-    expect(text).toContain("27,100 of 50,000 tokens · 54%");
+    expect(text).toContain("27.1k of 50k tokens · 54%");
     expect(against({ maxCostUsd: 0, maxTokens: 0 })).toContain("no per-session budget");
   });
 

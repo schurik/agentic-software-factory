@@ -49,7 +49,7 @@ describe("the Workflows tab", () => {
     expect(html).toContain("gate: integrate · off");
     expect(html).toContain("asks: requirements");
     expect(html).toContain("docs/asf/spec/");                       // the planner's write boundary
-    expect(html).toContain("$2.50 · 2,000,000 tokens per session");
+    expect(html).toContain("$2.50 · 2M tokens per session");
     expect(html).toContain("nightly");                               // a workflow that does not load, said
     // Run in place, for a prompt workflow only.
     expect(html.match(/>Run<\/button>/g)?.length).toBe(DESCRIPTION.workflows.filter((w) => w.input === "prompt").length);
@@ -60,7 +60,7 @@ describe("the Workflows tab", () => {
       <WorkflowsTab check={page().check} onRun={() => {}} running="quick" runner={(name) => <p>run form for {name}</p>} />);
 
     const quick = html.slice(html.indexOf('id="workflow-quick"'));
-    expect(quick.slice(0, quick.indexOf("<section", 1))).toContain("run form for quick");
+    expect(quick.slice(0, quick.indexOf('id="workflow-', 1))).toContain("run form for quick");
     expect(html.match(/run form for/g)?.length).toBe(1);
   });
 

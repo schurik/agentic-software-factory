@@ -9,6 +9,7 @@ import type { ClaimView } from "@/convex/model/claim";
 import type { Command } from "./session/action";
 import { SessionView } from "./session/SessionView";
 import { useSignIn } from "./signIn";
+import { Loading, Notice } from "./ui";
 
 /**
  * One session, live. `useQuery` is a subscription: every event a station ships
@@ -29,12 +30,12 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const [problem, setProblem] = useState("");
   const [released, setReleased] = useState("");
   const now = useClock();
-  if (page === undefined) return <p className="muted">Loading…</p>;
+  if (page === undefined) return <Loading />;
   if (page === null) {
     return (
-      <p className="notice">
+      <Notice>
         No station has shipped session <code>{session}</code> of {factory}, or it is in a repository you cannot read.
-      </p>
+      </Notice>
     );
   }
   const onCommand = (command: Command) => {
@@ -55,8 +56,8 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   };
   return (
     <>
-      {problem ? <p className="notice">{problem}</p> : null}
-      {released ? <p className="notice">{released}</p> : null}
+      {problem ? <Notice tone="bad">{problem}</Notice> : null}
+      {released ? <Notice tone="ok">{released}</Notice> : null}
       <SessionView page={page} now={now} steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
                    onPurge={(reason) => purge({ factory, session, reason, signIn })} />
     </>

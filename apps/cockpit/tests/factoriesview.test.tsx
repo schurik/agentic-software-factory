@@ -83,8 +83,8 @@ describe("a row of the Factories list", () => {
   it("flags what needs attention — a failure, a waiting claim, drift, a failing check, nobody watching — never calling a claim orphaned", () => {
     const said = text(render([busy]));
 
-    expect(said).toContain("1 failed in 24 h");
-    expect(said).toContain("#42 held by bob@desk:widgets, offline 2 d");
+    expect(said).toContain("1 failed in 24h");
+    expect(said).toContain("#42 held by bob@desk:widgets, offline 2d");
     expect(said).toContain("1 station drifted");
     expect(said).toContain("check failing");
     expect(said).toContain("nobody watching");

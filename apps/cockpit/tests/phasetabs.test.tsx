@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { ViewerLogin } from "../components/viewer";
 import { describe, expect, it } from "vitest";
 import { PhaseTabs, RepoFile, tabsFor, type Where } from "../components/session/PhaseTabs";
 import type { Artifact, PhaseDetail } from "../convex/model/phase";
@@ -130,7 +131,7 @@ describe("the other tabs", () => {
   it("Cost: the phase's spend, and how full the context window got", () => {
     const text = tab("a9f259f0_03_plan", "cost");
     expect(text).toContain("opus 6,100 $0.10");
-    expect(text).toContain("121,000 of 200,000 tokens · 61%");
+    expect(text).toContain("121k of 200k tokens · 61%");
   });
 
   it("Transcript: the prompts and harness output when the factory opted in", () => {
@@ -164,13 +165,22 @@ describe("a pruned body", () => {
   it("Transcript: says when the transcript aged out", () => {
     const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "aged_out" });
     const text = tab("a9f259f0_05_plan_revise_1", "transcript", events);
-    expect(text).toContain("transcript aged out on 1 Nov 2026");
+    expect(text).toContain("transcript aged out on Nov 1, 2026");
     expect(text).not.toContain("Transcripts are off");
   });
 
   it("Transcript: says who purged it, and when", () => {
     const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" });
-    expect(tab("a9f259f0_05_plan_revise_1", "transcript", events)).toContain("transcript purged on 1 Nov 2026 by alex");
+    expect(tab("a9f259f0_05_plan_revise_1", "transcript", events)).toContain("transcript purged on Nov 1, 2026 by alex");
+  });
+
+  it("Transcript: says the viewer purged it as you", () => {
+    const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" });
+    const html = renderToStaticMarkup(
+      <ViewerLogin.Provider value="alex">
+        <PhaseTabs detail={detail("a9f259f0_05_plan_revise_1", events)} where={WHERE} initial="transcript" />
+      </ViewerLogin.Provider>);
+    expect(shown(html)).toContain("transcript purged on Nov 1, 2026 by you");
   });
 
   it("Artifacts: says a handoff file's content was purged", () => {
@@ -178,7 +188,7 @@ describe("a pruned body", () => {
       ? { ...event, payload: { ...event.payload, content: undefined, pruned: { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" } } }
       : event);
     const text = tab("a9f259f0_02_scout", "artifacts", events);
-    expect(text).toContain("content purged on 1 Nov 2026 by alex");
+    expect(text).toContain("content purged on Nov 1, 2026 by alex");
     expect(text).not.toContain("# Findings");
   });
 });
