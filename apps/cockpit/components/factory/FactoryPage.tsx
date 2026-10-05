@@ -14,7 +14,7 @@ import { useRunPrompt } from "../run/RunDialog";
 import { said } from "../said";
 import { useCockpit } from "../Shell";
 import { useSignIn } from "../signIn";
-import { TriggerButton, TriggerForm } from "../trigger/Trigger";
+import { TriggerForm } from "../trigger/Trigger";
 import { Loading, Notice, Tabs } from "../ui";
 import { ActivityTab } from "./ActivityTab";
 import { ConfigEditor } from "./ConfigEditor";
@@ -91,13 +91,8 @@ export function FactoryPage({ factory }: { factory: string }) {
 
   return (
     <div>
-      <FactoryHeader page={page} look={look} drifts={measured} forge={web}>
-        {page.onForge ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <TriggerButton role={page.role} open={triggering} onToggle={() => setTriggering(!triggering)} />
-          </div>
-        ) : null}
-      </FactoryHeader>
+      <FactoryHeader page={page} look={look} drifts={measured} forge={web}
+                     triggering={triggering} onTrigger={() => setTriggering(!triggering)} />
       {triggering ? <TriggerForm factory={page.repo} signIn={signIn} as={viewer?.login ?? ""} /> : null}
       <Tabs label="Factory" selected={tab} onSelect={setTab}
             tabs={(Object.keys(TABS) as Tab[]).map((id) => ({ id, label: TABS[id] }))} />

@@ -71,6 +71,13 @@ describe("a row of the Factories list", () => {
     expect(text(render([busy]))).toContain("1 gate on you · check failing · 4 more need attention");
   });
 
+  it("counts each failed session as a thing that needs attention, as Now lists them", () => {
+    const failed = (session: string) => ({ session, title: session, workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - HOUR });
+    const said = text(render([row("acme/alpha", { facts: { ...QUIET, failed: [failed("f1"), failed("f2"), failed("f3")] } })]));
+
+    expect(said).toContain("3 more need attention");
+  });
+
   it("says nothing needs attention where nothing does — a gate waiting on someone else included", () => {
     const said = text(render([row("acme/alpha", { facts: { ...QUIET, gates: { mine: 0, total: 2 } } })]));
 
@@ -126,9 +133,8 @@ describe("the Factories list's rows", () => {
       busy,
       row("acme/gamma", { lastActivity: null }),
     ]);
-    const at = (repo: string) => html.indexOf(`href="/factories/${repo}"`);
+    const order = [...html.matchAll(/href="\/factories\/([^"]+)"/g)].map((match) => match[1]);
 
-    expect([at("acme/widgets"), at("acme/alpha"), at("acme/beta"), at("acme/gamma")]).toEqual(
-      [at("acme/widgets"), at("acme/alpha"), at("acme/beta"), at("acme/gamma")].sort((a, b) => a - b));
+    expect(order).toEqual(["acme/widgets", "acme/alpha", "acme/beta", "acme/gamma"]);
   });
 });

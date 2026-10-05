@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { FactoryRow } from "@/convex/factories";
+import type { Attention } from "@/convex/model/attention";
 import type { Ranked } from "@/convex/model/factories";
 import { factoryHref } from "../factory/view";
 import { formatAgoAt, formatDollars, plural } from "../format";
@@ -27,7 +28,7 @@ export function FactoryRows({ rows, now }: { rows: Ranked<FactoryRow>[]; now: nu
                    {row.private ? <Tag>private</Tag> : null}
                    {!row.onForge ? <Tag tone="wait">not found on the forge</Tag> : null}
                  </>}
-                 lines={[needs(row, attention.length), moving(row, online)]}
+                 lines={[needs(attention), moving(row, online)]}
                  where={row.spend === null ? "" : (
                    <span title="list-price equivalent: what the tokens would cost at the provider's list price, subscription or not">
                      {formatDollars(row.spend.cost)} this month
@@ -43,18 +44,23 @@ export function FactoryRows({ rows, now }: { rows: Ranked<FactoryRow>[]; now: nu
 
 /**
  * What needs the viewer there: the gates waiting on them, a failing check,
- * and how many other things need attention — which, its page and Now say.
+ * and how many other things need attention — counted as Now's rows are, each
+ * failed session and each claim its own, which its page and Now name.
  */
-function needs(row: FactoryRow, attending: number): ReactNode {
-  const { gates, check } = row.facts;
-  const more = attending - Number(gates.mine > 0) - Number(check === "failing");
-  const said = [
-    gates.mine ? <span key="gates" className="text-wait">{plural(gates.mine, "gate")} on you</span> : null,
-    check === "failing" ? <span key="check" className="text-bad">check failing</span> : null,
+function needs(attention: Attention[]): ReactNode {
+  let [mine, failing, more] = [0, false, 0];
+  for (const item of attention) {
+    if (item.kind === "gates") mine = item.mine;
+    else if (item.kind === "check") failing = true;
+    else more += item.kind === "failed" ? item.sessions.length : 1;
+  }
+  const parts = [
+    mine ? <span key="gates" className="text-wait">{plural(mine, "gate")} on you</span> : null,
+    failing ? <span key="check" className="text-bad">check failing</span> : null,
     more ? <span key="more" className="text-wait">{more} more {more === 1 ? "needs" : "need"} attention</span> : null,
   ].filter((part) => part !== null);
-  if (!said.length) return "Nothing needs attention";
-  return <>{said.flatMap((part, at) => (at ? [" · ", part] : [part]))}</>;
+  if (!parts.length) return "Nothing needs attention";
+  return <>{parts.flatMap((part, at) => (at ? [" · ", part] : [part]))}</>;
 }
 
 /** What is moving there: its sessions running, its stations online of all, the workflows it loads. */

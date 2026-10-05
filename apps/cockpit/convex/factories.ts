@@ -27,7 +27,10 @@ export interface FactoryRow {
   seen: number[];
   /** What its agent calls cost in the period asked for, list-price equivalent; null when none was. */
   spend: Spend | null;
-  /** How many workflows its default branch's self-description loads; null before a CI workflow pushed one. */
+  /**
+   * How many workflows its default branch's self-description loads — the latest one pushed, while the
+   * forge names no default branch, as the Factory page reads it; null before a CI workflow pushed one.
+   */
   workflows: number | null;
   /** What needs attention is read from, as the Factory page's Activity reads it (`model/attention.ts`). */
   facts: Facts;
