@@ -1,3 +1,5 @@
+import { Select as BaseSelect } from "@base-ui/react/select";
+import { Check, ChevronsUpDown } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { type Tone, toneOf } from "./session/words";
 
@@ -155,6 +157,53 @@ export function Field({ label, hint, className, children }: { label: ReactNode; 
       {children}
       {hint ? <span className="text-sm text-muted">{hint}</span> : null}
     </label>
+  );
+}
+
+/** A menu's or a select's popup, and one item in it. */
+export const menuPopup = cx(
+  "min-w-56 origin-[var(--transform-origin)] rounded-lg border border-line bg-surface p-1 text-sm text-fg shadow-pop outline-none",
+  "transition-[scale,opacity] duration-100 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
+);
+export const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 outline-none select-none data-highlighted:bg-surface-2";
+
+/**
+ * A labelled choice of one among `items`, drawn like a control and opened
+ * as a menu. With nothing to choose it is disabled, and says `placeholder`.
+ */
+export function Select({ label, items, value, placeholder, onChange, className }: {
+  label: ReactNode;
+  items: string[];
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return (
+    <BaseSelect.Root items={items.map((item) => ({ label: item, value: item }))} value={value || null}
+                     disabled={!items.length} onValueChange={(chosen) => { if (typeof chosen === "string") onChange(chosen); }}>
+      <div className={cx("grid min-w-0 gap-1", className)}>
+        <BaseSelect.Label className="text-sm font-medium">{label}</BaseSelect.Label>
+        <BaseSelect.Trigger className={cx(control, "flex h-9 min-w-0 items-center justify-between gap-2 text-left hover:bg-surface-2 data-popup-open:border-accent")}>
+          <BaseSelect.Value placeholder={placeholder} className="truncate data-placeholder:text-faint" />
+          <BaseSelect.Icon><ChevronsUpDown size={14} className="text-muted" aria-hidden="true" /></BaseSelect.Icon>
+        </BaseSelect.Trigger>
+      </div>
+      <BaseSelect.Portal>
+        <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className="z-50">
+          <BaseSelect.Popup className={cx(menuPopup, "max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-y-auto")}>
+            <BaseSelect.List>
+              {items.map((item) => (
+                <BaseSelect.Item key={item} value={item} className={menuItem}>
+                  <BaseSelect.ItemText className="grow">{item}</BaseSelect.ItemText>
+                  <BaseSelect.ItemIndicator><Check size={14} className="text-accent" aria-hidden="true" /></BaseSelect.ItemIndicator>
+                </BaseSelect.Item>
+              ))}
+            </BaseSelect.List>
+          </BaseSelect.Popup>
+        </BaseSelect.Positioner>
+      </BaseSelect.Portal>
+    </BaseSelect.Root>
   );
 }
 

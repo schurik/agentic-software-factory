@@ -9,7 +9,8 @@ import { useClock } from "./clock";
 import { formatAgo } from "./format";
 import { said, useCockpit } from "./Shell";
 import { useSignIn } from "./signIn";
-import { Button, Loading, Notice, PageHeader, Table } from "./ui";
+import { useRunPrompt } from "./run/RunDialog";
+import { Button, LinkButton, Loading, Notice, PageHeader, Table } from "./ui";
 import { useWho } from "./viewer";
 
 /**
@@ -23,6 +24,7 @@ export function Stations() {
   const { mode } = useCockpit();
   const who = useWho();
   const stations = useQuery(api.stations.mine, { signIn });
+  const run = useRunPrompt();
   const revoke = useMutation(api.stations.revoke);
   const [problem, setProblem] = useState("");
   const now = useClock();
@@ -35,7 +37,7 @@ export function Stations() {
             ? <>The stations on this machine: a local cockpit&apos;s are yours without approving them.</>
             : <>The stations you approved. A station takes commands from the cockpit for you; run{" "}
                 <code>asf station register</code> in a checkout to add one.</>}
-          <span className="mt-2 block"><Link href="/stations/approve">Approve a station by its code…</Link> · <Link href="/run">Run a prompt on one of them…</Link></span>
+          <span className="mt-2 block"><Link href="/stations/approve">Approve a station by its code…</Link> · <LinkButton onClick={() => run()}>Run a prompt on one of them…</LinkButton></span>
         </>
       } />
       {problem ? <Notice tone="bad">{problem}</Notice> : null}

@@ -223,6 +223,23 @@ describe("a self-description pushed by a CI station", () => {
     expect(await t.query(api.factory.page, { factory: "acme/widgets" })).toBeNull();     // nobody signed in
     expect(await t.query(api.factory.page, { factory: "acme/secret", signIn: alex })).toBeNull();
   });
+
+  it("offers the Run a prompt dialog the default branch's prompt workflows, and only those (#108)", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "read" });
+    const alex = await signIn(t, forge, "alex");
+    await t.action(api.viewer.refresh, { signIn: alex });
+    const ingestToken = await factory(t, "acme/widgets");
+    const asked = { factory: "acme/widgets", signIn: alex };
+
+    expect(await t.query(api.factory.promptWorkflows, asked)).toEqual({ described: false, workflows: [] });
+
+    await ship(t, ingestToken, described({ ref: "main" }));
+    // Not `issue` or `pr-review`, which take a work item, nor `nightly`, which does not load.
+    expect(await t.query(api.factory.promptWorkflows, asked)).toEqual({ described: true, workflows: ["quick", "sdlc", "ship"] });
+    expect(await t.query(api.factory.promptWorkflows, { factory: "acme/secret", signIn: alex })).toBeNull();
+    expect(await t.query(api.factory.promptWorkflows, { factory: "acme/widgets" })).toBeNull();     // nobody signed in
+  });
 });
 
 // ── drift ────────────────────────────────────────────────────────────────────
