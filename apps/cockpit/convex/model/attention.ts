@@ -23,6 +23,12 @@ export const FAILED_WITHIN = 24 * 3600_000;
  * clock, and never called orphaned — a laptop shut over a weekend is not dead.
  */
 export const AWAY_FOR = 24 * 3600_000;
+/**
+ * A session has spent this share of its factory's per-session cost ceiling:
+ * its spend reads amber, and red at the ceiling itself (#104). A constant,
+ * not factory config: the ceiling is the factory's, how close is close is ours.
+ */
+export const EXPENSIVE = 0.8;
 
 /** A session that ended in failure: which, in which workflow, on which station, and when (epoch ms). */
 export interface Failed {

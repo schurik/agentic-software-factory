@@ -40,6 +40,7 @@ import type * as model_digest from "../model/digest.js";
 import type * as model_drift from "../model/drift.js";
 import type * as model_factories from "../model/factories.js";
 import type * as model_filter from "../model/filter.js";
+import type * as model_graph from "../model/graph.js";
 import type * as model_inbox from "../model/inbox.js";
 import type * as model_journal from "../model/journal.js";
 import type * as model_mode from "../model/mode.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   "model/drift": typeof model_drift;
   "model/factories": typeof model_factories;
   "model/filter": typeof model_filter;
+  "model/graph": typeof model_graph;
   "model/inbox": typeof model_inbox;
   "model/journal": typeof model_journal;
   "model/mode": typeof model_mode;

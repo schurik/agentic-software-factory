@@ -103,13 +103,19 @@ export interface SessionView {
   summary: Summary;
   story: Story;
   events: Row[];
+  // Whether the session shipped any transcript event: its factory opted in
+  // (`cockpit: {transcripts: true}`). Their bodies age out; that they came does not.
+  transcripts: boolean;
 }
+
+const TRANSCRIPT_KINDS = ["prompt_rendered", "harness_output"];
 
 /** The whole page: every stored event a row, and what those up to `acked` tell (`fold`). */
 export function view(events: StoredEvent[], acked: number): SessionView {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin(), detail: null };
   const rows = fold(state, events, acked);
-  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows };
+  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows,
+           transcripts: rows.some((row) => TRANSCRIPT_KINDS.includes(row.kind)) };
 }
 
 /** One phase of the page, opened into its tabs (phase.ts); null for a phase it never started. */

@@ -3,6 +3,7 @@ import {
   formatAgo, formatClock, formatCost, formatDay, formatDollars, formatDuration, formatNumber, formatSpan, formatTime,
   formatTokenCount, formatTokens, who,
 } from "../components/format";
+import { phaseName } from "../components/session/words";
 
 // The one set of formats every page uses (#105): whatever the viewer's
 // browser locale, a number reads "10,400" and never "10.400".
@@ -91,5 +92,23 @@ describe("who", () => {
     expect(who("sam", "alex")).toBe("sam");
     expect(who("sam", null)).toBe("sam");
     expect(who("", "alex")).toBe("");
+  });
+});
+
+describe("phase names", () => {
+  const phase = (name: string, gate?: { gate: string; round: number; kind?: string }) =>
+    gate ? { type: "gate" as const, name, kind: "gate", ...gate } : { type: "agent" as const, name };
+
+  it("say what a phase did in words, and keep any name the table does not know", () => {
+    expect(["plan_revise_1", "verify_2", "fix_1", "review_3", "commit_plan", "commit_implement", "commit_document",
+            "issue", "pr", "changes", "scout", "integrate"].map((name) => phaseName(phase(name)))).toEqual([
+      "plan revision 1", "verify #2", "fix #1", "review #3", "commit plan", "commit code", "commit docs",
+      "read the issue", "read the review", "collect the diff", "scout", "integrate"]);
+  });
+
+  it("name a gate by what it asks and its round", () => {
+    expect(phaseName(phase("approve_plan_2", { gate: "plan", round: 2 }))).toBe("plan gate · round 2");
+    expect(phaseName(phase("refine", { gate: "requirements", round: 1, kind: "questions" })))
+      .toBe("requirements questions · round 1");
   });
 });

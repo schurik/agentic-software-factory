@@ -1,264 +1,352 @@
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { SessionView, type Page } from "../components/session/SessionView";
+import { PhaseTabs, tabsFor, type Where } from "../components/session/PhaseTabs";
+import { SessionView, sessionMenu, type Page } from "../components/session/SessionView";
+import { readShown, SHOWN, type Shown, writeShown } from "../components/session/shown";
+import { firstLine } from "../components/session/Timeline";
+import { ViewerLogin } from "../components/viewer";
 import type { ClaimView } from "../convex/model/claim";
 import type { SteeringView } from "../convex/model/command";
-import { firstLine } from "../components/session/Chapter";
-import { view } from "../convex/model/session";
+import { phaseView, view } from "../convex/model/session";
 import { fixture, recorded, type WireEvent } from "./helpers";
 
-// The session page rendered from the golden corpus, the way a browser would
-// first paint it: the same fold the query runs (model/session.ts), straight
-// into the component, with no backend in between. story.test.ts says what the
-// story IS; this says what a person SEES of it.
+// The session page rendered from the golden corpus, the way a browser first
+// paints it: the same fold the query runs (model/session.ts), straight into the
+// component, with no backend in between. What a click would show is rendered
+// from the address that click sets (`Shown`), the way a shared link opens it.
+// graph.test.ts says what the graph IS; this says what a person SEES of it.
 
-const { events: RECORDED } = recorded["issue-then-two-reviews"];
-const LATER = Date.parse("2026-09-30T18:00:00Z");
+const STAGED = recorded["issue-then-two-reviews-in-stages"].events;
+const { journal: STAGED_JOURNAL } = recorded["issue-then-two-reviews-in-stages"];
+const BEFORE = recorded["issue-then-two-reviews"].events;
+const WHERE: Where = { factory: "acme/widgets", session: "a9f259f0", forge: "https://github.com" };
+// Three and a half minutes after the session started, on the recording's own clock.
+const NOW = Date.parse("2026-10-04T22:45:00Z");
 
-function page(events: WireEvent[]): Page {
-  const stored = events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) }));
+const stored = (events: WireEvent[]) => events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) }));
+/** The recording up to and including the event at `seq`. */
+const upTo = (seq: number, events = STAGED) => events.filter((event) => event.seq <= seq);
+const failedIn = (events: WireEvent[]) => [...events, fixture("session_finished", events.at(-1)!.seq + 1)];
+
+const SUSPENDED = 37;          // at the plan gate, round 1
+const BUILDING = 126;          // the builder has just started
+
+function page(events: WireEvent[], extra: Partial<Page> = {}): Page {
   const acked = events.at(-1)?.seq ?? 0;
-  return { factory: "acme/widgets", session: "a9f259f0", acked, forge: "https://github.com", budget: null, ...view(stored, acked) };
+  return { ...WHERE, acked, budget: null, ...view(stored(events), acked), ...extra };
 }
 
-function shown(events: WireEvent[], steering?: SteeringView): string {
-  const html = renderToStaticMarkup(<SessionView page={page(events)} now={LATER} steering={steering} onCommand={() => {}} />);
-  // What a person reads: the text, whitespace collapsed, markup and entities gone.
-  return html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"')
+interface Rendered {
+  events?: WireEvent[];
+  shown?: Partial<Shown>;
+  steering?: SteeringView;
+  claims?: ClaimView[];
+  extra?: Partial<Page>;
+  viewer?: string;
+}
+
+/** The page as first painted, with a phase opened into its tabs the way the live page asks for one. */
+function html({ events = STAGED, shown = {}, steering, claims, extra, viewer }: Rendered = {}): string {
+  const phase = (phaseId: string, tab: string | null): ReactNode => (
+    <PhaseTabs detail={phaseView(stored(events), events.at(-1)!.seq, phaseId)!} where={WHERE} initial={tab ?? undefined} />
+  );
+  return renderToStaticMarkup(
+    <ViewerLogin.Provider value={viewer ?? null}>
+      <SessionView page={page(events, extra)} now={NOW} shown={{ ...SHOWN, ...shown }} onShow={() => {}}
+                   steering={steering} claims={claims} onCommand={() => {}} onRelease={() => {}} phase={phase} />
+    </ViewerLogin.Provider>,
+  );
+}
+
+/** What a person reads: the text, whitespace collapsed, markup and entities gone. */
+function read(markup: string): string {
+  return markup.replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ");
 }
 
-const upTo = (kind: string, nth = 1) => RECORDED.slice(0, RECORDED.filter((e) => e.kind === kind)[nth - 1].seq);
+const text = (rendered: Rendered = {}) => read(html(rendered));
 
-describe("the finished session", () => {
-  const text = shown(RECORDED);
+/** The header: from the page's start to the end of its <header>. */
+const header = (markup: string) => markup.slice(0, markup.indexOf("</header>"));
 
-  it("is titled by the work item it was started on", () => {
-    expect(text).toContain("acme/widgets / sessions / a9f259f0 #42 Resolve relative due dates via the meeting date success");
+/** One chapter's row on the page, by its number. */
+function chapter(markup: string, number: number): string {
+  const from = markup.indexOf(`data-chapter="${number}"`);
+  if (from === -1) throw new Error(`no chapter ${number} on the page`);
+  const next = markup.indexOf("data-chapter=", from + 1);
+  return markup.slice(markup.lastIndexOf("<", from), next === -1 ? markup.indexOf('role="tablist"', from) : next);
+}
+
+/** One stage card of a chapter's graph, by its index. */
+function stage(markup: string, index: number): string {
+  const from = markup.indexOf(`data-stage="${index}"`);
+  if (from === -1) throw new Error(`no stage ${index} drawn`);
+  const next = markup.indexOf("data-stage=", from + 1);
+  return read(markup.slice(markup.lastIndexOf("<", from), next === -1 ? undefined : markup.lastIndexOf("<", next))).trim();
+}
+
+const station = { name: "schurik@mbp:widgets", kind: "local", owner: "schurik", registered: true, seenAt: 0, verbs: ["kill", "resume"] };
+const attended: SteeringView = { station, attendedAt: NOW - 2000, kill: null, killRefused: null, resume: null, resumeRefused: null };
+const online: SteeringView = { ...attended, attendedAt: null, station: { ...station, seenAt: NOW - 2000 } };
+const away: SteeringView = { ...attended, attendedAt: null, station: { ...station, seenAt: NOW - 26 * 3600_000 } };
+
+describe("the header", () => {
+  it("names the session, links its work item, pull request and branch on the forge, and says its status", () => {
+    const top = header(html());
+    expect(read(top)).toContain("acme/widgets / sessions / a9f259f0");
+    expect(read(top)).toContain("#42 Resolve relative due dates via the meeting date");
+    expect(top).toMatch(/<a [^>]*href="https:\/\/forge\/acme\/widgets\/issues\/42"[^>]*>.*?#42<\/span><\/a>/);
+    expect(top).toMatch(/<a [^>]*href="https:\/\/forge\/acme\/widgets\/pull\/9"[^>]*>.*?#9<\/span><\/a>/);
+    expect(top).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/tree\/asf\/a9f259f0"[^>]*>.*?asf\/a9f259f0<\/span><\/a>/);
+    expect(read(top)).toContain("success");
   });
 
-  it("renders its three chapters in order, each opening with what it was asked", () => {
-    const chapters = [...text.matchAll(/Chapter (\d) (issue|pr-review, round \d)/g)].map((m) => `${m[1]} ${m[2]}`);
-    expect(chapters).toEqual(["1 issue", "2 pr-review, round 1", "3 pr-review, round 2"]);
-    expect(text).toContain("answering issue #42");
-    expect(text).toContain("answering pull request #9");
-    expect(text).toContain("Asked issue.md Rules and decisions from a meeting are extracted as tasks, and a relative " +
-      "deadline (\"in four weeks\") stays relative. #");
-    expect(text).toContain("Asked pr_review.md the date should read like Sep 25, 2026");
-    expect(text).toContain("Asked pr_review.md use that format two lines below too");
+  it("offers a finished session's pull request as its one action", () => {
+    expect(header(html())).toMatch(/<a [^>]*href="https:\/\/forge\/acme\/widgets\/pull\/9"[^>]*>Pull request #9/);
   });
 
-  it("shows agent cards, code rows and gate cards with what each one did", () => {
-    expect(text).toContain("scout scout · asf/stages/scout/task.md replayed on resume 3 tool calls, 1 failed");
-    expect(text).toContain("PlanOutput · a required meeting date, and a test for its format");
-    expect(text).toContain("scout_findings.md handoff");
-    expect(text).toContain("plan.md repo");
-    expect(text).toContain("⚑ risk the date is local midnight — because converted in UTC it is the previous day");
-    expect(text).toContain("1 correction");
-    expect(text).toMatch(/commit_implement [0-9a-f]{7} feat: the prompt knows the meeting date/);
-    expect(text).toContain("verify_1 ✓ test");
-    expect(text).toContain("◐ plan gate · round 1 rejected by asf tests");
-    expect(text).toContain("◐ plan gate · round 2 approved by asf tests");
-    expect(text).toContain("Asked on issue #42");
+  it("says whom a gate waits on when it is someone else, and offers nothing to press", () => {
+    const events = upTo(SUSPENDED).map((event) => event.kind === "suspended"
+      ? { ...event, payload: { ...event.payload, trusted: ["octocat"] } } : event);
+    const top = header(html({ events, viewer: "alex" }));
+    expect(read(top)).toContain("Waiting on octocat");
+    expect(top).not.toMatch(/<button[^>]*>(?!<)/);
   });
 
-  it("shows a person's remark as an instruction, and the policy's pass as automatic", () => {
-    expect(text).toContain("✎ instruction name the module the date is converted in");
-    expect(text).toContain("✎ instruction keep the prompt in English");
-    expect(text).toContain("⚙ integrate gate passed by policy · automatic, nobody was asked");
-    expect(text).not.toMatch(/by policy ✎|approved by policy/);
+  it("leaves a gate waiting on the viewer to the Now card, which sends them to answer it", () => {
+    const markup = html({ events: upTo(SUSPENDED), viewer: "alex" });
+    expect(read(header(markup))).not.toContain("Waiting on");
+    expect(markup).toMatch(/<a [^>]*href="\/\?open=acme%2Fwidgets%2Fa9f259f0"[^>]*>Answer in the inbox/);
   });
 
-  it("says a resume replayed phases instead of showing them twice", () => {
-    expect(text).toContain("▶ Resumed · scout, plan replayed from the record, not run again");
-    expect(text).toContain("▶ Resumed · scout, plan, plan_revise_1 replayed from the record, not run again");
-    expect(text.match(/scout scout · asf\/stages\/scout\/task\.md/g)).toHaveLength(1);
+  it("offers Kill while it runs, and says why not while the station cannot be reached", () => {
+    const kill = (steering?: SteeringView) => header(html({ events: upTo(BUILDING), steering })).match(/<button[^>]*>Kill<\/button>/)![0];
+    expect(kill(attended)).not.toContain(' disabled=""');
+    expect(kill()).toContain(' disabled=""');
+    expect(text({ events: upTo(BUILDING) })).toContain("the cockpit has not heard from this session's station");
   });
 
-  it("offers the pull request, says where the work went, and fills the sidebar", () => {
-    const html = renderToStaticMarkup(<SessionView page={page(RECORDED)} now={LATER} />);
-    expect(html).toMatch(/<a [^>]*href="https:\/\/forge\/acme\/widgets\/pull\/9">Open pull request ↗<\/a>/);
-    expect(text).toContain("Now All work landed in pull request #9 over 3 chapters");
-    expect(text).toContain("Chapter pr-review, round 2");
-    expect(text).toContain("Station schurik@mbp:widgets run by asf tests");
-    // Recorded before a factory named who triggered a run: it says nobody, rather than guess.
-    expect(text).toContain("Triggered by —");
-    expect(text).toContain("Branch asf/a9f259f0");
-    expect(text).toMatch(/Base main at [0-9a-f]{7}/);
-    // The outline is the sidebar's first view; the journal is one click away.
-    expect(text).toContain("1 · issue");
-    expect(text).toContain("✕ plan gate · round 1 ✓ plan_revise_1");
-    expect(text).toContain("✓ plan gate · round 2");
+  it("offers Resume on a failed session whose station is online", () => {
+    const top = header(html({ events: failedIn(upTo(BUILDING)), steering: online }));
+    expect(top.match(/<button[^>]*>Resume<\/button>/)![0]).not.toContain(' disabled=""');
+  });
+
+  it("offers to queue a resume when the station is away, if it is back within the hour", () => {
+    const top = header(html({ events: failedIn(upTo(BUILDING)), steering: away }));
+    expect(top.match(/<button[^>]*>Queue resume<\/button>/)![0]).not.toContain(' disabled=""');
+    expect(read(top)).toContain("if the station is back within the hour");
+  });
+
+  it("keeps copying the id and purging behind a ⋯ menu, purging for an admin only", () => {
+    expect(html()).toMatch(/<button[^>]*aria-label="More"/);
+    expect(sessionMenu({ ...page(STAGED), mayPurge: true })).toEqual(["copy", "purge"]);
+    expect(sessionMenu({ ...page(STAGED), mayPurge: false })).toEqual(["copy"]);
   });
 });
 
-describe("a phase, one click from its tabs", () => {
-  const html = renderToStaticMarkup(<SessionView page={page(RECORDED)} now={LATER} />);
-
-  it("offers every agent card, code row and the phase that read what a chapter was asked its details, closed until asked", () => {
-    const { story } = page(RECORDED);
-    const phases = story.chapters.flatMap((chapter) => [...(chapter.reader ? [chapter.reader] : []), ...chapter.items])
-      .filter((item) => item.type === "agent" || item.type === "code");
-    expect(story.chapters.map((chapter) => chapter.reader?.name)).toEqual(["issue", "pr", "pr"]);
-    expect(html.match(/<button[^>]*aria-expanded="false"[^>]*>details<\/button>/g)).toHaveLength(phases.length);
-    expect(html).not.toContain('aria-label="Phase"');
-  });
-
-  it("makes each artifact chip a way into the Artifacts tab", () => {
-    expect(html).toMatch(/<button[^>]*><code>scout_findings.md<\/code>/);
-  });
-});
-
-describe("a session on its way", () => {
-  it("while an agent works: says who is on which phase, and offers kill with the reason it is off", () => {
-    const text = shown(RECORDED.slice(0, RECORDED.find((e) => e.kind === "tool_called")!.seq));
-    expect(text).toContain("Now scout is working on scout in issue");
-    expect(text).toContain("live · updating as events arrive");
-    expect(text).toContain("Kill session");
-    expect(text).toContain("the cockpit has not heard from this session's station — `asf kill a9f259f0` on schurik@mbp:widgets");
-  });
-
-  it("at a gate: says it waits on a person, on which work item, and sends them to the inbox to answer", () => {
-    const text = shown(upTo("suspended"));
-    expect(text).toContain("Now Waiting on a person: the plan gate , round 1, asked on issue #42");
-    expect(text).toContain("◐ plan gate · round 1 waiting");
-    expect(text).toContain("Answering happens in the inbox, not here.");
-    const html = renderToStaticMarkup(<SessionView page={page(upTo("suspended"))} now={LATER} />);
-    expect(html).toMatch(/<a [^>]*href="\/\?open=acme%2Fwidgets%2Fa9f259f0">Answer in inbox<\/a>/);
-  });
-
-  it("never offers a button that does nothing", () => {
-    for (const events of [upTo("tool_called"), upTo("suspended")]) {
-      const html = renderToStaticMarkup(<SessionView page={page(events)} now={LATER} />);
-      // The top bar's verb: offered only when it would do something.
-      const bar = html.slice(0, html.indexOf("</header>"));
-      for (const button of bar.match(/<button[^>]*>/g) ?? []) expect(button).toContain(' disabled=""');
+describe("the chapters, each one row", () => {
+  it("opens the latest and folds the earlier ones to a line with a mini graph, how long and what it cost", () => {
+    const markup = html();
+    expect(chapter(markup, 3)).toContain('data-open="true"');
+    for (const number of [1, 2]) {
+      const row = chapter(markup, number);
+      expect(row).toContain('data-open="false"');
+      expect(row).not.toContain("data-stage=");
     }
+    expect(read(chapter(markup, 1))).toMatch(/Chapter 1 issue answering issue #42 .*\d+s \$0\.\d\d/);
+    expect(chapter(markup, 1)).toMatch(/<span[^>]*title="scout"/);
+    expect(read(chapter(markup, 2))).toContain("Chapter 2 pr-review, round 1 answering pull request #9");
+  });
+
+  it("draws the open chapter as its stages, from the work item to the report, folded to a count when nothing happened there", () => {
+    const row = chapter(html(), 3);
+    expect(read(row)).toMatch(/read the review .*implement .*verify .*commit .*report/);
+    expect(stage(row, 0)).toContain("implement 1 phase ›");
+    expect(stage(row, 1)).toContain("verify 1 phase ›");
+  });
+
+  it("opens the stage a session is at, marked NOW, with its phases under their names for people", () => {
+    const row = chapter(html({ events: upTo(SUSPENDED) }), 1);
+    const plan = stage(row, 1);
+    expect(plan).toMatch(/^now plan /i);
+    expect(plan).toContain("plan gate · round 1 waiting");
+    expect(stage(row, 0)).toContain("scout 1 phase ›");
+    expect(stage(row, 2)).not.toContain("phase");     // not reached yet: nothing to count
+  });
+
+  it("opens a failed stage on its phases", () => {
+    const row = chapter(html({ events: failedIn(upTo(BUILDING)) }), 1);
+    expect(stage(row, 3)).toMatch(/implement .*implement failed/);
+  });
+
+  it("opens a stage that had a rejected round, and counts the rounds", () => {
+    const row = chapter(html({ shown: { chapters: [1] } }), 1);
+    expect(stage(row, 1)).toContain("plan ↺ 1");
+    expect(stage(row, 1)).toMatch(/plan .*plan gate · round 1 rejected by asf tests .*plan revision 1 .*plan gate · round 2 approved by asf tests/);
+    expect(stage(row, 7)).toContain("document 2 phases ›");
+  });
+
+  it("shows a chapter, and a stage, opened from the address one click away", () => {
+    const markup = html({ shown: { chapters: [1, 3], stages: ["3.1", "1.7"] } });
+    expect(chapter(markup, 1)).toContain('data-open="true"');
+    expect(chapter(markup, 2)).toContain('data-open="false"');
+    expect(stage(chapter(markup, 3), 1)).toMatch(/verify verify #1 /);
+    expect(stage(chapter(markup, 1), 7)).toMatch(/document collect the diff .*document /);
+    // Folding every chapter is an address too.
+    expect(html({ shown: { chapters: [] } })).not.toContain('data-open="true"');
+  });
+
+  it("draws a session recorded before stages as a flat chain of its phases", () => {
+    const row = chapter(html({ events: BEFORE }), 3);
+    expect(row).not.toContain("data-stage=");
+    expect(read(row)).toMatch(/read the review .*implement .*verify #1 .*commit code .*report/);
   });
 });
 
-describe("killing a live session", () => {
-  const working = upTo("tool_called");
-  const station = { name: "schurik@mbp:widgets", kind: "local", owner: "schurik", registered: true, seenAt: 0, verbs: ["kill"] };
-  const attended: SteeringView = { station, attendedAt: LATER - 2000, kill: null, killRefused: null, resume: null, resumeRefused: null };
-  const killButton = (steering: SteeringView) =>
-    renderToStaticMarkup(<SessionView page={page(working)} now={LATER} steering={steering} onCommand={() => {}} />)
-      .match(/<button[^>]*>Kill session<\/button>/)![0];
+describe("the Now card", () => {
+  const nowCard = (markup: string) => {
+    const from = markup.indexOf('data-now=""');
+    return markup.slice(from, markup.indexOf("</section>", from));
+  };
 
-  it("is offered while the run is attended, and the sidebar says it is and whose station it is", () => {
-    expect(killButton(attended)).not.toContain(' disabled=""');
-    const text = shown(working, attended);
-    expect(text).toContain("owned by schurik");
-    expect(text).toContain("● attended · last seen 2s ago");
+  it("says what is happening in one sentence, and how long it has been going", () => {
+    const card = read(nowCard(html({ events: upTo(BUILDING) })));
+    expect(card).toContain("builder is working on implement in issue");
+    expect(card).toMatch(/3m 2\ds elapsed/);
   });
 
-  it("is greyed out, saying why, when the station's report says it would refuse", () => {
-    const because = "schurik@mbp:widgets does not take kill: its asf/factory.yaml's cockpit.commands does not list it";
-    const refused = { ...attended, killRefused: because };
-    expect(killButton(refused)).toContain(' disabled=""');
-    expect(shown(working, refused)).toContain(because);
+  it("says where a finished session's work went, and how long it took", () => {
+    const card = read(nowCard(html()));
+    expect(card).toContain("All work landed in pull request #9");
+    expect(card).toContain("15s took");
   });
 
-  it("says a station that is not polling is offline, when it was last seen, and that a kill waits for it", () => {
-    const away = { ...attended, attendedAt: LATER - 4 * 60_000, station: { ...station, seenAt: LATER - 3 * 60_000 } };
-    expect(killButton(away)).not.toContain(' disabled=""');
-    const text = shown(working, away);
-    expect(text).toContain("○ offline · last seen 3m ago");
-    expect(text).toContain("is offline: a kill waits for it");
+  it("gauges the spend against the session's ceiling: amber from 80%, red at it, and no gauge without one", () => {
+    const gauge = (maxCostUsd: number) => nowCard(html({ extra: { budget: { maxCostUsd, maxTokens: 0 } } }));
+    expect(read(gauge(2.5))).toContain("$0.46 19% of $2.50");
+    expect(gauge(2.5)).toMatch(/role="meter"[^>]*aria-valuenow="19"/);
+    expect(gauge(2.5)).toContain("bg-accent");
+    expect(gauge(0.5)).toContain("bg-wait");
+    expect(read(gauge(0.5))).toContain("93% of $0.50");
+    expect(gauge(0.4)).toContain("bg-bad");
+    expect(read(gauge(0))).toContain("$0.46");
+    expect(gauge(0)).not.toContain('role="meter"');
+    expect(nowCard(html())).not.toContain('role="meter"');
   });
 
-  it("shows a queued kill as queued — station offline — until the station takes it, and never as done", () => {
-    const kill = { state: "queued" as const, by: "alex", issuedAt: LATER - 1000, expiresAt: LATER + 60_000, detail: "" };
-    const queued = { ...attended, attendedAt: null, kill };
-    expect(killButton(queued)).toContain(' disabled=""');
-    expect(shown(working, queued)).toContain("queued, station offline: schurik@mbp:widgets takes it when it is back");
-    expect(shown(working, { ...queued, kill: { ...kill, state: "delivered" } }))
-      .toContain("sent to schurik@mbp:widgets by alex: waiting for it to say it stopped");
-    expect(shown(working, { ...queued, kill: { ...kill, state: "done", detail: "stopping itself" } }))
-      .toContain("killed by alex: stopping itself");
-    expect(shown(working, { ...attended, kill: { ...kill, state: "refused", detail: "alex is not in issues.trusted_authors" } }))
-      .toContain("refused the last kill: alex is not in issues.trusted_authors");
-  });
-
-  it("says so when the station's token was revoked", () => {
-    const revoked = { ...attended, station: { ...station, registered: false } };
-    expect(shown(working, revoked)).toContain("○ takes no commands: its token was revoked");
+  it("links a failed session to the latest failure's phase, on the Timeline", () => {
+    const card = nowCard(html({ events: failedIn(upTo(BUILDING)) }));
+    expect(read(card)).toContain("Failed in implement");
+    expect(card).toMatch(/<a [^>]*href="\?tab=timeline&amp;phase=a9f259f0_08_implement"[^>]*>See implement’s output/);
   });
 });
 
-describe("resuming a failed session", () => {
-  const working = upTo("tool_called");
-  const failed = [...working, fixture("session_finished", working.length + 1)];
-  const station = { name: "schurik@mbp:widgets", kind: "local", owner: "schurik", registered: true, seenAt: LATER - 2000, verbs: ["resume"] };
-  const online: SteeringView = { station, attendedAt: null, kill: null, killRefused: null, resume: null, resumeRefused: null };
-  const resumeButton = (steering: SteeringView) =>
-    renderToStaticMarkup(<SessionView page={page(failed)} now={LATER} steering={steering} onCommand={() => {}} />)
-      .match(/<button[^>]*>Resume<\/button>/)![0];
-
-  it("is offered on the station that holds it", () => {
-    expect(resumeButton(online)).not.toContain(' disabled=""');
+describe("the tabs", () => {
+  it("open on Details, which holds only what the page shows nowhere else", () => {
+    const markup = html({ claims: [], extra: { budget: { maxCostUsd: 2.5, maxTokens: 2_000_000 } } });
+    expect(markup).toMatch(/<button[^>]*aria-selected="true"[^>]*>Details/);
+    const details = read(markup.slice(markup.indexOf('role="tablist"')));
+    expect(details).toContain("Station schurik@mbp:widgets run by asf tests");
+    expect(details).toContain("Triggered by asf tests");
+    expect(details).toContain("Tokens 27.1k of 2M tokens");
+    expect(details).toContain("Base main at 2029981");
+    expect(details).toContain("Transcripts on: the prompts and the harness's output are kept");
+    expect(details).not.toContain("Branch");
   });
 
-  it("is disabled for a session that ran in CI, saying to re-trigger it from the forge", () => {
-    const ci = { ...online, station: null, resumeRefused: "ran in CI: re-trigger from the forge" };
-    expect(resumeButton(ci)).toContain(' disabled=""');
-    expect(shown(failed, ci)).toContain("ran in CI: re-trigger from the forge");
+  it("list every phase on the Timeline, per chapter, by its name for people, with who ran it and what came of it", () => {
+    const timeline = text({ shown: { tab: "timeline" } });
+    expect(timeline).toMatch(/Chapter 1 · issue .*read the issue .*tracker — Rules and decisions from a meeting/);
+    expect(timeline).toContain("plan planner — a required meeting date, and a test for its format");
+    expect(timeline).toContain("⚑ risk: the date is local midnight");
+    expect(timeline).toContain("plan gate · round 1 asf tests — rejected");
+    expect(timeline).toContain("✎ asf tests: name the module the date is converted in");
+    expect(timeline).toContain("commit code git — feat: the prompt knows the meeting date");
+    expect(timeline).toContain("⚙ integrate gate passed by policy · automatic, nobody was asked");
+    expect(timeline).toMatch(/Chapter 3 · pr-review, round 2 .*read the review/);
   });
 
-  it("shows a queued resume as queued — station offline — and a done one as what the station said", () => {
-    const resume = { state: "queued" as const, by: "alex", issuedAt: LATER - 1000, expiresAt: LATER + 3_600_000, detail: "" };
-    const away = { ...online, station: { ...station, seenAt: LATER - 5 * 60_000 }, resume };
-    expect(resumeButton(away)).toContain(' disabled=""');
-    expect(shown(failed, away)).toContain("queued, station offline: schurik@mbp:widgets takes it when it is back");
-    expect(shown(failed, { ...online, resume: { ...resume, state: "done", detail: "relaunched a9f259f0" } }))
-      .toContain("resumed by alex: relaunched a9f259f0");
+  it("keep the Journal exactly as the next agent reads it", () => {
+    expect(text({ shown: { tab: "journal" } })).toContain(read(STAGED_JOURNAL).trim().slice(0, 400));
+  });
+
+  it("open a phase into its tabs on the Timeline, from the address", () => {
+    const markup = html({ shown: { tab: "timeline", phase: "a9f259f0_03_plan" } });
+    expect(markup).toContain('aria-label="Phase"');
+    expect(markup.match(/aria-label="Phase"/g)).toHaveLength(1);
+  });
+});
+
+describe("without the transcript opt-in", () => {
+  const TRANSCRIPT = ["prompt_rendered", "harness_output"];
+  const shipped = STAGED.filter((event) => !TRANSCRIPT.includes(event.kind)).map((event, index) => ({ ...event, seq: index + 1 }));
+  const phases = view(stored(shipped), shipped.length).story.chapters
+    .flatMap((each) => [...(each.reader ? [each.reader] : []), ...each.items])
+    .flatMap((item) => (item.type === "agent" || item.type === "code" ? [item.phaseId] : []));
+
+  it("shows no prompt and no tool call's arguments on the page or in any phase's tabs, and says why", () => {
+    const everything = read([
+      html({ events: shipped }),
+      ...phases.flatMap((phaseId) => tabsFor(phaseView(stored(shipped), shipped.length, phaseId)!)
+        .map((tab) => html({ events: shipped, shown: { tab: "timeline", phase: phaseId, phaseTab: tab } }))),
+    ].join(" "));
+
+    for (const sent of STAGED.filter((event) => event.kind === "prompt_rendered")) {
+      for (const said of [sent.payload.system, sent.payload.prompt].map(String).filter(Boolean)) {
+        expect(everything, `seq ${sent.seq}`).not.toContain(read(said).trim());
+      }
+    }
+    expect(everything).not.toContain('"args"');
+    expect(everything).toContain("Transcripts off: no prompt and no tool call's arguments leave the station");
+    expect(everything).toContain("Transcripts are off for this factory: the session shipped no prompt and no harness output.");
+    expect(everything).toContain("What a call was given and returned is transcript material, and this factory has not opted in");
+  });
+
+  it("shows them once it opted in", () => {
+    const [sent] = STAGED.filter((event) => event.kind === "prompt_rendered");
+    const markup = html({ shown: { tab: "timeline", phase: String(sent.payload.phase_id), phaseTab: "transcript" } });
+    expect(read(markup)).toContain(read(String(sent.payload.prompt)).trim().slice(0, 200));
+  });
+});
+
+describe("the address", () => {
+  it("reads back what it wrote, and writes nothing for the page as it first opens", () => {
+    const shown: Shown = { tab: "timeline", chapters: [1, 3], stages: ["3.1"], phase: "a9f259f0_03_plan", phaseTab: "checks" };
+    expect(readShown(new URLSearchParams(writeShown(shown)))).toEqual(shown);
+    expect(readShown(new URLSearchParams(writeShown({ ...SHOWN, chapters: [] })))).toEqual({ ...SHOWN, chapters: [] });
+    expect(writeShown(SHOWN)).toBe("");
+    expect(readShown(new URLSearchParams("tab=nonsense&chapters=x,2"))).toEqual({ ...SHOWN, chapters: [2] });
+  });
+
+  it("keeps whatever else the address says", () => {
+    expect(writeShown({ ...SHOWN, tab: "journal" }, new URLSearchParams("run=acme/widgets&tab=timeline")))
+      .toBe("?run=acme%2Fwidgets&tab=journal");
   });
 });
 
 describe("a claim the session holds", () => {
-  const working = upTo("tool_called");
-  const failed = [...working, fixture("session_finished", working.length + 1)];
   const held: ClaimView = {
     id: "k1", kind: "issue", number: 42, repo: "acme/widgets", session: "a9f259f0", station: "st_7f3a9c",
-    stationName: "alex@mbp:widgets", seenAt: LATER - 2 * 86_400_000, heardAt: LATER - 2 * 86_400_000,
-    grantedAt: LATER - 3 * 86_400_000, released: null, refused: null,
+    stationName: "alex@mbp:widgets", seenAt: NOW - 2 * 86_400_000, heardAt: NOW - 2 * 86_400_000,
+    grantedAt: NOW - 3 * 86_400_000, released: null, refused: null,
     consequence: "relabels #42 `asf:queued` and abandons session a9f259f0",
   };
-  const withClaims = (claims: ClaimView[]) => {
-    const html = renderToStaticMarkup(
-      <SessionView page={page(failed)} now={LATER} claims={claims} onRelease={() => {}} />);
-    // Tags dropped without a space: the claim's line is one sentence across a <code>.
-    return { html, text: html.replace(/<[^>]+>/g, "").replace(/&#x27;|&#39;/g, "'").replace(/\s+/g, " ") };
-  };
 
-  it("says which station holds it and how long it has been away — never that it is orphaned", () => {
-    const { text } = withClaims([held]);
-    expect(text).toContain("issue #42 held by alex@mbp:widgets, offline 2d");
-    expect(text).not.toMatch(/orphan/i);
-  });
-
-  it("offers a writer Release claim, spelling out what it does", () => {
-    const { html } = withClaims([held]);
-    expect(html).toMatch(/<button[^>]*title="Relabels #42 `asf:queued` and abandons session a9f259f0"[^>]*>Release claim<\/button>/);
-  });
-
-  it("tells anyone else why they may not, and shows a released one as who let it go", () => {
-    expect(withClaims([{ ...held, refused: "releasing a claim needs write on this repository" }]).text)
-      .toContain("releasing a claim needs write on this repository");
-    const released = withClaims([{ ...held, released: { at: LATER - 60_000, by: "alex", why: "released" } }]);
-    expect(released.text).toContain("issue #42 released by alex");
-    expect(released.html).not.toContain("Release claim");
+  it("is in Details: which station holds it and how long it has been away, with Release spelled out", () => {
+    const markup = html({ events: failedIn(upTo(BUILDING)), claims: [held] });
+    expect(markup.replace(/<[^>]+>/g, "").replace(/\s+/g, " ")).toContain("issue #42 held by alex@mbp:widgets, offline 2d");
+    expect(markup).toMatch(/<button[^>]*title="Relabels #42 `asf:queued` and abandons session a9f259f0"[^>]*>Release claim<\/button>/);
   });
 });
 
 describe("a session from a newer factory", () => {
   it("still tells what it can, and lists what it cannot read, open", () => {
     const unknown = { seq: 2, ts: "2026-09-29T12:00:00.000+00:00", kind: "phase_paused", v: 1, payload: {} };
-    const html = renderToStaticMarkup(
-      <SessionView page={page([fixture("session_started", 1), unknown, fixture("phase_started", 3, 2)])} now={LATER} />);
-    expect(html).toMatch(/<details[^>]* open=""><summary[^>]*>Every event/);
-    expect(html).toContain("unknown kind — shown as sent");
-    expect(html).toContain("upgrade the cockpit to read them");
+    const markup = html({ events: [fixture("session_started", 1), unknown, fixture("phase_started", 3, 2)] });
+    expect(markup).toMatch(/<details[^>]* open=""><summary[^>]*>1 event of this session came from a newer factory/);
+    expect(markup).toContain("phase_paused");
+    expect(markup).toContain("upgrade the cockpit to read them");
   });
 });
 
@@ -266,46 +354,5 @@ describe("what a chapter was asked, in one line", () => {
   it("is the reviewer's last words, or the reporter's first line, never a heading or a framing comment", () => {
     expect(firstLine("# Review\n\n<!-- quoted -->\n\n> first\n\n> the last thing said\n")).toBe("the last thing said");
     expect(firstLine("# Title\n\n<!-- a frame -->\n\nThe endpoint\nreturns 500.\n\nMore.\n")).toBe("The endpoint returns 500.");
-  });
-});
-
-describe("the sidebar's cost", () => {
-  // The recorded session spent $0.463 and 27,100 tokens over its three chapters.
-  const against = (budget: Page["budget"]) => {
-    const html = renderToStaticMarkup(<SessionView page={{ ...page(RECORDED), budget }} now={LATER} />);
-    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  };
-
-  it("is spend against the factory's per-session ceiling, in money and in tokens", () => {
-    const text = against({ maxCostUsd: 2.5, maxTokens: 2_000_000 });
-    expect(text).toContain("$0.46 of $2.50 per-session ceiling · 19%");
-    expect(text).toContain("27.1k of 2M tokens · 1%");
-    expect(text).toContain("list-price equivalent");
-  });
-
-  it("names only the ceiling the factory sets, and says when it sets none", () => {
-    const text = against({ maxCostUsd: 0, maxTokens: 50_000 });
-    expect(text).toContain("$0.46 · no cost ceiling");
-    expect(text).toContain("27.1k of 50k tokens · 54%");
-    expect(against({ maxCostUsd: 0, maxTokens: 0 })).toContain("no per-session budget");
-  });
-
-  it("says no ceiling is known for a factory whose check never reached the cockpit", () => {
-    expect(against(null)).toContain("ceiling unknown: no asf check has reached the cockpit");
-  });
-});
-
-describe("purging the session's bodies", () => {
-  const rendered = (mayPurge: boolean) => renderToStaticMarkup(
-    <SessionView page={{ ...page(RECORDED), mayPurge }} now={LATER} onPurge={async () => ({ ok: true })} />);
-
-  it("is offered to an admin of its repository, behind a reason", () => {
-    const html = rendered(true);
-    expect(html).toContain("Purge bodies");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Purge bodies<\/button>/);
-  });
-
-  it("is not offered to anyone else", () => {
-    expect(rendered(false)).not.toContain("Purge bodies");
   });
 });

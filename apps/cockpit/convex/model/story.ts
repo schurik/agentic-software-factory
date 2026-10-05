@@ -26,6 +26,7 @@
  * Handlers are keyed by kind and version like session.ts's readers, and are
  * only ever called for an event a reader there could read.
  */
+import { graphOf, type Graph } from "./graph";
 import { file, readEntry, render, type Entry, type Note } from "./journal";
 import type { Payload } from "./payload";
 import { prunedOf, type Pruned } from "./retention";
@@ -167,6 +168,7 @@ export interface Chapter {
   // phase of the session: the page names it and opens it like any other.
   reader: CodeItem | null;
   items: Item[];
+  graph: Graph;           // the chapter as its stage graph draws it (graph.ts)
 }
 
 export interface Now {
@@ -174,7 +176,7 @@ export interface Now {
   chapter: string;        // the title of the chapter the session is in
   phase: { name: string; owner: string; kind: string } | null;
   waiting: { gate: string; round: number; kind: string; channel: string; issueNumber: number } | null;
-  failed: { name: string; error: string } | null;
+  failed: { phaseId: string; name: string; error: string } | null;
   prUrl: string;
   chapters: number;
 }
@@ -635,13 +637,14 @@ export function finish(state: StoryState, summary: Summary): Story {
     ].sort((a, b) => a.seq - b.seq);
     const round = (rounds.get(each.workflow) ?? 0) + 1;
     rounds.set(each.workflow, round);
+    const told = { stages: each.stages, reader: reader ? codeItem(reader) : null, items };
     return {
-      number: each.number, workflow: each.workflow, input: each.input, stages: each.stages,
+      ...told, graph: graphOf(told), number: each.number, workflow: each.workflow, input: each.input,
       title: each.input === "pr" ? `${each.workflow}, round ${round}` : each.workflow,
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
       endedAt: each.endedAt, status: each.status, reason: each.reason,
       cost: mine.reduce((total, phase) => total + phase.cost, 0),
-      asked: requester?.request ?? null, reader: reader ? codeItem(reader) : null, items,
+      asked: requester?.request ?? null,
     };
   });
 
@@ -658,7 +661,7 @@ export function finish(state: StoryState, summary: Summary): Story {
       phase: open && { name: open.name, owner: open.owner, kind: open.kind },
       waiting: waiting && { gate: waiting.gate, round: waiting.round, kind: waiting.kind,
                             channel: waiting.channel, issueNumber: state.issueNumber },
-      failed: summary.status === "fail" && failed ? { name: failed.name, error: failed.error } : null,
+      failed: summary.status === "fail" && failed ? { phaseId: failed.phaseId, name: failed.name, error: failed.error } : null,
       prUrl: summary.prUrl,
       chapters: chapters.length,
     },
