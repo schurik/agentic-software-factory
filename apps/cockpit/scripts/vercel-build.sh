@@ -6,17 +6,25 @@
 # command ships both — and what keeps a merged change from serving new pages
 # to old functions ("This page couldn't load").
 #
-# Which deployment is the deploy key's, from the Vercel environment it is set
-# in (README.md, "On Vercel"): the production key deploys to production, the
-# preview key to a preview deployment named after the branch. The deployment's
-# URL is baked into the build as NEXT_PUBLIC_CONVEX_URL, because a preview's
-# changes with every branch and no runtime variable can know it.
+# Which deployment is the deploy key's, set per Vercel environment (README.md,
+# "On Vercel"). Production must have one: a production build that only built
+# the pages is the bug this script exists for. A preview without one shares
+# the backend production's pages talk to, which it must not push to, so it
+# builds the pages alone, against the CONVEX_URL it has. A preview WITH one
+# (Convex's preview deploy key) gets a deployment of its own per branch; that
+# address is new with every branch, so the build bakes it in as
+# NEXT_PUBLIC_CONVEX_URL, which the pages use when CONVEX_URL is unset.
 set -eu
 
 if [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
-  echo "vercel-build: CONVEX_DEPLOY_KEY is not set for this Vercel environment;" \
-       "set the deployment's deploy key (README.md, \"On Vercel\")" >&2
-  exit 1
+  if [ "${VERCEL_ENV:-}" = "production" ]; then
+    echo "vercel-build: CONVEX_DEPLOY_KEY is not set for Production; without it the pages" \
+         "would ship without their functions (README.md, \"On Vercel\")" >&2
+    exit 1
+  fi
+  echo "vercel-build: no CONVEX_DEPLOY_KEY for ${VERCEL_ENV:-this build}: building the pages" \
+       "against CONVEX_URL, and pushing no functions to it"
+  exec bun run build
 fi
 
 bun x convex deploy --cmd 'bun run build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL

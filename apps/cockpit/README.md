@@ -517,28 +517,35 @@ file's. Only the pages move: ADR 0002 kept the cockpit off Vercel for what needs
 long-lived connections, and all of that is the backend's. What has to hold is what `docker/start.sh`
 holds — the functions and the pages are one version — and with two hosts nothing holds it unless
 one command ships both. `vercel.json` makes that Vercel's build: `scripts/vercel-build.sh` runs
-`convex deploy`, which pushes `convex/` and then runs `bun run build` against the deployment it
-pushed to. A merge that reached the pages without its functions is what "This page couldn't load"
-is.
+`convex deploy`, which pushes `convex/` to the deployment the build's deploy key names and then
+runs `bun run build` against it. A merge that reached the pages without its functions is what
+"This page couldn't load" is.
 
 Set up once:
 
 1. **Vercel → the project → Settings → General:** Root Directory `apps/cockpit`.
-2. **Convex dashboard → the project → Settings → Deploy keys:** generate a *production* deploy key
-   and, in Vercel's environment variables, set it as `CONVEX_DEPLOY_KEY` for **Production** only.
-   Generate a *preview* deploy key and set it as `CONVEX_DEPLOY_KEY` for **Preview** only. A
-   preview build then gets a Convex preview deployment of its own, named after its branch.
-3. **Leave `CONVEX_URL` unset on Vercel.** The build bakes the deployment's address in as
-   `NEXT_PUBLIC_CONVEX_URL`; a `CONVEX_URL` would win over it and point every preview at one
-   backend.
+2. **Production:** a deploy key for the deployment production's pages talk to, set in Vercel as
+   `CONVEX_DEPLOY_KEY` for **Production** only — `bun x convex deployment token create <name>
+   --deployment <deployment>` prints one. A production build without it fails rather than ship
+   pages ahead of their functions. `CONVEX_URL` may stay set, to that same deployment's address;
+   it wins over the address the build bakes in.
+3. **Previews** are one of two things:
+   - **Sharing production's backend** (one deployment behind every environment, a dev deployment
+     say): give Preview no deploy key, and its `CONVEX_URL` that deployment's address. A preview
+     then builds its pages only and pushes nothing, so a branch never swaps the functions
+     production is running — and a branch that changes `convex/` shows its pages against
+     `main`'s functions until it merges.
+   - **A backend per branch:** generate a *preview* deploy key in the Convex dashboard and set it
+     as `CONVEX_DEPLOY_KEY` for **Preview**, and remove Preview's `CONVEX_URL`. Each branch gets a
+     Convex preview deployment of its own, and its build bakes that address in as
+     `NEXT_PUBLIC_CONVEX_URL`.
 4. **The cockpit's own variables are the deployment's** (`COCKPIT_MODE`, `COCKPIT_APP_URL`,
    `COCKPIT_TRANSCRIPT_DAYS`): a Convex function reads them from the backend, and nothing copies
-   them there on Vercel. Set them in the Convex dashboard for production, and as the project's
-   default environment variables for preview deployments.
+   them there on Vercel. Set them in the Convex dashboard, and for per-branch previews as the
+   project's default environment variables for preview deployments.
 
 Stations ship to the deployment's site, its `https://<name>.convex.site` address
-(`ASF_COCKPIT_URL`), and a production build runs the same backfills `docker/start.sh` does; a
-preview deployment starts empty and has nothing to backfill.
+(`ASF_COCKPIT_URL`), and a production build runs the same backfills `docker/start.sh` does.
 
 ## How the pieces connect
 
