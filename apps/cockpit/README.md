@@ -510,6 +510,41 @@ already running rather than downgrading it. A release refuses to publish when `m
 cockpit newer than itself. ghcr.io makes a new package private, so set both public after the first
 release.
 
+## On Vercel, with Convex Cloud
+
+The pages can also be served by Vercel, with the backend on Convex Cloud instead of the compose
+file's. Only the pages move: ADR 0002 kept the cockpit off Vercel for what needs a disk and
+long-lived connections, and all of that is the backend's. What has to hold is what `docker/start.sh`
+holds — the functions and the pages are one version — and with two hosts nothing holds it unless
+one command ships both. `vercel.json` makes that Vercel's build: `scripts/vercel-build.sh` runs
+`convex deploy`, which pushes `convex/` to the deployment the build's deploy key names and then
+runs `bun run build` against it. A merge that reached the pages without its functions is what
+"This page couldn't load" is.
+
+Set up once:
+
+1. **Vercel → the project → Settings → General:** Root Directory `apps/cockpit`.
+2. **A deploy key for every environment.** Every build pushes, so Vercel's **Production** and
+   **Preview** each need `CONVEX_DEPLOY_KEY` — `bun x convex deployment token create <name>
+   --deployment <deployment>` prints one. A build without it fails rather than ship pages ahead of
+   their functions. Previews are one of two things:
+   - **Sharing production's backend** (one deployment behind every environment, a dev deployment
+     say): give Preview a key for that same deployment, and leave `CONVEX_URL` set to its address
+     in both environments. The last build's functions are then what every environment runs: a
+     preview of a branch that changed `convex/` runs its functions under production's pages too,
+     until `main` builds again.
+   - **A backend per branch:** generate a *preview* deploy key in the Convex dashboard, set it as
+     Preview's `CONVEX_DEPLOY_KEY`, and remove Preview's `CONVEX_URL`. Each branch gets a Convex
+     preview deployment of its own, and its build bakes that address in as
+     `NEXT_PUBLIC_CONVEX_URL`.
+3. **The cockpit's own variables are the deployment's** (`COCKPIT_MODE`, `COCKPIT_APP_URL`,
+   `COCKPIT_TRANSCRIPT_DAYS`): a Convex function reads them from the backend, and nothing copies
+   them there on Vercel. Set them in the Convex dashboard, and for per-branch previews as the
+   project's default environment variables for preview deployments.
+
+Stations ship to the deployment's site, its `https://<name>.convex.site` address
+(`ASF_COCKPIT_URL`), and a production build runs the same backfills `docker/start.sh` does.
+
 ## How the pieces connect
 
 ![A stamped repo as a station, the Docker project asf-cockpit with the Next.js app and the Convex backend, and the browser](../../docs/diagrams/local-cockpit-components.svg)
