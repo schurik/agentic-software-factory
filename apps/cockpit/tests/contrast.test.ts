@@ -31,6 +31,10 @@ const THEMES = { light: tokens(":root"), dark: tokens('[data-theme="dark"]') };
 const TEXT = ["fg", "muted", "faint", "accent", "ok", "wait", "bad", "merged"];
 // A filled control or badge, and the token its text is drawn in.
 const FILLED: [text: string, fill: string][] = [["accent-fg", "accent-strong"], ["bg", "wait"], ["bg", "bad"]];
+// A diff's lines: their text and line numbers on an added or removed line, and the words marked in one.
+const DIFF: [text: string, ground: string][] = [
+  ["fg", "add-bg"], ["muted", "add-bg"], ["fg", "del-bg"], ["muted", "del-bg"], ["fg", "add-word"], ["fg", "del-word"],
+];
 
 describe.each(Object.entries(THEMES))("the %s theme", (_, theme) => {
   it.each(TEXT)("draws --%s text at AA on the page and on a card", (name) => {
@@ -42,6 +46,10 @@ describe.each(Object.entries(THEMES))("the %s theme", (_, theme) => {
 
   it.each(FILLED)("draws --%s on --%s at AA", (text, fill) => {
     expect(contrast(theme[text], theme[fill])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(DIFF)("draws a diff's --%s on --%s at AA", (text, ground) => {
+    expect(contrast(theme[text], theme[ground])).toBeGreaterThanOrEqual(4.5);
   });
 });
 

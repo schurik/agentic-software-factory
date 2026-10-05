@@ -411,6 +411,15 @@ export async function compare(github: GitHub, as: Credential, repo: string, base
   throw await refusal(response, where);
 }
 
+/** The diff of commit `sha` of `repo` against its parent, as `as` is shown it, or null when it is not. Never remembered. */
+export async function commitDiff(github: GitHub, as: Credential, repo: string, sha: string): Promise<string | null> {
+  const where = `/repos/${repo}/commits/${encodeURIComponent(sha)}`;
+  const response = await github.send(as, "GET", github.api + where, { Accept: "application/vnd.github.diff" });
+  if (response.ok) return await response.text();
+  if (UNSHOWN.has(response.status)) return null;
+  throw await refusal(response, where);
+}
+
 /**
  * A commit of `changes` on top of `base` in `repo`, as `as`, on no branch:
  * its sha. Through the forge's git database, so that one commit carries every

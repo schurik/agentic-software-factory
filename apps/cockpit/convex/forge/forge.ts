@@ -112,6 +112,11 @@ export interface Forge {
    * show one: two commits, so what is shown is what was asked about.
    */
   compare(repo: string, base: string, head: string): Promise<string | null>;
+  /**
+   * The forge's diff of the commit `sha` in `repo` against its parent, or null
+   * when it will not show one: what that one commit changed.
+   */
+  commitDiff(repo: string, sha: string): Promise<string | null>;
   /** The commit `branch` of `repo` is at, or null when the forge will not show it. */
   tip(repo: string, branch: string): Promise<string | null>;
   /**

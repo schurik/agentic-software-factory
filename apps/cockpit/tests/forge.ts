@@ -601,6 +601,16 @@ export class FakeForge {
       const status = ahead && behind ? "diverged" : ahead ? "ahead" : behind ? "behind" : "identical";
       return this.reply(request, token, 200, { status, ahead_by: ahead, behind_by: behind });
     }
+    const commit = /^\/repos\/([^/]+\/[^/]+)\/commits\/([^/]+)$/.exec(path);
+    if (commit && method === "GET" && !as("app")) {
+      // One commit, as GitHub serves it as a diff: what it changed against its parent.
+      const repo = this.repos.get(commit[1].toLowerCase());
+      const sha = decodeURIComponent(commit[2]);
+      const tree = repo?.trees.get(sha);
+      if (!repo || !this.reads(bearer, repo) || !tree) return this.reply(request, token, 404, { message: "Not Found" });
+      const parent = repo.parents.get(sha);
+      return this.reply(request, token, 200, diff(parent ? repo.trees.get(parent)! : new Map(), tree), {}, "raw");
+    }
     const branch = /^\/repos\/([^/]+\/[^/]+)\/branches\/(.+)$/.exec(path);
     if (branch && method === "GET" && !as("app")) {
       const repo = this.repos.get(branch[1].toLowerCase());
@@ -803,12 +813,19 @@ export class FakeForge {
 
 /** A unified diff of two trees, as far as a test reads one: every changed file, its old lines out and its new lines in. */
 function diff(base: Map<string, string>, head: Map<string, string>): string {
+  // As GitHub prints it: a file's whole text is one hunk, and a file that is
+  // new or gone says so, against /dev/null. A side of one line is "start",
+  // never "start,1".
   const paths = [...new Set([...base.keys(), ...head.keys()])].sort();
+  const lines = (text: string | undefined, sign: string) =>
+    text === undefined ? [] : text.replace(/\n$/, "").split("\n").map((line) => sign + line);
+  const side = (count: number) => (count === 0 ? "0,0" : count === 1 ? "1" : `1,${count}`);
   return paths.filter((path) => base.get(path) !== head.get(path)).map((path) => {
-    const lines = (text: string | undefined, sign: string) =>
-      text === undefined ? [] : text.replace(/\n$/, "").split("\n").map((line) => sign + line);
-    return [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`,
-            ...lines(base.get(path), "-"), ...lines(head.get(path), "+")].join("\n") + "\n";
+    const [before, after] = [lines(base.get(path), "-"), lines(head.get(path), "+")];
+    const made = !base.has(path) ? ["new file mode 100644"] : !head.has(path) ? ["deleted file mode 100644"] : [];
+    return [`diff --git a/${path} b/${path}`, ...made,
+            base.has(path) ? `--- a/${path}` : "--- /dev/null", head.has(path) ? `+++ b/${path}` : "+++ /dev/null",
+            `@@ -${side(before.length)} +${side(after.length)} @@`, ...before, ...after].join("\n") + "\n";
   }).join("");
 }
 

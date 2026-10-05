@@ -9,8 +9,9 @@ import { PhaseTabs, type Where } from "./PhaseTabs";
 
 /**
  * A phase's tabs, asked for as its drawer opens: its detail is a query of
- * its own (`sessions.phase`), live like the page, and a repo artifact is read
- * from the forge (`artifacts.read`) when its tab is shown.
+ * its own (`sessions.phase`), live like the page, and a repo artifact
+ * (`artifacts.read`) and a commit's diff (`diffs.commit`) are read from the
+ * forge when their tab is shown.
  */
 export function PhaseDetails({ item, where, tab, onTab }: {
   item: Phase; where: Where; tab: string | null; onTab: (tab: string) => void;
@@ -21,7 +22,11 @@ export function PhaseDetails({ item, where, tab, onTab }: {
   const read = useCallback(
     (seq: number) => readArtifact({ factory: where.factory, session: where.session, seq, signIn }),
     [readArtifact, where.factory, where.session, signIn]);
+  const readCommit = useAction(api.diffs.commit);
+  const readDiff = useCallback(
+    (sha: string) => readCommit({ factory: where.factory, session: where.session, sha, signIn }),
+    [readCommit, where.factory, where.session, signIn]);
   if (detail === undefined) return <p className="text-sm text-muted">Loading…</p>;
   if (detail === null) return <p className="text-sm text-muted">This phase is not in a session you can see.</p>;
-  return <PhaseTabs item={item} detail={detail} where={where} tab={tab} onTab={onTab} read={read} />;
+  return <PhaseTabs item={item} detail={detail} where={where} tab={tab} onTab={onTab} read={read} readDiff={readDiff} />;
 }
