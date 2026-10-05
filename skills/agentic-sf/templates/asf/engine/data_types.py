@@ -2093,14 +2093,131 @@ class CheckedCheckout(BaseModel):
     config_hash: str = ""
 
 
-class SelfDescription(BaseModel):
-    FORMAT: ClassVar[int] = 1
+# The factory's settings, from format 2: factory.yaml as the factory's own code
+# reads it, with every default resolved — so a cockpit shows what a factory
+# does without parsing factory.yaml, and a key the operator left out reads as
+# what the code does without it. Grouped by what each decides, as a cockpit's
+# Config tab shows them. The tracker's raw command arrays are not here: they
+# are how a station reaches its tracker, not something a cockpit shows.
 
-    format: int = 1
+class DescribedReviews(BaseModel):
+    """The review watcher (`pull_requests:`): which workflow answers review
+    threads on the factory's own pull requests, whose threads it hears, and
+    what it writes back."""
+
+    watched: bool                   # pull_requests.enabled
+    workflow: str
+    trusted_reviewers: list[str]    # [] = anyone who can review
+    ignore_authors: list[str]       # bots whose comments are never work
+    reply_to_threads: bool
+    resolve_threads: bool
+    max_threads: int                # per run
+    max_concurrent: int
+    reap_merged: bool
+
+
+class DescribedIntake(BaseModel):
+    """Where work comes from: labelled issues, review threads, and prompts."""
+
+    issues: bool                    # issues.enabled — a route is still needed to launch
+    routes: dict[str, str]          # label -> workflow
+    queued_label: str
+    trusted_authors: list[str]      # [] = anyone whose issue gets labelled
+    max_concurrent: int             # issue runs in flight
+    reviews: DescribedReviews
+    # Every described workflow that takes a prompt: `asf run`, or a cockpit's
+    # `run` command when `limits.commands` lists it.
+    prompt_workflows: list[str]
+
+
+class DescribedHitl(BaseModel):
+    """People at gates (`hitl:`). `gates` holds every gate a described
+    workflow places, and every gate factory.yaml names, as factory.yaml
+    switches it — a workflow may switch its own (`DescribedGate.on`), and a
+    run's `--hitl` or a station's `ASF_HITL` can still say otherwise."""
+
+    default: bool
+    gates: dict[str, bool]
+    wait_seconds: int               # attended: prompt this long, then suspend
+    when_unattended: Literal["suspend", "auto"]
+    max_rounds: int                 # 0 = until the person approves or aborts
+    notify_command: list[str]       # run when a gate suspends; [] runs nothing
+
+
+class DescribedLanding(BaseModel):
+    """How work lands: the branch a run works on, and how it gets back.
+
+    `mode` is how a prompt run lands; `issue_mode` is how an issue-triggered
+    one does, which `issues.force_pr` holds to `pr`. A review run always lands
+    as `pr` — it exists because the branch is under review. `publish` is
+    `engine/publish.py`'s answer on the checkout that described it: shipped,
+    that checkout had a cockpit configured, as every station reporting to the
+    same cockpit does, so it is their answer too."""
+
+    mode: IntegrationMode
+    issue_mode: IntegrationMode
+    open_pr: bool
+    remote: str
+    branch_prefix: str
+    base_ref: str                   # "" = the branch each station's checkout has out
+    publish: PublishMode
+    worktrees: bool
+    worktree_dir: str
+    keep_on_success: bool
+
+
+class DescribedLimits(BaseModel):
+    """Limits and data (`cockpit:`). The per-session budget is
+    `SelfDescription.budget`, described since format 1."""
+
+    transcripts: bool
+    transcript_retention_days: int  # 0 = the cockpit's own limit
+    commands: list[CommandVerb]     # what a cockpit may ask a station to do
+
+
+class DescribedLabels(BaseModel):
+    """Every label the factory writes on the tracker: an issue's four states,
+    the refined mark beside them, and a failed review run's."""
+
+    queued: str
+    running: str
+    done: str
+    failed: str
+    refined: str
+    pr_failed: str
+
+
+class DescribedForge(BaseModel):
+    """The forge and tracker: the project each watcher aims at — set, or
+    resolved from the origin remote as the watcher would; "" when neither is
+    — and the labels the factory writes. The remote a branch goes to is
+    `DescribedLanding.remote`."""
+
+    project: str
+    review_project: str
+    labels: DescribedLabels
+
+
+class DescribedSettings(BaseModel):
+    """factory.yaml as the factory's code reads it, one group per question a
+    person asks of a factory."""
+
+    intake: DescribedIntake
+    hitl: DescribedHitl
+    landing: DescribedLanding
+    limits: DescribedLimits
+    forge: DescribedForge
+
+
+class SelfDescription(BaseModel):
+    FORMAT: ClassVar[int] = 2       # v2: settings
+
+    format: int = 2
     skill_version: str = ""         # asf/.skill-version; "" from a stamp before 1.1
     checked: CheckedCheckout
     ok: bool                        # every workflow loaded: what `check` exits 0 on
     budget: BudgetConfig            # per session — the only ceiling the factory enforces
+    settings: DescribedSettings
     workflows: list[DescribedWorkflow]
     problems: list[WorkflowProblem] = Field(default_factory=list)
 

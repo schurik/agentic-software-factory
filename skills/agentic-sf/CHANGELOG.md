@@ -32,14 +32,22 @@ before — `None` when there are none, never omitted.
   a verify or a commit the stage that opened it, the work item's phase and `report` none. A
   session's shape is read off its own record, not off a self-description the workflow may have
   outgrown since. `asf/cockpit/min-version` is **1.3.0**, the first cockpit that reads them.
+- **The self-description carries the factory's settings.** `asf check --json` is format 2: beside
+  the workflows and the budget, `settings` holds factory.yaml as the factory's own code reads it,
+  every default resolved there — where work comes from, people at gates, how work lands (an issue
+  run's mode under `issues.force_pr`, when a branch is published), limits and data, and the
+  tracker's project and labels — so a cockpit shows them without parsing factory.yaml. The
+  tracker's raw command arrays are left out. A 1.3.0 cockpit reads both formats; an older one
+  reads format 2 as far as it can and says it is newer.
 
 ### Upgrade
 
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
    new factory, or a cockpit older than that shows each chapter's and phase's start as an event it
    cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
-2. Re-stamp with `--force` to pick up the stages on the record, the refusal and the warning;
-   nothing else changes.
+2. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning and the
+   settings in the self-description; nothing else changes. A factory with the CI workflow ships
+   format 2 on its next default-branch push.
 
 ## 1.2.0 — 2026-10-02
 

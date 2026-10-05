@@ -1,11 +1,12 @@
 """The factory, describing itself: what `asf check --json` prints.
 
 A cockpit never interprets workflow files (spec #40). What it shows of a
-factory — each workflow's purpose, trigger, stages, agents and gates, and the
-per-session budget — is THIS: the workflows loaded by the same
-`workflow.load` that `run` calls, written out as a `SelfDescription`. So a
-cockpit and a run cannot disagree about what a workflow is, and a cockpit
-upgrade never has to learn a new stage option.
+factory — each workflow's purpose, trigger, stages, agents and gates, the
+per-session budget, and the factory's settings — is THIS: the workflows loaded
+by the same `workflow.load` that `run` calls, and factory.yaml as
+`factory.load` reads it, written out as a `SelfDescription`. So a cockpit and
+a run cannot disagree about what a workflow is or what a setting left unset
+means, and a cockpit upgrade never has to learn a new stage option or default.
 
 The description names the checkout it describes (`CheckedCheckout`): its
 HEAD, its branch, and `commands.config_hash` over its `asf/` files — the same
@@ -20,10 +21,11 @@ import os
 import sys
 from pathlib import Path
 
-from . import commands, factory, git_helper, station, workflow
-from .data_types import (CheckedCheckout, DescribedAgent, DescribedGate, DescribedStage,
-                         DescribedTrigger, DescribedWorkflow, FactoryConfig, SelfDescription,
-                         WorkflowProblem)
+from . import commands, factory, git_helper, integration, issues, publish, station, workflow
+from .data_types import (CheckedCheckout, DescribedAgent, DescribedForge, DescribedGate,
+                         DescribedHitl, DescribedIntake, DescribedLabels, DescribedLanding, DescribedLimits,
+                         DescribedReviews, DescribedSettings, DescribedStage, DescribedTrigger,
+                         DescribedWorkflow, FactoryConfig, SelfDescription, WorkflowProblem)
 
 VERSION_FILE = Path("asf") / ".skill-version"
 
@@ -49,7 +51,8 @@ def build(config_path: str | Path = factory.DEFAULT_CONFIG) -> SelfDescription:
         checked=CheckedCheckout(head=_head(main_root), ref=_ref(main_root),
                                 config_hash=commands.config_hash(main_root,
                                                                  cfg.defaults.data_dir)),
-        ok=not problems, budget=cfg.budget, workflows=described, problems=problems)
+        ok=not problems, budget=cfg.budget, settings=_settings(cfg, main_root, described),
+        workflows=described, problems=problems)
 
 
 def dumps(description: SelfDescription) -> str:
@@ -89,6 +92,49 @@ def _trigger(loaded: workflow.Workflow, cfg: FactoryConfig) -> DescribedTrigger:
         return DescribedTrigger(watched=cfg.pull_requests.enabled
                                 and cfg.pull_requests.workflow == loaded.name)
     return DescribedTrigger()
+
+
+def _settings(cfg: FactoryConfig, main_root: Path,
+              described: list[DescribedWorkflow]) -> DescribedSettings:
+    """factory.yaml as the code reads it: pydantic has filled every key it
+    left out, and what the engine decides from the rest — how an issue run
+    lands, when a branch is published, which project a watcher aims at — is
+    decided here by the same functions, never restated."""
+    hitl, landing, pr = cfg.hitl, cfg.worktree.integration, cfg.pull_requests
+    states = cfg.issues.states
+    placed = {gate.name for flow in described for gate in flow.gates if gate.kind == "gate"}
+    return DescribedSettings(
+        intake=DescribedIntake(
+            issues=cfg.issues.enabled, routes=cfg.issues.route, queued_label=states.queued,
+            trusted_authors=cfg.issues.trusted_authors,
+            max_concurrent=cfg.issues.max_concurrent,
+            reviews=DescribedReviews(
+                watched=pr.enabled, workflow=pr.workflow, trusted_reviewers=pr.trusted_reviewers,
+                ignore_authors=pr.ignore_authors, reply_to_threads=pr.reply_to_threads,
+                resolve_threads=pr.resolve_threads, max_threads=pr.max_threads,
+                max_concurrent=pr.max_concurrent, reap_merged=pr.reap_merged),
+            prompt_workflows=[flow.name for flow in described if flow.input == "prompt"]),
+        hitl=DescribedHitl(
+            default=hitl.default,
+            gates={name: hitl.gates.get(name, hitl.default)
+                   for name in sorted(placed | set(hitl.gates))},
+            wait_seconds=hitl.wait_seconds, when_unattended=hitl.when_unattended,
+            max_rounds=hitl.max_rounds, notify_command=hitl.notify_command),
+        landing=DescribedLanding(
+            mode=landing.mode, issue_mode=integration.lands_as(cfg, "issue", landing.mode)[0],
+            open_pr=landing.open_pr, remote=landing.remote,
+            branch_prefix=cfg.worktree.branch_prefix, base_ref=cfg.worktree.base_ref,
+            publish=publish.mode(cfg, main_root), worktrees=cfg.worktree.enabled,
+            worktree_dir=cfg.worktree.dir, keep_on_success=cfg.worktree.keep_on_success),
+        limits=DescribedLimits(
+            transcripts=cfg.cockpit.transcripts,
+            transcript_retention_days=cfg.cockpit.transcript_retention_days or 0,
+            commands=cfg.cockpit.commands),
+        forge=DescribedForge(
+            project=issues.resolve_project(cfg.issues, main_root),
+            review_project=issues.resolve_project(pr, main_root),
+            labels=DescribedLabels(**states.model_dump(), refined=cfg.issues.refined_label,
+                                   pr_failed=pr.states.failed)))
 
 
 def _unique(names: list[str]) -> list[str]:
