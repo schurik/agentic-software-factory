@@ -20,7 +20,7 @@ import { storedSession } from "./sessions";
 export type Read = { ok: true; diff: string } | { ok: false; because: string };
 
 /** What to ask the forge for: one commit's diff, or two commits' comparison. */
-type Located = { repo: string; sha: string } | { repo: string; base: string; head: string };
+export type Located = { repo: string; sha: string } | { repo: string; base: string; head: string };
 
 const NO_CREDENTIAL = "this cockpit has no forge credential to read it with";
 
@@ -67,7 +67,7 @@ export const changes = action({
  * artifact (artifacts.ts): whether the viewer may see it is the mirror's word,
  * asked before the forge is.
  */
-async function read(ctx: ActionCtx, located: Located | { because: string }): Promise<Read> {
+export async function read(ctx: ActionCtx, located: Located | { because: string }): Promise<Read> {
   if ("because" in located) return { ok: false, because: located.because };
   const opened = await open(ctx);
   if (opened === null) return { ok: false, because: NO_CREDENTIAL };

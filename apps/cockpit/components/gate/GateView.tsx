@@ -6,7 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { Answer } from "@/convex/model/answer";
 import { type Question, stationWords } from "@/convex/model/inbox";
-import { DiffView } from "../diff/DiffView";
+import { DiffRead, DiffView } from "../diff/DiffView";
 import { DrawerFrame } from "../Drawer";
 import { formatAgo, formatDuration, plural, sessionHref } from "../format";
 import { ForgeRef, StageIcon, StatusIcon } from "../icons";
@@ -20,6 +20,8 @@ import { decide, verbsOf } from "./answer";
 
 export type Gate = NonNullable<FunctionReturnType<typeof api.inbox.gate>>;
 export type Read = FunctionReturnType<typeof api.inbox.subject>;
+/** What changed in the subject since the round before, as the forge compares the two (`inbox.sinceLastRound`). */
+export type Since = FunctionReturnType<typeof api.inbox.sinceLastRound>;
 
 /** Where a gate sits among the ones the viewer can answer: "n of m", and the gates either side. */
 export interface Step {
@@ -62,12 +64,14 @@ export function lands(gate: Gate, now: number, who: (login: string) => string = 
            then: "the factory's answers watcher picks it up" };
 }
 
-type Tab = "plan" | "changes" | "subject" | "questions" | "checks" | "review" | "issue" | "findings";
+type Tab = "since" | "plan" | "changes" | "subject" | "questions" | "checks" | "review" | "issue" | "findings";
 
 /**
  * The tabs a gate opens into, by its kind (#113) — each only where there is
  * something in it, the first being what the person decides on: a plan gate's
- * plan, the issue in the reporter's words and the scout's findings; an
+ * plan — from round 2, what changed in it since the round before (#114), when
+ * the forge holds both rounds — the issue in the reporter's words and the
+ * scout's findings; an
  * integrate gate's changes, checks, review and issue; a question round's
  * questions; and any other gate's subject.
  */
@@ -76,7 +80,9 @@ function tabsFor(gate: Gate, read: Read | null): { id: Tab; label: string }[] {
   const issue = material.issue ? [{ id: "issue" as const, label: row.issueNumber ? `Issue #${row.issueNumber}` : "Issue" }] : [];
   if (row.kind === "questions") return [{ id: "questions", label: "Questions" }, ...issue];
   if (row.gate === "plan") {
-    return [{ id: "plan", label: "Plan" }, ...issue,
+    const since = gate.lastRound && "headSha" in gate.lastRound
+      ? [{ id: "since" as const, label: `Changes since round ${gate.lastRound.round}` }] : [];
+    return [...since, { id: "plan", label: "Plan" }, ...issue,
             ...(material.findings ? [{ id: "findings" as const, label: "Scout's findings" }] : [])];
   }
   if (row.gate === "integrate") {
@@ -96,9 +102,11 @@ function tabsFor(gate: Gate, read: Read | null): { id: Tab; label: string }[] {
  * `onAnswer` posts it, and `a`, `r`, `j` and `k` work from the keyboard,
  * never while typing. Pure apart from that: a test renders it as it first paints.
  */
-export function GateView({ gate, read, now, posting, problem, onAnswer, tab, onTab, close, step }: {
+export function GateView({ gate, read, since, now, posting, problem, onAnswer, tab, onTab, close, step }: {
   gate: Gate;
   read: Read | null;
+  /** What changed since the round before, null while it is read (or when there is none to read). */
+  since: Since | null;
   now: number;
   posting: boolean;
   problem: string;
@@ -167,6 +175,8 @@ export function GateView({ gate, read, now, posting, problem, onAnswer, tab, onT
   const shown = tabs.find((each) => each.id === tab)?.id ?? tabs[0].id;
   const asked = channelWords(row.channel, row.issueNumber);
   const before = row.round > 1 ? gate.earlier.at(-1) : undefined;
+  // A plan without its "Changes since" says why, so a missing diff is not read as a missing change.
+  const noSince = row.gate === "plan" && gate.lastRound && "because" in gate.lastRound ? gate.lastRound : null;
   const landing = lands(gate, now, who);
   const refusedOne = refusedFor("answer") ?? refusedFor("abort");
 
@@ -259,6 +269,9 @@ export function GateView({ gate, read, now, posting, problem, onAnswer, tab, onT
         ) : null}
 
         <div>
+          {noSince ? (
+            <p className="mb-3 text-sm text-muted">No “Changes since round {noSince.round}”: {noSince.because}.</p>
+          ) : null}
           <Tabs label="Gate" selected={shown} onSelect={onTab} tabs={tabs} />
           <div role="tabpanel" className="pt-4">
             {shown === "questions" ? (
@@ -268,6 +281,9 @@ export function GateView({ gate, read, now, posting, problem, onAnswer, tab, onT
                                 onChange={(text) => setAnswers((all) => all.map((each, i) => (i === at ? text : each)))} />
                 ))}
               </div>
+            ) : shown === "since" ? (
+              <DiffRead got={since} title={`${gate.subject.files.map(({ path }) => path).join(", ") || "the plan"}, ` +
+                                           `round ${row.round - 1} → ${row.round}`} />
             ) : shown === "issue" ? <Doc doc={material.issue} />
               : shown === "findings" ? <Doc doc={material.findings} />
               : shown === "review" ? (

@@ -8,7 +8,7 @@ import { DrawerFrame } from "../Drawer";
 import { StageIcon } from "../icons";
 import { said } from "../said";
 import type { Go } from "../ui";
-import { type Gate, GateView, type Read, type Step } from "./GateView";
+import { type Gate, GateView, type Read, type Since, type Step } from "./GateView";
 
 /** Which wait the drawer holds, and what is around it: its tab, the gates either side, and Close. */
 export interface GateTarget {
@@ -22,7 +22,8 @@ export interface GateTarget {
 
 /**
  * A gate, live, in the drawer: the wait as the viewer may see it
- * (`inbox.gate`), its subject read from the forge as it opens, and the answer
+ * (`inbox.gate`), its subject read from the forge as it opens — a plan's
+ * since the round before too, where the forge holds both — and the answer
  * posted from it exactly as the inbox always posted it (`inbox.answer`) —
  * the Inbox and the session page's Now card open the same thing.
  * `onAnswered` is told what was given and where it went.
@@ -37,11 +38,16 @@ export function LiveGate({ target, signIn, now, onAnswered }: {
   const where = { factory, session, signIn };
   const gate = useQuery(api.inbox.gate, where);
   const readSubject = useAction(api.inbox.subject);
+  const readSince = useAction(api.inbox.sinceLastRound);
   const answer = useAction(api.inbox.answer);
   const [read, setRead] = useState<Read | null>(null);
+  // Kept with the subject it compared, so a round asked since never shows the one before's.
+  const [compare, setCompare] = useState<{ of: string; got: Since } | null>(null);
   const [posting, setPosting] = useState(false);
   const [problem, setProblem] = useState("");
   const digest = gate?.subjectDigest;
+  const of = `${factory}/${session}@${digest}`;
+  const compared = gate?.row.gate === "plan" && gate.lastRound !== null && "headSha" in gate.lastRound;
 
   useEffect(() => {
     if (digest === undefined) return;
@@ -51,6 +57,15 @@ export function LiveGate({ target, signIn, now, onAnswered }: {
       (error: unknown) => { if (current) setRead({ ok: false, because: said(error) }); });
     return () => { current = false; };
   }, [readSubject, factory, session, signIn, digest]);
+
+  useEffect(() => {
+    if (digest === undefined || !compared) return;
+    let current = true;
+    readSince({ factory, session, signIn }).then(
+      (got) => { if (current) setCompare({ of, got }); },
+      (error: unknown) => { if (current) setCompare({ of, got: { ok: false, because: said(error) } }); });
+    return () => { current = false; };
+  }, [readSince, factory, session, signIn, digest, of, compared]);
 
   if (gate === undefined || gate === null) {
     return (
@@ -73,7 +88,8 @@ export function LiveGate({ target, signIn, now, onAnswered }: {
     }
   };
   return (
-    <GateView key={`${factory}/${session}/${gate.row.gate}/${gate.row.round}`} gate={gate} read={read} now={now}
+    <GateView key={`${factory}/${session}/${gate.row.gate}/${gate.row.round}`} gate={gate} read={read}
+              since={compare?.of === of ? compare.got : null} now={now}
               posting={posting} problem={problem} onAnswer={(given) => void give(given)}
               tab={target.tab} onTab={target.onTab} close={target.close} step={target.step} />
   );

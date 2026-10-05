@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { decide, NEEDS_NOTE } from "../components/gate/answer";
-import { type Gate, GateView, type Read } from "../components/gate/GateView";
+import { type Gate, GateView, type Read, type Since } from "../components/gate/GateView";
 import { ViewerLogin } from "../components/viewer";
 import type { Row } from "../convex/model/inbox";
 
@@ -24,6 +24,8 @@ const GATE: Gate = {
   subject: { headSha: "89abcdef0123456789abcdef0123456789abcdef", baseCommit: "", outside: [],
              files: [{ path: "docs/asf/spec/plan.md", absolute: "/w/docs/asf/spec/plan.md" }] },
   questions: [], earlier: [{ round: 1, verdict: "reject", by: "schurik", notes: "name the module", channel: "issue" }],
+  lastRound: { round: 1, because: "the forge holds no commit of round 1 to compare with: " +
+                                   "a factory publishes each round only under worktree.publish: on_create" },
   material: {
     flags: [{ kind: "risk", what: "the date is local midnight", because: "converted in UTC it is the previous day", insteadOf: "", by: "planner" }],
     issue: { path: "context_handoff/issue.md", content: "# Resolve relative due dates\n\n- R1 the meeting date\n", truncated: false, pruned: false },
@@ -36,10 +38,11 @@ const READ: Read = { ok: true, headSha: GATE.subject.headSha, diff: null, curren
                      files: [{ path: "docs/asf/spec/plan.md", content: "# Plan\n\n1. Convert in `dates.py`.\n", truncated: false, binary: false }] };
 const CLOSE = { href: "/", onClick: () => {} };
 
-function html(gate: Gate, { read = READ as Read | null, tab = null as string | null, viewer = null as string | null } = {}): string {
+function html(gate: Gate, { read = READ as Read | null, since = null as Since | null, tab = null as string | null,
+                           viewer = null as string | null } = {}): string {
   return renderToStaticMarkup(
     <ViewerLogin.Provider value={viewer}>
-      <GateView gate={gate} read={read} now={NOW} posting={false} problem="" onAnswer={() => {}}
+      <GateView gate={gate} read={read} since={since} now={NOW} posting={false} problem="" onAnswer={() => {}}
                 tab={tab} onTab={() => {}} close={CLOSE} step={null} />
     </ViewerLogin.Provider>,
   );
@@ -106,6 +109,40 @@ describe("a plan gate's drawer", () => {
     const changed = html(GATE, { read: { ...READ, current: false } });
     expect(read(changed)).toContain("Cannot be answered here: digest changed");
     for (const button of changed.match(/<button(?![^>]*role="tab")[^>]*>/g) ?? []) expect(button).toContain(' disabled=""');
+  });
+});
+
+describe("a plan gate's later round", () => {
+  const published: Gate = { ...GATE, lastRound: { round: 1, headSha: "1".repeat(40) } };
+  const plan = "docs/asf/spec/plan.md";
+  const diff = `diff --git a/${plan} b/${plan}\n--- a/${plan}\n+++ b/${plan}\n@@ -1,3 +1,3 @@\n # Plan\n \n-1. Convert.\n+1. Convert in \`dates.py\`.\n`;
+
+  it("opens on the plan's changes since the round before, titled by its file and the two rounds, the plan a click away", () => {
+    const markup = html(published, { since: { ok: true, diff } });
+    expect(tabs(markup)).toEqual(["Changes since round 1", "Plan", "Issue #42", "Scout's findings"]);
+    expect(selected(markup)).toBe("Changes since round 1");
+    expect(read(markup)).toContain(`${plan}, round 1 → 2`);
+    expect(markup).toContain(`data-file="${plan}"`);
+    expect(html(published, { since: { ok: true, diff }, tab: "plan" })).toContain("<h1>Plan</h1>");
+  });
+
+  it("says so while the forge is read, and what the forge said when it cannot be", () => {
+    expect(read(html(published))).toContain("Reading the diff from the forge…");
+    expect(read(html(published, { since: { ok: false, because: "the branch was deleted" } })))
+      .toContain("Cannot read the diff: the branch was deleted.");
+  });
+
+  it("has no Changes tab when the factory does not publish its rounds, and says why", () => {
+    const markup = html(GATE);
+    expect(tabs(markup)).not.toContain("Changes since round 1");
+    expect(read(markup)).toContain("No “Changes since round 1”: the forge holds no commit of round 1 to compare with: " +
+                                   "a factory publishes each round only under worktree.publish: on_create.");
+  });
+
+  it("opens a first round on the plan, and says nothing of changes", () => {
+    const markup = html({ ...GATE, row: { ...ROW, round: 1 }, earlier: [], lastRound: null });
+    expect(selected(markup)).toBe("Plan");
+    expect(read(markup)).not.toContain("Changes since");
   });
 });
 

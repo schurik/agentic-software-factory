@@ -21,6 +21,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { shown as readable } from "./artifacts";
+import { type Located, read as readDiff, type Read as DiffRead } from "./diffs";
 import { ForgeError, RateLimited } from "./forge/github";
 import { credentialed, forgeWeb } from "./forge/memory";
 import { open } from "./forge/open";
@@ -29,8 +30,8 @@ import { pending } from "./model/command";
 import { refusal, render, spoken, type Asked as Answering } from "./model/answer";
 import { subjectDigest } from "./model/digest";
 import {
-  asked, blocked, byCommand, type Commanding, type Judged, permitted, ranked, row, type Row, type Sent, type Subject,
-  waitsOnOthers,
+  asked, blocked, byCommand, type Commanding, type Judged, onlyFiles, permitted, ranked, row, type Row, type Sent,
+  type Subject, waitsOnOthers,
 } from "./model/inbox";
 import { materialOf } from "./model/gate";
 import { readSummary, view, type Summary } from "./model/session";
@@ -281,6 +282,36 @@ export const subject = action({
     } finally {
       await opened.close();
     }
+  },
+});
+
+/** The two rounds of a wait's gate the viewer can see, and the files it asks about: what "Changes since" compares. */
+export const locateLastRound = internalQuery({
+  args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory, session, signIn }): Promise<(Located & { paths: string[] }) | { because: string }> => {
+    const wait = await waitOf(ctx, await viewing(ctx, signIn), { factory, session, signIn }, { ready: true, others: true });
+    if (wait === null) return { because: "no such wait in a session you can see" };
+    const { subject, lastRound } = asked(wait.stored.events, wait.stored.acked, wait.waiting);
+    if (lastRound === null) return { because: "the gate is in its first round" };
+    if ("because" in lastRound) return lastRound;
+    return { repo: wait.stored.factory, base: lastRound.headSha, head: subject.headSha, paths: subject.files.map(({ path }) => path) };
+  },
+});
+
+/**
+ * What changed in a gate's subject since its round before (#114): the forge's
+ * comparison of the two rounds' `head_sha`, cut to the subject's own files —
+ * a plan gate's plan, as it was rejected and as it is asked about now. Like
+ * the subject, read on the cockpit's own credential and never kept.
+ */
+export const sinceLastRound = action({
+  args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<DiffRead> => {
+    const located: (Located & { paths: string[] }) | { because: string } =
+      await ctx.runQuery(internal.inbox.locateLastRound, args);
+    if ("because" in located) return { ok: false, because: located.because };
+    const read = await readDiff(ctx, located);
+    return read.ok ? { ok: true, diff: onlyFiles(read.diff, located.paths) } : read;
   },
 });
 

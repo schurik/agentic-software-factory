@@ -361,6 +361,98 @@ describe("the subject of a gate", () => {
   });
 });
 
+describe("the changes since a plan gate's last round", () => {
+  const PLAN = "docs/asf/spec/plan.md";
+  const ROUND_1 = "1".repeat(40);
+  const ROUND_2 = "2".repeat(40);
+  const OF_THE_PLAN = `diff --git a/${PLAN} b/${PLAN}\n--- a/${PLAN}\n+++ b/${PLAN}\n` +
+    // As the fake forge prints it: the file's whole text one hunk.
+    "@@ -1,3 +1,3 @@\n-# Plan\n-\n-1. Register /health.\n+# Plan\n+\n+1. Register /health in app.py.\n";
+
+  /** A plan gate asked twice: round 1 at `ROUND_1`, rejected, and round 2 at `ROUND_2` — each published or not. */
+  function twoRounds(session: string, published = true): WireEvent[] {
+    const [started, first] = suspendedAt({ session, published });
+    Object.assign(first.payload, { head_sha: ROUND_1 });
+    const rejected = fixture("decision_recorded", 3);
+    const [, second] = suspendedAt({ session, round: 2, published });
+    Object.assign(second.payload, { head_sha: ROUND_2 });
+    return [started, first, rejected, { ...second, seq: 4 }];
+  }
+
+  /** acme/widgets holding both rounds — the plan rewritten, and a file the plan stage did not write — and alex's sign-in. */
+  async function published(forge: FakeForge, t: Cockpit, session: string, events: WireEvent[]) {
+    forge.commit("acme/widgets", ROUND_1, { [PLAN]: "# Plan\n\n1. Register /health.\n" });
+    forge.commit("acme/widgets", ROUND_2, { [PLAN]: "# Plan\n\n1. Register /health in app.py.\n", "notes.txt": "scratch\n" });
+    await ship(t, await factory(t, "acme/widgets"), session, events);
+  }
+
+  it("is the plan's diff between the two rounds' commits, read on the App's installation in a team's cockpit", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    await published(forge, t, "r2r2r2r2", twoRounds("r2r2r2r2"));
+    const alex = await signIn(t, forge, "alex");
+
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "r2r2r2r2", signIn: alex });
+    expect(gate!.lastRound).toEqual({ round: 1, headSha: ROUND_1 });
+    const mark = forge.requests.length;
+
+    expect(await t.action(api.inbox.sinceLastRound, { factory: "acme/widgets", session: "r2r2r2r2", signIn: alex }))
+      .toEqual({ ok: true, diff: OF_THE_PLAN });
+    expect(forge.since(mark).filter((request) => request.includes("/repos/")))
+      .toEqual([`GET /repos/acme/widgets/compare/${ROUND_1}...${ROUND_2} → 200`]);
+  });
+
+  it("is read on the person's own token in a local cockpit", async () => {
+    const forge = fakeForge();
+    localMode(forge, forge.person("alex"));
+    forge.repo("acme/widgets", { factory: true, roles: { alex: "write" } });
+    const t = cockpit();
+    await published(forge, t, "r3r3r3r3", twoRounds("r3r3r3r3"));
+
+    expect(await t.action(api.inbox.sinceLastRound, { factory: "acme/widgets", session: "r3r3r3r3" }))
+      .toEqual({ ok: true, diff: OF_THE_PLAN });
+  });
+
+  it("is not there when the factory does not publish its rounds, and says why", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    await published(forge, t, "r4r4r4r4", twoRounds("r4r4r4r4", false));
+    const alex = await signIn(t, forge, "alex");
+
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "r4r4r4r4", signIn: alex });
+    const because = "the forge holds no commit of round 1 to compare with: " +
+      "a factory publishes each round only under worktree.publish: on_create";
+    expect(gate!.lastRound).toEqual({ round: 1, because });
+    const mark = forge.requests.length;
+    expect(await t.action(api.inbox.sinceLastRound, { factory: "acme/widgets", session: "r4r4r4r4", signIn: alex }))
+      .toEqual({ ok: false, because });
+    expect(forge.since(mark)).toEqual([]);
+  });
+
+  it("is not there when the round before was answered at the station's terminal, before anything suspended", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    const [started, , , second] = twoRounds("r6r6r6r6");
+    await ship(t, await factory(t, "acme/widgets"), "r6r6r6r6", [started, { ...second, seq: 2 }]);
+
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "r6r6r6r6",
+                                                 signIn: await signIn(t, forge, "alex") });
+    expect(gate!.lastRound).toEqual({
+      round: 1, because: "round 1 was answered at the station's terminal before the session suspended, so no commit holds it",
+    });
+  });
+
+  it("is not there in a first round", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    await ship(t, await factory(t, "acme/widgets"), "r5r5r5r5", suspendedAt({ session: "r5r5r5r5" }));
+
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "r5r5r5r5",
+                                                 signIn: await signIn(t, forge, "alex") });
+    expect(gate!.lastRound).toBeNull();
+  });
+});
+
 describe("the answer view", () => {
   it("shows a recorded run's second plan round with the first one's verdict, and the agents' flags, the issue and the findings", async () => {
     const forge = fakeForge();
