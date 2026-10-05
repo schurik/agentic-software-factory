@@ -72,7 +72,7 @@ describe("a factory its stations spell otherwise than the forge", () => {
     expect((await t.query(api.activity.attention, asked))?.gates).toEqual({ mine: 1, total: 1 });
     expect((await t.query(api.activity.page, asked))?.running.flatMap((group) => group.sessions.map((row) => row.session)).sort())
       .toEqual(["g1", "r1"]);
-    expect((await t.query(api.activity.stations, asked))?.stations.map((row) => row.sessions.length)).toEqual([2]);
+    expect((await t.query(api.activity.stations, { ...asked, period: { from: 0, to: Date.now() + 1 } }))?.stations.map((row) => row.sessions.length)).toEqual([2]);
     expect(await t.query(api.commands.runTargets, asked)).toMatchObject({ stations: [{ name: STATION.name }] });
   });
 

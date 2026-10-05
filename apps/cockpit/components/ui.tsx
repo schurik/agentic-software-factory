@@ -249,13 +249,15 @@ export function Kbd({ children }: { children: ReactNode }) {
 /**
  * A row of tabs over one panel, underlined in the accent like the header's
  * places. It scrolls sideways on its own when the tabs outgrow the screen.
+ * `end` sits at the row's far end — a link away, say — and scrolls with it.
  */
-export function Tabs<T extends string>({ tabs, selected, onSelect, label, className }: {
+export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, end }: {
   tabs: { id: T; label: ReactNode }[];
   selected: T;
   onSelect: (tab: T) => void;
   label?: string;
   className?: string;
+  end?: ReactNode;
 }) {
   return (
     <div role="tablist" aria-label={label} className={cx("flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]", className)}>
@@ -268,6 +270,7 @@ export function Tabs<T extends string>({ tabs, selected, onSelect, label, classN
           {tab.label}
         </button>
       ))}
+      {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
     </div>
   );
 }

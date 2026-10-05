@@ -376,7 +376,7 @@ midnight takes whole rows.
 
 ## Cost: who spent, and who asked
 
-`/cost`, and the Factory page's **Cost** tab for one factory, roll that spend up
+`/cost`, and the Factory page's Overview for one factory, roll that spend up
 (`convex/cost.ts`) by **session**, **workflow** (a factory's own: two factories' `ship` are two),
 **factory**, **station** — whose machine and key paid, so it names the station's owner, the person
 who registered it — and **person**, who triggered the run. The two differ whenever a teammate's
@@ -454,10 +454,15 @@ than it. The answer is `200 {}`: an ingest token can add, and read nothing back.
 kind is not `ci` is refused with a 403 — a checkout's own edits are what drift measures, never what
 it is measured against.
 
-`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
-branch's commit, the check's state, flags and the per-session budget — and six tabs.
+`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header that says the factory's state
+in one line — its name with a link to it on the forge, the check's state, the default branch at its
+commit, how many of its stations are online and the per-session budget — and four tabs: Overview,
+Workflows, Stations and Config. The tab open is the address's (`?tab=stations`), so Now's Needs
+attention rows land on the tab that answers them (Compare and Stations on Stations, See config on
+Config), and a dot marks a tab that holds a problem: a broken workflow, a drifted station, a failing
+check. **All sessions →** beside the tabs is `/sessions?factory=<owner>/<repo>`.
 
-**Activity**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
+**Overview**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
 that the viewer may answer (a link to Now narrowed to the factory, `/?factory=<owner>/<repo>`), the sessions that
 failed in the last day, each claim whose station has not been heard of for over a day — "held by
 `alex@mbp`, offline 2 d", never orphaned, with Release claim — the stations whose config drifted, a
@@ -466,31 +471,30 @@ issues watcher. `activity:attention` is the one query that reads those facts, fo
 the Factories list to rank by; which of them are news is read against the page's clock
 (`convex/model/attention.ts`), so a failure stops being news without anything new arriving. Then
 **Running now** — the live and suspended sessions, by the workflow each is in, naming its station —
-and **Recent**, the last finished ones.
+and **Recent**, the last finished ones, and what the factory spent in a period, as `/cost` rolls it up
+(below).
 
 **Workflows** renders the description from the default branch, with Run in place for a workflow
 that takes a prompt.
 
-**Stations** lists every station that is registered or holds a session or a claim — a station that
-never registered still runs sessions — with its owner, kind, when its loop last polled and its
-drift. Opened, a station shows what it obeys, the commit it has out, the watchers its loop runs,
-the sessions it holds (live, suspended, or failed and so its to resume) and the claims it holds,
-each with Release claim. Every CI job is one **CI** entry: the sessions that ran in CI and the
-checks CI pushed.
+**Stations** has the stations asking to join on top (`stations:registrations`): each with the code
+its `asf station register` printed, to approve only when that code is the one its terminal shows,
+and disabled with the reason for a viewer who may not. Under them is a card per station that is
+registered or holds a session or a claim — a station that never registered still runs sessions. A
+card says whether it is online, away (and for how long) or never polled, and whose machine it is;
+what its loop watches and which commands it takes; the release it runs, as the latest session it
+started said, in amber when it is behind the release the default branch's check ran; the commit
+it has out, and its config the same as the default branch's or drifted (below); the sessions it
+holds (live, suspended, or failed and so its to resume) and the claims it holds, each with Release
+claim; its last 30 days by the viewer's midnights — sessions, failures and what its key paid; the
+commands waiting for it, each with when it expires; and Revoke, for its owner or an admin of the
+repository. Every CI job is one **CI** card: the sessions that ran in CI and the checks CI pushed.
+The old `/stations` goes on to the Stations tab of the one factory the viewer's stations are in, or
+to the Factories list; approving a station keeps its own page, `/stations/approve`.
 
-**Sessions** is the factory's whole history as a table, the same one `/sessions` shows across
-every factory the viewer can read, with a column naming each row's factory there. Both are one
-query, `sessions.list` (`convex/sessions.ts`), given a factory or not, and narrow by **workflow** —
-one the session passed through, in any chapter — **person**, who triggered the run (the labeller,
-or whoever ran `asf run`; case-insensitively, as the inbox's "for you" reads it), **station** — every CI job
-is one **CI** entry, as on Stations — **status**, and **period**: today, this week or this month in
-the viewer's timezone, keeping each session alive at any moment of it, a live or suspended one
-alive still (`convex/model/filter.ts`). Each filter offers what the sessions it looked at hold,
-whether or not the filters kept them, and only sessions of factories the viewer can read are looked
-at, so no choice names what they may not see. The query reads the most recently active sessions
-until it has 200 to show or has read 2000, and says when older ones were left unread.
-
-**Cost** is what the factory spent in a period, as `/cost` rolls it up (above).
+The factory's whole history is the Sessions page narrowed to it (`/sessions?factory=…`): one query,
+`sessions.list` (`convex/sessions.ts`), given a factory or not, searched by title, issue or pull
+request and id.
 
 **Config** lists the files under `asf/` on the default branch, what the check said, and each
 station's drift. A factory no CI workflow ever described is **unchecked**, never broken.

@@ -23,6 +23,10 @@ interface Shipped {
   status?: "running" | "waiting" | "success" | "fail";
   endedAt?: number;
   trusted?: string[];
+  /** The release the station ran it on: its `skill_version`. */
+  release?: string;
+  /** What one agent call in it cost, an hour before NOW unless the session ended earlier. */
+  cost?: number;
 }
 
 const ALEX = STATION;
@@ -67,17 +71,27 @@ function shipped(given: Shipped): WireEvent[] {
   Object.assign(started.payload, {
     adw_id: given.session, workflow: given.workflow ?? "issue", station_id: station.id, station_name: station.name,
     station_kind: station.kind ?? "local", started_at: new Date(NOW - 2 * HOUR).toISOString(),
+    ...(given.release ? { skill_version: given.release } : {}),
   });
-  const status = given.status ?? "running";
-  if (status === "running") return [started];
-  if (status === "waiting") {
-    const suspended = fixture("suspended", 2, 2);
-    Object.assign(suspended.payload, { trusted: given.trusted ?? [] });
-    return [started, suspended];
+  const spent: WireEvent[] = [];
+  if (given.cost !== undefined) {
+    const usage = fixture("usage", 2);
+    usage.ts = new Date(Math.min(NOW - HOUR, given.endedAt ?? NOW)).toISOString();
+    Object.assign(usage.payload, { cost: given.cost });
+    spent.push(usage);
   }
-  const finished = fixture("session_finished", 2);
-  Object.assign(finished.payload, { status, ended_at: new Date(given.endedAt ?? NOW - HOUR).toISOString() });
-  return [started, finished];
+  const next = 2 + spent.length;
+  const status = given.status ?? "running";
+  if (status === "running") return [started, ...spent];
+  if (status === "waiting") {
+    const suspended = fixture("suspended", next, 2);
+    Object.assign(suspended.payload, { trusted: given.trusted ?? [] });
+    return [started, ...spent, suspended];
+  }
+  const finished = fixture("session_finished", next);
+  finished.ts = new Date(given.endedAt ?? NOW - HOUR).toISOString();
+  Object.assign(finished.payload, { status, ended_at: finished.ts });
+  return [started, ...spent, finished];
 }
 
 async function ship(t: Awaited<ReturnType<typeof teamOf>>, token: string, ...sessions: Shipped[]): Promise<void> {
@@ -346,28 +360,36 @@ describe("running now and recent", () => {
 
 describe("the stations of a factory", () => {
   const BOB = { id: "st_bob", name: "bob@desk:widgets", kind: "local" };
+  const DAY = 24 * HOUR;
+  /** The last 30 days, as the page asks for them: to the end of today. */
+  const PERIOD = { from: NOW - 30 * DAY, to: NOW + DAY };
 
   async function seeded() {
-    const t = await teamOf(forge, { alex: "write" });
+    forge.person("sam");
+    const t = await teamOf(forge, { alex: "write", sam: "read" });
     const token = await factory(t, "acme/widgets");
     const alex = await signIn(t, forge, "alex");
-    await poll(t, await approved(t, token, alex), { report: { ...REPORT, watchers: ["issues", "answers"] } });
+    await poll(t, await approved(t, token, alex), { report: { ...REPORT, verbs: ["kill", "resume"], watchers: ["issues", "answers"] } });
     await ship(t, token,
-      { session: "f1", status: "fail", endedAt: NOW - 3 * HOUR },
-      { session: "s1", status: "success" },
+      { session: "old", status: "success", endedAt: NOW - 40 * DAY, cost: 9 },     // before the period
+      { session: "f1", status: "fail", endedAt: NOW - 3 * HOUR, cost: 0.25 },
+      { session: "s1", status: "success", cost: 0.5 },
       { session: "w1", status: "waiting" },
-      { session: "r1" },
-      { session: "b1", station: BOB },                                   // a station that never registered
+      { session: "r1", release: "1.2.0" },
+      { session: "b1", station: BOB, cost: 1 },                                     // a station that never registered
       { session: "ci1", workflow: "pr-review", station: CI, status: "success" });
     await claimed(t, token, "b1", 42, BOB);
     await checked(t, token, true);
-    return { t, alex };
+    return { t, alex, sam: await signIn(t, forge, "sam") };
   }
+
+  const stationsOf = (t: Awaited<ReturnType<typeof teamOf>>, holding?: string) =>
+    t.query(api.activity.stations, { factory: "acme/widgets", signIn: holding, period: PERIOD });
 
   it("lists every station that holds anything, each with its watchers, the sessions it holds and its claims", async () => {
     const { t, alex } = await seeded();
 
-    const shown = await t.query(api.activity.stations, { factory: "acme/widgets", signIn: alex });
+    const shown = await stationsOf(t, alex);
 
     expect(shown!.stations.map(({ station, name, owner, kind, registered, report, sessions, claims }) => ({
       station, name, owner, kind, registered, watchers: report?.watchers ?? null,
@@ -379,14 +401,44 @@ describe("the stations of a factory", () => {
         sessions: [["b1", "running"]], claims: [42] },
     ]);
     expect(shown!.stations[0].seenAt).toBe(NOW);
-    expect(shown!.stations[0].report).toMatchObject({ verbs: REPORT.verbs, head: REPORT.head });
+    expect(shown!.stations[0].report).toMatchObject({ verbs: ["kill", "resume"], head: REPORT.head });
     expect(shown!.stations[1].claims[0]).toMatchObject({ stationName: BOB.name, session: "b1", refused: null });
+  });
+
+  it("says each station's release, by the latest session it started, and what it ran and spent in the period", async () => {
+    const { t, alex } = await seeded();
+
+    const shown = await stationsOf(t, alex);
+
+    expect(shown!.stations.map(({ name, release, period }) => ({ name, release, period }))).toEqual([
+      { name: ALEX.name, release: "1.2.0", period: { sessions: 4, failed: 1, cost: 0.75 } },
+      { name: BOB.name, release: "1.1.0", period: { sessions: 1, failed: 0, cost: 1 } },
+    ]);
+  });
+
+  it("lists the commands waiting for each station, with when each expires", async () => {
+    const { t, alex } = await seeded();
+    expect(await t.mutation(api.commands.resume, { factory: "acme/widgets", session: "f1", signIn: alex })).toMatchObject({ ok: true });
+
+    const shown = await stationsOf(t, alex);
+
+    expect(shown!.stations[0].commands).toEqual([
+      { verb: "resume", session: "f1", workflow: "", by: "alex", state: "queued", issuedAt: NOW, expiresAt: NOW + 3600_000 },
+    ]);
+    expect(shown!.stations[1].commands).toEqual([]);
+  });
+
+  it("lets a station's owner revoke it, and nobody else who only reads", async () => {
+    const { t, alex, sam } = await seeded();
+
+    expect((await stationsOf(t, alex))!.stations.map((station) => station.revocable)).toEqual([true, false]);
+    expect((await stationsOf(t, sam))!.stations.map((station) => station.revocable)).toEqual([false, false]);
   });
 
   it("collapses every CI job into one entry: its recent jobs and its check pushes", async () => {
     const { t, alex } = await seeded();
 
-    const shown = await t.query(api.activity.stations, { factory: "acme/widgets", signIn: alex });
+    const shown = await stationsOf(t, alex);
 
     expect(shown!.stations.map((station) => station.kind)).not.toContain("ci");
     expect(shown!.ci.jobs.map(({ session, workflow, station }) => [session, workflow, station])).toEqual([["ci1", "pr-review", CI.name]]);
@@ -395,6 +447,6 @@ describe("the stations of a factory", () => {
 
   it("is nothing to someone who may not read the factory", async () => {
     const { t } = await seeded();
-    expect(await t.query(api.activity.stations, { factory: "acme/widgets" })).toBeNull();
+    expect(await stationsOf(t)).toBeNull();
   });
 });

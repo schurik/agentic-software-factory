@@ -51,3 +51,40 @@ export function factoryHref(repo: string): string {
 export function short(sha: string): string {
   return sha.slice(0, 7);
 }
+
+/** The factory page's tabs, as its address names them (`?tab=`), in order. */
+export const FACTORY_TABS = { overview: "Overview", workflows: "Workflows", stations: "Stations", config: "Config" } as const;
+export type FactoryTab = keyof typeof FACTORY_TABS;
+
+/** The tab an address names: the Overview when it names none, or one there is not. */
+export function tabOf(raw: string | null | undefined): FactoryTab {
+  return raw && Object.hasOwn(FACTORY_TABS, raw) ? (raw as FactoryTab) : "overview";
+}
+
+/** The factory page open on `tab`: its Overview needs no `?tab=`. */
+export function tabHref(repo: string, tab: FactoryTab): string {
+  return tab === "overview" ? factoryHref(repo) : `${factoryHref(repo)}?tab=${tab}`;
+}
+
+/**
+ * Where an old `/stations` link goes, now that a factory's page holds its
+ * stations: the Stations tab of the one factory the viewer's stations are
+ * in, or the Factories list to choose one from.
+ */
+export function stationsAddress(factories: string[]): string {
+  const distinct = new Set(factories);
+  return distinct.size === 1 ? tabHref([...distinct][0], "stations") : "/factories";
+}
+
+/** Whether release `release` is older than `main`'s, both `X.Y.Z`; never, when either cannot be read. */
+export function behind(release: string, main: string): boolean {
+  const [ours, theirs] = [parts(release), parts(main)];
+  if (ours === null || theirs === null) return false;
+  const at = ours.findIndex((part, index) => part !== theirs[index]);
+  return at >= 0 && ours[at] < theirs[at];
+}
+
+function parts(release: string): number[] | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(release);
+  return match ? match.slice(1).map(Number) : null;
+}

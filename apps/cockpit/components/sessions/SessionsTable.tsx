@@ -19,15 +19,13 @@ export type Listed = SessionsFound["sessions"][number];
 /**
  * The Sessions page (#116), as first painted: the factory pills — `factory`
  * is the one the address narrowed it to — and the one search box, over the
- * sessions the query kept. `tab` draws it as one factory's own Sessions tab,
- * which needs neither the page's title nor its pills. Pure: the list, the
- * clock and what was typed come in; `live` draws where a live session is,
- * with its progress — a query of its own per row.
+ * sessions the query kept. Pure: the list, the clock and what was typed
+ * come in; `live` draws where a live session is, with its progress — a query
+ * of its own per row.
  */
-export function SessionsView({ list, factory, tab = false, search, onSearch, now, live }: {
+export function SessionsView({ list, factory, search, onSearch, now, live }: {
   list: SessionsFound;
   factory?: string;
-  tab?: boolean;
   search: string;
   onSearch: (search: string) => void;
   now: number;
@@ -35,9 +33,9 @@ export function SessionsView({ list, factory, tab = false, search, onSearch, now
 }) {
   return (
     <>
-      {tab ? null : <PageHeader title="Sessions" />}
+      <PageHeader title="Sessions" />
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        {tab ? null : <FactoryPills factories={list.factories} active={factory} />}
+        <FactoryPills factories={list.factories} active={factory} />
         <input type="search" value={search} onChange={(event) => onSearch(event.target.value)}
                placeholder="Search title, #issue, id…" aria-label="Search sessions"
                className={cx(control, "w-full md:ml-auto md:w-64")} />

@@ -261,7 +261,8 @@ export default defineSchema({
   })
     .index("by_device", ["device"])
     .index("by_code", ["code"])
-    .index("by_expiry", ["expiresAt"]),
+    .index("by_expiry", ["expiresAt"])
+    .index("by_factory", ["factory", "expiresAt"]),
 
   // When a run's own shipper last polled for its session's commands: a
   // session is attended while that is recent. Kept apart from `sessions`, so a

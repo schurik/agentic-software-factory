@@ -112,6 +112,36 @@ describe("registering a station", () => {
       .toMatchObject({ ok: false });
   });
 
+  it("waits on its factory's Stations tab, with its code to match against the terminal, until it is handed over or runs out", async () => {
+    const forge = fakeForge();
+    forge.person("dana");
+    const t = await teamOf(forge, { alex: "write", sam: "read" });
+    const ingestToken = await factory(t, "acme/widgets");
+    const alex = await signIn(t, forge, "alex");
+    const sam = await signIn(t, forge, "sam");
+    const asked = await register(t, ingestToken);
+    const late = await register(t, ingestToken, { id: "st_late", name: "late@box:widgets", kind: "local" });
+    const listed = (holding?: string) => t.query(api.stations.registrations, { factory: "acme/widgets", signIn: holding });
+
+    expect(await listed(alex)).toEqual([
+      { code: asked.code, station: STATION.id, name: STATION.name, kind: "local", expiresAt: Date.now() + 10 * 60_000,
+        approved: false, because: null },
+      expect.objectContaining({ code: late.code, name: "late@box:widgets" }),
+    ]);
+    // A reader sees who asks, and why they may not approve it.
+    expect((await listed(sam))?.[0].because).toMatch(/needs write/);
+    expect(await listed(await signIn(t, forge, "dana"))).toBeNull();
+    expect(await listed()).toBeNull();
+
+    expect(await t.mutation(api.stations.approve, { code: asked.code, signIn: alex })).toEqual({ ok: true });
+    expect((await listed(alex))?.[0]).toMatchObject({ code: asked.code, approved: true });
+    await handed(t, asked.device);
+    expect((await listed(alex))?.map((each) => each.code)).toEqual([late.code]);
+
+    vi.advanceTimersByTime(11 * 60_000);
+    expect(await listed(alex)).toEqual([]);
+  });
+
   it("is nothing a local cockpit's station needs: the token is issued to its one person", async () => {
     const forge = fakeForge();
     const { t } = await localOf(forge);
