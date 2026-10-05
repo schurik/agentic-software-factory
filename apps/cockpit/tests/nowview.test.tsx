@@ -142,9 +142,9 @@ describe("Needs attention", () => {
     expect(steps).toEqual([
       "Open /sessions/acme/widgets/e5b3a118",
       "Release /sessions/acme/widgets/c1",
-      "Compare /factories/acme/widgets",
-      "See config /factories/acme/widgets",
-      "Stations /factories/acme/widgets",
+      "Compare /factories/acme/widgets?tab=stations",
+      "See config /factories/acme/widgets?tab=config",
+      "Stations /factories/acme/widgets?tab=stations",
     ]);
     // The gates waiting on the viewer are the Inbox's; they are not said twice.
     expect(read(section(html({ ...PAGE, attention: [{ factory: "acme/widgets", facts: { ...QUIET, gates: { mine: 2, total: 2 } } }] }),

@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { FactoryHeader } from "../components/factory/FactoryHeader";
-import { budgetWords, drifts, type Page, referenceOf } from "../components/factory/view";
+import { FactoryView } from "../components/factory/FactoryView";
+import { type Registration, StationsTab } from "../components/factory/StationsTab";
+import {
+  behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, stationsAddress, tabHref, tabOf,
+} from "../components/factory/view";
 import { WorkflowsTab } from "../components/factory/WorkflowsTab";
+import type { StationDetail } from "../convex/activity";
 import type { Look } from "../convex/factory";
 import { readDescription } from "../convex/model/description";
 
@@ -65,20 +70,16 @@ describe("the Workflows tab", () => {
 });
 
 describe("the header", () => {
-  it("names the check's state, the budget, and the stations whose config drifted", () => {
-    const shown = page();
+  it("leaves Run a prompt to the app header", () => {
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
 
-    expect(html).toContain("check failing");
-    expect(html).toContain("2 stations drifted");
-    expect(html).toContain(`<code>main</code> at <code>${TIP.slice(0, 7)}</code>`);
     expect(html).not.toContain("Run a prompt");                     // the app header's, not the factory's (#108)
   });
 
   it("offers Trigger… on a factory the forge shows — the Factories list's rows open the page, so this is its one way in", () => {
     const header = (shown: Page) => renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} drifts={new Map()} forge={FORGE} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
 
     expect(header(page())).toMatch(/<button[^>]*>Trigger…<\/button>/);
     expect(header(page({ onForge: false }))).not.toContain("Trigger…");
@@ -87,7 +88,7 @@ describe("the header", () => {
   it("is unchecked, never broken, without a CI workflow", () => {
     const shown = page({ check: null, stations: [] });
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} drifts={new Map()} forge={FORGE} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
 
     expect(html).toContain("unchecked");
     expect(html).not.toContain("failing");
@@ -117,5 +118,177 @@ describe("the Config tab", () => {
   it("puts the budget in words, and no budget as none", () => {
     expect(budgetWords({ maxCostUsd: 0, maxTokens: 0 })).toBe("no per-session budget");
     expect(budgetWords({ maxCostUsd: 1, maxTokens: 0 })).toBe("$1.00 per session");
+  });
+});
+
+// ── the page's shell and its Stations tab (#118) ─────────────────────────────
+
+const PANELS = { overview: <p>the overview</p>, workflows: <p>the workflows</p>, stations: <p>the stations</p>, config: <p>the config</p> };
+
+function factoryView(shown: Page, tab: FactoryTab, look: Look | null = LOOK) {
+  return renderToStaticMarkup(
+    <FactoryView page={shown} look={look} drifts={drifts(shown, look)} forge={FORGE} now={NOW} tab={tab} onTab={() => {}}
+                 triggering={false} onTrigger={() => {}} trigger={null} panels={PANELS} />);
+}
+
+/** The panel of `tab`, as `html` has it: hidden or not. */
+function panel(html: string, tab: FactoryTab): string {
+  return html.match(new RegExp(`<div[^>]*id="factory-${tab}"[^>]*>`))?.[0] ?? "";
+}
+
+describe("the factory page", () => {
+  it("is headed by the name, its check, the default branch at its commit, the stations online and the budget", () => {
+    const html = factoryView(page(), "overview");
+
+    expect(html).toContain(`href="${FORGE}/acme/widgets"`);
+    expect(html).toContain("check failing");
+    expect(html).toContain(`<code>main</code> at <code>${TIP.slice(0, 7)}</code>`);
+    expect(html).toContain("1/2 stations online");                 // st_a polled 5s ago, st_b an hour ago
+    expect(html).toContain("$2.50 · 2M tokens per session");
+  });
+
+  it("has four tabs, opens on the one its address names, and links to the factory's sessions", () => {
+    const html = factoryView(page(), "stations");
+
+    expect(html.match(/role="tab"/g)).toHaveLength(4);
+    expect(html).toMatch(/aria-selected="true"[^>]*><span[^>]*>Stations/);
+    expect(panel(html, "stations")).not.toContain("hidden");
+    expect(panel(html, "overview")).toContain("hidden");
+    expect(html).toContain('href="/sessions?factory=acme%2Fwidgets"');
+    expect(html).toContain("All sessions →");
+  });
+
+  it("marks a tab that holds a problem with a dot: drifted stations, a broken workflow, a failing check", () => {
+    const html = factoryView(page(), "overview");
+
+    expect(html).toMatch(/Stations<span[^>]*aria-label="2 stations drifted"/);
+    expect(html).toMatch(/Workflows<span[^>]*aria-label="1 broken workflow"/);
+    expect(html).toMatch(/Config<span[^>]*aria-label="check failing"/);
+
+    const quiet = page({
+      check: { ...page().check!, ok: true, description: { ...DESCRIPTION, problems: [] } },
+      stations: [{ station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW, head: TIP, configHash: DESCRIPTION.checked.configHash }],
+    });
+    expect(factoryView(quiet, "overview")).not.toContain("aria-label=\"1 station drifted\"");
+    expect(factoryView(quiet, "overview")).not.toMatch(/<span[^>]*aria-label="[^"]*"[^>]*class="[^"]*rounded-full/);
+  });
+
+  it("reads its tab from the address, and writes it there", () => {
+    expect(tabOf("stations")).toBe("stations");
+    expect(tabOf("nonsense")).toBe("overview");
+    expect(tabOf(null)).toBe("overview");
+    expect(tabHref("acme/widgets", "stations")).toBe("/factories/acme/widgets?tab=stations");
+    expect(tabHref("acme/widgets", "overview")).toBe("/factories/acme/widgets");
+  });
+
+  it("is where /stations goes: the stations tab of the viewer's one factory, or the factories to choose from", () => {
+    expect(stationsAddress(["acme/widgets", "acme/widgets"])).toBe("/factories/acme/widgets?tab=stations");
+    expect(stationsAddress(["acme/widgets", "acme/gadgets"])).toBe("/factories");
+    expect(stationsAddress([])).toBe("/factories");
+  });
+});
+
+const CARD: StationDetail = {
+  station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", registered: true, seenAt: NOW - 5_000,
+  report: { verbs: ["kill", "resume"], head: TIP, configHash: "beef", watchers: ["issues", "answers"] },
+  sessions: [], claims: [], release: "1.0.0", period: { sessions: 12, failed: 2, cost: 4.2 }, commands: [], revocable: true,
+};
+
+function stationsTab(stations: StationDetail[], registrations: Registration[] = [], release = DESCRIPTION.skillVersion) {
+  const shown = page();
+  return renderToStaticMarkup(
+    <StationsTab stations={stations} ci={{ jobs: [], checks: [] }} registrations={registrations} drifts={drifts(shown, LOOK)}
+                 now={NOW} factory="acme/widgets" forge={FORGE} defaultBranch="main" release={release}
+                 onApprove={() => {}} onRevoke={() => {}} />);
+}
+
+describe("the Stations tab", () => {
+  it("draws one card per station: liveness and whose, what it watches and takes, its release, commit and config, and its month", () => {
+    const html = stationsTab([CARD, { ...CARD, station: "st_b", name: "sam@old:widgets", owner: "sam", seenAt: NOW - 3_600_000, revocable: false }]);
+
+    expect(html).toContain("alex&#x27;s machine");
+    expect(html).toContain("machine · online");
+    expect(html).toContain("away 1h");
+    expect(html).toContain("labelled issues · answers on work items");
+    expect(html).toContain("kill, resume");
+    expect(html).toContain("release 1.0.0");
+    expect(html).toContain(`<code>${TIP.slice(0, 7)}</code>`);
+    expect(html).toContain("config drifted");                      // local edits: st_a's hash is not main's
+    expect(html).toContain("3 commits behind");
+    expect(html).toContain("12 sessions");
+    expect(html).toContain("2 failed");
+    expect(html).toContain("$4.20 on its key");
+    expect(html.match(/>Revoke<\/button>/g)).toHaveLength(1);       // only the one the viewer may revoke
+  });
+
+  it("says a station never polled, and one nobody registered takes no commands", () => {
+    const html = stationsTab([{ ...CARD, owner: "", registered: false, seenAt: 0, report: null, revocable: false }]);
+
+    expect(html).toContain("never polled");
+    expect(html).toContain("asf station register");
+    expect(html).not.toContain(">Revoke<");
+  });
+
+  it("marks a release behind main's in amber, and says nothing of one that is not", () => {
+    expect(stationsTab([CARD], [], "1.3.0")).toMatch(/class="[^"]*text-wait[^"]*">behind main(&#x27;|')s 1\.3\.0/);
+    expect(stationsTab([CARD], [], "1.0.0")).not.toContain("behind main");
+    expect(behind("1.2.0", "1.10.0")).toBe(true);
+    expect(behind("1.10.0", "1.2.0")).toBe(false);
+    expect(behind("", "1.2.0")).toBe(false);
+  });
+
+  it("shows a command waiting for a station on its card, with when it expires", () => {
+    const html = stationsTab([{
+      ...CARD, commands: [{ verb: "resume", session: "f1", workflow: "", by: "sam", state: "queued", issuedAt: NOW - 15 * 60_000, expiresAt: NOW + 45 * 60_000 }],
+    }]);
+
+    expect(html).toContain("resume");
+    expect(html).toContain('href="/sessions/acme/widgets/f1"');
+    expect(html).toContain("queued by sam 15m ago");
+    expect(html).toContain("expires in 45m");
+  });
+
+  it("leaves out a command whose time ran out", () => {
+    const html = stationsTab([{
+      ...CARD, commands: [{ verb: "kill", session: "f1", workflow: "", by: "sam", state: "queued", issuedAt: NOW - 10 * 60_000, expiresAt: NOW - 5 * 60_000 }],
+    }]);
+
+    expect(html).not.toContain("expires in");
+  });
+
+  it("is what the page shows at ?tab=stations: the cards and the registrations waiting, every other tab hidden", () => {
+    const shown = page();
+    const html = renderToStaticMarkup(
+      <FactoryView page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} tab={tabOf("stations")} onTab={() => {}}
+                   triggering={false} onTrigger={() => {}} trigger={null}
+                   panels={{ ...PANELS, stations: (
+                     <StationsTab stations={[CARD]} ci={{ jobs: [], checks: [] }} drifts={drifts(shown, LOOK)} now={NOW} factory="acme/widgets"
+                                  forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
+                                  registrations={[{ station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 60_000, approved: false, because: null }]} />
+                   ) }} />);
+    const stations = html.slice(html.indexOf('id="factory-stations"'), html.indexOf('id="factory-config"'));
+
+    expect(panel(html, "stations")).not.toContain("hidden");
+    expect(stations).toContain("alex@new:widgets</code> asks to become a station");
+    expect(stations).toContain("alex@mbp:widgets");
+    for (const tab of ["overview", "workflows", "config"] as const) expect(panel(html, tab)).toContain("hidden");
+  });
+
+  it("puts pending registrations on top, to approve with the code the station's terminal shows", () => {
+    const html = stationsTab([CARD], [
+      { station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+      { station: "st_sam", name: "sam@lab:widgets", expiresAt: NOW + 9 * 60_000, approved: false,
+        because: "a station takes commands for its owner, which needs write on acme/widgets; the forge says you have read" },
+      { station: "st_ok", name: "dana@box:widgets", expiresAt: NOW + 9 * 60_000, approved: true, because: null },
+    ]);
+
+    expect(html.indexOf("alex@new:widgets")).toBeLessThan(html.indexOf("alex@mbp:widgets"));
+    expect(html).toContain("the code expires in 8m");
+    // The code is typed from the terminal, never shown: Approve waits for it.
+    expect(html.match(/<input[^>]*placeholder="ABCD-EF23"/g)).toHaveLength(1);
+    expect(html).toMatch(/aria-label="The code alex@new:widgets(&#x27;|')s terminal shows"/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
+    expect(html).toContain("the forge says you have read");
+    expect(html).toContain("Approved: it picks up its token on its next poll.");
   });
 });

@@ -15,8 +15,11 @@ import { query, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { heldOn } from "./claims";
 import type { ClaimView } from "./model/claim";
-import type { Report } from "./model/command";
+import type { CommandState, Report, Verb } from "./model/command";
 import { defaultCheck, repoOf, reporting } from "./factory";
+import { periodValidator } from "./model/period";
+import { spellingsOf } from "./spelling";
+import { mayRevoke } from "./stations";
 import type { Drifted, Facts, Failed } from "./model/attention";
 import { drift } from "./model/drift";
 import { permitted } from "./model/inbox";
@@ -190,6 +193,26 @@ export const page = query({
   },
 });
 
+/** A command waiting for a station: queued, or delivered and not yet answered. The page's clock says whether it expired. */
+export interface Waiting {
+  verb: Verb;
+  /** The session it is for; "" for a run, which starts one. */
+  session: string;
+  /** A run's workflow; "" for any other verb. */
+  workflow: string;
+  by: string;
+  state: CommandState;
+  issuedAt: number;
+  expiresAt: number;
+}
+
+/** A station's record over the period the page asked for: the sessions it ran, how many failed, and what its key paid. */
+export interface StationRecord {
+  sessions: number;
+  failed: number;
+  cost: number;
+}
+
 /** A station as the Stations tab shows it, with everything that depends on it. */
 export interface StationDetail {
   station: string;
@@ -205,17 +228,28 @@ export interface StationDetail {
   report: Report | null;
   sessions: SessionRow[];
   claims: ClaimView[];
+  /** The release it runs, as the latest session it started said; "" before it started any. */
+  release: string;
+  period: StationRecord;
+  commands: Waiting[];
+  /** Whether the viewer may revoke its token: its owner, or an admin of the repository. */
+  revocable: boolean;
 }
+
+/** Most `spend` rows a station's record sums: past it, the period's spend is what was summed so far. */
+const SPEND_SUMMED = 10_000;
 
 /**
  * Every station of the factory that is registered, holds a session or holds
  * a claim — a station that never registered still runs sessions and asks for
  * claims — and one CI entry for every CI job: the sessions that ran in CI and
- * the self-descriptions CI pushed.
+ * the self-descriptions CI pushed. Each station says the release it runs, the
+ * commands waiting for it, and its record over `period` — the page's last 30
+ * days, by its own midnights, so the query changes only when the day does.
  */
 export const stations = query({
-  args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory: named, signIn }) => {
+  args: { factory: v.string(), signIn: v.optional(v.string()), period: periodValidator },
+  handler: async (ctx, { factory: named, signIn, period }) => {
     const who = await viewing(ctx, signIn);
     const factory = await readable(ctx, who, named);
     if (factory === null) return null;
@@ -225,6 +259,7 @@ export const stations = query({
     const detail = (station: string, facts: Partial<StationDetail> = {}): StationDetail => {
       const found = shown.get(station) ?? {
         station, name: station, kind: "local", owner: "", registered: false, seenAt: 0, report: null, sessions: [], claims: [],
+        release: "", period: { sessions: 0, failed: 0, cost: 0 }, commands: [], revocable: false,
       };
       shown.set(station, Object.assign(found, facts));
       return found;
@@ -232,6 +267,7 @@ export const stations = query({
     for (const row of await reporting(ctx, factory)) {
       detail(row.station, {
         name: row.name, kind: row.kind, owner: row.ownerLogin, registered: row.token !== null, seenAt: row.seenAt, report: row.report,
+        revocable: await mayRevoke(ctx, who, row), commands: await waitingFor(ctx, factory, row.station),
       });
     }
     for (const each of known.filter(held)) {
@@ -243,6 +279,34 @@ export const stations = query({
     for (const claim of claims) {
       (shown.get(claim.station) ?? detail(claim.station, { name: claim.stationName })).claims.push(claim);
     }
+    // The release a station runs is the one the session it started last said — by when it started,
+    // not when it last moved: a long session on an old release must not hide a newer one. Its record
+    // is over the sessions `recentOf` read, the factory's most recently active.
+    const latest = new Map<string, number>();
+    for (const each of known) {
+      const found = shown.get(each.summary.stationId);
+      if (found === undefined) continue;
+      const started = Date.parse(each.summary.startedAt) || 0;
+      if (each.summary.skillVersion && started >= (latest.get(found.station) ?? -1)) {
+        latest.set(found.station, started);
+        found.release = each.summary.skillVersion;
+      }
+      const ended = endedAt(each);
+      if (ended >= period.from && ended < period.to) {
+        found.period.sessions += 1;
+        if (each.summary.status === "fail") found.period.failed += 1;
+      }
+    }
+    const stationOf = new Map(known.map((each) => [each.session, each.summary.stationId]));
+    let summed = 0;
+    for (const spelling of await spellingsOf(ctx, factory)) {
+      const rows = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", period.from).lt("at", period.to));
+      for await (const row of rows) {
+        if ((summed += 1) > SPEND_SUMMED) break;
+        const found = shown.get(row.station ?? stationOf.get(row.session) ?? "");
+        if (found !== undefined) found.period.cost += row.cost;
+      }
+    }
     const checks = await ctx.db.query("checks").withIndex("by_factory_at", (q) => q.eq("factory", factory)).order("desc").take(RECENT);
     return {
       stations: [...shown.values()].sort((a, b) => (a.name < b.name ? -1 : 1)),
@@ -253,3 +317,19 @@ export const stations = query({
     };
   },
 });
+
+/** The commands queued for `station` of `factory`, or delivered and not yet answered, oldest first. */
+async function waitingFor(ctx: QueryCtx, factory: string, station: string): Promise<Waiting[]> {
+  const rows: Doc<"commands">[] = [];
+  for (const state of ["queued", "delivered"] as const) {
+    rows.push(...await ctx.db.query("commands")
+      .withIndex("by_station_state", (q) => q.eq("factory", factory).eq("station", station).eq("state", state))
+      .collect());
+  }
+  return rows
+    .map((row) => ({
+      verb: row.verb, session: row.session, workflow: row.workflow ?? "", by: row.by, state: row.state,
+      issuedAt: row.issuedAt, expiresAt: row.expiresAt,
+    }))
+    .sort((a, b) => a.issuedAt - b.issuedAt);
+}

@@ -79,15 +79,18 @@ describe("the Activity tab", () => {
 });
 
 describe("the Stations tab", () => {
+  const PERIOD = { sessions: 0, failed: 0, cost: 0 };
   const stations: StationDetail[] = [
     {
       station: "st_alex", name: "alex@mbp:widgets", kind: "local", owner: "alex", registered: true, seenAt: NOW - 2_000,
       report: { verbs: ["kill", "resume"], head: "89abcdef", configHash: "beef", watchers: ["issues", "answers"] },
       sessions: [row({ session: "r1" }), row({ session: "f1", status: "fail" })], claims: [],
+      release: "1.2.0", period: PERIOD, commands: [], revocable: true,
     },
     {
       station: "st_bob", name: "bob@desk:widgets", kind: "local", owner: "", registered: false, seenAt: 0, report: null,
       sessions: [row({ session: "b1", station: "bob@desk:widgets" })], claims: [CLAIM],
+      release: "", period: PERIOD, commands: [], revocable: false,
     },
   ];
   const ci = {
@@ -95,33 +98,22 @@ describe("the Stations tab", () => {
     checks: [{ ref: "main", head: "a".repeat(40), ok: false, station: "runner@fv-az1:widgets", at: NOW - HOUR }],
   };
   const drifts = new Map([["st_alex", { badges: ["3 commits behind"], drifted: true }]]);
-  const render = (selected: string | null) => renderToStaticMarkup(
-    <StationsTab stations={stations} ci={ci} drifts={drifts} now={NOW} selected={selected} onSelect={() => {}} onRelease={() => {}} />);
+  const render = () => renderToStaticMarkup(
+    <StationsTab stations={stations} ci={ci} registrations={[]} drifts={drifts} now={NOW} factory="acme/widgets" forge="https://github.com"
+                 defaultBranch="main" release="1.2.0" onApprove={() => {}} onRevoke={() => {}} onRelease={() => {}} />);
 
-  it("lists each station's name, owner, kind, last seen and drift, and CI as one entry", () => {
-    const said = text(render(null));
+  it("lists under each station the sessions and claims it holds", () => {
+    const said = text(render());
 
-    expect(said).toMatch(/alex@mbp:widgets alex local .*online.*3 commits behind/);
-    expect(said).toMatch(/bob@desk:widgets — local .*never polled/);
+    expect(said).toMatch(/alex@mbp:widgets.*r1.*running.*f1.*fail/);
+    expect(said).toContain("issue #42 held by bob@desk:widgets , offline 2d");
+    expect(said).toMatch(/Release claim/);
+  });
+
+  it("draws every CI job as one card, with its recent jobs and check pushes", () => {
+    const said = text(render());
+
     expect(said).toMatch(/CI .*1 job.*1 check push/);
-    expect(said.match(/runner@fv-az1/g)).toBeNull();                       // collapsed until opened
-  });
-
-  it("opens a station into its verbs, checkout, watchers, sessions and claims", () => {
-    const alex = text(render("st_alex"));
-    expect(alex).toContain("kill, resume");
-    expect(alex).toContain("89abcde");
-    expect(alex).toContain("issues, answers");
-    expect(alex).toMatch(/r1.*running.*f1.*fail/);
-
-    const bob = text(render("st_bob"));
-    expect(bob).toContain("takes no commands");
-    expect(bob).toContain("issue #42 held by bob@desk:widgets , offline 2d");
-    expect(bob).toMatch(/Release claim/);
-  });
-
-  it("opens the CI entry into its recent jobs and check pushes", () => {
-    const said = text(render("ci"));
     expect(said).toMatch(/ci1.*pr-review.*success/);
     expect(said).toMatch(/main.*aaaaaaa.*failing.*runner@fv-az1:widgets/);
   });

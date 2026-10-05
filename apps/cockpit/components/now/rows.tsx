@@ -8,7 +8,7 @@ import { type Attention, expensive, type Facts, needsAttention, stuck, waitedLon
 import { stationWords, type Row as Wait } from "@/convex/model/inbox";
 import type { Other } from "@/convex/inbox";
 import type { Running } from "@/convex/now";
-import { factoryHref } from "../factory/view";
+import { tabHref } from "../factory/view";
 import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref } from "../format";
 import { asks, verbsOf } from "../gate/answer";
 import { MiniGraph } from "../graph/StageGraph";
@@ -193,12 +193,11 @@ interface Needed {
  * What needs attention across `attention`'s factories at `now`, a row each:
  * every failed session on its own, each claim, and the rest one row a factory.
  * The gates waiting on the viewer are the Inbox's, and are not said again.
- * A claim is released from its session's page; the factory's tabs are not in
- * its address yet, so the steps that belong on one go to its page.
+ * A claim is released from its session's page; the other steps go to the
+ * factory's tab that answers them.
  */
 export function neededAt(attention: { factory: string; facts: Facts }[], now: number): Needed[] {
   return attention.flatMap(({ factory, facts }) => needsAttention(facts, now).flatMap((item: Attention): Needed[] => {
-    const page = factoryHref(factory);
     switch (item.kind) {
       case "gates":
         return [];
@@ -220,18 +219,18 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
         return [{
           key: `${factory}/drift`, failed: false, factory, title: "Station config drifted from the default branch",
           line: item.stations.map((station) => `${station.name}${station.badges.length ? ` (${station.badges.join(", ")})` : ""}`).join(", "),
-          step: "Compare", href: page,
+          step: "Compare", href: tabHref(factory, "stations"),
         }];
       case "check":
         return [{
           key: `${factory}/check`, failed: true, factory, title: <><code>asf check</code> failing on the default branch</>,
-          line: "the factory refuses what the check refuses", step: "See config", href: page,
+          line: "the factory refuses what the check refuses", step: "See config", href: tabHref(factory, "config"),
         }];
       case "unwatched":
         return [{
           key: `${factory}/unwatched`, failed: false, factory,
           title: <>{plural(item.issues.length, "queued issue")}, no online station watching</>,
-          line: item.issues.map((number) => `#${number}`).join(" "), step: "Stations", href: page,
+          line: item.issues.map((number) => `#${number}`).join(" "), step: "Stations", href: tabHref(factory, "stations"),
         }];
     }
   }));

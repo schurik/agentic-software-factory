@@ -25,7 +25,7 @@ import { internalAction, internalMutation, internalQuery, mutation, type Mutatio
 import { LAPSED_PER_WRITE } from "./handshakes";
 import { normalCode, REGISTRATION_FOR, stationFieldsValidator, writes } from "./model/command";
 import { digest, secret } from "./model/digest";
-import { canRead, roleOn, viewing } from "./viewer";
+import { canRead, readable, roleOn, viewing, type Viewing } from "./viewer";
 
 type Result = { ok: true } | { ok: false; because: string };
 
@@ -125,6 +125,33 @@ export const pending = query({
   },
 });
 
+/**
+ * Every station asking to become one of `factory`'s, oldest first, as its
+ * Stations tab lists them over its cards, with whether — and why not — the
+ * viewer may approve each. Never its code: the approver types the one the
+ * station's terminal shows, which is what proves they saw that terminal and
+ * not a look-alike name in a list. Null for a factory the viewer cannot read.
+ * What ran out is left out here as `pendingBy` leaves it; the page's clock
+ * leaves out what runs out while it is open.
+ */
+export const registrations = query({
+  args: { factory: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory: named, signIn }) => {
+    const factory = await readable(ctx, await viewing(ctx, signIn), named);
+    if (factory === null) return null;
+    const asking = await ctx.db.query("registrations")
+      .withIndex("by_factory", (q) => q.eq("factory", factory).gt("expiresAt", Date.now()))
+      .collect();
+    return await Promise.all(asking.map(async (asked) => {
+      const decided = await approvalRefusal(ctx, signIn, asked);
+      return {
+        station: asked.station, name: asked.name, expiresAt: asked.expiresAt,
+        approved: asked.approvedBy !== null, because: "because" in decided ? decided.because : null,
+      };
+    }));
+  },
+});
+
 export const approve = mutation({
   args: { code: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, { code, signIn }): Promise<Result> => {
@@ -208,8 +235,7 @@ export const ownLocally = internalMutation({
 // ── the owner's stations ─────────────────────────────────────────────────────
 
 /** May the viewer revoke `row`'s token: its owner may, and so may an admin of its repository. */
-async function mayRevoke(ctx: QueryCtx, signIn: string | undefined, row: Doc<"stations">): Promise<boolean> {
-  const who = await viewing(ctx, signIn);
+export async function mayRevoke(ctx: QueryCtx, who: Viewing, row: Doc<"stations">): Promise<boolean> {
   if (who.mode === "local") return true;
   if (who.viewer === null) return false;
   return row.owner === who.viewer._id || (await roleOn(ctx, who.viewer, row.factory)) === "admin";
@@ -236,7 +262,7 @@ export const revoke = mutation({
   args: { factory: v.string(), station: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, { factory, station, signIn }): Promise<Result> => {
     const row = await stationOf(ctx, factory, station);
-    if (row === null || !(await mayRevoke(ctx, signIn, row))) {
+    if (row === null || !(await mayRevoke(ctx, await viewing(ctx, signIn), row))) {
       return { ok: false, because: "no such station among the ones you own" };
     }
     await ctx.db.patch(row._id, { token: null });

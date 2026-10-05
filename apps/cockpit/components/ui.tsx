@@ -83,9 +83,12 @@ export function StatusPill({ status, children }: { status: string; children?: Re
 
 const DOT: Record<Tone, string> = { ok: "bg-ok", wait: "bg-wait", bad: "bg-bad", run: "bg-accent", none: "bg-faint" };
 
-/** A status, as a dot in a table cell: coloured by what it means, its word on hover and to a screen reader. */
-export function StatusDot({ status, className }: { status: string; className?: string }) {
-  return <span role="img" title={status} aria-label={status} className={cx("block size-2 rounded-full", DOT[toneOf(status)], className)} />;
+/**
+ * A status, as a dot in a table cell: coloured by what it means, its word —
+ * or `label`, when the status needs saying otherwise — on hover and to a screen reader.
+ */
+export function StatusDot({ status, label = status, className }: { status: string; label?: string; className?: string }) {
+  return <span role="img" title={label} aria-label={label} className={cx("block size-2 rounded-full", DOT[toneOf(status)], className)} />;
 }
 
 const TAG: Record<Tone | "mine", string> = {
@@ -249,25 +252,30 @@ export function Kbd({ children }: { children: ReactNode }) {
 /**
  * A row of tabs over one panel, underlined in the accent like the header's
  * places. It scrolls sideways on its own when the tabs outgrow the screen.
+ * `end` sits at the row's far end — a link away, say — and scrolls with it.
  */
-export function Tabs<T extends string>({ tabs, selected, onSelect, label, className }: {
+export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, end }: {
   tabs: { id: T; label: ReactNode }[];
   selected: T;
   onSelect: (tab: T) => void;
   label?: string;
   className?: string;
+  end?: ReactNode;
 }) {
   return (
-    <div role="tablist" aria-label={label} className={cx("flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]", className)}>
-      {tabs.map((tab) => (
-        <button key={tab.id} type="button" role="tab" aria-selected={tab.id === selected} onClick={() => onSelect(tab.id)}
-                className={cx(
-                  "relative -mb-px shrink-0 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap",
-                  tab.id === selected ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg",
-                )}>
-          {tab.label}
-        </button>
-      ))}
+    <div className={cx("flex overflow-x-auto border-b border-line [scrollbar-width:none]", className)}>
+      <div role="tablist" aria-label={label} className="flex gap-1">
+        {tabs.map((tab) => (
+          <button key={tab.id} type="button" role="tab" aria-selected={tab.id === selected} onClick={() => onSelect(tab.id)}
+                  className={cx(
+                    "relative -mb-px shrink-0 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap",
+                    tab.id === selected ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg",
+                  )}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
     </div>
   );
 }

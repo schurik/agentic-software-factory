@@ -16,10 +16,10 @@ const SETTLE_MS = 250;
 /**
  * Every session the viewer can read (#116), narrowed to one factory — as the
  * address's `?factory=` names it — and by one search box over title, issue or
- * pull request and id. `tab` is that factory's own Sessions tab. The search
+ * pull request and id. The search
  * is the query's, so it finds sessions past the newest the page shows.
  */
-export function SessionsList({ factory, tab = false }: { factory?: string; tab?: boolean }) {
+export function SessionsList({ factory }: { factory?: string }) {
   const signIn = useSignIn();
   const now = useClock();
   const [typed, setTyped] = useState("");
@@ -33,10 +33,10 @@ export function SessionsList({ factory, tab = false }: { factory?: string; tab?:
   const [last, setLast] = useState(asked);
   if (asked !== undefined && asked !== last) setLast(asked);
   const list = asked ?? last;
-  if (list === undefined) return <>{tab ? null : <PageHeader title="Sessions" />}<Loading /></>;
-  // Signed out — the shell says so — or a factory the viewer cannot read, which a factory's own page has already said.
+  if (list === undefined) return <><PageHeader title="Sessions" /><Loading /></>;
+  // Signed out — the shell says so — or a factory the viewer cannot read.
   if (list === null) {
-    return tab || !factory ? null : (
+    return !factory ? null : (
       <>
         <PageHeader title="Sessions" />
         <Notice>{factory} is not a factory you can read. <Link href="/sessions">All sessions</Link></Notice>
@@ -44,7 +44,7 @@ export function SessionsList({ factory, tab = false }: { factory?: string; tab?:
     );
   }
   return (
-    <SessionsView list={list} factory={factory} tab={tab} search={typed} onSearch={setTyped} now={now}
+    <SessionsView list={list} factory={factory} search={typed} onSearch={setTyped} now={now}
                   live={(row) => <LiveWhere row={row} signIn={signIn} />} />
   );
 }
