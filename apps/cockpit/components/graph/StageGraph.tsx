@@ -23,11 +23,15 @@ import { useWho } from "../viewer";
  *
  * A stage shows its phases when it is where the session is, failed, or had a
  * round rejected — where the detail matters — and folds to "N phases ›"
- * otherwise, one click (`onToggle`) from them.
+ * otherwise, one click (`onToggle`) from them. A stage's name opens its
+ * drawer (`openStage`), and a phase opens its own (`openPhase`).
  */
 
 /** Where opening a phase goes: an address to link to, and what following it does in place. */
 export type OpenPhase = (phaseId: string) => { href: string; onClick: () => void };
+
+/** Where opening a stage goes, by its index, the same way. */
+export type OpenStage = (index: number) => { href: string; onClick: () => void };
 
 /** A link's click, followed in place — but a modified click (a new tab, a new window) left to the browser. */
 export function followInPlace(onClick: () => void): (event: MouseEvent) => void {
@@ -51,6 +55,7 @@ export interface StageGraphProps {
   opened: number[];
   onToggle?: (index: number) => void;
   openPhase?: OpenPhase;
+  openStage?: OpenStage;
 }
 
 /** Whether a stage shows its phases without being asked: the session is there, it failed there, or a round was rejected. */
@@ -58,7 +63,7 @@ export function opensItself(graph: Graph, stage: Stage): boolean {
   return graph.current === stage.index || stage.status === "failed" || stage.rejected > 0;
 }
 
-export function StageGraph({ graph, opened, onToggle, openPhase }: StageGraphProps) {
+export function StageGraph({ graph, opened, onToggle, openPhase, openStage }: StageGraphProps) {
   const links: ReactNode[] = [];
   if (graph.kind === "phases") {
     graph.phases.forEach((phase, index) => {
@@ -72,7 +77,7 @@ export function StageGraph({ graph, opened, onToggle, openPhase }: StageGraphPro
     links.push(<Connector key={`c${stage.index}`} done={stage.phases.length > 0} />);
     links.push(
       <StageCard key={stage.index} stage={stage} current={graph.current === stage.index} itself={opensItself(graph, stage)}
-                 opened={opened.includes(stage.index)} onToggle={onToggle} openPhase={openPhase} />,
+                 opened={opened.includes(stage.index)} onToggle={onToggle} openPhase={openPhase} openStage={openStage} />,
     );
   }
   links.push(<Connector key="cend" done={graph.end !== null} />);
@@ -117,25 +122,27 @@ function NowTab({ status }: { status: StageStatus }) {
   );
 }
 
-function StageCard({ stage, current, itself, opened, onToggle, openPhase }: {
+function StageCard({ stage, current, itself, opened, onToggle, openPhase, openStage }: {
   stage: Stage; current: boolean; itself: boolean; opened: boolean;
-  onToggle?: (index: number) => void; openPhase?: OpenPhase;
+  onToggle?: (index: number) => void; openPhase?: OpenPhase; openStage?: OpenStage;
 }) {
   const open = (itself || opened) && stage.phases.length > 0;
+  const heading = cx("flex items-center gap-1.5 px-2.5 pt-2.5 pb-1", openStage && "group/stage rounded-t-lg text-fg no-underline hover:no-underline");
+  const go = openStage?.(stage.index);
   return (
     <div data-stage={stage.index}
          className={cx("relative flex w-full shrink-0 flex-col rounded-lg", card(stage.status, current), open ? "md:w-56" : "md:w-auto")}>
       {current ? <NowTab status={stage.status} /> : null}
-      <div className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1">
+      <Heading go={go} className={heading}>
         <StatusIcon status={stage.status} />
         <StageIcon name={stage.name} className="text-faint" />
-        <span className={cx("text-base font-semibold whitespace-nowrap", stage.status === "pending" && "font-medium text-faint")}>{stage.name}</span>
+        <span className={cx("text-base font-semibold whitespace-nowrap group-hover/stage:underline", stage.status === "pending" && "font-medium text-faint")}>{stage.name}</span>
         {stage.rejected ? (
           <span title={`${plural(stage.rejected, "round")} rejected`} className="rounded bg-bad-soft px-1 text-[10px] font-semibold whitespace-nowrap text-bad">
             ↺ {stage.rejected}
           </span>
         ) : null}
-      </div>
+      </Heading>
       {!stage.phases.length ? <span className="pb-1.5" />
         : open ? (
           <div className="flex flex-col gap-0.5 px-1.5 pb-1.5">
@@ -152,6 +159,12 @@ function StageCard({ stage, current, itself, opened, onToggle, openPhase }: {
         )}
     </div>
   );
+}
+
+/** A stage card's name line: the link to its drawer, where there is one. */
+function Heading({ go, className, children }: { go?: { href: string; onClick: () => void }; className: string; children: ReactNode }) {
+  if (!go) return <div className={className}>{children}</div>;
+  return <a href={go.href} onClick={followInPlace(go.onClick)} className={className}>{children}</a>;
 }
 
 /** What a phase's row says after its name: who decided a gate, that it waits or runs, or how long it took. */

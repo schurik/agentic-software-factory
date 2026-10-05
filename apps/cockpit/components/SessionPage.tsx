@@ -18,7 +18,7 @@ import { Loading, Notice } from "./ui";
  * One session, live. `useQuery` is a subscription: every event a station ships
  * re-runs the query and the page moves on in place, with nothing to reload.
  * The clock ticks on its own so "last heard from" keeps counting between events.
- * What is open — the tab, chapters, stages, a phase — is the address's
+ * What is open — the tab, chapters, stages, the drawer — is the address's
  * (`shown.ts`), so a link opens what its sender saw.
  */
 export function SessionPage({ factory, session }: { factory: string; session: string }) {
@@ -72,8 +72,8 @@ export function SessionPage({ factory, session }: { factory: string; session: st
       <SessionView page={page} now={now} shown={readShown(new URLSearchParams(search.toString()))} onShow={onShow}
                    steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
                    onPurge={page.mayPurge ? (reason) => purge({ factory, session, reason, signIn }) : undefined}
-                   phase={(phaseId, tab) => (
-                     <PhaseDetails phaseId={phaseId} where={{ factory, session, forge: page.forge }} initial={tab ?? undefined} />
+                   phase={(item, tab, onTab) => (
+                     <PhaseDetails item={item} where={{ factory, session, forge: page.forge }} tab={tab} onTab={onTab} />
                    )} />
     </>
   );

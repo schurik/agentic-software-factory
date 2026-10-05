@@ -94,6 +94,7 @@ export interface AgentItem extends PhaseFacts {
   outputType: string;
   summary: string;
   corrections: number;    // envelopes refused and re-prompted in the same session
+  model: string;          // the model its latest turn ran on, "" before one reported
   toolCalls: number;
   toolFailures: number;
   cost: number;
@@ -221,6 +222,7 @@ interface PhaseState {
   outputType: string;
   summary: string;
   corrections: number;
+  model: string;
   toolCalls: number;
   toolFailures: number;
   cost: number;
@@ -332,7 +334,7 @@ function phaseStarted(state: StoryState, p: Payload, { seq, ts }: At): void {
     found = {
       phaseId: p.str("phase_id"), number: p.num("seq"), seq, at: ts, chapter: current(state).number,
       stageIndex: null, name: "", kind: "", owner: "", description: "", task: "", status: "", error: "", runs: [],
-      replayed: false, outputType: "", summary: "", corrections: 0, toolCalls: 0, toolFailures: 0,
+      replayed: false, outputType: "", summary: "", corrections: 0, model: "", toolCalls: 0, toolFailures: 0,
       cost: 0, tokens: 0, changedFiles: [], artifacts: [], request: null, commits: [], commands: [],
       gate: "", round: 0, gateKind: "gate", channel: "", issueNumber: 0, headSha: "",
       gateSummary: "", askedAt: "", decision: null,
@@ -465,6 +467,7 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     1: withPhase((phase, p) => {
       phase.cost += p.num("cost");
       phase.tokens += p.num("tokens");
+      phase.model = p.str("model") || phase.model;
     }),
   },
   artifact_written: {
@@ -594,7 +597,7 @@ function item(phase: PhaseState, journal: Entry[]): Item {
       .filter((entry) => entry.note !== null && entry.seq === phase.number && entry.phase === phase.name)
       .map((entry) => entry.note!);
     return { ...facts, type: "agent", task: phase.task, outputType: phase.outputType, summary: phase.summary,
-             corrections: phase.corrections, toolCalls: phase.toolCalls, toolFailures: phase.toolFailures,
+             corrections: phase.corrections, model: phase.model, toolCalls: phase.toolCalls, toolFailures: phase.toolFailures,
              cost: phase.cost, tokens: phase.tokens, changedFiles: phase.changedFiles,
              artifacts: phase.artifacts, notes, replayed: phase.replayed };
   }

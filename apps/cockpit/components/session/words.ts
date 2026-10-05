@@ -14,6 +14,8 @@ const TONES: Record<string, Exclude<Tone, "none">> = {
   success: "ok", passed: "ok", approved: "ok", answered: "ok",
   fail: "bad", failed: "bad", rejected: "bad", aborted: "bad",
   running: "run", waiting: "wait",
+  // A stage's status, as the stage graph says it.
+  done: "ok",
 };
 
 export const toneOf = (status: string): Tone => TONES[status] ?? "none";
@@ -54,3 +56,20 @@ export function phaseName(phase: { type?: string; name: string; gate?: string; r
 export function answeringWords(answering: { kind: "issue" | "pr"; number: number } | null): string {
   return answering ? `answering ${answering.kind === "issue" ? "issue" : "pull request"} #${answering.number}` : "";
 }
+
+// What each stage of the closed vocabulary is for, in a sentence: the line a
+// stage's drawer opens on. Presentation, like the names above; a stage the
+// vocabulary gained since this cockpit was built has none, and says nothing.
+const PURPOSES: Record<string, string> = {
+  scout: "Find the code the request actually touches, so the plan is written against the repository.",
+  refine: "Settle what the request actually asks for, with a person, before anyone plans.",
+  plan: "Turn the request into a plan the builder can implement without asking questions.",
+  commit: "Land what the stage before produced on the session's branch, in its author's own words.",
+  implement: "Turn the plan, or the prompt itself, into code.",
+  verify: "Run the repository's known commands; on a failure the builder fixes and they run again.",
+  review: "Confirm that what was built is what was asked for, against the plan or the prompt.",
+  document: "Write up what the session changed, from the diff, for the engineer who arrives next.",
+  integrate: "Land the session's branch on its base the way this repository wants it landed.",
+};
+
+export const stagePurpose = (stage: string): string => PURPOSES[stage] ?? "";

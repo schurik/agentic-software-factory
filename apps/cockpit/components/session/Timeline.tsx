@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect } from "react";
+import type { ReactNode } from "react";
 import { markOf, type Phase } from "@/convex/model/graph";
 import type { Chapter, Item } from "@/convex/model/story";
 import { formatClock, formatCost, formatDuration } from "../format";
@@ -14,21 +14,16 @@ import { answeringWords, phaseName } from "./words";
  * The session in order: every phase of every chapter, a row each — when, its
  * name for people, who ran it and what came of it (a summary, a commit, a
  * verdict), the remarks a person typed and the flags an agent filed, and how
- * long it took and what it cost. A row opens its phase's tabs under it, and
- * a phase opened from anywhere — the graph, a shared link — is scrolled to.
+ * long it took and what it cost. A row opens its phase in the drawer, and the
+ * row of the phase the drawer has open is marked.
  */
-export function Timeline({ chapters, opened, openPhase, phase }: {
+export function Timeline({ chapters, opened, openPhase }: {
   chapters: Chapter[];
-  /** The phase opened, if any. */
+  /** The phase the drawer has open, if any. */
   opened: string | null;
-  /** Following a row: it opens its phase, or closes the one open. */
+  /** Following a row: it opens its phase. */
   openPhase: OpenPhase;
-  /** A phase's tabs, as the page asks for them. */
-  phase?: (phaseId: string) => ReactNode;
 }) {
-  useEffect(() => {
-    if (opened) document.getElementById(rowOf(opened))?.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, [opened]);
   return (
     <div className="grid gap-6">
       {chapters.map((chapter) => (
@@ -39,11 +34,8 @@ export function Timeline({ chapters, opened, openPhase, phase }: {
           </h4>
           <ol className="grid">
             {[...(chapter.reader ? [chapter.reader] : []), ...chapter.items].map((item) => (
-              <li key={`${item.type}-${item.seq}`} id={"phaseId" in item ? rowOf(item.phaseId) : undefined} className="scroll-mt-20">
+              <li key={`${item.type}-${item.seq}`}>
                 <Line item={item} chapter={chapter} opened={opened} openPhase={openPhase} />
-                {"phaseId" in item && item.phaseId === opened && phase ? (
-                  <div className="mt-1 mb-3 rounded-lg border border-line p-3 md:ml-[4.75rem]">{phase(item.phaseId)}</div>
-                ) : null}
               </li>
             ))}
           </ol>
@@ -52,8 +44,6 @@ export function Timeline({ chapters, opened, openPhase, phase }: {
     </div>
   );
 }
-
-const rowOf = (phaseId: string) => `phase-${phaseId}`;
 
 const ROW = "grid w-full grid-cols-[3rem_1rem_minmax(0,1fr)_auto] items-start gap-x-3 rounded-md px-2 py-2 text-left md:grid-cols-[3.5rem_1rem_12rem_minmax(0,1fr)_auto]";
 
@@ -69,7 +59,7 @@ function Line({ item, chapter, opened, openPhase }: { item: Item; chapter: Chapt
   const { href, onClick } = openPhase(item.phaseId);
   const open = item.phaseId === opened;
   return (
-    <a href={href} aria-expanded={open}
+    <a href={href} aria-current={open || undefined}
        onClick={followInPlace(onClick)}
        className={cx(ROW, "text-fg no-underline hover:bg-surface-2 hover:no-underline", open && "bg-surface-2")}>
       <span className="pt-px text-sm text-faint tabular-nums">{formatClock(item.at)}</span>
@@ -94,7 +84,7 @@ function Line({ item, chapter, opened, openPhase }: { item: Item; chapter: Chapt
 }
 
 /** Who ran a phase, and what came of it, in one line. */
-function said(phase: Phase, chapter: Chapter, who: (login: string) => string): string {
+export function said(phase: Phase, chapter: Chapter, who: (login: string) => string): string {
   if (phase.type === "gate") {
     return [phase.decision ? who(phase.decision.by) : "", phase.status].filter(Boolean).join(" — ");
   }
