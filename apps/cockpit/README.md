@@ -139,8 +139,8 @@ permission mirror lets them read, in four sections. The **Inbox**, which never f
 waiting on them (below). **Needs attention** is the Factory page's rule (`model/attention.ts`)
 gathered across factories, less the gates the Inbox already holds: each row names its next step and
 goes there — Open a failed session, Release a claim, Compare a drifted station, See config for a
-failing check, Stations when nobody watches; the steps that belong on a factory's tab go to its page
-until its tabs are in its address. **Running** lists every session running now with the stage it
+failing check, Stations when nobody watches; the steps that belong on a factory's tab go to that tab
+(`?tab=stations`, `?tab=config`). **Running** lists every session running now with the stage it
 is in, a mini stage graph, and what it spent and for how long — that graph is the session's events
 folded, a query of its own per row (`sessions.progress`), so one long record weighs on its row
 alone. **Waiting on others**, folded at first, is the gates waiting on someone else and on whom; each
@@ -477,16 +477,18 @@ and **Recent**, the last finished ones, and what the factory spent in a period, 
 **Workflows** renders the description from the default branch, with Run in place for a workflow
 that takes a prompt.
 
-**Stations** has the stations asking to join on top (`stations:registrations`): each with the code
-its `asf station register` printed, to approve only when that code is the one its terminal shows,
-and disabled with the reason for a viewer who may not. Under them is a card per station that is
+**Stations** has the stations asking to join on top (`stations:registrations`), each approved by
+typing the code its `asf station register` printed — never shown here, because typing it is what
+proves the approver saw that terminal and not a look-alike name in a list — or saying why the
+viewer may not. Under them is a card per station that is
 registered or holds a session or a claim — a station that never registered still runs sessions. A
 card says whether it is online, away (and for how long) or never polled, and whose machine it is;
-what its loop watches and which commands it takes; the release it runs, as the latest session it
-started said, in amber when it is behind the release the default branch's check ran; the commit
+what its loop watches and which commands it takes; the release it runs, as the session it started
+last said, in amber when it is behind the release the default branch's check ran; the commit
 it has out, and its config the same as the default branch's or drifted (below); the sessions it
 holds (live, suspended, or failed and so its to resume) and the claims it holds, each with Release
-claim; its last 30 days by the viewer's midnights — sessions, failures and what its key paid; the
+claim; its last 30 days by the viewer's midnights — sessions and failures among the factory's 500 most
+recently active, and what its key paid; the
 commands waiting for it, each with when it expires; and Revoke, for its owner or an admin of the
 repository. Every CI job is one **CI** card: the sessions that ran in CI and the checks CI pushed.
 The old `/stations` goes on to the Stations tab of the one factory the viewer's stations are in, or

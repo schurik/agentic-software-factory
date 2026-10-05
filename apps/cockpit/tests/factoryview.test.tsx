@@ -207,7 +207,7 @@ describe("the Stations tab", () => {
     const html = stationsTab([CARD, { ...CARD, station: "st_b", name: "sam@old:widgets", owner: "sam", seenAt: NOW - 3_600_000, revocable: false }]);
 
     expect(html).toContain("alex&#x27;s machine");
-    expect(html).toContain(">online<");
+    expect(html).toContain("machine · online");
     expect(html).toContain("away 1h");
     expect(html).toContain("labelled issues · answers on work items");
     expect(html).toContain("kill, resume");
@@ -256,19 +256,39 @@ describe("the Stations tab", () => {
     expect(html).not.toContain("expires in");
   });
 
-  it("puts pending registrations on top, to approve only when the code matches the station's terminal", () => {
+  it("is what the page shows at ?tab=stations: the cards and the registrations waiting, every other tab hidden", () => {
+    const shown = page();
+    const html = renderToStaticMarkup(
+      <FactoryView page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} tab={tabOf("stations")} onTab={() => {}}
+                   triggering={false} onTrigger={() => {}} trigger={null}
+                   panels={{ ...PANELS, stations: (
+                     <StationsTab stations={[CARD]} ci={{ jobs: [], checks: [] }} drifts={drifts(shown, LOOK)} now={NOW} factory="acme/widgets"
+                                  forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
+                                  registrations={[{ station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 60_000, approved: false, because: null }]} />
+                   ) }} />);
+    const stations = html.slice(html.indexOf('id="factory-stations"'), html.indexOf('id="factory-config"'));
+
+    expect(panel(html, "stations")).not.toContain("hidden");
+    expect(stations).toContain("alex@new:widgets</code> asks to become a station");
+    expect(stations).toContain("alex@mbp:widgets");
+    for (const tab of ["overview", "workflows", "config"] as const) expect(panel(html, tab)).toContain("hidden");
+  });
+
+  it("puts pending registrations on top, to approve with the code the station's terminal shows", () => {
     const html = stationsTab([CARD], [
-      { code: "ABCD-EF23", station: "st_new", name: "alex@new:widgets", kind: "local", expiresAt: NOW + 8 * 60_000, approved: false, because: null },
-      { code: "WXYZ-2345", station: "st_sam", name: "sam@lab:widgets", kind: "local", expiresAt: NOW + 9 * 60_000, approved: false,
+      { station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+      { station: "st_sam", name: "sam@lab:widgets", expiresAt: NOW + 9 * 60_000, approved: false,
         because: "a station takes commands for its owner, which needs write on acme/widgets; the forge says you have read" },
+      { station: "st_ok", name: "dana@box:widgets", expiresAt: NOW + 9 * 60_000, approved: true, because: null },
     ]);
 
-    expect(html.indexOf("ABCD-EF23")).toBeLessThan(html.indexOf("alex@mbp:widgets"));
-    expect(html).toContain("alex@new:widgets");
-    expect(html).toContain("Approve only if its terminal shows");
+    expect(html.indexOf("alex@new:widgets")).toBeLessThan(html.indexOf("alex@mbp:widgets"));
     expect(html).toContain("the code expires in 8m");
-    expect(html).toMatch(/<button[^>]*>Approve<\/button>/);
+    // The code is typed from the terminal, never shown: Approve waits for it.
+    expect(html.match(/<input[^>]*placeholder="ABCD-EF23"/g)).toHaveLength(1);
+    expect(html).toMatch(/aria-label="The code alex@new:widgets(&#x27;|')s terminal shows"/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
     expect(html).toContain("the forge says you have read");
+    expect(html).toContain("Approved: it picks up its token on its next poll.");
   });
 });

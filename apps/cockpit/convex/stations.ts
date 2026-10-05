@@ -127,9 +127,12 @@ export const pending = query({
 
 /**
  * Every station asking to become one of `factory`'s, oldest first, as its
- * Stations tab lists them over its cards: approved only by someone who
- * matches the code against the station's terminal, so the code is shown with
- * whether — and why not — the viewer may. Null for a factory the viewer cannot read.
+ * Stations tab lists them over its cards, with whether — and why not — the
+ * viewer may approve each. Never its code: the approver types the one the
+ * station's terminal shows, which is what proves they saw that terminal and
+ * not a look-alike name in a list. Null for a factory the viewer cannot read.
+ * What ran out is left out here as `pendingBy` leaves it; the page's clock
+ * leaves out what runs out while it is open.
  */
 export const registrations = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
@@ -142,7 +145,7 @@ export const registrations = query({
     return await Promise.all(asking.map(async (asked) => {
       const decided = await approvalRefusal(ctx, signIn, asked);
       return {
-        code: asked.code, station: asked.station, name: asked.name, kind: asked.kind, expiresAt: asked.expiresAt,
+        station: asked.station, name: asked.name, expiresAt: asked.expiresAt,
         approved: asked.approvedBy !== null, because: "because" in decided ? decided.because : null,
       };
     }));

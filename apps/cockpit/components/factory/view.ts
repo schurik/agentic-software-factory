@@ -3,7 +3,7 @@ import type { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
 import type { Budget } from "@/convex/model/description";
 import { type Drift, drift, type Reference } from "@/convex/model/drift";
-import { formatDollars, formatTokens } from "../format";
+import { formatDollars, formatTokens, plural } from "../format";
 
 export type Page = NonNullable<FunctionReturnType<typeof api.factory.page>>;
 export type Check = NonNullable<Page["check"]>;
@@ -55,6 +55,27 @@ export function short(sha: string): string {
 /** The factory page's tabs, as its address names them (`?tab=`), in order. */
 export const FACTORY_TABS = { overview: "Overview", workflows: "Workflows", stations: "Stations", config: "Config" } as const;
 export type FactoryTab = keyof typeof FACTORY_TABS;
+
+/** A tab's dot: what problem it holds, said to a screen reader and on hover, and the status it is drawn as. */
+export interface Dot {
+  label: string;
+  status: "waiting" | "failed";
+}
+
+/**
+ * The problem each tab holds, if any (#104): a workflow `asf check` refused,
+ * a station whose config drifted from the default branch — as the page
+ * measured it — and a failing check.
+ */
+export function dotsOf(page: Page, drifts: Map<string, Drift>): Partial<Record<FactoryTab, Dot>> {
+  const broken = page.check?.description.problems.length ?? 0;
+  const drifted = [...drifts.values()].filter((each) => each.drifted).length;
+  return {
+    ...(broken ? { workflows: { label: plural(broken, "broken workflow"), status: "failed" as const } } : {}),
+    ...(drifted ? { stations: { label: `${plural(drifted, "station")} drifted`, status: "waiting" as const } } : {}),
+    ...(page.check && !page.check.ok ? { config: { label: "check failing", status: "failed" as const } } : {}),
+  };
+}
 
 /** The tab an address names: the Overview when it names none, or one there is not. */
 export function tabOf(raw: string | null | undefined): FactoryTab {

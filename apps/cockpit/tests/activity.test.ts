@@ -25,6 +25,8 @@ interface Shipped {
   trusted?: string[];
   /** The release the station ran it on: its `skill_version`. */
   release?: string;
+  /** When it started, epoch ms: two hours before NOW unless said. */
+  startedAt?: number;
   /** What one agent call in it cost, an hour before NOW unless the session ended earlier. */
   cost?: number;
 }
@@ -70,7 +72,7 @@ function shipped(given: Shipped): WireEvent[] {
   const started = fixture("session_started", 1, 2);
   Object.assign(started.payload, {
     adw_id: given.session, workflow: given.workflow ?? "issue", station_id: station.id, station_name: station.name,
-    station_kind: station.kind ?? "local", started_at: new Date(NOW - 2 * HOUR).toISOString(),
+    station_kind: station.kind ?? "local", started_at: new Date(given.startedAt ?? NOW - 2 * HOUR).toISOString(),
     ...(given.release ? { skill_version: given.release } : {}),
   });
   const spent: WireEvent[] = [];
@@ -374,8 +376,8 @@ describe("the stations of a factory", () => {
       { session: "old", status: "success", endedAt: NOW - 40 * DAY, cost: 9 },     // before the period
       { session: "f1", status: "fail", endedAt: NOW - 3 * HOUR, cost: 0.25 },
       { session: "s1", status: "success", cost: 0.5 },
-      { session: "w1", status: "waiting" },
-      { session: "r1", release: "1.2.0" },
+      { session: "r1", release: "1.2.0", startedAt: NOW - HOUR },                 // started last, on the newest release
+      { session: "w1", status: "waiting" },                                        // active since, on an older one
       { session: "b1", station: BOB, cost: 1 },                                     // a station that never registered
       { session: "ci1", workflow: "pr-review", station: CI, status: "success" });
     await claimed(t, token, "b1", 42, BOB);
@@ -396,7 +398,7 @@ describe("the stations of a factory", () => {
       sessions: sessions.map((row) => [row.session, row.status]), claims: claims.map((claim) => claim.number),
     }))).toEqual([
       { station: ALEX.id, name: ALEX.name, owner: "alex", kind: "local", registered: true, watchers: ["issues", "answers"],
-        sessions: [["r1", "running"], ["w1", "waiting"], ["f1", "fail"]], claims: [] },
+        sessions: [["w1", "waiting"], ["r1", "running"], ["f1", "fail"]], claims: [] },
       { station: BOB.id, name: BOB.name, owner: "", kind: "local", registered: false, watchers: null,
         sessions: [["b1", "running"]], claims: [42] },
     ]);
@@ -405,7 +407,7 @@ describe("the stations of a factory", () => {
     expect(shown!.stations[1].claims[0]).toMatchObject({ stationName: BOB.name, session: "b1", refused: null });
   });
 
-  it("says each station's release, by the latest session it started, and what it ran and spent in the period", async () => {
+  it("says each station's release, by the session it started last, and what it ran and spent in the period", async () => {
     const { t, alex } = await seeded();
 
     const shown = await stationsOf(t, alex);

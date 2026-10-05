@@ -6,9 +6,10 @@ import type { ClaimView } from "@/convex/model/claim";
 import { liveness, pending } from "@/convex/model/command";
 import type { Drift } from "@/convex/model/drift";
 import { ClaimRow } from "../ClaimRow";
+import { useState } from "react";
 import { formatAgoAt, formatDollars, formatSpan, plural, sessionHref } from "../format";
 import { Sessions } from "./ActivityTab";
-import { Button, Card, cx, Facts, Table, Tag } from "../ui";
+import { Button, Card, control, cx, Facts, StatusDot, Table, Tag } from "../ui";
 import { useWho } from "../viewer";
 import { behind, short } from "./view";
 
@@ -26,12 +27,12 @@ const WATCHES: Record<string, string> = {
   issues: "labelled issues", answers: "answers on work items", prs: "pull-request reviews",
 };
 
-/** A station's liveness at `now`: online while its loop polls, away once it stopped, never polled before it began. */
-function stateOf(station: StationDetail, now: number): { word: string; tone: "ok" | "wait" | "none" } {
+/** A station's liveness at `now` — online while its loop polls, away once it stopped, never polled before it began — and the status it is drawn as. */
+function stateOf(station: StationDetail, now: number): { word: string; status: "success" | "waiting" | "pending" } {
   const live = liveness(station.seenAt, null, now);
-  if (live.lastSeen === null) return { word: "never polled", tone: "none" };
-  if (live.online) return { word: "online", tone: "ok" };
-  return { word: `away ${formatSpan(now - live.lastSeen)}`, tone: "wait" };
+  if (live.lastSeen === null) return { word: "never polled", status: "pending" };
+  if (live.online) return { word: "online", status: "success" };
+  return { word: `away ${formatSpan(now - live.lastSeen)}`, status: "waiting" };
 }
 
 /** A station's drift: the page's measure when it has one, else what its report allows. */
@@ -46,8 +47,9 @@ function driftOf(station: StationDetail, drifts: Map<string, Drift>): Drift {
  * what it watches and which commands it takes; the release it runs, its
  * commit and whether its config is the default branch's; what it holds now;
  * its last 30 days; the commands waiting for it, with when each expires; and
- * Revoke — and every CI job as one card. Pure: judged at `now`, the page's
- * clock, which is what lets a command's expiry count down.
+ * Revoke — and every CI job as one card. Pure but for the code typed into a
+ * registration: judged at `now`, the page's clock, which is what lets a
+ * command's expiry count down.
  */
 export function StationsTab({
   stations, ci, registrations, drifts, now, factory, forge, defaultBranch, release, onApprove, onRevoke, onRelease,
@@ -61,19 +63,20 @@ export function StationsTab({
   factory: string;
   /** The forge's web origin, e.g. https://github.com. */
   forge: string;
-  /** The default branch, by name: what a station's config is the same as, or drifted from. */
+  /** The default branch, by name: what a station's config and release are the same as, or behind. */
   defaultBranch: string | null;
   /** The release the default branch's check ran: "" when no check said. */
   release: string;
-  onApprove?: (registration: Registration) => void;
-  onRevoke?: (station: StationDetail) => void;
+  /** Approve a registration with the code the approver typed from its station's terminal. */
+  onApprove: (code: string) => void;
+  onRevoke: (station: StationDetail) => void;
   onRelease?: (claim: ClaimView) => void;
 }) {
   const asking = registrations.filter((registration) => now < registration.expiresAt);
   return (
     <div className="grid gap-4">
       {asking.map((registration) => (
-        <Asking key={registration.code} registration={registration} factory={factory} now={now} onApprove={onApprove} />
+        <Asking key={registration.station} registration={registration} factory={factory} now={now} onApprove={onApprove} />
       ))}
       {stations.length === 0 && !ci.jobs.length && !ci.checks.length ? (
         <p className="text-muted">
@@ -98,23 +101,27 @@ export function StationsTab({
 }
 
 function Asking({ registration, factory, now, onApprove }: {
-  registration: Registration; factory: string; now: number; onApprove?: (registration: Registration) => void;
+  registration: Registration; factory: string; now: number; onApprove: (code: string) => void;
 }) {
+  const [code, setCode] = useState("");
+  const refused = registration.because !== null;
   return (
-    <Card className="flex flex-col gap-3 border-l-[3px] border-l-accent px-4 py-3 sm:px-5 md:flex-row md:items-center">
+    <Card className="flex flex-col gap-3 border-l-[3px] border-l-wait px-4 py-3 sm:px-5 md:flex-row md:items-center">
       <div className="min-w-0 grow">
         <div><code>{registration.name}</code> asks to become a station of {factory}</div>
         <div className="mt-0.5 text-sm text-muted">
           {registration.approved ? "Approved: it picks up its token on its next poll."
-            : <>Approve only if its terminal shows <code className="text-fg">{registration.code}</code> · the code
-                expires in {formatSpan(registration.expiresAt - now)}</>}
+            : <>Approve it with the code its terminal shows, only if that terminal is one you started · the code expires
+                in {formatSpan(registration.expiresAt - now)}</>}
         </div>
-        {registration.because && !registration.approved ? <div className="mt-1 text-sm text-muted">{registration.because}</div> : null}
+        {refused && !registration.approved ? <div className="mt-1 text-sm text-muted">{registration.because}</div> : null}
       </div>
-      {registration.approved ? null : (
-        <Button variant="primary" size="sm" disabled={registration.because !== null} onClick={() => onApprove?.(registration)}>
-          Approve
-        </Button>
+      {registration.approved || refused ? null : (
+        <form className="flex shrink-0 gap-2" onSubmit={(event) => { event.preventDefault(); if (code.trim()) onApprove(code.trim()); }}>
+          <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="ABCD-EF23"
+                 aria-label={`The code ${registration.name}'s terminal shows`} className={cx(control, "h-7 w-32 font-mono text-sm")} />
+          <Button type="submit" variant="primary" size="sm" disabled={!code.trim()}>Approve</Button>
+        </form>
       )}
     </Card>
   );
@@ -127,9 +134,6 @@ function whose(station: StationDetail, who: (login: string) => string): string {
   return owner === "you" ? "your machine" : `${owner}'s machine`;
 }
 
-const TONE = { ok: "text-ok", wait: "text-wait", none: "text-muted" } as const;
-const DOT = { ok: "bg-ok", wait: "bg-wait", none: "bg-faint" } as const;
-
 function StationCard({ station, drift, factory, forge, defaultBranch, release, now, onRevoke, onRelease }: {
   station: StationDetail;
   drift: Drift;
@@ -138,7 +142,7 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
   defaultBranch: string | null;
   release: string;
   now: number;
-  onRevoke?: (station: StationDetail) => void;
+  onRevoke: (station: StationDetail) => void;
   onRelease?: (claim: ClaimView) => void;
 }) {
   const who = useWho();
@@ -150,11 +154,11 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
   return (
     <Card className="flex min-w-0 flex-col px-4 py-4 sm:px-5">
       <div className="flex items-start gap-3">
-        <span aria-hidden="true" className={cx("mt-2 size-2.5 shrink-0 rounded-full", DOT[state.tone])} />
+        <StatusDot status={state.status} label={state.word} className="mt-2 shrink-0" />
         <div className="min-w-0 grow">
           <div className="truncate font-mono font-medium">{station.name}</div>
           <div className="text-sm text-muted">
-            {whose(station, who)} · <span className={TONE[state.tone]}>{state.word}</span>
+            {whose(station, who)} · {state.word}
             {!station.registered && station.owner ? " · revoked" : null}
           </div>
         </div>
@@ -175,12 +179,12 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
         <dt>Runs</dt>
         <dd className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {station.release ? <span>release {station.release}</span> : <span className="text-muted">no release said yet</span>}
-          {behind(station.release, release) ? <span className="text-xs font-medium text-wait">behind main&apos;s {release}</span> : null}
+          {behind(station.release, release) ? <Tag tone="wait">behind {defaultBranch ?? "the default branch"}&apos;s {release}</Tag> : null}
           {report?.head ? (
             <a href={`${forge}/${factory}/commit/${report.head}`}><code>{short(report.head)}</code></a>
           ) : null}
-          {drift.drifted ? <span className="text-xs font-medium text-wait">config drifted</span>
-            : report?.head && !drift.badges.length ? <span className="text-xs text-ok">config same as {defaultBranch ?? "the default branch"}</span>
+          {drift.drifted ? <Tag tone="wait">config drifted</Tag>
+            : report?.head && !drift.badges.length ? <Tag tone="ok">config same as {defaultBranch ?? "the default branch"}</Tag>
             : null}
           {drift.badges.length ? (
             <span className="flex basis-full flex-wrap gap-1">
@@ -211,7 +215,7 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
       ) : null}
       {station.registered && station.revocable ? (
         <div className="mt-auto flex justify-end pt-3">
-          <Button variant="danger" size="sm" onClick={() => onRevoke?.(station)}>Revoke</Button>
+          <Button variant="danger" size="sm" onClick={() => onRevoke(station)}>Revoke</Button>
         </div>
       ) : null}
     </Card>
@@ -235,7 +239,7 @@ function CiCard({ ci, factory, now }: { ci: Ci; factory: string; now: number }) 
   return (
     <Card className="flex min-w-0 flex-col px-4 py-4 sm:px-5">
       <div className="flex items-start gap-3">
-        <span aria-hidden="true" className="mt-2 size-2.5 shrink-0 rounded-full bg-faint" />
+        <StatusDot status="pending" label="comes and goes" className="mt-2 shrink-0" />
         <div className="min-w-0 grow">
           <div className="font-medium">CI</div>
           <div className="text-sm text-muted">
@@ -248,13 +252,14 @@ function CiCard({ ci, factory, now }: { ci: Ci; factory: string; now: number }) 
       <h4 className="mt-4 mb-2">Check pushes</h4>
       {ci.checks.length ? (
         <Table className="text-sm">
-          <thead><tr><th>ref</th><th>commit</th><th>check</th><th>when</th></tr></thead>
+          <thead><tr><th>ref</th><th>commit</th><th>check</th><th>by</th><th>when</th></tr></thead>
           <tbody>
             {ci.checks.map((check) => (
               <tr key={check.ref}>
                 <td><code>{check.ref}</code></td>
                 <td><code>{short(check.head)}</code></td>
                 <td><Tag tone={check.ok ? "ok" : "bad"}>{check.ok ? "passing" : "failing"}</Tag></td>
+                <td>{check.station}</td>
                 <td className="whitespace-nowrap">{formatAgoAt(check.at, now)}</td>
               </tr>
             ))}

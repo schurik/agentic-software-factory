@@ -100,7 +100,7 @@ describe("the Stations tab", () => {
   const drifts = new Map([["st_alex", { badges: ["3 commits behind"], drifted: true }]]);
   const render = () => renderToStaticMarkup(
     <StationsTab stations={stations} ci={ci} registrations={[]} drifts={drifts} now={NOW} factory="acme/widgets" forge="https://github.com"
-                 defaultBranch="main" release="1.2.0" onRelease={() => {}} />);
+                 defaultBranch="main" release="1.2.0" onApprove={() => {}} onRevoke={() => {}} onRelease={() => {}} />);
 
   it("lists under each station the sessions and claims it holds", () => {
     const said = text(render());
@@ -115,6 +115,6 @@ describe("the Stations tab", () => {
 
     expect(said).toMatch(/CI .*1 job.*1 check push/);
     expect(said).toMatch(/ci1.*pr-review.*success/);
-    expect(said).toMatch(/main.*aaaaaaa.*failing/);
+    expect(said).toMatch(/main.*aaaaaaa.*failing.*runner@fv-az1:widgets/);
   });
 });

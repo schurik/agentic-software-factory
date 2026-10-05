@@ -279,11 +279,18 @@ export const stations = query({
     for (const claim of claims) {
       (shown.get(claim.station) ?? detail(claim.station, { name: claim.stationName })).claims.push(claim);
     }
-    // Newest first, so the first session a station started is its latest: the release it runs now.
+    // The release a station runs is the one the session it started last said — by when it started,
+    // not when it last moved: a long session on an old release must not hide a newer one. Its record
+    // is over the sessions `recentOf` read, the factory's most recently active.
+    const latest = new Map<string, number>();
     for (const each of known) {
       const found = shown.get(each.summary.stationId);
       if (found === undefined) continue;
-      if (!found.release) found.release = each.summary.skillVersion;
+      const started = Date.parse(each.summary.startedAt) || 0;
+      if (each.summary.skillVersion && started >= (latest.get(found.station) ?? -1)) {
+        latest.set(found.station, started);
+        found.release = each.summary.skillVersion;
+      }
       const ended = endedAt(each);
       if (ended >= period.from && ended < period.to) {
         found.period.sessions += 1;

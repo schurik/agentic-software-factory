@@ -126,9 +126,9 @@ export function FactoryPage({ factory }: { factory: string }) {
                          <StationsTab stations={stations.stations} ci={stations.ci} registrations={registrations} drifts={measured}
                                       now={now} factory={factory} forge={web} defaultBranch={page.defaultBranch}
                                       release={page.check?.description.skillVersion ?? ""} onRelease={onRelease}
-                                      onApprove={(asked) => {
+                                      onApprove={(code) => {
                                         setProblem("");
-                                        void approve({ code: asked.code, signIn }).then(settled("approved")).catch(failed("approved"));
+                                        void approve({ code, signIn }).then(settled("approved")).catch(failed("approved"));
                                       }}
                                       onRevoke={(station) => {
                                         setProblem("");

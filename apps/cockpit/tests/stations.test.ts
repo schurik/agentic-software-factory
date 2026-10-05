@@ -112,7 +112,7 @@ describe("registering a station", () => {
       .toMatchObject({ ok: false });
   });
 
-  it("waits on its factory's Stations tab, with its code to match against the terminal, until it is handed over or runs out", async () => {
+  it("waits on its factory's Stations tab — its code left for the approver to type from the terminal — until handed over or run out", async () => {
     const forge = fakeForge();
     forge.person("dana");
     const t = await teamOf(forge, { alex: "write", sam: "read" });
@@ -120,23 +120,24 @@ describe("registering a station", () => {
     const alex = await signIn(t, forge, "alex");
     const sam = await signIn(t, forge, "sam");
     const asked = await register(t, ingestToken);
-    const late = await register(t, ingestToken, { id: "st_late", name: "late@box:widgets", kind: "local" });
+    await register(t, ingestToken, { id: "st_late", name: "late@box:widgets", kind: "local" });
     const listed = (holding?: string) => t.query(api.stations.registrations, { factory: "acme/widgets", signIn: holding });
 
     expect(await listed(alex)).toEqual([
-      { code: asked.code, station: STATION.id, name: STATION.name, kind: "local", expiresAt: Date.now() + 10 * 60_000,
-        approved: false, because: null },
-      expect.objectContaining({ code: late.code, name: "late@box:widgets" }),
+      { station: STATION.id, name: STATION.name, expiresAt: Date.now() + 10 * 60_000, approved: false, because: null },
+      expect.objectContaining({ station: "st_late", name: "late@box:widgets" }),
     ]);
+    // Typing the code is what proves the approver saw the station's terminal: the list never says it.
+    expect(JSON.stringify(await listed(alex))).not.toContain(asked.code);
     // A reader sees who asks, and why they may not approve it.
     expect((await listed(sam))?.[0].because).toMatch(/needs write/);
     expect(await listed(await signIn(t, forge, "dana"))).toBeNull();
     expect(await listed()).toBeNull();
 
     expect(await t.mutation(api.stations.approve, { code: asked.code, signIn: alex })).toEqual({ ok: true });
-    expect((await listed(alex))?.[0]).toMatchObject({ code: asked.code, approved: true });
+    expect((await listed(alex))?.[0]).toMatchObject({ station: STATION.id, approved: true });
     await handed(t, asked.device);
-    expect((await listed(alex))?.map((each) => each.code)).toEqual([late.code]);
+    expect((await listed(alex))?.map((each) => each.station)).toEqual(["st_late"]);
 
     vi.advanceTimersByTime(11 * 60_000);
     expect(await listed(alex)).toEqual([]);
