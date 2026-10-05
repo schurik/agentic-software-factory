@@ -8,6 +8,7 @@ import { roleOf } from "./commands";
 import { defaultCheck, repoOf } from "./factory";
 import { forgeWeb } from "./forge/memory";
 import { readDescription } from "./model/description";
+import { miniOf } from "./model/graph";
 import { phaseView, readSummary, view } from "./model/session";
 import { canRead, readable, viewing } from "./viewer";
 
@@ -90,6 +91,30 @@ export const phase = query({
   handler: async (ctx, { factory, session, phaseId, signIn }) => {
     const stored = await storedSession(ctx, factory, session, signIn);
     return stored && phaseView(stored.events, stored.acked, phaseId);
+  },
+});
+
+/**
+ * Where a session is now, for a list's row (Now's Running): the chapter it is
+ * in as a mini graph, the stage it is in — null in a chapter drawn without
+ * stages — and the phase running, since when. Null for a session the viewer
+ * may not see. A query of its own per row, so one session's long record
+ * weighs on its own row and nothing else.
+ */
+export const progress = query({
+  args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory, session, signIn }) => {
+    const stored = await storedSession(ctx, factory, session, signIn);
+    if (stored === null) return null;
+    const { story } = view(stored.events, stored.acked);
+    const here = story.chapters.find((chapter) => chapter.graph.current !== null) ?? story.chapters.at(-1);
+    const graph = here?.graph ?? null;
+    const phase = story.now.phase;
+    return {
+      mini: graph ? miniOf(graph) : { blocks: [], current: null },
+      stage: graph?.kind === "stages" && graph.current !== null ? graph.stages[graph.current].name : null,
+      phase: phase && { name: phase.name, since: phase.since },
+    };
   },
 });
 

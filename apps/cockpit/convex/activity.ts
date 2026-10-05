@@ -102,7 +102,7 @@ function held(known: Recorded): boolean {
 function failures(known: Recorded[]): Failed[] {
   return known
     .filter((each) => each.summary.status === "fail")
-    .map((each) => ({ session: each.session, workflow: workflowOf(each.summary), station: each.summary.stationName, endedAt: endedAt(each) }))
+    .map((each) => ({ session: each.session, title: each.summary.request, workflow: workflowOf(each.summary), station: each.summary.stationName, endedAt: endedAt(each) }))
     .sort((a, b) => b.endedAt - a.endedAt)
     .slice(0, FAILURES);
 }

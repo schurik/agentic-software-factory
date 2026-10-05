@@ -39,6 +39,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const refresh = useAction(api.viewer.refresh);
   const signOut = useMutation(api.auth.signOut);
   const signedIn = me?.mode === "team" && me.viewer !== null;
+  const waiting = useQuery(api.inbox.count, knows(me) ? { signIn } : "skip") ?? 0;
 
   // The permission mirror is the forge's word from a few minutes ago; asking
   // again is the page's job, because nothing else knows anyone is looking.
@@ -55,7 +56,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <RunPrompt enabled={knows(me)}>
-      <RunHeader me={me} path={pathname}
+      <RunHeader me={me} path={pathname} waiting={waiting}
                  onSignOut={() => { if (signIn) void signOut({ signIn }).finally(() => holdSignIn(null)); }} />
       <main className="mx-auto max-w-[1280px] px-4 pt-6 pb-16 md:px-6 md:pt-8">
         {me === undefined ? <Loading />

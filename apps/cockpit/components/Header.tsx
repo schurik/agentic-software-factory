@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
+import { plural } from "./format";
 import { type Theme, THEMES } from "./theme";
 import { useTheme } from "./useTheme";
 import { Button, cx, menuItem, menuPopup } from "./ui";
@@ -15,12 +16,18 @@ export type Me = FunctionReturnType<typeof api.viewer.me>;
 /**
  * The header every page sits under (#105): the brand — with "local" under it
  * in a local cockpit — the three places, Run a prompt (#108), the one way
- * to start one, and the viewer's avatar, whose menu holds who they are,
+ * to start one, Now carrying the count of gates waiting on the viewer
+ * (#115), and the viewer's avatar, whose menu holds who they are,
  * which kind of cockpit this is, the theme, and Sign out in a team
  * cockpit. It stands up from the page: the card surface over the page's
  * grey, and the place you are in underlined in the accent on its rule.
  */
-export function Header({ me, path, onSignOut, onRun }: { me: Me | undefined; path: string; onSignOut: () => void; onRun: () => void }) {
+export function Header({ me, path, waiting = 0, onSignOut, onRun }: {
+  me: Me | undefined; path: string;
+  /** How many gates wait on the viewer: what Now carries, from every page. */
+  waiting?: number;
+  onSignOut: () => void; onRun: () => void;
+}) {
   const known = knows(me);
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-surface/95 shadow-[0_1px_3px_rgb(0_0_0/0.05)] backdrop-blur dark:border-line-strong">
@@ -34,7 +41,7 @@ export function Header({ me, path, onSignOut, onRun }: { me: Me | undefined; pat
             {me?.mode === "local" ? <span className="mt-0.5 text-[10px] font-medium tracking-wider text-muted uppercase">local</span> : null}
           </span>
         </Link>
-        {known ? <Places path={path} /> : null}
+        {known ? <Places path={path} waiting={waiting} /> : null}
         <span className="grow" />
         {known ? (
           <Button size="sm" aria-label="Run a prompt" onClick={onRun}>
@@ -66,7 +73,6 @@ function Logo() {
 type Place = "now" | "sessions" | "factories";
 
 const PLACES: { id: Place; href: string; label: string }[] = [
-  // Now is today's Inbox until the Now page lands (#115).
   { id: "now", href: "/", label: "Now" },
   { id: "sessions", href: "/sessions", label: "Sessions" },
   { id: "factories", href: "/factories", label: "Factories" },
@@ -79,17 +85,25 @@ export function placeOf(path: string): Place | null {
   return place?.id ?? null;
 }
 
-function Places({ path }: { path: string }) {
+function Places({ path, waiting }: { path: string; waiting: number }) {
   const here = placeOf(path);
   return (
     <nav className="flex h-full items-stretch gap-1 sm:gap-3" aria-label="Places">
       {PLACES.map((place) => (
         <Link key={place.id} href={place.href} aria-current={place.id === here ? "page" : undefined}
               className={cx(
-                "relative flex items-center px-1.5 text-sm font-medium hover:no-underline sm:text-base",
+                "relative flex items-center px-1.5 text-sm font-medium whitespace-nowrap hover:no-underline sm:text-base",
                 "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
                 place.id === here ? "text-fg after:bg-accent" : "text-muted hover:text-fg",
-              )}>{place.label}</Link>
+              )}>
+          {place.label}
+          {place.id === "now" && waiting > 0 ? (
+            <span aria-label={`${plural(waiting, "gate")} waiting on you`}
+                  className="ml-1.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-wait-soft px-1 text-[11px] font-semibold text-wait tabular-nums">
+              {waiting}
+            </span>
+          ) : null}
+        </Link>
       ))}
     </nav>
   );

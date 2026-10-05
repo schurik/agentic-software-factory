@@ -11,7 +11,8 @@ const alex = { login: "alex", name: "Alex Doe", avatarUrl: "https://avatars.exam
 const TEAM: Me = { mode: "team", forge, viewer: alex };
 const LOCAL: Me = { mode: "local", forge, viewer: { ...alex, avatarUrl: "" } };
 
-const html = (me: Me | undefined, path = "/") => renderToStaticMarkup(<Header me={me} path={path} onSignOut={() => {}} onRun={() => {}} />);
+const html = (me: Me | undefined, path = "/", waiting = 0) =>
+  renderToStaticMarkup(<Header me={me} path={path} waiting={waiting} onSignOut={() => {}} onRun={() => {}} />);
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 describe("the places", () => {
@@ -30,6 +31,13 @@ describe("the places", () => {
     expect(placeOf("/cost")).toBeNull();
     expect(html(TEAM, "/sessions").match(/<a[^>]*aria-current="page"[^>]*>([^<]+)/)![1]).toBe("Sessions");
     expect(html(TEAM, "/cost")).not.toContain('aria-current="page"');
+  });
+
+  it("carry on Now the count of gates waiting on the viewer, from any page, and nothing at zero (#115)", () => {
+    const now = (markup: string) => markup.match(/<nav[^>]*><a[^>]*href="\/"[^>]*>(.*?)<\/a>/)![1];
+    expect(text(now(html(TEAM, "/sessions", 3)))).toBe("Now 3");
+    expect(now(html(TEAM, "/sessions", 3))).toContain('aria-label="3 gates waiting on you"');
+    expect(text(now(html(TEAM, "/sessions", 0)))).toBe("Now");
   });
 
   it("are not offered to someone a team cockpit does not know yet", () => {

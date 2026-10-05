@@ -10,7 +10,7 @@ import { DiffRead, DiffView } from "../diff/DiffView";
 import { DrawerFrame } from "../Drawer";
 import { formatAgo, formatDuration, plural, sessionHref } from "../format";
 import { ForgeRef, StageIcon, StatusIcon } from "../icons";
-import { workItem } from "../inbox/InboxList";
+import { workItem } from "../inbox/waits";
 import { keyed } from "../inbox/keys";
 import { isMarkdown, Markdown } from "../Markdown";
 import { channelWords } from "../session/words";

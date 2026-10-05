@@ -30,55 +30,68 @@ export interface FactoryRow {
   facts: Facts;
 }
 
+/** A factory the viewer can read, and the names its data may be stored under: the first is the one sessions are. */
+export interface Readable {
+  repo: string;
+  role: Role | null;
+  private: boolean | null;
+  onForge: boolean;
+  names: string[];
+}
+
 /**
  * The factories the viewer can read: every repository the forge credential
  * reaches whose default branch holds `asf/factory.yaml`, whether or not a
  * station has reported from it yet. Nothing registers a factory here.
  *
  * In a team cockpit that is filtered to the repositories the forge says the
- * viewer reaches, and null — nothing at all — for someone who has not signed
- * in.
+ * viewer reaches; the caller turns away someone who has not signed in.
  *
  * A local cockpit adds what its stations ship from and the forge does not
  * show as a factory — a checkout with no remote, a machine with no `gh`. It
  * is one person's own machine, and their factory is there whatever the forge
- * can see of it.
+ * can see of it, once a station has shipped a session of it.
  */
+export async function readableFactories(ctx: QueryCtx, { mode, viewer }: Viewing): Promise<Readable[]> {
+  // A station's ingest token names its factory as it was first spelled here
+  // (`spelling.ts`), which may not be the forge's case; the forge's names
+  // are case-insensitive.
+  const shippedAs = new Map<string, string[]>();
+  for (const { factory } of await ctx.db.query("ingestTokens").collect()) {
+    const names = shippedAs.get(repoKey(factory)) ?? [];
+    if (!names.includes(factory)) shippedAs.set(repoKey(factory), [...names, factory]);
+  }
+
+  const found = await ctx.db.query("repos").withIndex("by_factory", (q) => q.eq("factory", true)).collect();
+  const factories: Readable[] = [];
+  for (const repo of found) {
+    const role = viewer === null ? null : await roleOn(ctx, viewer, repo.key);
+    if (mode === "team" && role === null) continue;
+    // Its stations' spelling first: what its sessions are stored under (`spelling.ts`).
+    const names = [...(shippedAs.get(repo.key) ?? []), repo.name];
+    factories.push({ repo: repo.name, role, private: repo.private, onForge: true, names });
+  }
+  if (mode === "local") {
+    const shown = new Set(found.map((repo) => repo.key));
+    for (const [key, names] of shippedAs) {
+      if (shown.has(key) || !(await reported(ctx, names)).reporting) continue;
+      factories.push({ repo: names[0], role: null, private: null, onForge: false, names });
+    }
+  }
+  // By name: how a page ranks them is its own, by its clock (`model/factories.ts`).
+  return factories.sort((a, b) => (repoKey(a.repo) < repoKey(b.repo) ? -1 : 1));
+}
+
+/** The factories the viewer can read (`readableFactories`), each as the Factories list shows it; null for someone not signed in. */
 export const list = query({
   args: { signIn: v.optional(v.string()), period: v.optional(periodValidator) },
   handler: async (ctx, { signIn, period }) => {
     const who = await viewing(ctx, signIn);
-    const { mode, viewer } = who;
-    if (mode === "team" && viewer === null) return null;
-
-    // A station's ingest token names its factory as it was first spelled here
-    // (`spelling.ts`), which may not be the forge's case; the forge's names
-    // are case-insensitive.
-    const shippedAs = new Map<string, string[]>();
-    for (const { factory } of await ctx.db.query("ingestTokens").collect()) {
-      const names = shippedAs.get(repoKey(factory)) ?? [];
-      if (!names.includes(factory)) shippedAs.set(repoKey(factory), [...names, factory]);
-    }
-
-    const found = await ctx.db.query("repos").withIndex("by_factory", (q) => q.eq("factory", true)).collect();
+    if (who.mode === "team" && who.viewer === null) return null;
     const factories: FactoryRow[] = [];
-    for (const repo of found) {
-      const role = viewer === null ? null : await roleOn(ctx, viewer, repo.key);
-      if (mode === "team" && role === null) continue;
-      // Its stations' spelling first: what its sessions are stored under (`spelling.ts`).
-      const names = [...(shippedAs.get(repo.key) ?? []), repo.name];
-      factories.push({ repo: repo.name, role, private: repo.private, onForge: true, ...(await standing(ctx, who, names, period)) });
+    for (const { names, ...readable } of await readableFactories(ctx, who)) {
+      factories.push({ ...readable, ...(await standing(ctx, who, names, period)) });
     }
-    if (mode === "local") {
-      const shown = new Set(found.map((repo) => repo.key));
-      for (const [key, names] of shippedAs) {
-        if (shown.has(key)) continue;
-        const shipped = await standing(ctx, who, names, period);
-        if (shipped.reporting) factories.push({ repo: names[0], role: null, private: null, onForge: false, ...shipped });
-      }
-    }
-    // By name: how the page ranks them is its own, by its clock (`model/factories.ts`).
-    factories.sort((a, b) => (repoKey(a.repo) < repoKey(b.repo) ? -1 : 1));
     return { factories, discovery: await readProgress(ctx) };
   },
 });

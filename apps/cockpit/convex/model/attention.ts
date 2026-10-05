@@ -10,6 +10,11 @@
  * and, to rank by, the Factories list (`model/factories.ts`); whether each
  * fact is worth attention now is read here against the page's own clock. A query that read the clock would
  * keep saying a failure is news until something else re-ran it.
+ *
+ * Beside the rule, the other judgements a page makes by its clock: a session
+ * stuck in a phase, a gate waited on long, a spend close to its ceiling.
+ * Constants, not factory config: the ceiling is the factory's, how close is
+ * close is ours.
  */
 
 import type { ClaimView } from "./claim";
@@ -29,10 +34,31 @@ export const AWAY_FOR = 24 * 3600_000;
  * not factory config: the ceiling is the factory's, how close is close is ours.
  */
 export const EXPENSIVE = 0.8;
+/** A phase has been running or waiting longer than this: its session is stuck, and Now says so in amber (#104). */
+export const STUCK_AFTER = 10 * 60_000;
+/** A gate has waited longer than this: its wait reads amber, so the oldest is answered first (#104). */
+export const LONG_WAIT = 30 * 60_000;
+
+/** Whether a phase that began at `since` has, by `now`, run long enough to call its session stuck. */
+export function stuck(since: string, now: number): boolean {
+  return now - Date.parse(since) > STUCK_AFTER;
+}
+
+/** Whether a gate asked at `since` has, by `now`, waited long. */
+export function waitedLong(since: string, now: number): boolean {
+  return now - Date.parse(since) > LONG_WAIT;
+}
+
+/** Whether `spent` is close to `ceiling`; never, without one. */
+export function expensive(spent: number, ceiling: number): boolean {
+  return ceiling > 0 && spent >= ceiling * EXPENSIVE;
+}
 
 /** A session that ended in failure: which, in which workflow, on which station, and when (epoch ms). */
 export interface Failed {
   session: string;
+  /** What it was asked: `#42 title`, or the prompt. */
+  title: string;
   workflow: string;
   station: string;
   endedAt: number;

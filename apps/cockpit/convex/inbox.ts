@@ -34,7 +34,7 @@ import {
   type Subject, waitsOnOthers,
 } from "./model/inbox";
 import { materialOf } from "./model/gate";
-import { readSummary, view, type Summary } from "./model/session";
+import { readSummary, view, type Summary, type WaitingFor } from "./model/session";
 import { storedSession } from "./sessions";
 import { actAs, canRead, viewing, type Viewing } from "./viewer";
 
@@ -115,24 +115,62 @@ async function judgedByCommand(ctx: QueryCtx, who: Viewing, record: Doc<"session
 }
 
 /**
+ * Whether a wait is the viewer's to answer: its trust list names them, or
+ * nobody. A local cockpit that does not know whose it is cannot check a trust
+ * list, and cannot post either: every wait is shown it, each saying why not.
+ */
+function isMine(who: Viewing, waiting: WaitingFor): boolean {
+  const login = loginOf(who);
+  return (who.mode === "local" && login === null) || permitted(waiting.trusted, login);
+}
+
+/**
  * The row for one waiting session, or null when the viewer is not permitted to
  * answer it — unless `others` asks for that too, when the row says whom it is on.
  */
 async function rowOf(ctx: QueryCtx, who: Viewing, record: Doc<"sessions">,
-                     { ready, others = false }: Weighing): Promise<{ row: Row; mine: boolean } | null> {
+                     { ready, others = false }: Weighing): Promise<{ row: Row; mine: boolean; waitsOn: string[] } | null> {
   const summary = readSummary(record.summary);
   if (summary.waitingFor === null) return null;
   const login = loginOf(who);
-  // A local cockpit that does not know whose it is cannot check a trust list,
-  // and cannot post either: it shows every wait, each saying why not.
-  const mine = (who.mode === "local" && login === null) || permitted(summary.waitingFor.trusted, login);
+  const mine = isMine(who, summary.waitingFor);
   if (!mine && !others) return null;
   const judged = !mine ? { blocked: waitsOnOthers(summary.waitingFor), commanding: null, stationSeenAt: 0, attendedAt: null }
     : byCommand(summary.waitingFor) ? await judgedByCommand(ctx, who, record, summary, ready) : {
       blocked: blocked(summary, await sentFor(ctx, record.factory, record.session, summary), ready),
       commanding: null, stationSeenAt: 0, attendedAt: null,
     };
-  return { row: row(record, summary, login, judged), mine };
+  return { row: row(record, summary, login, judged), mine, waitsOn: summary.waitingFor.trusted ?? [] };
+}
+
+/** A wait the viewer can read but not answer, and whom it is on. */
+export type Other = Row & { waitsOn: string[] };
+
+/** Every waiting session in a factory the viewer can read, as `visit` is handed it, until it says stop. */
+async function eachWaiting(ctx: QueryCtx, who: Viewing, visit: (record: Doc<"sessions">) => Promise<boolean>): Promise<void> {
+  const readable = new Map<string, boolean>();
+  for await (const record of ctx.db.query("sessions").withIndex("by_waiting", (q) => q.eq("waiting", true))) {
+    if (!readable.has(record.factory)) readable.set(record.factory, await canRead(ctx, who, record.factory));
+    if (readable.get(record.factory) && !(await visit(record))) break;
+  }
+}
+
+/**
+ * The waits across every factory the viewer can read: those they may answer —
+ * the inbox — ranked, and with `others`, the ones waiting on someone else,
+ * the longest first. Each list stops at `SHOWN`.
+ */
+export async function waitsFor(ctx: QueryCtx, who: Viewing, others = false): Promise<{ mine: Row[]; others: Other[] }> {
+  const ready = await credentialed(ctx);
+  const mine: Row[] = [];
+  const theirs: Other[] = [];
+  await eachWaiting(ctx, who, async (record) => {
+    const shown = await rowOf(ctx, who, record, { ready, others });
+    if (shown?.mine && mine.length < SHOWN) mine.push(shown.row);
+    if (shown && !shown.mine && theirs.length < SHOWN) theirs.push({ ...shown.row, waitsOn: shown.waitsOn });
+    return mine.length < SHOWN || (others && theirs.length < SHOWN);
+  });
+  return { mine: ranked(mine), others: theirs.sort((a, b) => a.since.localeCompare(b.since)) };
 }
 
 export const list = query({
@@ -140,17 +178,26 @@ export const list = query({
   handler: async (ctx, { signIn }): Promise<{ rows: Row[] }> => {
     const who = await viewing(ctx, signIn);
     if (who.mode === "team" && who.viewer === null) return { rows: [] };
-    const ready = await credentialed(ctx);
-    const readable = new Map<string, boolean>();
-    const rows: Row[] = [];
-    for await (const record of ctx.db.query("sessions").withIndex("by_waiting", (q) => q.eq("waiting", true))) {
-      if (!readable.has(record.factory)) readable.set(record.factory, await canRead(ctx, who, record.factory));
-      if (!readable.get(record.factory)) continue;
-      const shown = await rowOf(ctx, who, record, { ready });
-      if (shown !== null) rows.push(shown.row);
-      if (rows.length === SHOWN) break;
-    }
-    return { rows: ranked(rows) };
+    return { rows: (await waitsFor(ctx, who)).mine };
+  },
+});
+
+/**
+ * How many gates wait on the viewer — the inbox's rows, counted without
+ * weighing each: what the header's Now carries on every page.
+ */
+export const count = query({
+  args: { signIn: v.optional(v.string()) },
+  handler: async (ctx, { signIn }): Promise<number> => {
+    const who = await viewing(ctx, signIn);
+    if (who.mode === "team" && who.viewer === null) return 0;
+    let waiting = 0;
+    await eachWaiting(ctx, who, async (record) => {
+      const summary = readSummary(record.summary);
+      if (summary.waitingFor !== null && isMine(who, summary.waitingFor)) waiting += 1;
+      return waiting < SHOWN;
+    });
+    return waiting;
   },
 });
 

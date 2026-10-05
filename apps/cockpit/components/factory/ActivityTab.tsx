@@ -12,7 +12,7 @@ export interface Happening {
   recent: SessionRow[];
 }
 
-/** The inbox, showing only the gates waiting at `factory`. */
+/** Now, showing only `factory`'s: the gates waiting there on the viewer first. */
 export function inboxOf(factory: string): string {
   return `/?factory=${encodeURIComponent(factory)}`;
 }

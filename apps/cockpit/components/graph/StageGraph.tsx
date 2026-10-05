@@ -2,7 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type Graph, type Mark, markOf, type Phase, type Stage, type StageStatus } from "@/convex/model/graph";
+import { type Graph, lookOf, markOf, type Mini, type Phase, type Stage, type StageStatus } from "@/convex/model/graph";
 import { formatDuration, plural } from "../format";
 import { KindIcon, StageIcon, StatusIcon } from "../icons";
 import { phaseName } from "../session/words";
@@ -32,13 +32,6 @@ export type OpenPhase = (phaseId: string) => Go;
 
 /** Where opening a stage goes, by its index. */
 export type OpenStage = (index: number) => Go;
-
-/**
- * How a phase drawn on its own looks: a rejected round in the colour of a
- * failure. A stage only reads its latest phase's mark (graph.ts), so a stage
- * whose round was rejected looks like it goes on instead.
- */
-const lookOf = (mark: Mark): StageStatus => (mark === "rejected" ? "failed" : mark);
 
 export interface StageGraphProps {
   graph: Graph;
@@ -296,13 +289,11 @@ const CHIP: Record<StageStatus, string> = {
  * other one as a small block — filled where the session has been, dashed
  * where it has not. For a list's row, and a folded chapter's line.
  */
-export function MiniGraph({ graph }: { graph: Graph }) {
-  const blocks = graph.kind === "stages"
-    ? graph.stages.map((stage) => ({ key: String(stage.index), name: stage.name, status: stage.status }))
-    : graph.phases.map((phase) => ({ key: phase.phaseId, name: phaseName(phase), status: lookOf(markOf(phase)) }));
+export function MiniGraph({ mini }: { mini: Mini }) {
+  const blocks = mini.blocks.map(({ key, status, stage, phase }) => ({ key, status, name: stage ?? (phase ? phaseName(phase) : "") }));
   return (
     <span className="flex flex-wrap items-center gap-1">
-      {blocks.map((block, index) => index === graph.current ? (
+      {blocks.map((block, index) => index === mini.current ? (
         <span key={block.key} className={cx("flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap", CHIP[block.status])}>
           <StatusIcon status={block.status} size={11} />{block.name}
         </span>

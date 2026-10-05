@@ -35,7 +35,7 @@ function text(html: string): string {
 describe("the Activity tab", () => {
   const items: Attention[] = [
     { kind: "gates", mine: 2, total: 3 },
-    { kind: "failed", sessions: [{ session: "f1", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 3 * HOUR }] },
+    { kind: "failed", sessions: [{ session: "f1", title: "#42 health check broken", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 3 * HOUR }] },
     { kind: "claim", claim: CLAIM, away: 50 * HOUR },
     { kind: "drift", stations: [{ station: "st_alex", name: "alex@mbp:widgets", badges: ["on 89abcde"] }] },
     { kind: "check" },

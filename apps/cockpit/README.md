@@ -2,7 +2,8 @@
 
 Observes and steers many factories from one place (ADR 0001, spec #40). A station ships a session's
 domain events to `POST /ingest`, and a sessions list and a session page render live from what was
-stored. The home page is the **inbox**: every gate the viewer may answer, answered in place. The forge says which factories there are and who may see them: a Factories page lists every
+stored. The home page is **Now**: the inbox of every gate the viewer may answer, answered in place,
+then what needs attention, what is running and what waits on someone else, across every factory. The forge says which factories there are and who may see them: a Factories page lists every
 repository the cockpit can reach whose default branch holds `asf/factory.yaml`. It is a Next.js
 front end on a **self-hosted Convex** backend (ADR 0002), and it lives here, outside
 `skills/agentic-sf/`, so it never ships in a stamp.
@@ -131,9 +132,28 @@ a link to the forge's comparison), and when a later phase wrote it again before 
 it, so that version never reached the forge. The session must be one the person may see; the read
 itself goes on the installation token, like the cockpit's other reading.
 
-## The inbox
+## Now
 
-The home page lists every gate, across every factory, that the viewer is **permitted** to answer:
+The home page, `/` (#115, `convex/now.ts`), is one query for the viewer across every factory the
+permission mirror lets them read, in four sections. The **Inbox**, which never folds, is the gates
+waiting on them (below). **Needs attention** is the Factory page's rule (`model/attention.ts`)
+gathered across factories, less the gates the Inbox already holds: each row names its next step and
+goes there — Open a failed session, Release a claim, Compare a drifted station, See config for a
+failing check, Stations when nobody watches; the steps that belong on a factory's tab go to its page
+until its tabs are in its address. **Running** lists every session running now with the stage it
+is in, a mini stage graph, and what it spent and for how long — that graph is the session's events
+folded, a query of its own per row (`sessions.progress`), so one long record weighs on its row
+alone. **Waiting on others**, folded at first, is the gates waiting on someone else and on whom; each
+opens in the same drawer, which says why it is not the viewer's. Three judgements are the page's, by
+its clock, as constants beside the attention rule: a phase running over 10 minutes is "17m in
+verify" in amber, a spend from 80% of the factory's per-session ceiling is "$0.21 of $0.25" in amber,
+and a wait over 30 minutes reads amber. The header's Now carries the count of gates waiting on the
+viewer from every page (`inbox:count`), and nothing at zero. `/?factory=<owner>/<repo>` narrows every
+section to that factory's, as its Factory page links here.
+
+### The inbox
+
+The Inbox lists every gate, across every factory, that the viewer is **permitted** to answer:
 they can read its repository, and the factory's trust list for the wait's channel names them or
 nobody. That list is the factory's own word, carried by the `suspended` event (`trusted`, from
 `issues.trusted_authors` for a wait on an issue), so the cockpit offers the answer to exactly the
@@ -141,8 +161,7 @@ people the factory will hear. The rows that are **for the viewer** — a run the
 they wrote, an issue assigned to them — are marked and sorted first; it is a ranking, never a filter,
 so every row the viewer may answer stays. Who triggered a run is the factory's word
 (`session_started`'s `triggered_by`: whoever labelled the issue, or the operator who ran it), and the
-issue's author and assignees ride on `provenance_recorded` v2. The rest wait longest first, and a
-wait older than a day is flagged. A row opens its gate in **the drawer** over the list (#113), and
+issue's author and assignees ride on `provenance_recorded` v2. The rest wait longest first. A row opens its gate in **the drawer** over Now (#113), and
 the address says which (`/?open=<owner>/<repo>/<session>&tab=…`), so a link opens exactly that gate;
 the session page's Now card opens the same drawer, its button the page's only one for a gate, as
 does the waiting gate's phase in the graph (`?gate=<phase id>`). The drawer asks the question as its
@@ -438,7 +457,7 @@ it is measured against.
 branch's commit, the check's state, flags and the per-session budget — and six tabs.
 
 **Activity**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
-that the viewer may answer (a link into the inbox, `/?factory=<owner>/<repo>`), the sessions that
+that the viewer may answer (a link to Now narrowed to the factory, `/?factory=<owner>/<repo>`), the sessions that
 failed in the last day, each claim whose station has not been heard of for over a day — "held by
 `alex@mbp`, offline 2 d", never orphaned, with Release claim — the stations whose config drifted, a
 failing check, and **nobody watching**: issues queued for a route while no station online runs an
