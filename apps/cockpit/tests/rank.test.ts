@@ -41,7 +41,7 @@ describe("the Factories list's order", () => {
   });
 
   it("stops ranking a failure first once it is a day old, without anything new arriving", () => {
-    const failed = { session: "f1", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 2 * HOUR };
+    const failed = { session: "f1", title: "#42 health check broken", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 2 * HOUR };
     const rows = [row("acme/fresh", { lastActivity: NOW - HOUR }), row("acme/failed", { lastActivity: NOW - 2 * HOUR, facts: { ...QUIET, failed: [failed] } })];
 
     expect(names(rank(rows, NOW, "attention"))).toEqual(["acme/failed", "acme/fresh"]);

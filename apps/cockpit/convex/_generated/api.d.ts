@@ -58,6 +58,7 @@ import type * as model_story from "../model/story.js";
 import type * as model_trigger from "../model/trigger.js";
 import type * as model_webhook from "../model/webhook.js";
 import type * as model_wire from "../model/wire.js";
+import type * as now from "../now.js";
 import type * as retention from "../retention.js";
 import type * as sessions from "../sessions.js";
 import type * as setup from "../setup.js";
@@ -124,6 +125,7 @@ declare const fullApi: ApiFromModules<{
   "model/trigger": typeof model_trigger;
   "model/webhook": typeof model_webhook;
   "model/wire": typeof model_wire;
+  now: typeof now;
   retention: typeof retention;
   sessions: typeof sessions;
   setup: typeof setup;

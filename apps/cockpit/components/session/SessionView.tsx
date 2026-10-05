@@ -9,7 +9,7 @@ import type { ClaimView } from "@/convex/model/claim";
 import type { SteeringView } from "@/convex/model/command";
 import type { Budget } from "@/convex/model/description";
 import { isLive, type SessionView as View, until } from "@/convex/model/session";
-import { markOfStatus } from "@/convex/model/graph";
+import { markOfStatus, miniOf } from "@/convex/model/graph";
 import type { Chapter } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
 import { formatCost, formatDuration, plural, pretty, prNumber, secondsBetween } from "../format";
@@ -265,7 +265,7 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, childre
         <span className="text-sm text-muted">
           {chapter.answering ? answeringWords(chapter.answering) : chapter.input === "prompt" ? "from a prompt" : ""}
         </span>
-        {open ? null : <MiniGraph graph={chapter.graph} />}
+        {open ? null : <MiniGraph mini={miniOf(chapter.graph)} />}
         <span className="grow" />
         <span className="flex items-center gap-3 text-sm text-muted tabular-nums">
           <span>{formatDuration(took)}</span>

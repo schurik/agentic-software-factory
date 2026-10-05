@@ -175,7 +175,8 @@ export interface Chapter {
 export interface Now {
   status: string;
   chapter: string;        // the title of the chapter the session is in
-  phase: { name: string; owner: string; kind: string } | null;
+  // `since` is when its latest run started: a phase resumed starts its clock again.
+  phase: { name: string; owner: string; kind: string; since: string } | null;
   waiting: { gate: string; round: number; kind: string; channel: string; issueNumber: number } | null;
   failed: { phaseId: string; name: string; error: string } | null;
   prUrl: string;
@@ -674,7 +675,7 @@ export function finish(state: StoryState, summary: Summary): Story {
     now: {
       status: summary.status,
       chapter: here?.title ?? "",
-      phase: open && { name: open.name, owner: open.owner, kind: open.kind },
+      phase: open && { name: open.name, owner: open.owner, kind: open.kind, since: open.runs.at(-1)?.started ?? open.at },
       waiting: waiting && { gate: waiting.gate, round: waiting.round, kind: waiting.kind,
                             channel: waiting.channel, issueNumber: state.issueNumber },
       failed: summary.status === "fail" && failed ? { phaseId: failed.phaseId, name: failed.name, error: failed.error } : null,

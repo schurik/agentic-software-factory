@@ -153,8 +153,8 @@ describe("needs attention", () => {
     expect(await attention(t, alex)).toEqual([{
       kind: "failed",
       sessions: [
-        { session: "f2", workflow: "pr-review", station: ALEX.name, endedAt: NOW - HOUR },
-        { session: "f1", workflow: "issue", station: ALEX.name, endedAt: NOW - 3 * HOUR },
+        { session: "f2", title: "add a health check", workflow: "pr-review", station: ALEX.name, endedAt: NOW - HOUR },
+        { session: "f1", title: "add a health check", workflow: "issue", station: ALEX.name, endedAt: NOW - 3 * HOUR },
       ],
     }]);
     // A day on, the same facts are no longer news.

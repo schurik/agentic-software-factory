@@ -50,7 +50,7 @@ describe("a row of the Factories list", () => {
     facts: {
       ...QUIET,
       gates: { mine: 1, total: 3 },
-      failed: [{ session: "f1", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 3 * HOUR }],
+      failed: [{ session: "f1", title: "#42 health check broken", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 3 * HOUR }],
       claims: [CLAIM],
       check: "failing",
       drifted: [{ station: "st_alex", name: "alex@mbp:widgets", badges: ["3 commits behind"] }],

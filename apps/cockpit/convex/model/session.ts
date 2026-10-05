@@ -228,6 +228,9 @@ function learn(summary: Summary, fields: Partial<Summary>): void {
 
 function learnProvenance(summary: Summary, p: Payload): void {
   learn(summary, { trigger: p.str("trigger"), issueUrl: p.str("issue_url"), prUrl: p.str("pr_url") });
+  // A run started on an issue was typed no prompt: what asked for it is the
+  // first work item a provenance named (`#42 title`), as the story's title has it.
+  summary.request ||= p.str("request");
 }
 
 const describeProvenance = (p: Payload) => `provenance: ${p.str("request") || p.str("trigger")}`;

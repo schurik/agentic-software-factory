@@ -109,3 +109,44 @@ export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">, {
   const current = currentOf(stages, (stage) => stage.status, (stage) => stage.phases.length > 0);
   return { kind: "stages", start, stages, end: unstaged[0] ?? null, current };
 }
+
+/**
+ * How a phase drawn on its own looks: a rejected round in the colour of a
+ * failure. A stage only reads its latest phase's mark, so a stage whose round
+ * was rejected looks like it goes on instead.
+ */
+export function lookOf(mark: Mark): StageStatus {
+  return mark === "rejected" ? "failed" : mark;
+}
+
+/** A link of a mini graph: a stage by its name, or — a chapter drawn without stages — a phase, which the page names. */
+export interface MiniBlock {
+  key: string;
+  status: StageStatus;
+  stage: string | null;
+  phase: { type: Phase["type"]; name: string; gate?: string; round?: number; kind?: string } | null;
+}
+
+/** A chapter in one row, with nothing of its phases but their names: what a list's row draws (StageGraph's `MiniGraph`). */
+export interface Mini {
+  blocks: MiniBlock[];
+  /** Which block the chapter is in now, as the graph's `current`. */
+  current: number | null;
+}
+
+export function miniOf(graph: Graph): Mini {
+  if (graph.kind === "stages") {
+    return {
+      blocks: graph.stages.map((stage) => ({ key: String(stage.index), status: stage.status, stage: stage.name, phase: null })),
+      current: graph.current,
+    };
+  }
+  return {
+    blocks: graph.phases.map((phase) => ({
+      key: phase.phaseId, status: lookOf(markOf(phase)), stage: null,
+      phase: phase.type === "gate" ? { type: phase.type, name: phase.name, gate: phase.gate, round: phase.round, kind: phase.kind }
+        : { type: phase.type, name: phase.name },
+    })),
+    current: graph.current,
+  };
+}
