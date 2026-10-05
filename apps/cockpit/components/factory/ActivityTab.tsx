@@ -13,7 +13,7 @@ export interface Happening {
 }
 
 /** Now, showing only `factory`'s: the gates waiting there on the viewer first. */
-export function inboxOf(factory: string): string {
+export function nowOf(factory: string): string {
   return `/?factory=${encodeURIComponent(factory)}`;
 }
 
@@ -69,7 +69,7 @@ function Needs({ item, factory, forge, now, onRelease }: {
       return (
         <>
           <strong>{plural(item.mine, "gate")} waiting on you</strong>{item.total > item.mine ? ` (${item.total} in all)` : ""}.{" "}
-          <Link href={inboxOf(factory)}>Answer in the inbox</Link>
+          <Link href={nowOf(factory)}>Answer on Now</Link>
         </>
       );
     case "failed":

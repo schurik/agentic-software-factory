@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { NowDrawerView } from "../components/now/Now";
+import { NowDrawerView, nowAddress } from "../components/now/Now";
 import { type Progress, RunningRow } from "../components/now/rows";
 import { NowView } from "../components/now/NowView";
 import { ViewerLogin } from "../components/viewer";
@@ -141,7 +141,7 @@ describe("Needs attention", () => {
       .map(([, href, step]) => `${step} ${href}`);
     expect(steps).toEqual([
       "Open /sessions/acme/widgets/e5b3a118",
-      "Release /factories/acme/widgets",
+      "Release /sessions/acme/widgets/c1",
       "Compare /factories/acme/widgets",
       "See config /factories/acme/widgets",
       "Stations /factories/acme/widgets",
@@ -176,6 +176,10 @@ describe("the thresholds, against the given clock", () => {
     expect(read(at(0.19))).toContain("$0.19");
     expect(read(at(0.19))).not.toContain("of $0.25");
     expect(amber(at(0.2), "\\$0.20 of \\$0.25")).toBe(true);
+    // At the ceiling, it is over budget: red.
+    const red = (markup: string, words: string) => new RegExp(`class="[^"]*text-bad[^"]*"[^>]*>${words}<`).test(markup);
+    expect(red(at(0.25), "\\$0.25 of \\$0.25")).toBe(true);
+    expect(red(at(0.2), "\\$0.20 of \\$0.25")).toBe(false);
     // No ceiling, nothing to be close to.
     expect(read(section(html({ ...PAGE, running: [{ ...RUNNING, cost: 9, ceiling: 0 }] }), "Running"))).not.toContain(" of ");
   });
@@ -190,12 +194,36 @@ describe("the thresholds, against the given clock", () => {
 });
 
 describe("the gate's drawer over Now", () => {
+  // The gate's drawer is a live query of its own (gateview.test.tsx renders it): here, which gate it was asked for.
   const gate = (target: { factory: string; session: string; tab: string | null }) =>
     <p>the gate drawer of {target.factory}/{target.session} on {target.tab ?? "its first tab"}</p>;
 
-  it("opens from the address on the gate it names, on its tab", () => {
-    expect(read(renderToStaticMarkup(<NowDrawerView open="acme/widgets/a9f259f0" tab="issue" gate={gate} />)))
-      .toContain("the gate drawer of acme/widgets/a9f259f0 on issue");
-    expect(renderToStaticMarkup(<NowDrawerView open={undefined} tab={undefined} gate={gate} />)).toBe("");
+  /** Now as a browser first paints it at `address`, read back the way the route reads it, and the drawer over it. */
+  function at(address: string): string {
+    const search = new URLSearchParams(address.split("?")[1] ?? "");
+    const [open, tab] = [search.get("open") ?? undefined, search.get("tab") ?? undefined];
+    return renderToStaticMarkup(
+      <ViewerLogin.Provider value="alex">
+        <NowView page={PAGE} now={NOW} selected={open ?? null} openGate={link}
+                 runningRow={(row) => <RunningRow row={row} now={NOW} progress={PROGRESS} />} />
+        <NowDrawerView open={open} tab={tab} gate={gate} />
+      </ViewerLogin.Provider>,
+    );
+  }
+
+  it("opens from the address on the gate it names, on its tab, over the page with that gate's row marked", () => {
+    const markup = at(nowAddress({ open: "acme/widgets/a9f259f0", tab: "issue" }));
+    expect(read(markup)).toContain("the gate drawer of acme/widgets/a9f259f0 on issue");
+    // The page is still there under it, the open gate's row marked.
+    expect(read(section(markup, "Running"))).toContain("Add a health check");
+    expect(section(markup, "Inbox")).toMatch(/<a [^>]*href="\/\?open=acme%2Fwidgets%2Fa9f259f0"[^>]*aria-current="true"/);
+  });
+
+  it("opens a gate waiting on someone else the same way", () => {
+    expect(read(at(nowAddress({ open: "acme/widgets/0f9a6c3d" })))).toContain("the gate drawer of acme/widgets/0f9a6c3d on its first tab");
+  });
+
+  it("holds nothing when the address names no gate", () => {
+    expect(read(at(nowAddress({})))).not.toContain("the gate drawer of");
   });
 });
