@@ -28,6 +28,12 @@ export class Payload {
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
   }
 
+  /** A number, or null where there is none: for a field whose absence is an answer. */
+  numOrNull(key: string): number | null {
+    const value = this.raw[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+
   bool(key: string): boolean {
     return this.raw[key] === true;
   }

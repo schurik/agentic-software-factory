@@ -27,10 +27,19 @@ before — `None` when there are none, never omitted.
   traceback. The run now stops before it touches anything, names where the branch is checked out
   and how to free it, and `asf doctor` — and every run's preflight — warns when the main checkout
   is on a session's branch.
+- **A phase says which stage it belongs to.** `workflow_started` v2 carries the workflow's stages
+  in order, and `phase_started` v3 the index of the stage a phase belongs to — a gate, a revision,
+  a verify or a commit the stage that opened it, the work item's phase and `report` none. A
+  session's shape is read off its own record, not off a self-description the workflow may have
+  outgrown since. `asf/cockpit/min-version` is **1.3.0**, the first cockpit that reads them.
 
 ### Upgrade
 
-Re-stamp with `--force` to pick up the refusal and the warning; nothing else changes.
+1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
+   new factory, or a cockpit older than that shows each chapter's and phase's start as an event it
+   cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
+2. Re-stamp with `--force` to pick up the stages on the record, the refusal and the warning;
+   nothing else changes.
 
 ## 1.2.0 — 2026-10-02
 

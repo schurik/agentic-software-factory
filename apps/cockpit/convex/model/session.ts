@@ -218,6 +218,7 @@ const describeProvenance = (p: Payload) => `provenance: ${p.str("request") || p.
 
 const describePhaseStarted = (p: Payload) =>
   `${p.str("name")} started · ${p.str("kind")}` + (p.str("owner") ? ` ${p.str("owner")}` : "");
+const describePhaseGiven = (p: Payload) => describePhaseStarted(p) + (p.str("task") ? ` · ${p.str("task")}` : "");
 
 /** How an artifact reached the cockpit. A repo file is only named; a handoff
  * file is here whole, cut at the factory's cap, or (not text) not sent at all. */
@@ -230,6 +231,8 @@ function travelled(p: Payload): string {
 }
 
 const ANSWERING: Record<string, string> = { issue: "an issue", pr: "a pull request's review" };
+const describeWorkflowStarted = (p: Payload) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
+  (ANSWERING[p.str("input")] ? `, answering ${ANSWERING[p.str("input")]}` : "");
 
 const money = (cost: number) => `$${cost.toFixed(4)}`;
 const gateRound = (p: Payload | null) => (p ? `${p.str("gate")} round ${p.num("round")}` : "a gate");
@@ -286,9 +289,11 @@ const READERS: Record<string, Record<number, Reader>> = {
   },
   // A chapter: one workflow the session passes through (the story, story.ts).
   workflow_started: {
-    1: {
-      describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
-        (ANSWERING[p.str("input")] ? `, answering ${ANSWERING[p.str("input")]}` : ""),
+    1: { describe: describeWorkflowStarted },
+    // v2 adds the workflow's stages, in order: the chapter's shape, as it ran.
+    2: {
+      describe: (p) => describeWorkflowStarted(p) +
+        (p.strs("stages").length ? ` · ${p.strs("stages").join(" → ")}` : ""),
     },
   },
   workflow_finished: {
@@ -303,8 +308,13 @@ const READERS: Record<string, Record<number, Reader>> = {
   phase_started: {
     1: { describe: describePhaseStarted },
     // v2 adds what an agent phase was given: its task file and its prompt's digest.
-    2: {
-      describe: (p) => describePhaseStarted(p) + (p.str("task") ? ` · ${p.str("task")}` : ""),
+    2: { describe: describePhaseGiven },
+    // v3 adds the stage it belongs to, as an index into its chapter's stages; none for the work item and the report.
+    3: {
+      describe: (p) => {
+        const index = p.numOrNull("stage_index");
+        return describePhaseGiven(p) + (index === null ? "" : ` · stage ${index + 1} of its chapter`);
+      },
     },
   },
   phase_replayed: {

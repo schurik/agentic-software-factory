@@ -305,6 +305,55 @@ describe("edges a recording does not reach", () => {
   });
 });
 
+describe("a session whose factory records its stages", () => {
+  // The same story, recorded by a factory whose chapters name their stages
+  // (`workflow_started` v2) and whose phases say which one they belong to
+  // (`phase_started` v3).
+  async function staged() {
+    const t = cockpit();
+    const token = await factory(t);
+    await ship(t, token, recorded["issue-then-two-reviews-in-stages"].events);
+    return story(t);
+  }
+
+  it("names each chapter's stages, in order, as its workflow listed them", async () => {
+    const { chapters } = await staged();
+
+    expect(chapters.map((chapter) => chapter.stages)).toEqual([
+      ["scout", "plan", "commit", "implement", "verify", "review", "commit", "document", "commit", "integrate"],
+      ["implement", "verify", "commit"],
+      ["implement", "verify", "commit"],
+    ]);
+  });
+
+  it("puts every phase in the stage that opened it, gates and revisions included, and the work item and report in none", async () => {
+    const { chapters } = await staged();
+    const [first, review] = chapters;
+    const stageOf = (items: typeof first.items) => items.flatMap((item) =>
+      item.type === "automatic" || item.type === "resumed" ? [] : [`${item.name} ${item.stageIndex}`]);
+
+    expect(first.reader).toMatchObject({ name: "issue", stageIndex: null });
+    expect(stageOf(first.items)).toEqual([
+      "scout 0", "plan 1", "approve_plan 1", "plan_revise_1 1", "approve_plan_2 1", "commit_plan 2",
+      "implement 3", "verify_1 4", "review_1 5", "commit_implement 6", "changes 7", "document 7",
+      "commit_document 8", "integrate 9", "report null"]);
+    expect(review.reader).toMatchObject({ name: "pr", stageIndex: null });
+    expect(stageOf(review.items)).toEqual(["implement 0", "verify_1 1", "commit_implement 2", "report null"]);
+  });
+
+  it("tells a session recorded before stages were with none, and no stage guessed from a phase's name", async () => {
+    const { t } = await told();
+    const { chapters } = await story(t);
+
+    expect(chapters.map((chapter) => chapter.stages)).toEqual([[], [], []]);
+    for (const chapter of chapters) {
+      for (const item of chapter.items) {
+        if ("stageIndex" in item) expect(item.stageIndex, `${item.type} ${item.name}`).toBeNull();
+      }
+    }
+  });
+});
+
 describe("the story's readers", () => {
   it.each(Object.keys(corpus))("tell %s if they tell its kind at all", (name) => {
     const { kind, v: version } = corpus[name];

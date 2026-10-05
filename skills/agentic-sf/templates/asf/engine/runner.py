@@ -68,6 +68,7 @@ class Run:
         self.cost = 0.0
         self._seq = 0                   # set below, once session_dir is known
         self._unannounced: Phase | None = None     # opened, not yet on the wire — see `announce`
+        self._stage_index: int | None = None       # the workflow's stage running now — see `stage`
         self.workspace = spec.workspace
         self.repo_root = spec.workspace.repo_root      # the tree agents work in
         self.main_root = spec.workspace.main_root      # the checkout that owns data_dir
@@ -294,6 +295,23 @@ class Run:
         except (RuntimeError, OSError):   # a record of a wait is never worth failing it
             return ""
 
+    # ── the stage a phase belongs to ───────────────────────────────────────
+    @contextmanager
+    def stage(self, index: int):
+        """Every phase opened inside belongs to the workflow's stage `index`.
+
+        Held by the runner rather than passed by each stage, so the phases a
+        stage does not open itself — a gate `hitl.gated` asks, the revision it
+        runs, a `--hitl every` checkpoint — belong to the stage that was running
+        when they opened, and a new stage cannot open a phase that says nothing.
+        Outside one (the work item's phase, `report`) a phase belongs to none.
+        """
+        self._stage_index = index
+        try:
+            yield
+        finally:
+            self._stage_index = None
+
     # ── the phase primitive ─────────────────────────────────────────────────
     def _identity(self, params: PhaseParams) -> tuple[int, str]:
         """The number and id this phase runs under: a new one, or the one it had.
@@ -331,7 +349,7 @@ class Run:
         self.tracer.event(PhaseStarted(
             phase_id=phase.phase_id, seq=phase.seq, name=params.name, kind=params.kind,
             owner=params.owner, description=params.description, task=task,
-            prompt_digest=prompt_digest))
+            prompt_digest=prompt_digest, stage_index=phase.stage_index))
 
     def _ended(self, phase: Phase, error: str = "", waiting: WaitingFor | None = None) -> None:
         """Say on the wire how a phase closed — after saying that it opened."""
@@ -346,7 +364,7 @@ class Run:
     def phase(self, params: PhaseParams):
         seq, phase_id = self._identity(params)
         phase = Phase(phase_id=phase_id, adw_id=self.adw_id, seq=seq, params=params,
-                      status="running", started_at=now_iso())
+                      stage_index=self._stage_index, status="running", started_at=now_iso())
         self.phases.append(phase)
         self._unannounced = phase
         if params.kind != "agent":
