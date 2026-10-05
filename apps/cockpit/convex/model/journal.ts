@@ -3,10 +3,12 @@
  * `engine/journal.py`'s `render`, fed by the `journal_noted` events every
  * `journal.file` emits.
  *
- * "Exactly" is the whole point: the Journal view is where a person checks what
- * an agent was told, so it is the factory's text, not a cockpit's rewording of
- * it. The rules are the factory's, kept in step by the golden sessions' own
- * `journal.md` (tests/story.test.ts): an entry is KEYED, so a resumed process
+ * "Exactly" is the whole point: the Journal tab is where a person checks what
+ * an agent was told, so `render` is the factory's text, not a cockpit's
+ * rewording of it, and the tab draws that text's own lines (`numbered`) as
+ * markdown, under its own numbers. The rules are the factory's, kept in step
+ * by the golden sessions' own `journal.md` (tests/story.test.ts): an entry is
+ * KEYED, so a resumed process
  * re-filing a phase lands on the old row instead of beside it, and entries
  * sort by the phase they belong to, the phase's own line first.
  */
@@ -98,37 +100,57 @@ export function file(entries: Entry[], entry: Entry): Entry[] {
   return next.sort((a, b) => a.seq - b.seq || rank(a) - rank(b));
 }
 
-function line(entry: Entry): string {
-  if (entry.kind === "phase") {
-    const head = `${entry.seq}. ${entry.phase} · ${entry.by || "—"} · ${entry.status || "running"}`;
-    return entry.summary ? `${head} — ${entry.summary}` : head;
-  }
+/** A phase's line without its number: the head of its entry on the page. */
+function head(entry: Entry): string {
+  const said = `${entry.phase} · ${entry.by || "—"} · ${entry.status || "running"}`;
+  return entry.summary ? `${said} — ${entry.summary}` : said;
+}
+
+/** A ⚑ or ✎ mark's lines, before the journal indents them under their phase. */
+function markLines(entry: Entry): string[] {
   if (entry.note !== null) {
     const { note } = entry;
-    const parts = [`   ${NOTE_MARK} ${note.kind} (${entry.by}, in ${entry.phase}): ${note.what}`];
-    if (note.insteadOf) parts.push(`     instead of: ${note.insteadOf}`);
-    if (note.because) parts.push(`     because: ${note.because}`);
-    return parts.join("\n");
+    const parts = [`${NOTE_MARK} ${note.kind} (${entry.by}, in ${entry.phase}): ${note.what}`];
+    if (note.insteadOf) parts.push(`instead of: ${note.insteadOf}`);
+    if (note.because) parts.push(`because: ${note.because}`);
+    return parts;
   }
   const remark = entry.remark ?? { gate: "", round: 1, kind: "gate", verdict: "approve", text: "" };
   const where = WHERE[remark.kind] ?? remark.kind;
-  return `   ${REMARK_MARK} ${entry.by} said, ${remark.verdict} at the ${remark.gate} ` +
-    `${where} (round ${remark.round}): ${remark.text}`;
+  return [`${REMARK_MARK} ${entry.by} said, ${remark.verdict} at the ${remark.gate} ` +
+    `${where} (round ${remark.round}): ${remark.text}`];
 }
 
-/** A ⚑ or ✎ line, with the lines under it, exactly as the journal writes it. */
+function line(entry: Entry): string {
+  if (entry.kind === "phase") return `${entry.seq}. ${head(entry)}`;
+  // The mark three spaces in, what it says of itself two more.
+  return markLines(entry).map((part, i) => (i === 0 ? "   " : "     ") + part).join("\n");
+}
+
+/** The block a prompt carries, or "" while the run has done nothing yet. */
+export function render(entries: Entry[]): string {
+  if (entries.length === 0) return "";
+  return PREAMBLE + "\n" + entries.map(line).join("\n") + "\n";
+}
+
+/**
+ * A ⚑ or ✎ line with the lines under it, as markdown reads them: without the
+ * indentation `line` puts them under their phase, which markdown would take
+ * for code — and only that indentation, so what an agent or a person wrote
+ * keeps its own.
+ */
 export interface Mark {
   kind: "note" | "remark";
   text: string;
 }
 
 /**
- * One numbered line of the journal and the marked lines under it in the text.
- * The number is the phase's seq, so the numbers skip (7, 10, 12): a page that
- * handed the text to a stock markdown renderer would renumber them 7, 8, 9.
- * A mark filed under a phase that wrote no line of its own sits under the
- * line before it, as it does in the text — and under no number (`seq` null)
- * when nothing precedes it.
+ * One numbered line of the journal and the marked lines under it in the text,
+ * for a page to draw. The number is the phase's seq, so the numbers skip (7,
+ * 10, 12): a page that handed `render`'s text to a stock markdown renderer
+ * would renumber them 7, 8, 9. A mark filed under a phase that wrote no line
+ * of its own sits under the line before it, as it does in the text — and under
+ * no number (`seq` null) when nothing precedes it.
  */
 export interface Numbered {
   seq: number | null;
@@ -136,24 +158,16 @@ export interface Numbered {
   marks: Mark[];
 }
 
-/** The journal as its numbered lines: what `render` writes, one entry per number. */
+/** The journal `render` writes, as its numbered lines: one entry per number. */
 export function numbered(entries: Entry[]): Numbered[] {
   const out: Numbered[] = [];
   for (const entry of entries) {
     if (entry.kind === "phase") {
-      out.push({ seq: entry.seq, head: line(entry).slice(`${entry.seq}. `.length), marks: [] });
+      out.push({ seq: entry.seq, head: head(entry), marks: [] });
       continue;
     }
     if (out.length === 0) out.push({ seq: null, head: "", marks: [] });
-    out.at(-1)!.marks.push({ kind: entry.note !== null ? "note" : "remark", text: line(entry) });
+    out.at(-1)!.marks.push({ kind: entry.note !== null ? "note" : "remark", text: markLines(entry).join("\n") });
   }
   return out;
-}
-
-/** The block a prompt carries, or "" while the run has done nothing yet. */
-export function render(entries: Entry[]): string {
-  if (entries.length === 0) return "";
-  const lines = numbered(entries).flatMap(({ seq, head, marks }) =>
-    [...(seq === null ? [] : [`${seq}. ${head}`]), ...marks.map((mark) => mark.text)]);
-  return PREAMBLE + "\n" + lines.join("\n") + "\n";
 }

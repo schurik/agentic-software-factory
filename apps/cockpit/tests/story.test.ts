@@ -201,15 +201,24 @@ describe("the journal", () => {
     expect(numbers.join(" ")).toContain("7 10 12");
   });
 
-  it("keeps each marked line under the numbered line it follows in the text, as written", async () => {
+  it("comes in entries that are the journal's own lines, each once and in its order", async () => {
+    const { t } = await told();
+    const { journalEntries } = await story(t);
+    const lines = journalEntries.flatMap(({ seq, head, marks }) => [`${seq}. ${head}`, ...marks.map((mark) => mark.text)]);
+    // Only the indentation that sets a mark under its phase is the entries' to drop.
+    const body = JOURNAL.slice(JOURNAL.search(/^1\. /m)).trimEnd().split("\n").map((each) => each.trimStart());
+    expect(lines.join("\n").split("\n")).toEqual(body);
+  });
+
+  it("keeps each marked line under the numbered line it follows in the text, without the indent that put it there", async () => {
     const { t } = await told();
     const byNumber = new Map((await story(t)).journalEntries.map((entry) => [entry.seq, entry]));
     expect(byNumber.get(3)).toMatchObject({
       head: "plan · planner · success — a required meeting date, and a test for its format",
-      marks: [{ kind: "note", text: "   ⚑ risk (planner, in plan): the date is local midnight\n     because: converted in UTC it is the previous day" }],
+      marks: [{ kind: "note", text: "⚑ risk (planner, in plan): the date is local midnight\nbecause: converted in UTC it is the previous day" }],
     });
     expect(byNumber.get(4)?.marks).toEqual([
-      { kind: "remark", text: "   ✎ asf tests said, reject at the plan gate (round 1): name the module the date is converted in" },
+      { kind: "remark", text: "✎ asf tests said, reject at the plan gate (round 1): name the module the date is converted in" },
     ]);
     // The builder's deviation was filed under a phase that wrote no line of its
     // own, so the text puts it under commit_plan, and so does the entry.
@@ -218,17 +227,18 @@ describe("the journal", () => {
   });
 
   it("puts a mark filed before any numbered line under no number, where the text has it", () => {
-    const remark = { gate: "plan", round: 1, kind: "gate", verdict: "reject", text: "say *why*" };
+    // What a person typed keeps its own indentation; only the journal's goes.
+    const remark = { gate: "plan", round: 1, kind: "gate", verdict: "reject", text: "say *why*:\n  - the date" };
     const entries: Entry[] = [
       { seq: 2, kind: "remark", phase: "approve_plan", by: "ana", status: "", summary: "", note: null, remark },
       { seq: 3, kind: "phase", phase: "plan", by: "planner", status: "success", summary: "", note: null, remark: null },
     ];
     expect(numbered(entries)).toEqual([
-      { seq: null, head: "", marks: [{ kind: "remark", text: "   ✎ ana said, reject at the plan gate (round 1): say *why*" }] },
+      { seq: null, head: "", marks: [{ kind: "remark", text: "✎ ana said, reject at the plan gate (round 1): say *why*:\n  - the date" }] },
       { seq: 3, head: "plan · planner · success", marks: [] },
     ]);
-    expect(render(entries).split("\n").slice(-3)).toEqual([
-      "   ✎ ana said, reject at the plan gate (round 1): say *why*", "3. plan · planner · success", ""]);
+    expect(render(entries).split("\n").slice(-4)).toEqual([
+      "   ✎ ana said, reject at the plan gate (round 1): say *why*:", "  - the date", "3. plan · planner · success", ""]);
   });
 
   it("is, at every task the factory sent an agent, the journal that prompt ended with", async () => {

@@ -58,9 +58,10 @@ needed), and CI runs all three. `bun run test`, not `bun test`: the latter is Bu
 new event kind or version needs a reader in `apps/cockpit/convex/model/session.ts` in the same PR
 — and, for a kind the session page's story tells, a teller in `convex/model/story.ts`.
 They also tell every whole session under `tests/golden/sessions/` (recorded, never edited — a new
-one is `ASF_RECORD_SESSIONS=1 pytest tests/test_asf_golden_sessions.py`), and the journal the session page's
-Journal tab draws must match the `journal.md` recorded beside it byte for byte (`convex/model/journal.ts`
-is `engine/journal.py`'s `render`, in TypeScript; the tab renders it as markdown, under its own numbers).
+one is `ASF_RECORD_SESSIONS=1 pytest tests/test_asf_golden_sessions.py`), and the journal the
+session page's Journal tab draws must match the `journal.md` recorded beside it byte for byte
+(`convex/model/journal.ts` is `engine/journal.py`'s `render`, in TypeScript; the tab renders it as
+markdown, under its own numbers).
 An inbox answer is a comment the factory's answers watcher reads, so its form is a contract too:
 `tests/golden/answers/` holds each rendering, which the cockpit renders byte for byte and
 `tests/test_asf_answers.py` proves the watcher hears as meant — change both ends in one PR.
