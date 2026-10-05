@@ -14,7 +14,7 @@ export interface Line {
   text: string;
   /** Its number before and after, null on the side it is not on. */
   old: number | null;
-  now: number | null;
+  new: number | null;
   /** The line it replaced, or was replaced by, when a run of removals meets a run of additions. */
   pair: string | null;
 }
@@ -80,16 +80,16 @@ function unprefixed(name: string | undefined): string | null {
 }
 
 function hunkOf(hunk: StructuredPatchHunk): Hunk {
-  let [old, now] = [hunk.oldStart, hunk.newStart];
+  let [old, numbered] = [hunk.oldStart, hunk.newStart];
   const lines: Line[] = hunk.lines
     // "\ No newline at end of file" is about the line before it, not a line.
     .filter((line) => !line.startsWith("\\"))
     .map((line) => {
       const sign = line[0] === "+" || line[0] === "-" ? line[0] : " ";
       const text = line.slice(1);
-      if (sign === "+") return { sign, text, old: null, now: now++, pair: null };
-      if (sign === "-") return { sign, text, old: old++, now: null, pair: null };
-      return { sign, text, old: old++, now: now++, pair: null };
+      if (sign === "+") return { sign, text, old: null, new: numbered++, pair: null };
+      if (sign === "-") return { sign, text, old: old++, new: null, pair: null };
+      return { sign, text, old: old++, new: numbered++, pair: null };
     });
   pair(lines);
   return { header: `@@ -${side(hunk.oldStart, hunk.oldLines)} +${side(hunk.newStart, hunk.newLines)} @@`, lines };

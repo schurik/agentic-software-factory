@@ -404,16 +404,16 @@ async function shown(github: GitHub, as: Credential, where: string): Promise<unk
 
 /** The diff of two commits of `repo`, as `as` is shown it, or null when it is not. Never remembered, like a file. */
 export async function compare(github: GitHub, as: Credential, repo: string, base: string, head: string): Promise<string | null> {
-  const where = `/repos/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
-  const response = await github.send(as, "GET", github.api + where, { Accept: "application/vnd.github.diff" });
-  if (response.ok) return await response.text();
-  if (UNSHOWN.has(response.status)) return null;
-  throw await refusal(response, where);
+  return await diffAt(github, as, `/repos/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
 }
 
 /** The diff of commit `sha` of `repo` against its parent, as `as` is shown it, or null when it is not. Never remembered. */
 export async function commitDiff(github: GitHub, as: Credential, repo: string, sha: string): Promise<string | null> {
-  const where = `/repos/${repo}/commits/${encodeURIComponent(sha)}`;
+  return await diffAt(github, as, `/repos/${repo}/commits/${encodeURIComponent(sha)}`);
+}
+
+/** What the forge serves at `where` as a diff, or null when it will not show it to `as`. */
+async function diffAt(github: GitHub, as: Credential, where: string): Promise<string | null> {
   const response = await github.send(as, "GET", github.api + where, { Accept: "application/vnd.github.diff" });
   if (response.ok) return await response.text();
   if (UNSHOWN.has(response.status)) return null;

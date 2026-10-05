@@ -73,7 +73,7 @@ describe("the forge's diff, read into files", () => {
   it("numbers each line on the side it is on, from the hunk's header", () => {
     const [app] = filesOf(DIFF);
     expect(app.hunks.map((hunk) => hunk.header)).toEqual(["@@ -1,4 +1,4 @@", "@@ -20 +20,3 @@"]);
-    expect(app.hunks[1].lines.map(({ sign, old, now }) => [sign, old, now])).toEqual([
+    expect(app.hunks[1].lines.map((line) => [line.sign, line.old, line.new])).toEqual([
       [" ", 20, 20], ["+", null, 21], ["+", null, 22],
     ]);
   });

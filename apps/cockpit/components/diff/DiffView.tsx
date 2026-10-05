@@ -4,11 +4,16 @@ import { Collapsible } from "@base-ui/react/collapsible";
 import { ChevronRight, Columns2, Rows2 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Read } from "@/convex/diffs";
+import { usePhone } from "../Drawer";
 import { plural } from "../format";
 import { cx, DiffBlock, Tag } from "../ui";
 import { type DiffFile, filesOf, isProse, type Line, wordsOf } from "./files";
 
-/** Read a diff from the forge (`diffs.commit`, `diffs.changes`): `subject` names which. */
+/**
+ * Read a diff from the forge (`diffs.commit`, `diffs.changes`). `subject` is
+ * what the diff is of — a commit, or two — and a new one is read again; a
+ * reader that already knows which diff it reads may ignore it.
+ */
 export type ReadDiff = (subject: string) => Promise<Read>;
 
 /**
@@ -19,7 +24,10 @@ export type ReadDiff = (subject: string) => Promise<Read>;
  * Prose wraps; code keeps its columns and scrolls.
  */
 export function DiffView({ text, title, defaultSplit = false }: { text: string; title?: ReactNode; defaultSplit?: boolean }) {
-  const [split, setSplit] = useState(defaultSplit);
+  const [chosen, setSplit] = useState(defaultSplit);
+  // Two columns need the room: a phone reads the diff unified, whatever was chosen on a wider screen.
+  const phone = usePhone();
+  const split = chosen && !phone;
   const files = useMemo(() => {
     try {
       return filesOf(text);
@@ -44,7 +52,6 @@ export function DiffView({ text, title, defaultSplit = false }: { text: string; 
         <span>{plural(files.length, "file")} changed</span>
         <Counts added={added} removed={removed} />
         <span className="grow" />
-        {/* Two columns need the room: a phone reads the diff unified. */}
         <div className="flex rounded-md border border-line p-0.5 max-md:hidden">
           {([false, true] as const).map((each) => (
             <button key={String(each)} type="button" aria-pressed={split === each} onClick={() => setSplit(each)}
@@ -61,8 +68,8 @@ export function DiffView({ text, title, defaultSplit = false }: { text: string; 
 }
 
 /** What reading a diff from the forge gave, or null while it is being read: never nothing, without saying why. */
-export function DiffRead({ got, title, defaultSplit }: { got: Read | null; title?: ReactNode; defaultSplit?: boolean }) {
-  if (got !== null && got.ok && got.diff.trim()) return <DiffView text={got.diff} title={title} defaultSplit={defaultSplit} />;
+export function DiffRead({ got, title }: { got: Read | null; title?: ReactNode }) {
+  if (got !== null && got.ok && got.diff.trim()) return <DiffView text={got.diff} title={title} />;
   return (
     <div className="flex flex-col gap-3">
       {title ? <Summary title={title} /> : null}
@@ -73,7 +80,11 @@ export function DiffRead({ got, title, defaultSplit }: { got: Read | null; title
   );
 }
 
-/** A diff read from the forge as it is shown, and never kept; read again when `subject` names another. */
+/**
+ * A diff read from the forge as it is shown, and never kept. Keyed by
+ * `subject`, so another subject starts from "Reading…" rather than showing
+ * the last one's diff under the new title.
+ */
 export function ForgeDiff({ subject, read, title }: { subject: string; read?: ReadDiff; title?: ReactNode }) {
   return <Reading key={subject} subject={subject} read={read} title={title} />;
 }
@@ -157,7 +168,7 @@ function UnifiedRows({ lines, prose }: { lines: Line[]; prose: boolean }) {
       {lines.map((line, index) => (
         <div key={index} data-line={LINE[line.sign]} className={cx("flex", TONE[line.sign])}>
           <span data-n="old" className={number}>{line.old ?? ""}</span>
-          <span data-n="new" className={number}>{line.now ?? ""}</span>
+          <span data-n="new" className={number}>{line.new ?? ""}</span>
           <span aria-hidden="true" className={cx("w-4 shrink-0 text-center select-none",
                                                  line.sign === "+" ? "text-ok" : line.sign === "-" ? "text-bad" : "text-muted")}>
             {line.sign}
@@ -180,7 +191,7 @@ function SplitTable({ file, prose }: { file: DiffFile; prose: boolean }) {
     return (
       <>
         <td data-side={which} data-line={line ? LINE[line.sign] : undefined} className={cx(number, "align-top", tone)}>
-          {line ? (which === "old" ? line.old : line.now) ?? "" : ""}
+          {line ? line[which] ?? "" : ""}
         </td>
         <td className={cx(textOf(prose), "align-top", tone, which === "old" && "border-r border-line")}>
           {line ? <Words line={line} /> : null}
