@@ -20,6 +20,7 @@ import { Button, buttonClass, Card, cx, menuItem, menuPopup, Notice, num, Pre, S
 import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
+import { Journal } from "./Journal";
 import { NowCard } from "./NowCard";
 import { type PhaseTabsOf, SessionDrawer } from "./SessionDrawer";
 import { chapterOpen, goTo, type SessionTab, type Shown, SHOWN, stageKey, withChapter, withPhase, withStage } from "./shown";
@@ -117,12 +118,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
           ) : shown.tab === "timeline" ? (
             <Timeline chapters={story.chapters} opened={shown.phase} openPhase={openPhase} />
           ) : (
-            <div className="max-w-[80ch]">
-              <pre className="text-xs">{story.journal || "Nothing has closed yet: the next agent would be told nothing."}</pre>
-              <p className="mt-2 text-sm text-muted">
-                Exactly what the next agent reads. ⚑ is a report an agent filed; ✎ is an instruction a person gave.
-              </p>
-            </div>
+            <Journal entries={story.journalEntries} />
           )}
         </div>
       </Card>

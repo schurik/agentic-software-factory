@@ -562,8 +562,9 @@ The corpus also holds whole sessions (`../../tests/golden/sessions/<name>/`), re
 harness by `tests/test_asf_golden_sessions.py`: one line per kind proves a reader exists, but only a
 real session proves the session page's story reads right — chapters, what a resume replayed, whose
 decision closed which round. `tests/story.test.ts` asserts the story the query tells of each, and
-that its Journal view is byte for byte the `journal.md` the factory rendered and the journal every
-task prompt in the recording ended with; `tests/sessionview.test.tsx` renders the page itself from
+that its journal is byte for byte the `journal.md` the factory rendered and the journal every
+task prompt in the recording ended with — the Journal tab draws that text entry by entry, under the
+journal's own numbers, with markdown rendered inside; `tests/sessionview.test.tsx` renders the page itself from
 the same session to static markup, with no backend and no browser. A stage or a phase opens in the
 drawer over the page, and which one is the address's: `tests/drawerview.test.tsx` renders the
 drawer each address opens. A phase's view leads with what it cost, and opens into the tabs it has

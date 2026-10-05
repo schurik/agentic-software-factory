@@ -17,7 +17,7 @@ const REMARK_MARK = "✎";
 
 // Word for word the factory's PREAMBLE, both marker paragraphs included:
 // they are what tells an agent a note is a report and a remark an instruction.
-const PREAMBLE =
+export const PREAMBLE =
   "## This run so far\n" +
   "\n" +
   "The factory wrote this as the run went. Each numbered line is a phase that closed;\n" +
@@ -116,8 +116,44 @@ function line(entry: Entry): string {
     `${where} (round ${remark.round}): ${remark.text}`;
 }
 
+/** A ⚑ or ✎ line, with the lines under it, exactly as the journal writes it. */
+export interface Mark {
+  kind: "note" | "remark";
+  text: string;
+}
+
+/**
+ * One numbered line of the journal and the marked lines under it in the text.
+ * The number is the phase's seq, so the numbers skip (7, 10, 12): a page that
+ * handed the text to a stock markdown renderer would renumber them 7, 8, 9.
+ * A mark filed under a phase that wrote no line of its own sits under the
+ * line before it, as it does in the text — and under no number (`seq` null)
+ * when nothing precedes it.
+ */
+export interface Numbered {
+  seq: number | null;
+  head: string;          // the phase's line, without its number
+  marks: Mark[];
+}
+
+/** The journal as its numbered lines: what `render` writes, one entry per number. */
+export function numbered(entries: Entry[]): Numbered[] {
+  const out: Numbered[] = [];
+  for (const entry of entries) {
+    if (entry.kind === "phase") {
+      out.push({ seq: entry.seq, head: line(entry).slice(`${entry.seq}. `.length), marks: [] });
+      continue;
+    }
+    if (out.length === 0) out.push({ seq: null, head: "", marks: [] });
+    out.at(-1)!.marks.push({ kind: entry.note !== null ? "note" : "remark", text: line(entry) });
+  }
+  return out;
+}
+
 /** The block a prompt carries, or "" while the run has done nothing yet. */
 export function render(entries: Entry[]): string {
   if (entries.length === 0) return "";
-  return PREAMBLE + "\n" + entries.map(line).join("\n") + "\n";
+  const lines = numbered(entries).flatMap(({ seq, head, marks }) =>
+    [...(seq === null ? [] : [`${seq}. ${head}`]), ...marks.map((mark) => mark.text)]);
+  return PREAMBLE + "\n" + lines.join("\n") + "\n";
 }
