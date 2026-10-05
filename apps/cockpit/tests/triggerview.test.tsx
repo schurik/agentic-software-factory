@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type Asked, TriggerButton, TriggerFormView } from "../components/trigger/Trigger";
 
-// The trigger on the Factories page, rendered to static markup with no
+// The trigger on a factory's page, rendered to static markup with no
 // backend: a button that is disabled, with the reason, wherever the forge
 // would refuse the label (spec #40), and a form that says what pressing it does.
 

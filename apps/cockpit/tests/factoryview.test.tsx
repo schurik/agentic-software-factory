@@ -68,7 +68,7 @@ describe("the header", () => {
   it("names the check's state, the budget, and the stations whose config drifted", () => {
     const shown = page();
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} />);
+      <FactoryHeader page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} triggering={false} onTrigger={() => {}} />);
 
     expect(html).toContain("check failing");
     expect(html).toContain("2 stations drifted");
@@ -76,10 +76,18 @@ describe("the header", () => {
     expect(html).not.toContain("Run a prompt");                     // the app header's, not the factory's (#108)
   });
 
+  it("offers Trigger… on a factory the forge shows — the Factories list's rows open the page, so this is its one way in", () => {
+    const header = (shown: Page) => renderToStaticMarkup(
+      <FactoryHeader page={shown} look={null} drifts={new Map()} forge={FORGE} triggering={false} onTrigger={() => {}} />);
+
+    expect(header(page())).toMatch(/<button[^>]*>Trigger…<\/button>/);
+    expect(header(page({ onForge: false }))).not.toContain("Trigger…");
+  });
+
   it("is unchecked, never broken, without a CI workflow", () => {
     const shown = page({ check: null, stations: [] });
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} drifts={new Map()} forge={FORGE} />);
+      <FactoryHeader page={shown} look={null} drifts={new Map()} forge={FORGE} triggering={false} onTrigger={() => {}} />);
 
     expect(html).toContain("unchecked");
     expect(html).not.toContain("failing");

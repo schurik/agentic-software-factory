@@ -179,7 +179,7 @@ the people its trust list names. The list and the open gate are live queries.
 
 ## Triggering a workflow
 
-A factory's row on the Factories page has a **Trigger** button: pick a workflow and an issue, and the
+A factory's page has a **Trigger** button in its header: pick a workflow and an issue, and the
 cockpit adds that workflow's route label and the factory's queued label to the issue **as the
 viewer** — on their user access token in a team cockpit, or the local cockpit's `gh auth token`.
 Nothing is started here: the factory's issues watcher dequeues the issue on its next poll, as it
@@ -352,18 +352,19 @@ A local cockpit is one person's and grants nothing: a factory claims only from a
 
 ## The Factories list: what needs attention first
 
-`/factories` ranks the factories the viewer can read: those that need attention first — the same
-facts as a Factory page's Needs attention, from the same `attentionOf` — then the most recently
-active, then the rest by name; **A–Z** orders by name alone (`convex/model/factories.ts`). Like the
-Factory page, the ranking is read against the page's clock, so a failure stops ranking its factory
-first a day after it ended. Each row says how many sessions are **live** (running, not suspended), the
-**gates waiting** on the viewer of all that wait, its **stations online** of all that registered, its
-**spend** in the period picked — today, this week or this month (the default), calendar periods in
-the viewer's own timezone (`convex/model/period.ts`), list-price equivalent with the tokens
-alongside — and a flag for each other reason it needs attention: a failure in the last day, a claim
-whose station has been offline over a day ("#42 held by `alex@mbp`, offline 2 d"), drift, a failing
-check, nobody watching. Drift there is measured against the commit the default branch's last check
-ran on, since a query cannot ask the forge; the Factory page measures against the forge's tip.
+`/factories` ranks the factories the viewer can read, drawn with Now's rows: those that need
+attention first — the same facts as a Factory page's Needs attention, from the same `attentionOf` —
+then the most recently active, then the rest by name (`convex/model/factories.ts`). Like the Factory
+page, the ranking is read against the page's clock, so a failure stops ranking its factory first a
+day after it ended. Each row says what needs the viewer — the **gates waiting on them**, a **failing
+check**, and how many other things need attention (a failure in the last day, a claim whose station
+has been offline over a day, drift, nobody watching), which its page and Now name — then what is
+moving: sessions **running** (not suspended), its **stations online** of all that registered, and
+the **workflows** its default branch's self-description loads. On the right are its **spend** this
+month, a calendar month in the viewer's own timezone (`convex/model/period.ts`), list-price
+equivalent, and when it was last active. A row opens its factory, whose header holds **Trigger…**.
+Drift there is measured against the commit the default branch's last check ran on, since a query
+cannot ask the forge; the Factory page measures against the forge's tip.
 
 Spend comes from the `usage` events: ingest adds each agent call's cost and tokens to a row per
 session, quarter hour and **charge** (`spend`, `convex/model/spend.ts`) as the event becomes
