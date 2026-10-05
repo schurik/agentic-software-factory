@@ -3,8 +3,9 @@
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { markOf, type Phase, phasesOf, type Stage } from "@/convex/model/graph";
-import type { Chapter, Story } from "@/convex/model/story";
+import type { Chapter, GateItem, Story } from "@/convex/model/story";
 import { Drawer, DrawerFrame } from "../Drawer";
+import { verbsOf } from "../gate/answer";
 import { formatClock, formatCost, formatDuration, formatTokens, plural, secondsBetween } from "../format";
 import { KindIcon, StageIcon, StatusIcon } from "../icons";
 import { followInPlace, type Go, StatusPill, Tag } from "../ui";
@@ -16,15 +17,17 @@ import { phaseName, stagePurpose } from "./words";
 
 /**
  * The session page's drawer (#110): a stage's view — its phases, each one
- * click from its own view — and a phase's. Which one is open is the
+ * click from its own view — a phase's, and the gate the session waits at
+ * (#113), answered in it as in the Inbox. Which one is open is the
  * address's (`Shown`), so a link opens exactly that drawer, and a phase
  * opened from a stage's view keeps the stage under it, for Back.
  */
 export function SessionDrawer(props: DrawerProps) {
   const { page, shown, onShow } = props;
   // A link to a stage or a phase this session never had opens nothing.
-  const { found, stage } = openIn(page.story, shown);
-  const label = found ? `${phaseName(found.phase)} phase` : stage ? `${stage.stage.name} stage` : "";
+  const { gate, found, stage } = openIn(page.story, shown);
+  const label = gate ? verbsOf({ gate: gate.gate, kind: gate.kind, questions: 0 }).question
+    : found ? `${phaseName(found.phase)} phase` : stage ? `${stage.stage.name} stage` : "";
   return (
     <Drawer open={label !== ""} label={label} onClose={() => onShow?.(closed(shown))}>
       <DrawerView {...props} />
@@ -39,15 +42,26 @@ export interface DrawerProps {
   onShow?: (shown: Shown) => void;
   /** A phase's tabs, as the page asks for them: its detail is a query of its own. */
   phase?: PhaseTabsOf;
+  /** The gate waiting, in its drawer, as the page asks for it: a live query of its own, and the answer posted from it. */
+  gate?: GateOf;
 }
 
 /** A phase's tabs, `tab` showing; `onTab` goes to another. */
 export type PhaseTabsOf = (item: Phase, tab: string | null, onTab: (tab: string) => void) => ReactNode;
 
+/** The gate waiting at `item`, on `tab`; `onTab` goes to another, and `close` closes the drawer. */
+export type GateOf = (item: GateItem, tab: string | null, onTab: (tab: string) => void, close: Go) => ReactNode;
+
+/** The gate the session waits at now, if it does: what the Now card's button and its phase in the graph open. */
+export function waitingGate(story: Story): GateItem | null {
+  return story.chapters.at(-1)?.items.find((item): item is GateItem => item.type === "gate" && item.status === "waiting") ?? null;
+}
+
 /** What the drawer holds for the address, or null when nothing is open in it. Pure: a test renders it as is. */
-export function DrawerView({ page, shown, onShow, phase }: DrawerProps): ReactNode {
+export function DrawerView({ page, shown, onShow, phase, gate: gateOf }: DrawerProps): ReactNode {
   const go = (to: Shown) => goTo(to, onShow);
-  const { found, stage } = openIn(page.story, shown);
+  const { gate, found, stage } = openIn(page.story, shown);
+  if (gate) return gateOf?.(gate, shown.gateTab, (tab) => onShow?.({ ...shown, gateTab: tab }), go(closed(shown))) ?? null;
   if (found) {
     return (
       <DrawerFrame icon={<KindIcon type={found.phase.type} className="size-4" />} title={phaseName(found.phase)}
@@ -76,9 +90,18 @@ interface Found {
   stage: Stage | null;
 }
 
-/** What the address opens in the drawer: a phase (over the stage it was opened from, if any), or a stage. */
-function openIn(story: Story, shown: Shown): { found: Found | null; stage: { chapter: Chapter; stage: Stage } | null } {
-  return { found: phaseAt(story, shown.phase), stage: stageAt(story, shown.stage) };
+/**
+ * What the address opens in the drawer: the gate waiting; a phase (over the
+ * stage it was opened from, if any); or a stage. A gate the session no longer
+ * waits at opens as the phase it was.
+ */
+function openIn(story: Story, shown: Shown): {
+  gate: GateItem | null; found: Found | null; stage: { chapter: Chapter; stage: Stage } | null;
+} {
+  const waiting = waitingGate(story);
+  if (shown.gate && waiting?.phaseId === shown.gate) return { gate: waiting, found: null, stage: null };
+  if (shown.gate) return { gate: null, found: phaseAt(story, shown.gate), stage: null };
+  return { gate: null, found: phaseAt(story, shown.phase), stage: stageAt(story, shown.stage) };
 }
 
 /** The phase the address names, in the chapter it is a phase of. */
