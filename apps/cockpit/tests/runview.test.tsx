@@ -53,7 +53,13 @@ describe("the run dialog", () => {
   it("names the station it runs on: the viewer's default, and whether it is listening", () => {
     expect(form()).toContain("Runs on alex@desk:widgets · online");
     expect(form()).toContain("only ever one of your own");
-    expect(form()).not.toContain('class="my-3');                       // no notice: nothing in the way
+  });
+
+  it("runs on another of the viewer's stations when their default would refuse it", () => {
+    const refuses = { ...TARGETS.stations[0], refused: "alex@desk:widgets does not take run" };
+    const html = form({ state: typed, targets: { ...TARGETS, stations: [refuses, TARGETS.stations[1]] } });
+    expect(html).toContain("Runs on alex@mbp:widgets · last seen 3h ago");
+    expect(runButton(html)).not.toContain('disabled=""');
   });
 
   it("says why it cannot run, and will not", () => {
@@ -80,7 +86,7 @@ describe("the run dialog", () => {
 
   it("asks for a factory when none is chosen, and says when the viewer has none to run on", () => {
     expect(runButton(form({ state: { ...typed, factory: "" } }))).toContain('disabled=""');
-    expect(form({ factories: [], state: { ...typed, factory: "" } })).toContain("You have no station yet");
+    expect(form({ factories: [], state: { ...typed, factory: "" } })).toContain("you have no station yet");
   });
 
   it("lists the viewer's latest runs on the factory, and what became of each", () => {

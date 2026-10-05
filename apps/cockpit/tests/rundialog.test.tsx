@@ -19,6 +19,10 @@ describe("the factory in view", () => {
     expect(factoryInView("/sessions", "")).toBeNull();
     expect(factoryInView("/stations", "?factory=acme/widgets")).toBeNull();
   });
+
+  it("is none, rather than an error on every page, for a path that does not decode", () => {
+    expect(factoryInView("/factories/acme/%E0%A4%A", "")).toBeNull();
+  });
 });
 
 describe("the dialog's state", () => {

@@ -16,8 +16,9 @@ export type Me = FunctionReturnType<typeof api.viewer.me>;
  * The header every page sits under (#105): the brand — with "local" under it
  * in a local cockpit — the three places, Run a prompt (#108), the one way
  * to start one, and the viewer's avatar, whose menu holds who they are,
- * which kind of cockpit this is, the theme, and Sign out in a team cockpit. It stands up from the page: the card surface over the
- * page's grey, and the place you are in underlined in the accent on its rule.
+ * which kind of cockpit this is, the theme, and Sign out in a team
+ * cockpit. It stands up from the page: the card surface over the page's
+ * grey, and the place you are in underlined in the accent on its rule.
  */
 export function Header({ me, path, onSignOut, onRun }: { me: Me | undefined; path: string; onSignOut: () => void; onRun: () => void }) {
   const known = knows(me);

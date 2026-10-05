@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Role } from "@/convex/forge/forge";
 import { refusal } from "@/convex/model/trigger";
 import type { Offered, Triggered } from "@/convex/trigger";
-import { said } from "../Shell";
+import { said } from "../said";
 import { Button, control, Field, Notice } from "../ui";
 import { useWho } from "../viewer";
 

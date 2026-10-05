@@ -43,13 +43,22 @@ export function runWords(run: RunRow, now: number): string {
   }
 }
 
+/** What the dialog knows of the chosen factory: what `refusal` reads. */
+interface Asked {
+  factory: string;
+  factories: string[];
+  targets: Targets | null | undefined;
+  offered: Offered | null | undefined;
+  /** The station a run would go to. */
+  station: Targets["stations"][number] | undefined;
+}
+
 /**
  * Why nothing can run on the chosen factory, in a sentence, or null when
  * something can. Undefined while what it depends on is still being asked.
  */
-function refusal(factory: string, factories: string[], targets: Targets | null | undefined, offered: Offered | null | undefined,
-                 station: Targets["stations"][number] | undefined): string | null | undefined {
-  if (!factory) return factories.length ? null : "You have no station yet: run `asf station register` in a checkout of a factory.";
+function refusal({ factory, factories, targets, offered, station }: Asked): string | null | undefined {
+  if (!factory) return factories.length ? null : "you have no station yet: run `asf station register` in a checkout of a factory";
   if (targets === undefined || offered === undefined) return undefined;
   if (targets === null || offered === null) return `${factory} is not a repository you can read`;
   if (targets.refused) return targets.refused;
@@ -90,8 +99,9 @@ export function RunForm({ factories, state, workflows, targets, runs, now, busy,
 }) {
   const offered = workflows?.workflows ?? [];
   const workflow = workflowOf(state.workflow, offered);
-  const station = targets?.stations.find((each) => each.default);
-  const cannot = refusal(state.factory, factories, targets, workflows, station);
+  // Their default, unless it would refuse a run and another of theirs would take it.
+  const station = targets?.stations.find((each) => each.refused === null) ?? targets?.stations.find((each) => each.default);
+  const cannot = refusal({ factory: state.factory, factories, targets, offered: workflows, station });
   const ready = cannot === null && state.factory !== "" && station !== undefined && workflow !== "" && state.prompt.trim() !== "" && !busy;
   return (
     <form className="grid gap-4" onSubmit={(event) => {

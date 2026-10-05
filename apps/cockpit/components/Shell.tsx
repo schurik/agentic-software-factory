@@ -12,8 +12,6 @@ import { carry, holdSignIn, useSignIn } from "./signIn";
 import { Loading } from "./ui";
 import { ViewerLogin } from "./viewer";
 
-export { said };
-
 const Cockpit = createContext<Me | null>(null);
 
 /** Which cockpit this is and who is looking — for anything inside the shell. */

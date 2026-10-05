@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useAction, useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { said, useCockpit } from "./Shell";
+import { said } from "./said";
+import { useCockpit } from "./Shell";
 import { carried, carry } from "./signIn";
 
 /**

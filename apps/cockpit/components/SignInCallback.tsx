@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAction } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { said } from "./Shell";
+import { said } from "./said";
 import { carried, holdSignIn } from "./signIn";
 
 export function SignInCallback({ code, state, refused }: { code: string; state: string; refused: string }) {

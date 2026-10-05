@@ -4,7 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useClock } from "./clock";
-import { said } from "./Shell";
+import { said } from "./said";
 import type { ClaimView } from "@/convex/model/claim";
 import type { Command } from "./session/action";
 import { SessionView } from "./session/SessionView";

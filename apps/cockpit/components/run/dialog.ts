@@ -10,7 +10,11 @@
 export function factoryInView(path: string, search: string): string | null {
   const [place, owner, repo] = path.split("/").slice(1);
   if ((place === "factories" || place === "sessions") && owner && repo) {
-    return `${decodeURIComponent(owner)}/${decodeURIComponent(repo)}`;
+    try {
+      return `${decodeURIComponent(owner)}/${decodeURIComponent(repo)}`;
+    } catch {
+      return null;       // the header is on every page: an address that does not decode names no factory, and breaks nothing
+    }
   }
   if (path === "/sessions") return new URLSearchParams(search).get("factory") || null;
   return null;

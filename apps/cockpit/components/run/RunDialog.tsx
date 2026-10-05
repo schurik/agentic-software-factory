@@ -4,14 +4,14 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery } from "convex/react";
 import { X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useReducer, useState } from "react";
+import { createContext, type Dispatch, type ReactNode, useCallback, useContext, useEffect, useReducer, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { repoKey } from "@/convex/forge/forge";
 import { useClock } from "../clock";
 import { said } from "../said";
 import { useSignIn } from "../signIn";
 import { cx } from "../ui";
-import { CLOSED, factoryInView, RUN_PARAM, runDialog } from "./dialog";
+import { CLOSED, factoryInView, RUN_PARAM, runDialog, type RunDialogAction, type RunDialogState } from "./dialog";
 import { RunForm } from "./RunForm";
 
 /** What opening the dialog may choose for the person: a factory other than the one in view, and a workflow. */
@@ -83,7 +83,7 @@ export function RunPrompt({ enabled, children }: { enabled: boolean; children: R
                 <X size={16} aria-hidden="true" />
               </Dialog.Close>
             </div>
-            {state.open ? <Live state={state} dispatch={dispatch} /> : null}
+            {state.open ? <LiveRunForm state={state} dispatch={dispatch} /> : null}
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
@@ -92,7 +92,7 @@ export function RunPrompt({ enabled, children }: { enabled: boolean; children: R
 }
 
 /** The form, on what the backend says now: asked only while the dialog is open. */
-function Live({ state, dispatch }: { state: Parameters<typeof RunForm>[0]["state"]; dispatch: Parameters<typeof RunForm>[0]["onChange"] }) {
+function LiveRunForm({ state, dispatch }: { state: RunDialogState; dispatch: Dispatch<RunDialogAction> }) {
   const signIn = useSignIn();
   const now = useClock();
   const mine = useQuery(api.stations.mine, { signIn });

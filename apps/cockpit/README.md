@@ -282,8 +282,9 @@ which settles only that station's own commands. Revoking a token under Stations 
   one), offering only that factory's prompt workflows as its self-description names them. A
   workflow's Run on the Workflows tab opens the same dialog on that workflow, and the retired
   `/run` sends a person back where they came from with it open. A run goes only to one of the
-  asking person's own stations — their most recently seen, which the dialog names — and the
-  station takes it only from the person it is registered to.
+  asking person's own stations — their most recently seen, or another of theirs when that one
+  would refuse it, which the dialog names — and the station takes it only from the person it is
+  registered to.
 
 Each verb is the station's to obey: its `asf/factory.yaml` lists it under `cockpit.commands` (`run`
 is off unless listed), and the cockpit greys out what the station's report says it would refuse.
