@@ -6,6 +6,7 @@ import { periodValidator } from "./model/period";
 import type { StoredEvent } from "./model/wire";
 import { roleOf } from "./commands";
 import { defaultCheck, repoOf } from "./factory";
+import { readableFactories } from "./factories";
 import { forgeWeb } from "./forge/memory";
 import { readDescription } from "./model/description";
 import { miniOf } from "./model/graph";
@@ -25,13 +26,15 @@ const filterValidator = v.object({
   station: v.optional(v.string()),
   status: v.optional(v.union(...STATUSES.map((status) => v.literal(status)))),
   period: v.optional(periodValidator),
+  search: v.optional(v.string()),
 });
 
 /**
  * The sessions the viewer may see, most recently active first, that `filter`
  * keeps (model/filter.ts): of one factory — its Sessions tab — or, without
- * one, of every factory they can read. Null for someone who has not signed
- * in to a team's cockpit, and for a factory they cannot read.
+ * one, of every factory they can read. With them, every factory they can
+ * read, by name, for the page to narrow to. Null for someone who has not
+ * signed in to a team's cockpit, and for a factory they cannot read.
  */
 export const list = query({
   args: { signIn: v.optional(v.string()), factory: v.optional(v.string()), filter: v.optional(filterValidator) },
@@ -49,8 +52,11 @@ export const list = query({
       return readability.get(each)!;
     };
     const found = await find(withSummaries(records), canSee, filter, LIMITS);
+    // As their stations spell them: what the sessions are stored under, and what the page links to.
+    const factories = (await readableFactories(ctx, who, true)).map(({ names: [name] }) => name);
     return {
       ...found,
+      factories,
       sessions: found.sessions.map(({ factory: from, session, acked, summary }) => ({ factory: from, session, acked, summary })),
     };
   },

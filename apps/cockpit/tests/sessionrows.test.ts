@@ -109,6 +109,24 @@ describe("the sessions list", () => {
       .toEqual(["acme/widgets issue-alex"]);
   });
 
+  it("finds sessions by what a person searched for, past the newest it would show", async () => {
+    const t = cockpit();
+    await ship(t, await factory(t), { session: "5c0075aa" }, { session: "a9f259f0" }, { session: "a9f2ffff" });
+
+    expect(await found(t, { filter: { search: "a9f2" } })).toEqual(["acme/widgets a9f259f0", "acme/widgets a9f2ffff"]);
+    expect(await found(t, { filter: { search: "nothing like it" } })).toEqual([]);
+  });
+
+  it("names every factory the viewer can read, for the page to narrow to", async () => {
+    const t = cockpit();
+    await ship(t, await factory(t, "acme/widgets"), { session: "w1" });
+    await ship(t, await factory(t, "acme/gadgets"), { session: "g1" });
+
+    expect((await t.query(api.sessions.list, {}))?.factories).toEqual(["acme/gadgets", "acme/widgets"]);
+    // Narrowed to one, the others are still there to pick.
+    expect((await t.query(api.sessions.list, { factory: "acme/widgets" }))?.factories).toEqual(["acme/gadgets", "acme/widgets"]);
+  });
+
   it("offers each filter's choices from every session it looked at, not only those the filter kept", async () => {
     const t = cockpit();
     await ship(t, await factory(t), { session: "a", triggeredBy: "alex" }, { session: "b", workflows: ["prompt"], triggeredBy: "sam" });
@@ -136,7 +154,7 @@ describe("the sessions list", () => {
   it("is empty for a factory nothing was shipped of", async () => {
     const t = cockpit();
     expect(await t.query(api.sessions.list, { factory: "acme/nowhere" })).toEqual({
-      sessions: [], facets: { workflows: [], people: [], stations: [] }, looked: 0, cut: false,
+      sessions: [], facets: { workflows: [], people: [], stations: [] }, looked: 0, cut: false, factories: [],
     });
   });
 });

@@ -75,6 +75,13 @@ export function StatusPill({ status, children }: { status: string; children?: Re
   );
 }
 
+const DOT: Record<Tone, string> = { ok: "bg-ok", wait: "bg-wait", bad: "bg-bad", run: "bg-accent", none: "bg-faint" };
+
+/** A status, as a dot in a table cell: coloured by what it means, its word on hover and to a screen reader. */
+export function StatusDot({ status, className }: { status: string; className?: string }) {
+  return <span role="img" title={status} aria-label={status} className={cx("block size-2 rounded-full", DOT[toneOf(status)], className)} />;
+}
+
 const TAG: Record<Tone | "mine", string> = {
   none: "border-line-strong text-muted", ok: "border-ok/40 text-ok", wait: "border-wait/40 text-wait",
   bad: "border-bad/40 text-bad", run: "border-accent/40 text-accent", mine: "border-accent bg-accent-soft text-fg font-medium",

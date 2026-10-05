@@ -5,14 +5,15 @@ import { EMPTY_SUMMARY, type Summary } from "../convex/model/session";
 // Finding a session (spec #40): the Sessions pages' filters — workflow,
 // station, person (who triggered it), status and period — each narrow the
 // list to the sessions it names, and the choices each offers are read off
-// the sessions there are.
+// the sessions there are. The Sessions page's one search box (#116) is a
+// filter too: over a session's title, its issue or pull request, and its id.
 
 const DAY = 86400_000;
 const OCT_1 = Date.parse("2026-10-01T00:00:00.000Z");
 
-function known(fields: Partial<Summary> = {}, activity = OCT_1): Known {
+function known(fields: Partial<Summary> = {}, activity = OCT_1, session = "a9f259f0"): Known {
   return {
-    activity,
+    session, activity,
     summary: {
       ...EMPTY_SUMMARY, status: "success", workflows: ["issue"], triggeredBy: "alex",
       stationId: "st_alex", stationName: "alex@mbp:widgets", stationKind: "local",
@@ -95,6 +96,42 @@ describe("a filter", () => {
       expect(matches(unheard, day(OCT_1 + 2 * DAY))).toBe(true);
       expect(matches(unheard, day(OCT_1))).toBe(false);
     });
+  });
+});
+
+describe("a search", () => {
+  const issue = known({ request: "#42 Resolve relative due dates via the meeting date", issueUrl: "https://github.com/acme/widgets/issues/42" });
+  const reviewed = known({ ...issue.summary, prUrl: "https://github.com/acme/widgets/pull/57" }, OCT_1, "c41e7b02");
+  const prompt = known({ request: "Tidy the README's install section" }, OCT_1, "7d2f90aa");
+
+  it("lets every session through when it is empty or blank", () => {
+    expect(matches(prompt, { search: "" })).toBe(true);
+    expect(matches(prompt, { search: "   " })).toBe(true);
+  });
+
+  it("finds a session by any part of its title, whatever the case", () => {
+    expect(matches(issue, { search: "due dates" })).toBe(true);
+    expect(matches(prompt, { search: "readme" })).toBe(true);
+    expect(matches(prompt, { search: "due dates" })).toBe(false);
+  });
+
+  it("finds a session by its issue or its pull request, with or without the #", () => {
+    for (const search of ["#42", "42", " #42 "]) expect(matches(issue, { search })).toBe(true);
+    for (const search of ["#57", "57", "PR #57", "pr 57"]) expect(matches(reviewed, { search })).toBe(true);
+    expect(matches(issue, { search: "#57" })).toBe(false);
+  });
+
+  it("takes a reference as a whole number, not as a part of a longer one", () => {
+    const later = known({ request: "#421 Another issue", issueUrl: "https://github.com/acme/widgets/issues/421" });
+
+    expect(matches(later, { search: "#42" })).toBe(false);
+    expect(matches(later, { search: "#421" })).toBe(true);
+  });
+
+  it("finds a session by its id, or the start of it", () => {
+    expect(matches(reviewed, { search: "c41e7b02" })).toBe(true);
+    expect(matches(reviewed, { search: "C41E" })).toBe(true);
+    expect(matches(reviewed, { search: "7b02" })).toBe(false);
   });
 });
 

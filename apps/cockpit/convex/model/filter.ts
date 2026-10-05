@@ -1,7 +1,8 @@
 /**
  * Finding a session (spec #40): what the Sessions pages — a factory's tab,
- * and the one across factories — narrow their list by. Each filter a person
- * leaves unset lets every session through.
+ * and the one across factories — narrow their list by, the Sessions page's
+ * one search box (#116) among them. Each filter a person leaves unset lets
+ * every session through.
  */
 import { forYou } from "./inbox";
 import type { Period } from "./period";
@@ -9,6 +10,7 @@ import { at, endedAt, type Summary } from "./session";
 
 /** A stored session, as much of it as finding one reads. */
 export interface Known {
+  session: string;
   /** When the cockpit last folded anything into it, epoch ms. */
   activity: number;
   summary: Summary;
@@ -35,16 +37,39 @@ export interface SessionFilter {
   status?: Status;
   /** A period it was alive at any moment of: started before its end, and ended — if it has — after its start. */
   period?: Period;
+  /** What a person typed into the search box: part of the title, `#42` or `PR #57`, or the start of the session's id. */
+  search?: string;
 }
 
 export function matches(known: Known, filter: SessionFilter): boolean {
   const { summary } = known;
+  if (filter.search && !answers(known, filter.search)) return false;
   if (filter.workflow && !summary.workflows.includes(filter.workflow)) return false;
   if (filter.person && !forYou(summary, filter.person).includes("triggered")) return false;
   if (filter.status && summary.status !== filter.status) return false;
   if (filter.station && stationOf(summary) !== filter.station) return false;
   if (filter.period && !alive(known, filter.period)) return false;
   return true;
+}
+
+/**
+ * Whether a session answers a search: a number — `#42`, `42`, `PR #57` — is
+ * its issue or pull request, the whole number; any words are part of its
+ * title, and part of a session's id is its start, as people copy one. A bare
+ * number is all three, since an id or a title may hold one too.
+ */
+function answers({ session, summary }: Known, search: string): boolean {
+  const words = search.trim().toLowerCase();
+  if (!words) return true;
+  const ref = /^(pr\s*)?(#)?\s*(\d+)$/.exec(words);
+  if (ref && [numberOf(summary.issueUrl), numberOf(summary.prUrl)].includes(ref[3])) return true;
+  if (ref && (ref[1] || ref[2])) return false;
+  return summary.request.toLowerCase().includes(words) || session.toLowerCase().startsWith(words);
+}
+
+/** An issue's or a pull request's number, off its forge URL; "" for none. */
+function numberOf(url: string): string {
+  return /\/(?:issues|pull)\/(\d+)\/?$/.exec(url)?.[1] ?? "";
 }
 
 /** What the station filter knows a session's station by. */
