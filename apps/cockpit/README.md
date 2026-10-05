@@ -149,8 +149,8 @@ does the waiting gate's phase in the graph (`?gate=<phase id>`). The drawer asks
 title, under the session's title, how long it has waited and where; from round 2 the round before's
 verdict and the person's own note; every ⚑ flag an agent filed in the chapter; and tabs by the gate's
 kind, which is its name — a plan gate's plan, the issue in the reporter's words and the scout's
-findings; an integrate gate's changes, checks, review and issue; a question round's questions; any
-other gate's subject (`convex/model/gate.ts` reads all but the subject off the session's events).
+findings, opening from round 2 on "Changes since round N−1" (#114); an integrate gate's changes,
+checks, review and issue; a question round's questions; any other gate's subject (`convex/model/gate.ts` reads all but the subject off the session's events).
 Its footer answers it: notes with the gate's own placeholder, Reject (Send back at integrate)
 refusing an empty note because the next agent reads it as an instruction, the primary Approve plan
 (Open pull request), and a quiet Abort session. Answered, it moves to the next gate that can still
@@ -196,7 +196,10 @@ moved on since the view opened.
 The drawer reads the subject from the forge at the commit the question was asked about
 (`head_sha`), never the branch tip: the files, which it hashes the factory's way to say whether they
 are still what was asked about, or — for a subject the station alone holds, such as the integrate
-gate's diff — the forge's comparison of `base_commit` with `head_sha`. A wait on no work item — a
+gate's diff — the forge's comparison of `base_commit` with `head_sha`. What changed since a plan's
+round before is the forge's comparison of the two rounds' `head_sha`, cut to the plan's own files
+(`inbox.sinceLastRound`); those commits are on the forge only under `worktree.publish: on_create`,
+and without them the tab is absent and the drawer says why. A wait on no work item — a
 run started from a prompt, on the terminal channel — is answered by a **command** to its station
 instead (see below): the view says so ("sends a command to `alex@mbp` as you") and whether the
 station is listening ("resumes when `alex@mbp` is back online"). Rows that cannot be answered here

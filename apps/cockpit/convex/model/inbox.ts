@@ -278,11 +278,21 @@ export interface Earlier {
   channel: string;
 }
 
+/**
+ * The round before this one, as a plan gate's "Changes since" compares it
+ * (#114): the commit it was asked about — or why the forge holds none, and
+ * there is nothing to compare. Each round's subject is committed and pushed
+ * before the session suspends, under `worktree.publish: on_create` alone.
+ */
+export type LastRound = { round: number; headSha: string } | { round: number; because: string };
+
 export interface Asked {
   notes: string;                  // the producing agent's notes for the next agent
   subject: Subject;
   questions: Question[];
   earlier: Earlier[];
+  /** Null in a first round. */
+  lastRound: LastRound | null;
 }
 
 /** What the session's events say the current wait asks, off its latest `suspended`. */
@@ -290,11 +300,19 @@ export function asked(events: StoredEvent[], acked: number, waiting: WaitingFor)
   let root = "";
   let suspended: Payload | null = null;
   const decided = new Map<number, Earlier>();
+  // This chapter's earlier rounds of the gate, each by its latest suspend: a resumed session may
+  // have asked one twice, and a chapter numbers its rounds from 1 again.
+  const rounds = new Map<number, Payload>();
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     if (event.seq > acked) break;
     const p = Payload.parse(event.payload);
     if (event.kind === "session_started") root = p.str("repo_root") || root;
-    if (event.kind === "suspended") suspended = p;
+    if (event.kind === "workflow_started") rounds.clear();
+    if (event.kind === "suspended") {
+      suspended = p;
+      const round = p.obj("waiting_for")?.num("round") || 1;
+      if (p.obj("waiting_for")?.str("gate") === waiting.gate && round < waiting.round) rounds.set(round, p);
+    }
     if (event.kind === "decision_recorded" && p.bool("consumed")) {
       const d = p.obj("decision");
       const round = d?.num("round") || 1;
@@ -317,7 +335,22 @@ export function asked(events: StoredEvent[], acked: number, waiting: WaitingFor)
     subject: { headSha: suspended?.str("head_sha") ?? "", baseCommit: suspended?.str("base_commit") ?? "", files, outside },
     questions: (suspended?.list("questions") ?? []).map(readQuestion),
     earlier: [...decided.values()].sort((a, b) => a.round - b.round),
+    lastRound: waiting.round > 1 ? lastRoundOf(waiting.round - 1, rounds.get(waiting.round - 1), suspended) : null,
   };
+}
+
+/** Round `round`'s commit, if both it and the round now asking (`now`) are on the forge. */
+function lastRoundOf(round: number, then: Payload | undefined, now: Payload | null): LastRound {
+  if (then === undefined) {
+    return { round, because: `round ${round} was answered at the station's terminal before the session suspended, so no commit holds it` };
+  }
+  // A `suspended` v1 says nothing of it, and is taken as not published: nothing is compared on a guess.
+  const unpublished = !then.bool("published") || !then.str("head_sha") ? round : !now?.bool("published") ? round + 1 : null;
+  if (unpublished !== null) {
+    return { round, because: `the forge holds no commit of round ${unpublished} to compare with: a round is published ` +
+                             "as it suspends only under worktree.publish: on_create, and only when the push went through" };
+  }
+  return { round, headSha: then.str("head_sha") };
 }
 
 function readQuestion(p: Payload): Question {
