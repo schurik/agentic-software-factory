@@ -524,22 +524,20 @@ runs `bun run build` against it. A merge that reached the pages without its func
 Set up once:
 
 1. **Vercel → the project → Settings → General:** Root Directory `apps/cockpit`.
-2. **Production:** a deploy key for the deployment production's pages talk to, set in Vercel as
-   `CONVEX_DEPLOY_KEY` for **Production** only — `bun x convex deployment token create <name>
-   --deployment <deployment>` prints one. A production build without it fails rather than ship
-   pages ahead of their functions. `CONVEX_URL` may stay set, to that same deployment's address;
-   it wins over the address the build bakes in.
-3. **Previews** are one of two things:
+2. **A deploy key for every environment.** Every build pushes, so Vercel's **Production** and
+   **Preview** each need `CONVEX_DEPLOY_KEY` — `bun x convex deployment token create <name>
+   --deployment <deployment>` prints one. A build without it fails rather than ship pages ahead of
+   their functions. Previews are one of two things:
    - **Sharing production's backend** (one deployment behind every environment, a dev deployment
-     say): give Preview no deploy key, and its `CONVEX_URL` that deployment's address. A preview
-     then builds its pages only and pushes nothing, so a branch never swaps the functions
-     production is running — and a branch that changes `convex/` shows its pages against
-     `main`'s functions until it merges.
-   - **A backend per branch:** generate a *preview* deploy key in the Convex dashboard and set it
-     as `CONVEX_DEPLOY_KEY` for **Preview**, and remove Preview's `CONVEX_URL`. Each branch gets a
-     Convex preview deployment of its own, and its build bakes that address in as
+     say): give Preview a key for that same deployment, and leave `CONVEX_URL` set to its address
+     in both environments. The last build's functions are then what every environment runs: a
+     preview of a branch that changed `convex/` runs its functions under production's pages too,
+     until `main` builds again.
+   - **A backend per branch:** generate a *preview* deploy key in the Convex dashboard, set it as
+     Preview's `CONVEX_DEPLOY_KEY`, and remove Preview's `CONVEX_URL`. Each branch gets a Convex
+     preview deployment of its own, and its build bakes that address in as
      `NEXT_PUBLIC_CONVEX_URL`.
-4. **The cockpit's own variables are the deployment's** (`COCKPIT_MODE`, `COCKPIT_APP_URL`,
+3. **The cockpit's own variables are the deployment's** (`COCKPIT_MODE`, `COCKPIT_APP_URL`,
    `COCKPIT_TRANSCRIPT_DAYS`): a Convex function reads them from the backend, and nothing copies
    them there on Vercel. Set them in the Convex dashboard, and for per-branch previews as the
    project's default environment variables for preview deployments.
