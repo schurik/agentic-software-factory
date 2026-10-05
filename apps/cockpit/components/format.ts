@@ -144,15 +144,8 @@ export function formatPruned(what: string, pruned: Pruned, who: (login: string) 
   return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${who(pruned.by)}` : ""}`;
 }
 
-/** A pull request's number, off its forge URL; "" for a URL that names none. */
-export function prNumber(url: string): string {
-  return /\/pull\/(\d+)\/?$/.exec(url)?.[1] ?? "";
-}
-
-/** An issue's number, off its forge URL; "" for a URL that names none. */
-export function issueNumber(url: string): string {
-  return /\/issues\/(\d+)\/?$/.exec(url)?.[1] ?? "";
-}
+// A work item's number, off its forge URL: the model reads them too, to find a session by one.
+export { issueNumber, prNumber } from "@/convex/model/session";
 
 /** Seconds from `from` to `to` (epoch ms), never below zero; null when either end is unknown. */
 export function secondsBetween(from: string, to: number): number | null {

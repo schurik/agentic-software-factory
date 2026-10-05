@@ -105,7 +105,7 @@ export function FactoryPage({ factory }: { factory: string }) {
           : <Loading />}
       </div>
       <div className="pt-6" hidden={tab !== "sessions"}>
-        <SessionsList factory={factory} />
+        <SessionsList factory={factory} tab />
       </div>
       <div className="pt-6" hidden={tab !== "cost"}>
         <CostPanel factory={factory} />
