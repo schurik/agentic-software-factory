@@ -3,8 +3,9 @@ import { EXPENSIVE } from "@/convex/model/attention";
 import type { Budget } from "@/convex/model/description";
 import { isLive, type Summary, until } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
-import { formatDollars, formatDuration, inboxHref, prNumber, secondsBetween } from "../format";
-import { buttonClass, Card, cx, followInPlace } from "../ui";
+import { formatDollars, formatDuration, prNumber, secondsBetween } from "../format";
+import { verbsOf } from "../gate/answer";
+import { buttonClass, Card, cx, followInPlace, type Go } from "../ui";
 import { useWho } from "../viewer";
 import type { OpenPhase } from "../graph/StageGraph";
 import { waitsOn } from "./action";
@@ -17,12 +18,16 @@ const EDGE: Record<string, string> = {
 /**
  * Where the session is, in one sentence, with what it has spent against its
  * ceiling and how long it has been going (or took). When a gate waits on the
- * viewer it is where answering starts; when the session failed, it links the
- * latest failure's phase.
+ * viewer its button — the page's only one for the gate — opens it in the
+ * drawer, as the Inbox does; when the session failed, it links the latest
+ * failure's phase.
  */
-export function NowCard({ factory, session, summary, story, budget, now, viewer, openPhase, className }: {
-  factory: string; session: string; summary: Summary; story: Story; budget: Budget | null; now: number;
-  viewer: string | null; openPhase: OpenPhase; className?: string;
+export function NowCard({ summary, story, budget, now, viewer, openPhase, openGate, className }: {
+  summary: Summary; story: Story; budget: Budget | null; now: number;
+  viewer: string | null; openPhase: OpenPhase;
+  /** The gate waiting, in the drawer; null when the session waits at none. */
+  openGate: Go | null;
+  className?: string;
 }) {
   const who = useWho();
   const { now: here } = story;
@@ -42,7 +47,13 @@ export function NowCard({ factory, session, summary, story, budget, now, viewer,
       <>Waiting on {whom}: the <b className="font-semibold">{here.waiting.gate} {here.waiting.kind === "questions" ? "questions" : "gate"}</b>,
         round {here.waiting.round}, asked on {channelWords(here.waiting.channel, here.waiting.issueNumber)}</>
     );
-    if (mine) next = <a className={cx(buttonClass("primary"), "mt-3")} href={inboxHref(factory, session)}>Answer in the inbox</a>;
+    if (mine && openGate) {
+      next = (
+        <a className={cx(buttonClass("primary"), "mt-3")} href={openGate.href} onClick={followInPlace(openGate.onClick)}>
+          {verbsOf({ gate: here.waiting.gate, kind: here.waiting.kind, questions: 0 }).review}
+        </a>
+      );
+    }
   } else if (summary.status === "fail") {
     const failed = here.failed;
     const name = failed ? phaseName({ name: failed.name }) : "";

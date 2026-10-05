@@ -7,7 +7,7 @@ import { buttonClass, cx, followInPlace, type Go } from "./ui";
 
 /**
  * The one drawer (#104): everything deeper than a page — a stage, a phase,
- * and later a gate — opens in it. From the right on a desktop, up to 720px
+ * a gate — opens in it. From the right on a desktop, up to 720px
  * wide; a bottom sheet at 92% of the screen's height on a phone (767px and
  * below), where it is swiped down to close.
  *
@@ -67,21 +67,25 @@ export function Drawer({ open, label, onClose, children }: { open: boolean; labe
 
 /**
  * A view of the drawer: a top bar — Back when views are stacked, the view's
- * icon, name and what it is, and Close — over a body that scrolls, and a
- * footer pinned under it where the view has one.
+ * icon, name and what it is, what the view puts beside Close (a gate's
+ * stepper), and Close — over a body that scrolls, and a footer pinned under
+ * it where the view has one.
  */
-export function DrawerFrame({ icon, title, what, back, close, footer, children }: {
+export function DrawerFrame({ icon, title, what, kind = what, back, close, bar, footer, children }: {
   icon: ReactNode;
   title: ReactNode;
-  /** What kind of view it is: "stage", "phase". */
+  /** What it is, after its name: "stage", "phase", "round 2". */
   what: string;
+  /** What kind of view it is: "stage", "phase", "gate". */
+  kind?: string;
   back: Go | null;
   close: Go;
+  bar?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div data-drawer={what} className="flex min-h-0 grow flex-col">
+    <div data-drawer={kind} className="flex min-h-0 grow flex-col">
       <div aria-hidden="true" className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong md:hidden" />
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-4 md:px-5">
         {back ? (
@@ -95,6 +99,7 @@ export function DrawerFrame({ icon, title, what, back, close, footer, children }
           <span className="font-normal text-muted">{what}</span>
         </h2>
         <span className="grow" />
+        {bar}
         <a href={close.href} onClick={followInPlace(close.onClick)} aria-label="Close" className={cx(buttonClass("ghost", "sm"), "text-muted")}>
           <X size={14} aria-hidden="true" />
         </a>

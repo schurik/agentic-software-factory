@@ -110,6 +110,17 @@ export function blocked(summary: Summary, sent: Sent | null, ready: boolean, com
   return null;
 }
 
+/**
+ * Why a viewer the wait's trust list does not name cannot answer it here: whom
+ * it is on. Not on the issue either — the factory's answers watcher hears a
+ * comment only from its own trust list, and an answer the cockpit pointed
+ * someone else to would be one the factory ignores.
+ */
+export function waitsOnOthers(waiting: WaitingFor): string {
+  const on = `waiting on ${(waiting.trusted ?? []).join(", ")}: the factory hears only them`;
+  return waiting.channel === "issue" && waiting.issueNumber ? `${on}, here or on issue #${waiting.issueNumber}` : on;
+}
+
 /** What became of the last answer by command, when the station turned it down or never took it: "" otherwise. */
 export function lastWord(commanding: Commanding | null): string {
   const last = commanding?.last;

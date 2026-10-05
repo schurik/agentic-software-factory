@@ -11,6 +11,7 @@ import type { ClaimView } from "../convex/model/claim";
 import type { SteeringView } from "../convex/model/command";
 import type { Phase } from "../convex/model/graph";
 import { phaseView, view } from "../convex/model/session";
+import type { GateItem } from "../convex/model/story";
 import { fixture, recorded, type WireEvent } from "./helpers";
 
 // The session page rendered from the golden corpus, the way a browser first
@@ -57,7 +58,9 @@ function html({ events = STAGED, shown = {}, steering, claims, extra, viewer }: 
   const phase = (item: Phase, tab: string | null): ReactNode => (
     <PhaseTabs item={item} detail={phaseView(stored(events), events.at(-1)!.seq, item.phaseId)!} where={WHERE} tab={tab} />
   );
-  const at = { page: page(events, extra), shown: { ...SHOWN, ...shown }, onShow: () => {}, phase };
+  // The gate's drawer is a live query of its own (gateview.test.tsx renders it): here, which gate it was asked for.
+  const gate = (item: GateItem, tab: string | null): ReactNode => <p>the gate drawer of {item.phaseId} on {tab ?? "its first tab"}</p>;
+  const at = { page: page(events, extra), shown: { ...SHOWN, ...shown }, onShow: () => {}, phase, gate };
   return renderToStaticMarkup(
     <ViewerLogin.Provider value={viewer ?? null}>
       <SessionView {...at} now={NOW} steering={steering} claims={claims} onCommand={() => {}} onRelease={() => {}} />
@@ -121,10 +124,11 @@ describe("the header", () => {
     expect(top).not.toMatch(/<button[^>]*>(?!<)/);
   });
 
-  it("leaves a gate waiting on the viewer to the Now card, which sends them to answer it", () => {
+  it("leaves a gate waiting on the viewer to the Now card, whose button is the page's only one for it", () => {
     const markup = html({ events: upTo(SUSPENDED), viewer: "alex" });
     expect(read(header(markup))).not.toContain("Waiting on");
-    expect(markup).toMatch(/<a [^>]*href="\/\?open=acme%2Fwidgets%2Fa9f259f0"[^>]*>Answer in the inbox/);
+    expect(markup.match(/>Review the plan and answer</g)).toHaveLength(1);
+    expect(markup).toMatch(/<a [^>]*href="\?gate=a9f259f0_04_approve_plan"[^>]*>Review the plan and answer/);
   });
 
   it("offers Kill while it runs, and says why not while the station cannot be reached", () => {
@@ -208,7 +212,9 @@ describe("the chapters, each one row", () => {
   it("opens a stage's drawer from its name, and a phase's from its row, keeping the tab the page is on", () => {
     const row = chapter(html({ events: upTo(SUSPENDED), shown: { tab: "journal" } }), 1);
     expect(row).toMatch(/<a href="\?tab=journal&amp;stage=1\.1"[^>]*>.*?plan<\/span>/);
-    expect(row).toMatch(/<a href="\?tab=journal&amp;phase=a9f259f0_04_approve_plan"/);
+    expect(row).toMatch(/<a href="\?tab=journal&amp;phase=a9f259f0_03_plan"/);
+    // The gate waiting opens as its gate.
+    expect(row).toMatch(/<a href="\?tab=journal&amp;gate=a9f259f0_04_approve_plan"/);
   });
 
   it("draws a session recorded before stages as a flat chain of its phases", () => {
@@ -365,9 +371,27 @@ describe("without the transcript opt-in", () => {
   });
 });
 
+describe("the gate's drawer", () => {
+  it("opens from the address on the gate waiting, on the tab the address names", () => {
+    expect(text({ events: upTo(SUSPENDED), shown: { gate: "a9f259f0_04_approve_plan", gateTab: "issue" } }))
+      .toContain("the gate drawer of a9f259f0_04_approve_plan on issue");
+  });
+
+  it("is where the waiting gate's phase in the graph opens, for whoever it waits on", () => {
+    expect(html({ events: upTo(SUSPENDED) })).toMatch(/<a [^>]*href="\?gate=a9f259f0_04_approve_plan"[^>]*>(?:(?!<\/a>).)*plan gate · round 1/);
+  });
+
+  it("opens a link kept after the gate was answered as the gate's phase", () => {
+    const later = text({ shown: { gate: "a9f259f0_04_approve_plan" } });
+    expect(later).not.toContain("the gate drawer of");
+    expect(later).toMatch(/plan gate · round 1 phase/);
+  });
+});
+
 describe("the address", () => {
   it("reads back what it wrote, and writes nothing for the page as it first opens", () => {
-    const shown: Shown = { tab: "timeline", opened: [1], folded: [3], stages: ["3.1"], stage: "1.1", phase: "a9f259f0_03_plan", phaseTab: "checks" };
+    const shown: Shown = { tab: "timeline", opened: [1], folded: [3], stages: ["3.1"], stage: "1.1", phase: "a9f259f0_03_plan", phaseTab: "checks",
+                           gate: "a9f259f0_06_approve_plan_2", gateTab: "issue" };
     expect(readShown(new URLSearchParams(writeShown(shown)))).toEqual(shown);
     expect(readShown(new URLSearchParams("stage=plan")).stage).toBeNull();
     expect(writeShown(SHOWN)).toBe("");

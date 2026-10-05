@@ -142,7 +142,21 @@ they wrote, an issue assigned to them — are marked and sorted first; it is a r
 so every row the viewer may answer stays. Who triggered a run is the factory's word
 (`session_started`'s `triggered_by`: whoever labelled the issue, or the operator who ran it), and the
 issue's author and assignees ride on `provenance_recorded` v2. The rest wait longest first, and a
-wait older than a day is flagged. The list and the open answer view are live queries.
+wait older than a day is flagged. A row opens its gate in **the drawer** over the list (#113), and
+the address says which (`/?open=<owner>/<repo>/<session>&tab=…`), so a link opens exactly that gate;
+the session page's Now card opens the same drawer, its button the page's only one for a gate, as
+does the waiting gate's phase in the graph (`?gate=<phase id>`). The drawer asks the question as its
+title, under the session's title, how long it has waited and where; from round 2 the round before's
+verdict and the person's own note; every ⚑ flag an agent filed in the chapter; and tabs by the gate's
+kind, which is its name — a plan gate's plan, the issue in the reporter's words and the scout's
+findings; an integrate gate's changes, checks, review and issue; a question round's questions; any
+other gate's subject (`convex/model/gate.ts` reads all but the subject off the session's events).
+Its footer answers it: notes with the gate's own placeholder, Reject (Send back at integrate)
+refusing an empty note because the next agent reads it as an instruction, the primary Approve plan
+(Open pull request), and a quiet Abort session. Answered, it moves to the next gate that can still
+be answered, or closes; an answered gate says what was answered and where the comment is, and a gate
+waiting on someone else says whom — whoever can read the session sees it, and the factory hears only
+the people its trust list names. The list and the open gate are live queries.
 
 ## Triggering a workflow
 
@@ -179,7 +193,7 @@ What the factory would refuse — a reject without notes, an answer at a gate, a
 round — is refused before anything is posted, and so is an answer to a round or subject that has
 moved on since the view opened.
 
-The answer view reads the subject from the forge at the commit the question was asked about
+The drawer reads the subject from the forge at the commit the question was asked about
 (`head_sha`), never the branch tip: the files, which it hashes the factory's way to say whether they
 are still what was asked about, or — for a subject the station alone holds, such as the integrate
 gate's diff — the forge's comparison of `base_commit` with `head_sha`. A wait on no work item — a
@@ -188,8 +202,9 @@ instead (see below): the view says so ("sends a command to `alex@mbp` as you") a
 station is listening ("resumes when `alex@mbp` is back online"). Rows that cannot be answered here
 stay, disabled, with the reason: a wait on a pull request (nothing reads those yet), a subject not
 on the forge (`worktree.publish: on_integrate`), a gate on an issue being asked at the station's
-terminal, an answer already given, a station that takes no answers. Keys: `j`/`k` next and previous, `a` approve
-(at a question round, take every recommendation), `r` reject.
+terminal, an answer already given, a station that takes no answers. Keys: `j`/`k` next and previous
+(the gates either side, in the drawer), Enter to open, `a` approve (at a question round, take every
+recommendation), `r` reject — none of them while typing.
 
 ## The ingest wire
 

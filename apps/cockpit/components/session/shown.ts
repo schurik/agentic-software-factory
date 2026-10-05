@@ -29,11 +29,19 @@ export interface Shown {
   stage: string | null;
   phase: string | null;
   phaseTab: string | null;
+  /**
+   * The gate's drawer (#113), by the phase id of the gate waiting, and which
+   * of its tabs. A link kept after the gate was answered opens that phase.
+   */
+  gate: string | null;
+  gateTab: string | null;
 }
 
-export const SHOWN: Shown = { tab: "details", opened: [], folded: [], stages: [], stage: null, phase: null, phaseTab: null };
+export const SHOWN: Shown = {
+  tab: "details", opened: [], folded: [], stages: [], stage: null, phase: null, phaseTab: null, gate: null, gateTab: null,
+};
 
-const KEYS = ["tab", "opened", "folded", "stages", "stage", "phase", "phaseTab"] as const;
+const KEYS = ["tab", "opened", "folded", "stages", "stage", "phase", "phaseTab", "gate", "gateTab"] as const;
 
 const STAGE_KEY = /^\d+\.\d+$/;
 
@@ -50,6 +58,8 @@ export function readShown(search: URLSearchParams): Shown {
     stage: STAGE_KEY.test(search.get("stage") ?? "") ? search.get("stage") : null,
     phase: search.get("phase") || null,
     phaseTab: search.get("phaseTab") || null,
+    gate: search.get("gate") || null,
+    gateTab: search.get("gateTab") || null,
   };
 }
 
@@ -64,6 +74,8 @@ export function writeShown(shown: Shown, rest = new URLSearchParams()): string {
   if (shown.stage) search.set("stage", shown.stage);
   if (shown.phase) search.set("phase", shown.phase);
   if (shown.phaseTab) search.set("phaseTab", shown.phaseTab);
+  if (shown.gate) search.set("gate", shown.gate);
+  if (shown.gateTab) search.set("gateTab", shown.gateTab);
   const query = search.toString();
   return query ? `?${query}` : "";
 }
@@ -90,10 +102,10 @@ export const stageKey = (chapter: number, stage: number) => `${chapter}.${stage}
 
 /** `shown` with a stage's view open in the drawer, and nothing stacked on it. */
 export const withStage = (shown: Shown, chapter: number, stage: number): Shown =>
-  ({ ...shown, stage: stageKey(chapter, stage), phase: null, phaseTab: null });
+  ({ ...closed(shown), stage: stageKey(chapter, stage) });
 
 /** `shown` with a phase's view open in the drawer, on its first tab, and nothing under it. */
-export const withPhase = (shown: Shown, phaseId: string): Shown => ({ ...shown, stage: null, phase: phaseId, phaseTab: null });
+export const withPhase = (shown: Shown, phaseId: string): Shown => ({ ...closed(shown), phase: phaseId });
 
 /** `shown` with a phase's view stacked on the stage's view it was opened from: Back goes to the stage. */
 export const pushPhase = (shown: Shown, phaseId: string): Shown => ({ ...shown, phase: phaseId, phaseTab: null });
@@ -103,4 +115,7 @@ export const back = (shown: Shown): Shown =>
   (shown.stage && shown.phase ? { ...shown, phase: null, phaseTab: null } : closed(shown));
 
 /** `shown` with the drawer closed. */
-export const closed = (shown: Shown): Shown => ({ ...shown, stage: null, phase: null, phaseTab: null });
+export const closed = (shown: Shown): Shown => ({ ...shown, stage: null, phase: null, phaseTab: null, gate: null, gateTab: null });
+
+/** `shown` with the gate waiting at phase `phaseId` open in the drawer, on its first tab, and nothing under it. */
+export const withGate = (shown: Shown, phaseId: string): Shown => ({ ...closed(shown), gate: phaseId });

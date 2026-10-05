@@ -244,6 +244,9 @@ describe("answering from the inbox", () => {
       factory: "acme/widgets", session: "f1f1f1f1",
       blocked: "answered by alex in the cockpit (approve): waiting for the factory's answers watcher",
     }]);
+    // The drawer says what was answered, and where the comment is.
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "f1f1f1f1", signIn: alex });
+    expect(gate!.answered).toEqual({ by: "alex", verdict: "approve", url: posted.ok ? posted.url : "" });
   });
 
   it("refuses what the factory would refuse, and posts nothing", async () => {
@@ -359,7 +362,7 @@ describe("the subject of a gate", () => {
 });
 
 describe("the answer view", () => {
-  it("shows a recorded run's second plan round with the first one's verdict and the journal the next agent reads", async () => {
+  it("shows a recorded run's second plan round with the first one's verdict, and the agents' flags, the issue and the findings", async () => {
     const forge = fakeForge();
     const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
     // The recorded session, as its station had shipped it when the plan gate asked a second time.
@@ -383,8 +386,13 @@ describe("the answer view", () => {
       questions: [],
       as: "alex",
     });
-    expect(gate!.journal).toContain(
-      "✎ asf tests said, reject at the plan gate (round 1): name the module the date is converted in");
+    expect(gate).toMatchObject({ mine: true, answered: null, title: "#42 Resolve relative due dates via the meeting date" });
+    // What the drawer shows beside the plan, in a chapter recorded before stages.
+    expect(gate!.material.flags).toEqual([
+      { kind: "risk", what: "the date is local midnight", because: "converted in UTC it is the previous day", insteadOf: "", by: "planner" },
+    ]);
+    expect(gate!.material.issue?.content).toContain("# Resolve relative due dates via the meeting date");
+    expect(gate!.material.findings?.path).toBe("context_handoff/scout_findings.md");
   });
 
   it("shows a question round's questions, the recommendation first", async () => {
@@ -405,12 +413,26 @@ describe("the answer view", () => {
     expect(gate!.questions).toEqual([{ ...question, options: [question.options[1], question.options[0]] }]);
   });
 
-  it("is nothing at all for a wait the viewer may not answer", async () => {
+  it("says whom a wait is on to a viewer who may read it but not answer it, and that the factory hears only them", async () => {
     const forge = fakeForge();
     const t = await teamOf(forge, { "acme/widgets": { alex: "write", dana: "write" } });
     await ship(t, await factory(t, "acme/widgets"), "h2h2h2h2", suspendedAt({ session: "h2h2h2h2", trusted: ["alex"] }));
 
-    expect(await t.query(api.inbox.gate, { factory: "acme/widgets", session: "h2h2h2h2",
-                                           signIn: await signIn(t, forge, "dana") })).toBeNull();
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "h2h2h2h2",
+                                                 signIn: await signIn(t, forge, "dana") });
+
+    expect(gate).toMatchObject({
+      mine: false, waitsOn: ["alex"],
+      row: { blocked: "waiting on alex: the factory hears only them, here or on issue #42" },
+    });
+  });
+
+  it("is nothing at all in a repository the viewer cannot read", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" }, "acme/gadgets": { sam: "write" } });
+    await ship(t, await factory(t, "acme/widgets"), "h3h3h3h3", suspendedAt({ session: "h3h3h3h3" }));
+
+    expect(await t.query(api.inbox.gate, { factory: "acme/widgets", session: "h3h3h3h3",
+                                           signIn: await signIn(t, forge, "sam") })).toBeNull();
   });
 });

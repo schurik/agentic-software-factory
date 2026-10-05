@@ -8,6 +8,7 @@ import { useClock } from "./clock";
 import { said } from "./said";
 import type { ClaimView } from "@/convex/model/claim";
 import type { Command } from "./session/action";
+import { LiveGate } from "./gate/GateDrawer";
 import { PhaseDetails } from "./session/PhaseDetails";
 import { SessionView } from "./session/SessionView";
 import { readShown, type Shown, writeShown } from "./session/shown";
@@ -36,6 +37,7 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const readChanges = useCallback(() => changes({ factory, session, signIn }), [changes, factory, session, signIn]);
   const [problem, setProblem] = useState("");
   const [released, setReleased] = useState("");
+  const [answered, setAnswered] = useState<{ what: string; url: string } | null>(null);
   const now = useClock();
   const path = usePathname();
   const search = useSearchParams();
@@ -71,10 +73,25 @@ export function SessionPage({ factory, session }: { factory: string; session: st
     <>
       {problem ? <Notice tone="bad">{problem}</Notice> : null}
       {released ? <Notice tone="ok">{released}</Notice> : null}
+      {answered ? (
+        <Notice tone="ok">
+          Answered {answered.what}{answered.url
+            ? <>: <a href={answered.url} target="_blank" rel="noreferrer">the comment</a>. The station picks it up from the comment on the issue.</>
+            : <>: sent to the station. It goes on once the station records it as your decision.</>}
+        </Notice>
+      ) : null}
       <SessionView page={page} now={now} shown={readShown(new URLSearchParams(search.toString()))} onShow={onShow}
                    steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
                    onPurge={page.mayPurge ? (reason) => purge({ factory, session, reason, signIn }) : undefined}
                    readChanges={readChanges}
+                   gate={(item, tab, onTab, close) => (
+                     // One gate a session waits at: answered, the drawer closes and the page says where the answer went.
+                     <LiveGate key={item.phaseId} signIn={signIn} now={now} target={{ factory, session, tab, onTab, step: null, close }}
+                               onAnswered={(gate, given, url) => {
+                                 setAnswered({ what: `${given.verdict} at ${gate.row.gate} round ${gate.row.round}`, url });
+                                 close.onClick();
+                               }} />
+                   )}
                    phase={(item, tab, onTab) => (
                      <PhaseDetails item={item} where={{ factory, session, forge: page.forge }} tab={tab} onTab={onTab} />
                    )} />

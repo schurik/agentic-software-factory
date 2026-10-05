@@ -30,7 +30,9 @@ import { refusal, render, spoken, type Asked as Answering } from "./model/answer
 import { subjectDigest } from "./model/digest";
 import {
   asked, blocked, byCommand, type Commanding, type Judged, permitted, ranked, row, type Row, type Sent, type Subject,
+  waitsOnOthers,
 } from "./model/inbox";
+import { materialOf } from "./model/gate";
 import { readSummary, view, type Summary } from "./model/session";
 import { storedSession } from "./sessions";
 import { actAs, canRead, viewing, type Viewing } from "./viewer";
@@ -56,18 +58,38 @@ async function sentFor(ctx: QueryCtx, factory: string, session: string, summary:
   return { by: sent.by, verdict: sent.verdict, url: sent.url, at: sent.at };
 }
 
-/** One session's wait, as the viewer may answer it: its events, its stored record and its row — or null. */
-async function waitOf(ctx: QueryCtx, who: Viewing, factory: string, session: string, signIn: string | undefined,
-                      ready: boolean) {
+/** Which session's wait, asked for by whom. */
+interface Where {
+  factory: string;
+  session: string;
+  signIn: string | undefined;
+}
+
+/**
+ * How a wait is weighed: `ready`, whether the cockpit holds a forge credential
+ * to post with; `others`, whether a wait the viewer may not answer is shown too.
+ */
+interface Weighing {
+  ready: boolean;
+  others?: boolean;
+}
+
+/**
+ * One session's wait, as the viewer may answer it: its events, its stored
+ * record and its row — or null. With `others`, also a wait the viewer can read
+ * but not answer, its row saying whom it is on (`mine` false): what a drawer
+ * shows them, never what an answer may be given to.
+ */
+async function waitOf(ctx: QueryCtx, who: Viewing, { factory, session, signIn }: Where, weighing: Weighing) {
   const stored = await storedSession(ctx, factory, session, signIn);
   const record = stored && await ctx.db
     .query("sessions")
     .withIndex("by_session", (q) => q.eq("factory", stored.factory).eq("session", session))
     .unique();
-  const shown = stored && record && (await rowOf(ctx, who, record, ready));
-  if (!stored || !record || !shown) return null;
+  const found = stored && record && (await rowOf(ctx, who, record, weighing));
+  if (!stored || !record || !found) return null;
   const summary = readSummary(record.summary);
-  return { stored, row: shown, waiting: summary.waitingFor!, stationId: summary.stationId };
+  return { stored, record, summary, ...found, waiting: summary.waitingFor!, stationId: summary.stationId };
 }
 
 /** The station's side of a wait answered by command: who may ask it, and what was asked already. */
@@ -91,19 +113,25 @@ async function judgedByCommand(ctx: QueryCtx, who: Viewing, record: Doc<"session
   };
 }
 
-/** The row for one waiting session, or null when the viewer is not permitted to answer it. */
-async function rowOf(ctx: QueryCtx, who: Viewing, record: Doc<"sessions">, ready: boolean): Promise<Row | null> {
+/**
+ * The row for one waiting session, or null when the viewer is not permitted to
+ * answer it — unless `others` asks for that too, when the row says whom it is on.
+ */
+async function rowOf(ctx: QueryCtx, who: Viewing, record: Doc<"sessions">,
+                     { ready, others = false }: Weighing): Promise<{ row: Row; mine: boolean } | null> {
   const summary = readSummary(record.summary);
   if (summary.waitingFor === null) return null;
   const login = loginOf(who);
   // A local cockpit that does not know whose it is cannot check a trust list,
   // and cannot post either: it shows every wait, each saying why not.
-  if (!(who.mode === "local" && login === null) && !permitted(summary.waitingFor.trusted, login)) return null;
-  const judged = byCommand(summary.waitingFor) ? await judgedByCommand(ctx, who, record, summary, ready) : {
-    blocked: blocked(summary, await sentFor(ctx, record.factory, record.session, summary), ready),
-    commanding: null, stationSeenAt: 0, attendedAt: null,
-  };
-  return row(record, summary, login, judged);
+  const mine = (who.mode === "local" && login === null) || permitted(summary.waitingFor.trusted, login);
+  if (!mine && !others) return null;
+  const judged = !mine ? { blocked: waitsOnOthers(summary.waitingFor), commanding: null, stationSeenAt: 0, attendedAt: null }
+    : byCommand(summary.waitingFor) ? await judgedByCommand(ctx, who, record, summary, ready) : {
+      blocked: blocked(summary, await sentFor(ctx, record.factory, record.session, summary), ready),
+      commanding: null, stationSeenAt: 0, attendedAt: null,
+    };
+  return { row: row(record, summary, login, judged), mine };
 }
 
 export const list = query({
@@ -117,8 +145,8 @@ export const list = query({
     for await (const record of ctx.db.query("sessions").withIndex("by_waiting", (q) => q.eq("waiting", true))) {
       if (!readable.has(record.factory)) readable.set(record.factory, await canRead(ctx, who, record.factory));
       if (!readable.get(record.factory)) continue;
-      const shown = await rowOf(ctx, who, record, ready);
-      if (shown !== null) rows.push(shown);
+      const shown = await rowOf(ctx, who, record, { ready });
+      if (shown !== null) rows.push(shown.row);
       if (rows.length === SHOWN) break;
     }
     return { rows: ranked(rows) };
@@ -126,28 +154,36 @@ export const list = query({
 });
 
 /**
- * One wait, opened in the answer view: what it asks, the subject's
- * whereabouts on the forge, earlier rounds, the journal as the next agent
- * reads it, and where the answer will land. Null for a session the viewer may
- * not see, or may not answer, or that is no longer waiting.
+ * One wait, opened in the gate's drawer (#113): what it asks, the subject's
+ * whereabouts on the forge, earlier rounds, what the drawer shows beside the
+ * subject (`model/gate.ts`), where the answer will land, and what was answered
+ * already. A viewer who can read the session but may not answer it is shown it
+ * too, `mine` false and `waitsOn` saying whom it is on. Null for a session the
+ * viewer may not see, or that is no longer waiting.
  */
 export const gate = query({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, { factory, session, signIn }) => {
     const who = await viewing(ctx, signIn);
-    const wait = await waitOf(ctx, who, factory, session, signIn, await credentialed(ctx));
+    const wait = await waitOf(ctx, who, { factory, session, signIn }, { ready: await credentialed(ctx), others: true });
     if (wait === null) return null;
-    const { stored, row: shown, waiting } = wait;
-    const page = view(stored.events, stored.acked);
+    const { stored, record, summary, row: shown, mine, waiting } = wait;
+    const { story } = view(stored.events, stored.acked);
+    const sent = mine && !byCommand(waiting) ? await sentFor(ctx, record.factory, session, summary) : null;
+    const answered = sent ? { by: sent.by, verdict: sent.verdict, url: sent.url }
+      : shown.queued ? { ...shown.queued, url: "" }
+      : waiting.answered ? { ...waiting.answered, url: "" } : null;
     return {
       row: shown,
+      mine,
+      waitsOn: waiting.trusted ?? [],
+      answered,
       subjectDigest: waiting.subjectDigest,
       ...asked(stored.events, stored.acked, waiting),
-      journal: page.story.journal,
+      title: story.title,
+      material: materialOf(stored.events, stored.acked, story),
       forge: await forgeWeb(ctx),
       as: loginOf(who),
-      cost: page.summary.totalCost,
-      tokens: page.summary.totalTokens,
     };
   },
 });
@@ -188,12 +224,12 @@ export type Read =
       current: boolean | null }
   | { ok: false; because: string };
 
-/** Where the subject of the wait the viewer may answer is on the forge. */
+/** Where the subject of a wait in a session the viewer can see is on the forge: whether they may answer it is `ready`'s. */
 export const locate = internalQuery({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, { factory, session, signIn }): Promise<{ subject: Subject; digest: string } | { because: string }> => {
-    const wait = await waitOf(ctx, await viewing(ctx, signIn), factory, session, signIn, true);
-    if (wait === null) return { because: "no such wait among the ones you may answer" };
+    const wait = await waitOf(ctx, await viewing(ctx, signIn), { factory, session, signIn }, { ready: true, others: true });
+    if (wait === null) return { because: "no such wait in a session you can see" };
     const { stored, row: shown, waiting } = wait;
     const { subject } = asked(stored.events, stored.acked, waiting);
     if (!subject.headSha) return { because: "the factory named no commit for this wait" };
@@ -284,7 +320,7 @@ export const ready = internalQuery({
   handler: async (ctx, { factory, session, gate, round, digest, verdict, signIn }): Promise<Ready | { because: string }> => {
     const who = await viewing(ctx, signIn);
     if (who.mode === "team" && who.viewer === null) return { because: "sign in to answer" };
-    const wait = await waitOf(ctx, who, factory, session, signIn, await credentialed(ctx));
+    const wait = await waitOf(ctx, who, { factory, session, signIn }, { ready: await credentialed(ctx) });
     if (wait === null) return { because: "no such wait among the ones you may answer" };
     const { stored, row: shown, waiting, stationId } = wait;
     if (shown.gate !== gate || shown.round !== round) {

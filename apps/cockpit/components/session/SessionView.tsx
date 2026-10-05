@@ -23,8 +23,10 @@ import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
 import { Journal } from "./Journal";
 import { NowCard } from "./NowCard";
-import { type PhaseTabsOf, SessionDrawer } from "./SessionDrawer";
-import { chapterOpen, goTo, type SessionTab, type Shown, SHOWN, stageKey, withChapter, withPhase, withStage } from "./shown";
+import { type GateOf, type PhaseTabsOf, SessionDrawer, waitingGate } from "./SessionDrawer";
+import {
+  chapterOpen, goTo, type SessionTab, type Shown, SHOWN, stageKey, withChapter, withGate, withPhase, withStage,
+} from "./shown";
 import { Timeline } from "./Timeline";
 import { answeringWords } from "./words";
 
@@ -46,15 +48,15 @@ export function sessionMenu(page: Page): ("copy" | "purge")[] {
  * the session's chapters each drawn as its stage graph, a Now card saying
  * where it is, and tabs for what the page shows nowhere else (Details), every
  * phase in order (Timeline), the journal the next agent reads and — once it
- * committed — what the session changed (Changes, #112). A stage or a
- * phase opens in the drawer over it (SessionDrawer.tsx).
+ * committed — what the session changed (Changes, #112). A stage, a phase
+ * or the gate waiting opens in the drawer over it (SessionDrawer.tsx).
  *
  * Pure: everything it shows comes from `page`, the clock `now` and `shown` —
  * what the address says is open — so a test renders it from a golden session
  * with no backend (tests/sessionview.test.tsx), and a click is `onShow` with
  * the address it sets.
  */
-export function SessionView({ page, now, shown = SHOWN, onShow, steering, onCommand, claims, onRelease, onPurge, phase, readChanges }: {
+export function SessionView({ page, now, shown = SHOWN, onShow, steering, onCommand, claims, onRelease, onPurge, phase, gate, readChanges }: {
   page: Page;
   now: number;
   shown?: Shown;
@@ -72,14 +74,18 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
   onPurge?: (reason: string) => Promise<Purged>;
   /** One phase's tabs, as the page asks for them: the phase the drawer has open. */
   phase?: PhaseTabsOf;
+  /** The gate waiting, in the drawer, as the page asks for it. */
+  gate?: GateOf;
   /** Read the session's changes from the forge (`diffs.changes`), when its tab is shown. */
   readChanges?: ReadDiff;
 }) {
-  const { summary, story, session, factory } = page;
+  const { summary, story, session } = page;
   const viewer = useContext(ViewerLogin);
   const who = useWho();
   const go = (to: Shown) => goTo(to, onShow);
-  const openPhase: OpenPhase = (phaseId) => go(withPhase(shown, phaseId));
+  // The gate waiting opens as its gate, for whoever it waits on: what matters of it now is the answer.
+  const waiting = waitingGate(story);
+  const openPhase: OpenPhase = (phaseId) => go(waiting?.phaseId === phaseId ? withGate(shown, phaseId) : withPhase(shown, phaseId));
   const latest = story.chapters.at(-1)?.number ?? 0;
   // Where a chapter that never said it finished stops counting: now, or where the session stopped.
   const stops = until(summary, now);
@@ -118,8 +124,8 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
         })}
         {summary.status === "running" ? <p className="px-1 text-sm text-muted">● live · updating as events arrive</p> : null}
       </div>
-      <NowCard factory={factory} session={session} summary={summary} story={story} budget={page.budget} now={now}
-               viewer={viewer} openPhase={openPhase} className="max-md:order-1" />
+      <NowCard summary={summary} story={story} budget={page.budget} now={now} viewer={viewer} openPhase={openPhase}
+               openGate={waiting && go(withGate(shown, waiting.phaseId))} className="max-md:order-1" />
       <Card className="px-5 pb-5 max-md:order-3 md:px-6">
         <Tabs label="Session" selected={tab} onSelect={(next: SessionTab) => onShow?.({ ...shown, tab: next })} tabs={tabs} />
         <div className="pt-4" role="tabpanel">
@@ -135,7 +141,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
           )}
         </div>
       </Card>
-      <SessionDrawer page={page} shown={shown} onShow={onShow} phase={phase} />
+      <SessionDrawer page={page} shown={shown} onShow={onShow} phase={phase} gate={gate} />
     </div>
   );
 }
