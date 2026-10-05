@@ -113,6 +113,20 @@ describe("the Now query", () => {
     ]);
   });
 
+  it("covers a repository that ships sessions before the forge shows it as a factory, where the viewer can read it", async () => {
+    // A factory stamped on a branch ships before asf/factory.yaml reaches the default branch.
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    forge.repo("acme/branchy", { roles: { alex: "read" } });
+    forge.repo("acme/hidden", { roles: {} });
+    await catchUp(t);
+    await ship(t, await factory(t, "acme/branchy"), { session: "b1run" }, { session: "b2fail", status: "fail" });
+    await ship(t, await factory(t, "acme/hidden"), { session: "h1run" }, { session: "h2fail", status: "fail" });
+
+    const page = (await t.query(api.now.page, { signIn: await signIn(t, forge, "alex") }))!;
+    expect(page.running.map(({ factory: at, session }) => `${at}/${session}`)).toEqual(["acme/branchy/b1run"]);
+    expect(page.attention.map(({ factory: at }) => at).sort()).toEqual(["acme/branchy", "acme/widgets"]);
+  });
+
   it("names a session started on an issue by the work item its provenance named", async () => {
     const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
     const staged = recorded["issue-then-two-reviews-in-stages"].events;

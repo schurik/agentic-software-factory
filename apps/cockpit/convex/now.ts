@@ -56,7 +56,7 @@ export const page = query({
     if (who.mode === "team" && who.viewer === null) return null;
     const attention: NowPage["attention"] = [];
     const running: Running[] = [];
-    for (const { names: [factory] } of await readableFactories(ctx, who)) {
+    for (const { names: [factory] } of await readableFactories(ctx, who, true)) {
       const known = await recentOf(ctx, factory);
       attention.push({ factory, facts: await attentionOf(ctx, who, factory, known) });
       const live = known.filter(({ summary }) => summary.status === "running");
