@@ -385,7 +385,7 @@ deleted, not when the App is uninstalled:
 
 | purge | who | where |
 |---|---|---|
-| a session's bodies — every artifact's content, command output and transcript | an admin of its repository, as the forge says (the permission mirror) | the session page's sidebar |
+| a session's bodies — every artifact's content, command output and transcript | an admin of its repository, as the forge says (the permission mirror) | the session page's ⋯ menu |
 | a whole factory's bodies | an owner of the account its repository belongs to, asked of the forge as the person | the Factory page's Config tab |
 | the same, with no forge permission left | whoever holds the deployment's admin key | the CLI, below |
 

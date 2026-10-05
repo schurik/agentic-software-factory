@@ -103,13 +103,19 @@ export interface SessionView {
   summary: Summary;
   story: Story;
   events: Row[];
+  // Whether the session shipped any transcript event: its factory opted in
+  // (`cockpit: {transcripts: true}`). Their bodies age out; that they came does not.
+  transcripts: boolean;
 }
+
+const TRANSCRIPT_KINDS = ["prompt_rendered", "harness_output"];
 
 /** The whole page: every stored event a row, and what those up to `acked` tell (`fold`). */
 export function view(events: StoredEvent[], acked: number): SessionView {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin(), detail: null };
   const rows = fold(state, events, acked);
-  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows };
+  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows,
+           transcripts: rows.some((row) => TRANSCRIPT_KINDS.includes(row.kind)) };
 }
 
 /** One phase of the page, opened into its tabs (phase.ts); null for a phase it never started. */
@@ -137,6 +143,16 @@ export function advance(summary: Summary, events: StoredEvent[]): Summary {
 /** When a session ended, epoch ms: its finish, else its last event, else `activity` — when the cockpit last heard of it. */
 export function endedAt({ summary, activity }: { summary: Summary; activity: number }): number {
   return at(summary.endedAt) ?? at(summary.lastEventAt) ?? activity;
+}
+
+/** Whether a session is still going: running, or waiting at a gate. */
+export function isLive(summary: Summary): boolean {
+  return summary.status === "running" || summary.status === "waiting";
+}
+
+/** Where a session's clock stops, epoch ms: `now` while it is live, else when it ended (NaN when it never said). */
+export function until(summary: Summary, now: number): number {
+  return isLive(summary) ? now : Date.parse(summary.endedAt || summary.lastEventAt);
 }
 
 /** A summary's timestamp in epoch ms; null when it has none. */

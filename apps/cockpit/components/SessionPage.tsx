@@ -1,13 +1,16 @@
 "use client";
 
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useClock } from "./clock";
 import { said } from "./said";
 import type { ClaimView } from "@/convex/model/claim";
 import type { Command } from "./session/action";
+import { PhaseDetails } from "./session/PhaseDetails";
 import { SessionView } from "./session/SessionView";
+import { readShown, type Shown, writeShown } from "./session/shown";
 import { useSignIn } from "./signIn";
 import { Loading, Notice } from "./ui";
 
@@ -15,6 +18,8 @@ import { Loading, Notice } from "./ui";
  * One session, live. `useQuery` is a subscription: every event a station ships
  * re-runs the query and the page moves on in place, with nothing to reload.
  * The clock ticks on its own so "last heard from" keeps counting between events.
+ * What is open — the tab, chapters, stages, a phase — is the address's
+ * (`shown.ts`), so a link opens what its sender saw.
  */
 export function SessionPage({ factory, session }: { factory: string; session: string }) {
   const signIn = useSignIn();
@@ -30,6 +35,12 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const [problem, setProblem] = useState("");
   const [released, setReleased] = useState("");
   const now = useClock();
+  const path = usePathname();
+  const search = useSearchParams();
+  const router = useRouter();
+  const onShow = useCallback((next: Shown) => {
+    router.replace(`${path}${writeShown(next, new URLSearchParams(search.toString()))}`, { scroll: false });
+  }, [path, router, search]);
   if (page === undefined) return <Loading />;
   if (page === null) {
     return (
@@ -58,8 +69,12 @@ export function SessionPage({ factory, session }: { factory: string; session: st
     <>
       {problem ? <Notice tone="bad">{problem}</Notice> : null}
       {released ? <Notice tone="ok">{released}</Notice> : null}
-      <SessionView page={page} now={now} steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
-                   onPurge={(reason) => purge({ factory, session, reason, signIn })} />
+      <SessionView page={page} now={now} shown={readShown(new URLSearchParams(search.toString()))} onShow={onShow}
+                   steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
+                   onPurge={page.mayPurge ? (reason) => purge({ factory, session, reason, signIn }) : undefined}
+                   phase={(phaseId, tab) => (
+                     <PhaseDetails phaseId={phaseId} where={{ factory, session, forge: page.forge }} initial={tab ?? undefined} />
+                   )} />
     </>
   );
 }

@@ -184,6 +184,13 @@ describe("the journal", () => {
     expect((await story(t)).journal).toBe(JOURNAL);
   });
 
+  it("is that journal byte for byte for a factory that records its stages too", async () => {
+    const t = cockpit();
+    const { events, journal } = recorded["issue-then-two-reviews-in-stages"];
+    await ship(t, await factory(t), events);
+    expect((await story(t)).journal).toBe(journal);
+  });
+
   it("is, at every task the factory sent an agent, the journal that prompt ended with", async () => {
     // Send 1 is the task; a later send in the same session is a correction,
     // which the agent reads with the task (and its journal) still in context.

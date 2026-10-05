@@ -17,14 +17,14 @@ import { type Tone, toneOf } from "./session/words";
 export const cx = (...classes: (string | false | null | undefined)[]) => classes.filter(Boolean).join(" ");
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md";
+type Size = "sm" | "md" | "icon";
 
 /** A button's look, for a link that acts as one too. */
 export function buttonClass(variant: Variant = "secondary", size: Size = "md"): string {
   return cx(
     "inline-flex shrink-0 items-center justify-center gap-2 rounded-md font-medium whitespace-nowrap no-underline transition-colors",
     "hover:no-underline disabled:pointer-events-none disabled:opacity-50",
-    size === "sm" ? "h-7 px-2.5 text-sm" : "h-9 px-3.5 text-base",
+    size === "sm" ? "h-7 px-2.5 text-sm" : size === "icon" ? "size-9" : "h-9 px-3.5 text-base",
     variant === "primary" && "bg-accent-strong text-accent-fg shadow-card hover:brightness-110",
     variant === "secondary" && "border border-line-strong bg-surface text-fg shadow-card hover:bg-surface-2",
     variant === "ghost" && "text-muted hover:bg-surface-2 hover:text-fg",
