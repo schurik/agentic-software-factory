@@ -4,8 +4,8 @@
  * The cockpit never interprets a workflow file. What it shows of a factory's
  * workflows — purpose, trigger, stages, agents, gates — its per-session
  * budget and, from format 2, its settings are what the factory's own
- * `asf check --json` printed (`engine/describe.py`), shipped by the optional CI workflow as a CI station
- * with the factory's ingest token. It carries its own format version, and the
+ * `asf check --json` printed (`engine/describe.py`), shipped by the optional
+ * CI workflow as a CI station with the factory's ingest token. It carries its own format version, and the
  * golden corpus holds one fixture per version (`tests/golden/self-description/
  * v<N>.json`): every one ever written must read here.
  *
@@ -134,14 +134,13 @@ export interface Settings {
     /** What a cockpit may ask a station to do. */
     commands: string[];
   };
-  /** The forge and tracker. */
+  /** The forge and tracker; the remote a branch goes to is `landing.remote`. */
   forge: {
     /** "": neither set nor resolvable from the origin remote. */
     project: string;
     reviewProject: string;
-    remote: string;
-    /** queued, running, done, failed, refined, pr_failed */
-    labels: Record<string, string>;
+    /** Every label the factory writes: an issue's four states, the refined mark, a failed review run's. */
+    labels: { queued: string; running: string; done: string; failed: string; refined: string; prFailed: string };
   };
 }
 
@@ -209,6 +208,7 @@ function readSettings(raw: Payload, budget: Budget): Settings {
   const landing = part(raw, "landing");
   const limits = part(raw, "limits");
   const forge = part(raw, "forge");
+  const labels = part(forge, "labels");
   return {
     intake: {
       issues: intake.bool("issues"), routes: mapOf(intake, "routes", "string"),
@@ -239,8 +239,11 @@ function readSettings(raw: Payload, budget: Budget): Settings {
       transcriptRetentionDays: limits.num("transcript_retention_days"), commands: limits.strs("commands"),
     },
     forge: {
-      project: forge.str("project"), reviewProject: forge.str("review_project"), remote: forge.str("remote"),
-      labels: mapOf(forge, "labels", "string"),
+      project: forge.str("project"), reviewProject: forge.str("review_project"),
+      labels: {
+        queued: labels.str("queued"), running: labels.str("running"), done: labels.str("done"),
+        failed: labels.str("failed"), refined: labels.str("refined"), prFailed: labels.str("pr_failed"),
+      },
     },
   };
 }

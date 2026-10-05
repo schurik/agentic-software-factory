@@ -147,8 +147,8 @@ def test_the_settings_are_the_stamped_factory_yaml_s_as_its_code_reads_them(stam
 
     # The stamp has no origin to resolve a project from; the labels are the tracker's.
     forge = settings.forge
-    assert forge.project == "" and forge.review_project == "" and forge.remote == "origin"
-    assert forge.labels == {"queued": "asf:queued", "running": "asf:running",
+    assert forge.project == "" and forge.review_project == "" and landing.remote == "origin"
+    assert forge.labels.model_dump() == {"queued": "asf:queued", "running": "asf:running",
                             "done": "asf:done", "failed": "asf:failed",
                             "refined": "asf:refined", "pr_failed": "asf:pr-failed"}
     assert "fetch_command" not in json.dumps(raw)        # the tracker's raw commands stay home

@@ -66,8 +66,10 @@ def none_is_refused(setting: str) -> str:
             f"should land nothing leaves out its `integrate` stage")
 
 
-def lands_as(cfg: FactoryConfig, trigger: str, mode: IntegrationMode) -> IntegrationMode:
-    """How a run started by `trigger` lands when it asks for `mode`.
+def lands_as(cfg: FactoryConfig, trigger: str,
+             mode: IntegrationMode) -> tuple[IntegrationMode, str]:
+    """(how a run started by `trigger` lands when it asks for `mode`, why it
+    was downgraded — "" when it was not).
 
     An externally triggered run must not be able to move the base branch. The
     prompt came from whoever can file an issue, not from the engineer's own
@@ -79,28 +81,23 @@ def lands_as(cfg: FactoryConfig, trigger: str, mode: IntegrationMode) -> Integra
     engineer who wants the branch merged says so by merging the pull request,
     which is the whole point of having opened it.
     """
-    if mode == "merge" and (trigger == "pr_review"
-                            or (trigger == "issue" and cfg.issues.force_pr)):
-        return "pr"
-    return mode
-
-
-_DOWNGRADED = {
-    "issue": ("issue-triggered run: merge downgraded to pr (issues.force_pr) — a stranger's "
-              "prompt does not move the base branch"),
-    "pr_review": ("review-triggered run: merge downgraded to pr — this branch is already under "
-                  "review, and merging it here would land it without the review it is waiting "
-                  "for"),
-}
+    if mode != "merge":
+        return mode, ""
+    if trigger == "issue" and cfg.issues.force_pr:
+        return "pr", ("issue-triggered run: merge downgraded to pr (issues.force_pr) — a "
+                      "stranger's prompt does not move the base branch")
+    if trigger == "pr_review":
+        return "pr", ("review-triggered run: merge downgraded to pr — this branch is already "
+                      "under review, and merging it here would land it without the review it "
+                      "is waiting for")
+    return mode, ""
 
 
 def integrate(run, params: IntegrationRequest) -> IntegrationResult:
     """Land the run's branch per config. Returns evidence, never a claim."""
     config = run.cfg.worktree.integration
     workspace = run.workspace
-    asked = params.mode or config.mode
-    mode = lands_as(run.cfg, run.trigger, asked)
-    downgrade = _DOWNGRADED[run.trigger] if mode != asked else ""
+    mode, downgrade = lands_as(run.cfg, run.trigger, params.mode or config.mode)
 
     result = IntegrationResult(mode=mode, branch=workspace.branch,
                                base_ref=workspace.base_ref)

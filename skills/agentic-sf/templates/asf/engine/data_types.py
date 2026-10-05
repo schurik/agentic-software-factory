@@ -2150,7 +2150,9 @@ class DescribedLanding(BaseModel):
     `mode` is how a prompt run lands; `issue_mode` is how an issue-triggered
     one does, which `issues.force_pr` holds to `pr`. A review run always lands
     as `pr` — it exists because the branch is under review. `publish` is
-    `engine/publish.py`'s answer on the checkout that described it."""
+    `engine/publish.py`'s answer on the checkout that described it: shipped,
+    that checkout had a cockpit configured, as every station reporting to the
+    same cockpit does, so it is their answer too."""
 
     mode: IntegrationMode
     issue_mode: IntegrationMode
@@ -2173,18 +2175,33 @@ class DescribedLimits(BaseModel):
     commands: list[CommandVerb]     # what a cockpit may ask a station to do
 
 
+class DescribedLabels(BaseModel):
+    """Every label the factory writes on the tracker: an issue's four states,
+    the refined mark beside them, and a failed review run's."""
+
+    queued: str
+    running: str
+    done: str
+    failed: str
+    refined: str
+    pr_failed: str
+
+
 class DescribedForge(BaseModel):
     """The forge and tracker: the project each watcher aims at — set, or
     resolved from the origin remote as the watcher would; "" when neither is
-    — the remote a branch goes to, and the labels the factory writes."""
+    — and the labels the factory writes. The remote a branch goes to is
+    `DescribedLanding.remote`."""
 
     project: str
     review_project: str
-    remote: str
-    labels: dict[str, str]          # queued, running, done, failed, refined, pr_failed
+    labels: DescribedLabels
 
 
 class DescribedSettings(BaseModel):
+    """factory.yaml as the factory's code reads it, one group per question a
+    person asks of a factory."""
+
     intake: DescribedIntake
     hitl: DescribedHitl
     landing: DescribedLanding

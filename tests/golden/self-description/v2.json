@@ -82,7 +82,6 @@
     "forge": {
       "project": "acme/widgets",
       "review_project": "acme/widgets",
-      "remote": "origin",
       "labels": {
         "queued": "asf:queued",
         "running": "asf:running",

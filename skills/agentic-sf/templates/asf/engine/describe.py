@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import commands, factory, git_helper, integration, issues, publish, station, workflow
 from .data_types import (CheckedCheckout, DescribedAgent, DescribedForge, DescribedGate,
-                         DescribedHitl, DescribedIntake, DescribedLanding, DescribedLimits,
+                         DescribedHitl, DescribedIntake, DescribedLabels, DescribedLanding, DescribedLimits,
                          DescribedReviews, DescribedSettings, DescribedStage, DescribedTrigger,
                          DescribedWorkflow, FactoryConfig, SelfDescription, WorkflowProblem)
 
@@ -121,7 +121,7 @@ def _settings(cfg: FactoryConfig, main_root: Path,
             wait_seconds=hitl.wait_seconds, when_unattended=hitl.when_unattended,
             max_rounds=hitl.max_rounds, notify_command=hitl.notify_command),
         landing=DescribedLanding(
-            mode=landing.mode, issue_mode=integration.lands_as(cfg, "issue", landing.mode),
+            mode=landing.mode, issue_mode=integration.lands_as(cfg, "issue", landing.mode)[0],
             open_pr=landing.open_pr, remote=landing.remote,
             branch_prefix=cfg.worktree.branch_prefix, base_ref=cfg.worktree.base_ref,
             publish=publish.mode(cfg, main_root), worktrees=cfg.worktree.enabled,
@@ -132,10 +132,9 @@ def _settings(cfg: FactoryConfig, main_root: Path,
             commands=cfg.cockpit.commands),
         forge=DescribedForge(
             project=issues.resolve_project(cfg.issues, main_root),
-            review_project=issues.resolve_project(pr, main_root), remote=landing.remote,
-            labels={"queued": states.queued, "running": states.running, "done": states.done,
-                    "failed": states.failed, "refined": cfg.issues.refined_label,
-                    "pr_failed": pr.states.failed}))
+            review_project=issues.resolve_project(pr, main_root),
+            labels=DescribedLabels(**states.model_dump(), refined=cfg.issues.refined_label,
+                                   pr_failed=pr.states.failed)))
 
 
 def _unique(names: list[str]) -> list[str]:

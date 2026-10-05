@@ -111,8 +111,11 @@ describe("the golden self-descriptions", () => {
       budget: { maxCostUsd: 2.5, maxTokens: 2_000_000 }, transcripts: true, transcriptRetentionDays: 14,
       commands: ["answer", "abort", "kill", "resume"],
     });
-    expect(settings!.forge).toMatchObject({ project: "acme/widgets", reviewProject: "acme/widgets", remote: "origin" });
-    expect(settings!.forge.labels).toMatchObject({ queued: "asf:queued", refined: "asf:refined", pr_failed: "asf:pr-failed" });
+    expect(settings!.forge).toEqual({
+      project: "acme/widgets", reviewProject: "acme/widgets",
+      labels: { queued: "asf:queued", running: "asf:running", done: "asf:done", failed: "asf:failed",
+                refined: "asf:refined", prFailed: "asf:pr-failed" },
+    });
   });
 
   it("reads no settings out of format 1, which had none, and the rest of it as before", () => {
