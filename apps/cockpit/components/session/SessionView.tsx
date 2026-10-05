@@ -13,6 +13,7 @@ import { markOfStatus } from "@/convex/model/graph";
 import type { Chapter } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
 import { formatCost, formatDuration, plural, pretty, prNumber, secondsBetween } from "../format";
+import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
 import { PurgeForm } from "../Purge";
@@ -44,7 +45,8 @@ export function sessionMenu(page: Page): ("copy" | "purge")[] {
  * The session page (#104): a header with the one action that applies now,
  * the session's chapters each drawn as its stage graph, a Now card saying
  * where it is, and tabs for what the page shows nowhere else (Details), every
- * phase in order (Timeline) and the journal the next agent reads. A stage or a
+ * phase in order (Timeline), the journal the next agent reads and — once it
+ * committed — what the session changed (Changes, #112). A stage or a
  * phase opens in the drawer over it (SessionDrawer.tsx).
  *
  * Pure: everything it shows comes from `page`, the clock `now` and `shown` —
@@ -52,7 +54,7 @@ export function sessionMenu(page: Page): ("copy" | "purge")[] {
  * with no backend (tests/sessionview.test.tsx), and a click is `onShow` with
  * the address it sets.
  */
-export function SessionView({ page, now, shown = SHOWN, onShow, steering, onCommand, claims, onRelease, onPurge, phase }: {
+export function SessionView({ page, now, shown = SHOWN, onShow, steering, onCommand, claims, onRelease, onPurge, phase, readChanges }: {
   page: Page;
   now: number;
   shown?: Shown;
@@ -70,6 +72,8 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
   onPurge?: (reason: string) => Promise<Purged>;
   /** One phase's tabs, as the page asks for them: the phase the drawer has open. */
   phase?: PhaseTabsOf;
+  /** Read the session's changes from the forge (`diffs.changes`), when its tab is shown. */
+  readChanges?: ReadDiff;
 }) {
   const { summary, story, session, factory } = page;
   const viewer = useContext(ViewerLogin);
@@ -79,6 +83,13 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
   const latest = story.chapters.at(-1)?.number ?? 0;
   // Where a chapter that never said it finished stops counting: now, or where the session stopped.
   const stops = until(summary, now);
+  // The branch has a diff once the session committed something on top of the commit it started from.
+  const changed = story.baseCommit !== "" && story.headCommit !== "";
+  const tabs: { id: SessionTab; label: string }[] = [
+    { id: "details", label: "Details" }, { id: "timeline", label: "Timeline" }, { id: "journal", label: "Journal" },
+    ...(changed ? [{ id: "changes" as const, label: "Changes" }] : []),
+  ];
+  const tab = tabs.some((each) => each.id === shown.tab) ? shown.tab : SHOWN.tab;
 
   return (
     <div className="flex flex-col gap-5">
@@ -110,15 +121,17 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
       <NowCard factory={factory} session={session} summary={summary} story={story} budget={page.budget} now={now}
                viewer={viewer} openPhase={openPhase} className="max-md:order-1" />
       <Card className="px-5 pb-5 max-md:order-3 md:px-6">
-        <Tabs label="Session" selected={shown.tab} onSelect={(tab: SessionTab) => onShow?.({ ...shown, tab })}
-              tabs={[{ id: "details", label: "Details" }, { id: "timeline", label: "Timeline" }, { id: "journal", label: "Journal" }]} />
+        <Tabs label="Session" selected={tab} onSelect={(next: SessionTab) => onShow?.({ ...shown, tab: next })} tabs={tabs} />
         <div className="pt-4" role="tabpanel">
-          {shown.tab === "details" ? (
+          {tab === "details" ? (
             <Details page={page} now={now} steering={steering ?? null} claims={claims ?? []} onRelease={onRelease} />
-          ) : shown.tab === "timeline" ? (
+          ) : tab === "timeline" ? (
             <Timeline chapters={story.chapters} opened={shown.phase} openPhase={openPhase} />
-          ) : (
+          ) : tab === "journal" ? (
             <Journal entries={story.journalEntries} />
+          ) : (
+            <ForgeDiff subject={`${story.baseCommit}...${story.headCommit}`} read={readChanges}
+                       title={`${summary.branch} against ${summary.baseRef || story.baseCommit.slice(0, 7)}`} />
           )}
         </div>
       </Card>

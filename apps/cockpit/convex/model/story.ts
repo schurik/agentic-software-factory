@@ -192,6 +192,7 @@ export interface Story {
   journalEntries: Numbered[];   // the same journal, one entry per number, for the page to draw
   station: { id: string; name: string; runBy: string };
   baseCommit: string;
+  headCommit: string;     // the latest commit the session made, "" before it made one
   agentPhases: number;
   toolCalls: number;
 }
@@ -269,13 +270,14 @@ export interface StoryState {
   workflow: string;                 // what session_started named, for a factory without chapters
   station: { id: string; name: string; runBy: string };
   baseCommit: string;
+  headCommit: string;
   issueNumber: number;              // of the work item the session is waiting on, if any
   request: string;                  // the first work item a provenance named
 }
 
 export function begin(): StoryState {
   return { chapters: [], current: null, phases: [], extras: [], resumed: null, open: null,
-           journal: [], workflow: "", station: { id: "", name: "", runBy: "" }, baseCommit: "",
+           journal: [], workflow: "", station: { id: "", name: "", runBy: "" }, baseCommit: "", headCommit: "",
            issueNumber: 0, request: "" };
 }
 
@@ -482,9 +484,12 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     }),
   },
   committed: {
-    1: withPhase((phase, p) => {
-      phase.commits.push({ sha: p.str("sha"), message: p.str("message"), filesTotal: p.num("files_total") });
-    }),
+    1: (state, p, at) => {
+      state.headCommit = p.str("sha") || state.headCommit;
+      withPhase((phase) => {
+        phase.commits.push({ sha: p.str("sha"), message: p.str("message"), filesTotal: p.num("files_total") });
+      })(state, p, at);
+    },
   },
   command_finished: {
     1: withPhase((phase, p) => {
@@ -680,6 +685,7 @@ export function finish(state: StoryState, summary: Summary): Story {
     journalEntries: numbered(state.journal),
     station: state.station,
     baseCommit: state.baseCommit,
+    headCommit: state.headCommit,
     agentPhases: state.phases.filter((phase) => phase.kind === "agent").length,
     toolCalls: state.phases.reduce((total, phase) => total + phase.toolCalls, 0),
   };

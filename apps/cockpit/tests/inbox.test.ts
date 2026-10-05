@@ -343,7 +343,7 @@ describe("the subject of a gate", () => {
     // What was hashed is a file only the station has: the factory checks the digest when it hears the answer.
     expect(await read()).toEqual({
       ok: true, headSha: PINNED, current: null, files: [],
-      diff: "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n-ok = 0\n+ok = 1\n",
+      diff: "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-ok = 0\n+ok = 1\n",
     });
   });
 

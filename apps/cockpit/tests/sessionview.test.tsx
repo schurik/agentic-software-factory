@@ -314,6 +314,25 @@ describe("the tabs", () => {
   });
 });
 
+describe("the Changes tab", () => {
+  it("is offered once the session committed, after the Journal", () => {
+    expect([...html().matchAll(/<button[^>]*role="tab"[^>]*>([^<]+)/g)].map((match) => match[1]))
+      .toEqual(["Details", "Timeline", "Journal", "Changes"]);
+  });
+
+  it("is titled by the branch against its base, and reads their diff from the forge", () => {
+    const changes = html({ shown: { tab: "changes" } });
+    expect(changes).toMatch(/<button[^>]*aria-selected="true"[^>]*>Changes/);
+    expect(read(changes.slice(changes.indexOf('role="tabpanel"')))).toMatch(/asf\/a9f259f0 against main Reading the diff from the forge…/);
+  });
+
+  it("is not offered before the session committed anything, and its address opens Details", () => {
+    const markup = html({ events: upTo(SUSPENDED), shown: { tab: "changes" } });
+    expect(markup).not.toMatch(/role="tab"[^>]*>Changes/);
+    expect(markup).toMatch(/<button[^>]*aria-selected="true"[^>]*>Details/);
+  });
+});
+
 describe("without the transcript opt-in", () => {
   const TRANSCRIPT = ["prompt_rendered", "harness_output"];
   const shipped = STAGED.filter((event) => !TRANSCRIPT.includes(event.kind)).map((event, index) => ({ ...event, seq: index + 1 }));
@@ -353,6 +372,7 @@ describe("the address", () => {
     expect(readShown(new URLSearchParams("stage=plan")).stage).toBeNull();
     expect(writeShown(SHOWN)).toBe("");
     expect(readShown(new URLSearchParams("tab=nonsense&opened=x,2"))).toEqual({ ...SHOWN, opened: [2] });
+    expect(readShown(new URLSearchParams("tab=changes")).tab).toBe("changes");
   });
 
   it("keeps whatever else the address says", () => {

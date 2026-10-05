@@ -32,6 +32,8 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const claims = useQuery(api.claims.ofSession, { factory, session, signIn });
   const release = useAction(api.claims.release);
   const purge = useMutation(api.retention.purgeSession);
+  const changes = useAction(api.diffs.changes);
+  const readChanges = useCallback(() => changes({ factory, session, signIn }), [changes, factory, session, signIn]);
   const [problem, setProblem] = useState("");
   const [released, setReleased] = useState("");
   const now = useClock();
@@ -72,6 +74,7 @@ export function SessionPage({ factory, session }: { factory: string; session: st
       <SessionView page={page} now={now} shown={readShown(new URLSearchParams(search.toString()))} onShow={onShow}
                    steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
                    onPurge={page.mayPurge ? (reason) => purge({ factory, session, reason, signIn }) : undefined}
+                   readChanges={readChanges}
                    phase={(item, tab, onTab) => (
                      <PhaseDetails item={item} where={{ factory, session, forge: page.forge }} tab={tab} onTab={onTab} />
                    )} />

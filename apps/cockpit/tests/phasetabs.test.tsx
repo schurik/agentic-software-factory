@@ -99,6 +99,17 @@ describe("the Artifacts tab", () => {
   });
 });
 
+describe("the Diff tab", () => {
+  it("is offered on a phase that committed, after Overview, and on no other", () => {
+    expect(tabsFor(detail("a9f259f0_07_commit_plan"))).toEqual(["overview", "diff", "events"]);
+    expect(tabsFor(detail("a9f259f0_08_implement"))).not.toContain("diff");
+  });
+
+  it("reads the commit its `committed` names from the forge, under the commit's sha and message", () => {
+    expect(tab("a9f259f0_07_commit_plan", "diff")).toMatch(/2512a3c docs: plan the meeting date Reading the diff from the forge…/);
+  });
+});
+
 describe("a repo file, as read from the forge", () => {
   const artifact = detail("a9f259f0_05_plan_revise_1").artifacts[0] as Artifact;
   const file = (got: Parameters<typeof RepoFile>[0]["got"]) =>

@@ -31,8 +31,8 @@ export const DRAWER_LOOK = {
 
 const PHONE = "(max-width: 767px)";
 
-/** Whether the screen is a phone's: which way the drawer is swiped shut. */
-function usePhone(): boolean {
+/** Whether the screen is a phone's: which way the drawer is swiped shut, and whether a diff has room for two columns. */
+export function usePhone(): boolean {
   return useSyncExternalStore(
     (changed) => {
       const query = window.matchMedia(PHONE);

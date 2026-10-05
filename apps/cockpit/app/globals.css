@@ -35,7 +35,9 @@
   --bad-soft: color-mix(in oklab, #c42b2b 9%, transparent);
   --merged: #8250df;
   --add-bg: #e9f7ee;
+  --add-word: #b4e8c6;
   --del-bg: #fdecec;
+  --del-word: #f6c5c5;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 1px rgb(0 0 0 / 0.03);
   --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.18), 0 2px 6px rgb(0 0 0 / 0.06);
   color-scheme: light;
@@ -63,7 +65,9 @@
   --bad-soft: color-mix(in oklab, #f06a6a 13%, transparent);
   --merged: #a98bf5;
   --add-bg: #12261a;
+  --add-word: #1f4d2e;
   --del-bg: #2c1515;
+  --del-word: #5c2424;
   --shadow: 0 0 0 1px rgb(255 255 255 / 0.02);
   --shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.6);
   color-scheme: dark;
@@ -91,7 +95,9 @@
   --color-bad-soft: var(--bad-soft);
   --color-merged: var(--merged);
   --color-add-bg: var(--add-bg);
+  --color-add-word: var(--add-word);
   --color-del-bg: var(--del-bg);
+  --color-del-word: var(--del-word);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-lg);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;

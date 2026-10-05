@@ -17,6 +17,7 @@ import type * as config from "../config.js";
 import type * as cost from "../cost.js";
 import type * as crons from "../crons.js";
 import type * as describe from "../describe.js";
+import type * as diffs from "../diffs.js";
 import type * as discovery from "../discovery.js";
 import type * as factories from "../factories.js";
 import type * as factory from "../factory.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   cost: typeof cost;
   crons: typeof crons;
   describe: typeof describe;
+  diffs: typeof diffs;
   discovery: typeof discovery;
   factories: typeof factories;
   factory: typeof factory;

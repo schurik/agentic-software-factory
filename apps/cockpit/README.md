@@ -603,10 +603,15 @@ journal's own numbers, with markdown rendered inside; `tests/sessionview.test.ts
 itself from the same session to static markup, with no backend and no browser. A stage or a phase
 opens in the drawer over the page, and which one is the address's: `tests/drawerview.test.tsx`
 renders the drawer each address opens. A phase's view leads with what it cost, and opens into the tabs it has
-something in (Overview · Artifacts · Checks · Tools · Transcript · Events) through a query of its
+something in (Overview · Diff · Artifacts · Checks · Tools · Transcript · Events) through a query of its
 own, `sessions:phase`, asked only when someone opens it: `tests/phase.test.ts` says what each tab
 holds for the recorded session, `tests/phasetabs.test.tsx` renders every tab of every phase of it, and
-`tests/artifacts.test.ts` reads repo artifacts from the fake forge. `tests/inbox.test.ts` drives the inbox
+`tests/artifacts.test.ts` reads repo artifacts from the fake forge. No diff travels in an event:
+a commit phase's Diff tab is the forge's diff of the commit its `committed` names, and the session's
+Changes tab — there once it committed — is the forge's comparison of its `base_commit` with the
+latest commit it made (`convex/diffs.ts`). `tests/diffs.test.ts` reads both from the fake forge in
+local and team mode, and `tests/diffview.test.tsx` renders what the cockpit draws of them: unified
+or split, each file collapsible, the words that changed marked. `tests/inbox.test.ts` drives the inbox
 against it — who is permitted, why a row is disabled, the comment posted as whom, the subject at
 the pinned commit — and `tests/answer.test.ts` renders the golden answers. `tests/trigger.test.ts`
 drives the trigger: the routes found by their golden descriptions, the labels added as whom, and

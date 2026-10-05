@@ -6,6 +6,7 @@ import { type Artifact, type PhaseDetail, READ_BYTES } from "@/convex/model/phas
 import { type Pruned, prunedWord } from "@/convex/model/retention";
 import type { Phase } from "@/convex/model/graph";
 import type { GateItem } from "@/convex/model/story";
+import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { isMarkdown, Markdown } from "../Markdown";
 import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, plural, pretty } from "../format";
 import { cx, Facts, num, Pre, Table, Tabs } from "../ui";
@@ -23,7 +24,7 @@ export interface Where {
 export type ReadArtifact = (seq: number) => Promise<Read>;
 
 const TABS = {
-  overview: "Overview", artifacts: "Artifacts", checks: "Checks", tools: "Tools", transcript: "Transcript", events: "Events",
+  overview: "Overview", diff: "Diff", artifacts: "Artifacts", checks: "Checks", tools: "Tools", transcript: "Transcript", events: "Events",
 } as const;
 
 type Tab = keyof typeof TABS;
@@ -31,12 +32,13 @@ type Tab = keyof typeof TABS;
 /**
  * The tabs a phase opens into, each only where it has something to show
  * (#110): an agent's tool calls and transcript, what was checked, what it
- * wrote. The Transcript tab stays on an agent whose factory keeps none, to
+ * wrote, what it committed (#112). The Transcript tab stays on an agent whose factory keeps none, to
  * say so and why. What it cost is the drawer's header line, not a tab.
  */
 export function tabsFor(detail: PhaseDetail): Tab[] {
   const tabs = Object.keys(TABS) as Tab[];
   return tabs.filter((tab) => {
+    if (tab === "diff") return detail.commits.length > 0;
     if (tab === "artifacts") return detail.artifacts.length > 0;
     if (tab === "checks") return detail.checks.length + detail.rejections.length + detail.commands.length > 0;
     if (tab === "tools") return detail.kind === "agent" && detail.tools.length > 0;
@@ -49,15 +51,17 @@ export function tabsFor(detail: PhaseDetail): Tab[] {
  * A phase opened into its tabs, on Overview unless the address says another.
  * Pure: everything comes from `item` (the phase as the session's story tells
  * it), `detail` (the `sessions.phase` query) and `tab`; a repo file is read
- * through `read` (the `artifacts.read` action) when its tab is shown.
+ * through `read` (the `artifacts.read` action), and a commit's diff through
+ * `readDiff` (`diffs.commit`), when its tab is shown.
  */
-export function PhaseTabs({ item, detail, where, tab, onTab, read }: {
+export function PhaseTabs({ item, detail, where, tab, onTab, read, readDiff }: {
   item: Phase;
   detail: PhaseDetail;
   where: Where;
   tab: string | null;
   onTab?: (tab: string) => void;
   read?: ReadArtifact;
+  readDiff?: ReadDiff;
 }) {
   const tabs = tabsFor(detail);
   const shown = tabs.includes(tab as Tab) ? tab as Tab : "overview";
@@ -70,12 +74,27 @@ export function PhaseTabs({ item, detail, where, tab, onTab, read }: {
       }))} />
       <div className="grid gap-2 pt-4 text-sm" role="tabpanel">
         {shown === "overview" ? <Overview item={item} detail={detail} where={where} /> : null}
+        {shown === "diff" ? <CommitDiffs detail={detail} readDiff={readDiff} /> : null}
         {shown === "artifacts" ? <Artifacts detail={detail} where={where} read={read} /> : null}
         {shown === "checks" ? <Checks detail={detail} /> : null}
         {shown === "tools" ? <Tools detail={detail} /> : null}
         {shown === "transcript" ? <Transcript detail={detail} /> : null}
         {shown === "events" ? <Events detail={detail} /> : null}
       </div>
+    </div>
+  );
+}
+
+// ── Diff ─────────────────────────────────────────────────────────────────────
+
+/** What each commit the phase made changed, read from the forge at its sha: no diff travels in an event. */
+function CommitDiffs({ detail, readDiff }: { detail: PhaseDetail; readDiff?: ReadDiff }) {
+  return (
+    <div className="flex flex-col gap-6">
+      {detail.commits.map((commit) => (
+        <ForgeDiff key={commit.sha} subject={commit.sha} read={readDiff}
+                   title={<><code>{commit.sha.slice(0, 7)}</code> {commit.message}</>} />
+      ))}
     </div>
   );
 }

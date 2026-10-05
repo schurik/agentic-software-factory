@@ -8,7 +8,7 @@
 
 import type { Go } from "../ui";
 
-export const TABS = ["details", "timeline", "journal"] as const;
+export const TABS = ["details", "timeline", "journal", "changes"] as const;
 export type SessionTab = (typeof TABS)[number];
 
 export interface Shown {
