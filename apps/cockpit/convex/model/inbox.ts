@@ -117,8 +117,8 @@ export function blocked(summary: Summary, sent: Sent | null, ready: boolean, com
  * someone else to would be one the factory ignores.
  */
 export function waitsOnOthers(waiting: WaitingFor): string {
-  const where = waiting.channel === "issue" && waiting.issueNumber ? `here or on issue #${waiting.issueNumber}` : "here or at the station";
-  return `waiting on ${(waiting.trusted ?? []).join(", ")}: the factory hears only them, ${where}`;
+  const on = `waiting on ${(waiting.trusted ?? []).join(", ")}: the factory hears only them`;
+  return waiting.channel === "issue" && waiting.issueNumber ? `${on}, here or on issue #${waiting.issueNumber}` : on;
 }
 
 /** What became of the last answer by command, when the station turned it down or never took it: "" otherwise. */

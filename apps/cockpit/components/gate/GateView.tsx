@@ -8,7 +8,7 @@ import type { Answer } from "@/convex/model/answer";
 import { type Question, stationWords } from "@/convex/model/inbox";
 import { DiffView } from "../diff/DiffView";
 import { DrawerFrame } from "../Drawer";
-import { formatAgo, formatDuration, sessionHref } from "../format";
+import { formatAgo, formatDuration, plural, sessionHref } from "../format";
 import { ForgeRef, StageIcon, StatusIcon } from "../icons";
 import { workItem } from "../inbox/InboxList";
 import { keyed } from "../inbox/keys";
@@ -71,7 +71,7 @@ type Tab = "plan" | "changes" | "subject" | "questions" | "checks" | "review" | 
  * integrate gate's changes, checks, review and issue; a question round's
  * questions; and any other gate's subject.
  */
-function tabsFor(gate: Gate): { id: Tab; label: string }[] {
+function tabsFor(gate: Gate, read: Read | null): { id: Tab; label: string }[] {
   const { row, material } = gate;
   const issue = material.issue ? [{ id: "issue" as const, label: row.issueNumber ? `Issue #${row.issueNumber}` : "Issue" }] : [];
   if (row.kind === "questions") return [{ id: "questions", label: "Questions" }, ...issue];
@@ -80,7 +80,8 @@ function tabsFor(gate: Gate): { id: Tab; label: string }[] {
             ...(material.findings ? [{ id: "findings" as const, label: "Scout's findings" }] : [])];
   }
   if (row.gate === "integrate") {
-    return [{ id: "changes", label: "Changes" },
+    const files = read?.ok && read.diff ? (read.diff.match(/^diff --git /gm) ?? []).length : 0;
+    return [{ id: "changes", label: files ? `Changes · ${plural(files, "file")}` : "Changes" },
             ...(material.checks.length ? [{ id: "checks" as const, label: "Checks" }] : []),
             ...(material.review ? [{ id: "review" as const, label: "Review" }] : []), ...issue];
   }
@@ -144,7 +145,9 @@ export function GateView({ gate, read, now, posting, problem, onAnswer, tab, onT
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const key = keyed(event);
-      const to = key === "next" ? latest.current.step?.next : key === "previous" ? latest.current.step?.previous : null;
+      // `j` and `k` step; the arrows are left to scroll a long plan or diff.
+      const stepping = event.key === "j" || event.key === "k";
+      const to = !stepping ? null : key === "next" ? latest.current.step?.next : key === "previous" ? latest.current.step?.previous : null;
       if (to) {
         event.preventDefault();
         to.onClick();
@@ -160,7 +163,7 @@ export function GateView({ gate, read, now, posting, problem, onAnswer, tab, onT
     return () => window.removeEventListener("keydown", onKey);
   }, [questions]);
 
-  const tabs = tabsFor(gate);
+  const tabs = tabsFor(gate, read);
   const shown = tabs.find((each) => each.id === tab)?.id ?? tabs[0].id;
   const asked = channelWords(row.channel, row.issueNumber);
   const before = row.round > 1 ? gate.earlier.at(-1) : undefined;

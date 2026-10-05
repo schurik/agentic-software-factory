@@ -3,7 +3,7 @@
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Row } from "@/convex/model/inbox";
 import { useClock } from "./clock";
@@ -11,7 +11,7 @@ import { Drawer } from "./Drawer";
 import { LiveGate } from "./gate/GateDrawer";
 import { verbsOf } from "./gate/answer";
 import type { Step } from "./gate/GateView";
-import { InboxList, keyOf, onlyOf } from "./inbox/InboxList";
+import { InboxList, keyOf, onlyOf, splitKey } from "./inbox/InboxList";
 import { keyed } from "./inbox/keys";
 import { useSignIn } from "./signIn";
 import { type Go, Kbd, Loading, Notice, PageHeader } from "./ui";
@@ -65,7 +65,7 @@ export function Inbox({ open, factory, tab }: InboxAddress) {
   const [posted, setPosted] = useState<{ what: string; url: string; to: string } | null>(null);
   const rows = useMemo(() => onlyOf(inbox?.rows ?? [], factory), [inbox, factory]);
   const at = Math.max(rows.findIndex((row) => keyOf(row) === (cursor ?? open)), 0);
-  const go = (to: InboxAddress) => router.replace(inboxAddress({ factory, ...to }), { scroll: false });
+  const go = useCallback((to: InboxAddress) => router.replace(inboxAddress({ factory, ...to }), { scroll: false }), [factory, router]);
   const link = (key: string): Go => ({ href: inboxAddress({ factory, open: key }), onClick: () => go({ open: key }) });
 
   useEffect(() => {
@@ -77,7 +77,7 @@ export function Inbox({ open, factory, tab }: InboxAddress) {
       const onControl = event.target instanceof Element && event.target.closest("button, a") !== null;
       if (key === "open" && rows[at] && !onControl) {
         event.preventDefault();
-        router.replace(inboxAddress({ factory, open: keyOf(rows[at]) }), { scroll: false });
+        go({ open: keyOf(rows[at]) });
         return;
       }
       if (key !== "next" && key !== "previous") return;
@@ -89,7 +89,7 @@ export function Inbox({ open, factory, tab }: InboxAddress) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, at, open, factory, router]);
+  }, [rows, at, open, go]);
 
   if (inbox === undefined) return <Loading />;
   const close: Go = { href: inboxAddress({ factory }), onClick: () => go({}) };
@@ -103,7 +103,6 @@ export function Inbox({ open, factory, tab }: InboxAddress) {
       .find((each) => each.blocked === null && keyOf(each) !== key);
     go(after ? { open: keyOf(after) } : {});
   };
-  const [openFactory, openSession] = open ? splitKey(open) : ["", ""];
   return (
     <>
       <PageHeader title="Inbox" sub={rows.length === 0 ? (factory
@@ -134,19 +133,13 @@ export function Inbox({ open, factory, tab }: InboxAddress) {
       <Drawer open={Boolean(open)} label={open ? gateLabel(rows, open) : ""} onClose={() => go({})}>
         {open ? (
           <LiveGate key={open} signIn={signIn} now={now}
-                    target={{ factory: openFactory, session: openSession, tab: tab ?? null, close,
+                    target={{ ...splitKey(open), tab: tab ?? null, close,
                               onTab: (next) => go({ open, tab: next }), step: stepOf(rows, open, link) }}
                     onAnswered={(gate, given, url) => answered(gate.row, url, given.verdict)} />
         ) : null}
       </Drawer>
     </>
   );
-}
-
-/** A wait's key, `owner/repo/session`, as its factory and session. */
-function splitKey(key: string): [string, string] {
-  const at = key.lastIndexOf("/");
-  return [key.slice(0, at), key.slice(at + 1)];
 }
 
 /** What the drawer is, to a screen reader: the open wait's question, when the list has it. */

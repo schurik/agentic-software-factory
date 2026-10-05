@@ -7,8 +7,15 @@ import { cx, Tag } from "../ui";
 /** A wait older than this is flagged: a day is long enough for a run to be noticed missing. */
 export const STALE_AFTER = 24 * 3600_000;
 
+/** A wait's key, `owner/repo/session`: what the inbox's address opens. */
 export function keyOf({ factory, session }: Pick<Row, "factory" | "session">): string {
   return `${factory}/${session}`;
+}
+
+/** A wait's key as its factory and session: `keyOf` the other way. */
+export function splitKey(key: string): { factory: string; session: string } {
+  const at = key.lastIndexOf("/");
+  return { factory: key.slice(0, at), session: key.slice(at + 1) };
 }
 
 /** The waits at `factory`'s sessions — the inbox a Factory page links to — or every one when none is named. */

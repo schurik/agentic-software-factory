@@ -124,8 +124,8 @@ describe("an integrate gate's drawer", () => {
 
   it("opens on the branch's changes, with its checks, the review and the issue a click away", () => {
     expect(read(markup)).toContain("Open the pull request?");
-    expect(tabs(markup)).toEqual(["Changes", "Checks", "Review", "Issue #42"]);
-    expect(selected(markup)).toBe("Changes");
+    expect(tabs(markup)).toEqual(["Changes · 1 file", "Checks", "Review", "Issue #42"]);
+    expect(selected(markup)).toBe("Changes · 1 file");
     expect(markup).toContain('data-file="app.py"');
     expect(read(html(integrate, { tab: "checks" }))).toMatch(/test .*bun test .*4s/);
     expect(html(integrate, { tab: "review" })).toContain("<p>Verdict: approved.</p>");
