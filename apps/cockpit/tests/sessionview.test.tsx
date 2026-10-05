@@ -2,12 +2,14 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PhaseTabs, tabsFor, type Where } from "../components/session/PhaseTabs";
+import { DrawerView } from "../components/session/SessionDrawer";
 import { SessionView, sessionMenu, type Page } from "../components/session/SessionView";
 import { readShown, SHOWN, type Shown, writeShown } from "../components/session/shown";
 import { firstLine } from "../components/session/Timeline";
 import { ViewerLogin } from "../components/viewer";
 import type { ClaimView } from "../convex/model/claim";
 import type { SteeringView } from "../convex/model/command";
+import type { Phase } from "../convex/model/graph";
 import { phaseView, view } from "../convex/model/session";
 import { fixture, recorded, type WireEvent } from "./helpers";
 
@@ -46,15 +48,20 @@ interface Rendered {
   viewer?: string;
 }
 
-/** The page as first painted, with a phase opened into its tabs the way the live page asks for one. */
+/**
+ * The page as first painted, and the drawer the address opens over it — with
+ * a phase's tabs the way the live page asks for them. The drawer's shell
+ * draws nothing until a browser opens it, so its view is rendered after the page.
+ */
 function html({ events = STAGED, shown = {}, steering, claims, extra, viewer }: Rendered = {}): string {
-  const phase = (phaseId: string, tab: string | null): ReactNode => (
-    <PhaseTabs detail={phaseView(stored(events), events.at(-1)!.seq, phaseId)!} where={WHERE} initial={tab ?? undefined} />
+  const phase = (item: Phase, tab: string | null): ReactNode => (
+    <PhaseTabs item={item} detail={phaseView(stored(events), events.at(-1)!.seq, item.phaseId)!} where={WHERE} tab={tab} />
   );
+  const at = { page: page(events, extra), shown: { ...SHOWN, ...shown }, onShow: () => {}, phase };
   return renderToStaticMarkup(
     <ViewerLogin.Provider value={viewer ?? null}>
-      <SessionView page={page(events, extra)} now={NOW} shown={{ ...SHOWN, ...shown }} onShow={() => {}}
-                   steering={steering} claims={claims} onCommand={() => {}} onRelease={() => {}} phase={phase} />
+      <SessionView {...at} now={NOW} steering={steering} claims={claims} onCommand={() => {}} onRelease={() => {}} />
+      <DrawerView {...at} />
     </ViewerLogin.Provider>,
   );
 }
@@ -198,6 +205,12 @@ describe("the chapters, each one row", () => {
     expect(chapter(html({ events: upTo(SUSPENDED), shown: { folded: [2] } }), 1)).toContain('data-open="true"');
   });
 
+  it("opens a stage's drawer from its name, and a phase's from its row, keeping the tab the page is on", () => {
+    const row = chapter(html({ events: upTo(SUSPENDED), shown: { tab: "journal" } }), 1);
+    expect(row).toMatch(/<a href="\?tab=journal&amp;stage=1\.1"[^>]*>.*?plan<\/span>/);
+    expect(row).toMatch(/<a href="\?tab=journal&amp;phase=a9f259f0_04_approve_plan"/);
+  });
+
   it("draws a session recorded before stages as a flat chain of its phases", () => {
     const row = chapter(html({ events: BEFORE }), 3);
     expect(row).not.toContain("data-stage=");
@@ -236,10 +249,10 @@ describe("the Now card", () => {
     expect(nowCard(html())).not.toContain('role="meter"');
   });
 
-  it("links a failed session to the latest failure's phase, on the Timeline", () => {
+  it("links a failed session to the latest failure's phase, in the drawer", () => {
     const card = nowCard(html({ events: failedIn(upTo(BUILDING)) }));
     expect(read(card)).toContain("Failed in implement");
-    expect(card).toMatch(/<a [^>]*href="\?tab=timeline&amp;phase=a9f259f0_08_implement"[^>]*>See implement’s output/);
+    expect(card).toMatch(/<a [^>]*href="\?phase=a9f259f0_08_implement"[^>]*>See implement’s output/);
   });
 });
 
@@ -273,10 +286,13 @@ describe("the tabs", () => {
     expect(text({ shown: { tab: "journal" } })).toContain(read(STAGED_JOURNAL).trim().slice(0, 400));
   });
 
-  it("open a phase into its tabs on the Timeline, from the address", () => {
-    const markup = html({ shown: { tab: "timeline", phase: "a9f259f0_03_plan" } });
-    expect(markup).toContain('aria-label="Phase"');
-    expect(markup.match(/aria-label="Phase"/g)).toHaveLength(1);
+  it("open a phase in the drawer from a Timeline row, and mark the row the drawer has open", () => {
+    const timeline = html({ shown: { tab: "timeline" } });
+    expect(timeline).toMatch(/<a href="\?tab=timeline&amp;phase=a9f259f0_03_plan"/);
+    expect(timeline).not.toContain('aria-label="Phase"');
+    const opened = html({ shown: { tab: "timeline", phase: "a9f259f0_03_plan" } });
+    expect(opened).toMatch(/<a href="\?tab=timeline&amp;phase=a9f259f0_03_plan" aria-current="true"/);
+    expect(opened.match(/aria-label="Phase"/g)).toHaveLength(1);
   });
 });
 
@@ -314,8 +330,9 @@ describe("without the transcript opt-in", () => {
 
 describe("the address", () => {
   it("reads back what it wrote, and writes nothing for the page as it first opens", () => {
-    const shown: Shown = { tab: "timeline", opened: [1], folded: [3], stages: ["3.1"], phase: "a9f259f0_03_plan", phaseTab: "checks" };
+    const shown: Shown = { tab: "timeline", opened: [1], folded: [3], stages: ["3.1"], stage: "1.1", phase: "a9f259f0_03_plan", phaseTab: "checks" };
     expect(readShown(new URLSearchParams(writeShown(shown)))).toEqual(shown);
+    expect(readShown(new URLSearchParams("stage=plan")).stage).toBeNull();
     expect(writeShown(SHOWN)).toBe("");
     expect(readShown(new URLSearchParams("tab=nonsense&opened=x,2"))).toEqual({ ...SHOWN, opened: [2] });
   });

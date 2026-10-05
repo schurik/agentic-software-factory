@@ -4,9 +4,13 @@ import { useEffect, useState } from "react";
 import type { Read } from "@/convex/artifacts";
 import { type Artifact, type PhaseDetail, READ_BYTES } from "@/convex/model/phase";
 import { type Pruned, prunedWord } from "@/convex/model/retention";
-import { formatBytes, formatClock, formatCost, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, pretty } from "../format";
-import { Facts, num, Pre, Table, Tabs } from "../ui";
+import type { Phase } from "@/convex/model/graph";
+import type { GateItem } from "@/convex/model/story";
+import { isMarkdown, Markdown } from "../Markdown";
+import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, plural, pretty } from "../format";
+import { cx, Facts, num, Pre, Table, Tabs } from "../ui";
 import { useWho } from "../viewer";
+import { channelWords } from "./words";
 
 /** Which session a phase is of, and the forge's web origin its links go to ("" when unknown). */
 export interface Where {
@@ -19,54 +23,57 @@ export interface Where {
 export type ReadArtifact = (seq: number) => Promise<Read>;
 
 const TABS = {
-  artifacts: "Artifacts", overview: "Overview", checks: "Checks", tools: "Tools",
-  transcript: "Transcript", cost: "Cost", events: "Events",
+  overview: "Overview", artifacts: "Artifacts", checks: "Checks", tools: "Tools", transcript: "Transcript", events: "Events",
 } as const;
 
 type Tab = keyof typeof TABS;
 
 /**
- * The tabs a phase opens into. An agent has all of them; a code step ran no
- * agent, so it has no tools, transcript or cost to show — and a phase that
- * wrote nothing has no Artifacts tab rather than an empty one.
+ * The tabs a phase opens into, each only where it has something to show
+ * (#110): an agent's tool calls and transcript, what was checked, what it
+ * wrote. The Transcript tab stays on an agent whose factory keeps none, to
+ * say so and why. What it cost is the drawer's header line, not a tab.
  */
 export function tabsFor(detail: PhaseDetail): Tab[] {
   const tabs = Object.keys(TABS) as Tab[];
   return tabs.filter((tab) => {
     if (tab === "artifacts") return detail.artifacts.length > 0;
-    if (tab === "tools" || tab === "transcript" || tab === "cost") return detail.kind === "agent";
+    if (tab === "checks") return detail.checks.length + detail.rejections.length + detail.commands.length > 0;
+    if (tab === "tools") return detail.kind === "agent" && detail.tools.length > 0;
+    if (tab === "transcript") return detail.kind === "agent";
     return true;
   });
 }
 
 /**
- * A phase opened into its tabs. Pure but for which tab is showing: everything
- * comes from `detail` (the `sessions.phase` query), and a repo file is read
+ * A phase opened into its tabs, on Overview unless the address says another.
+ * Pure: everything comes from `item` (the phase as the session's story tells
+ * it), `detail` (the `sessions.phase` query) and `tab`; a repo file is read
  * through `read` (the `artifacts.read` action) when its tab is shown.
  */
-export function PhaseTabs({ detail, where, initial, read }: {
+export function PhaseTabs({ item, detail, where, tab, onTab, read }: {
+  item: Phase;
   detail: PhaseDetail;
   where: Where;
-  initial?: string;
+  tab: string | null;
+  onTab?: (tab: string) => void;
   read?: ReadArtifact;
 }) {
   const tabs = tabsFor(detail);
-  const [tab, setTab] = useState<Tab>(tabs.includes(initial as Tab) ? initial as Tab : tabs[0]);
-  const shown = tabs.includes(tab) ? tab : tabs[0];
+  const shown = tabs.includes(tab as Tab) ? tab as Tab : "overview";
   return (
     <div>
-      <Tabs label="Phase" selected={shown} onSelect={setTab} tabs={tabs.map((each) => ({
+      <Tabs label="Phase" selected={shown} onSelect={(next) => onTab?.(next)} tabs={tabs.map((each) => ({
         id: each,
         label: <>{TABS[each]}{each === "transcript" && !detail.transcript.on ? <span className="font-normal text-muted"> · off</span>
           : each === "transcript" && detail.transcript.pruned ? <span className="font-normal text-muted"> · {prunedWord(detail.transcript.pruned.reason)}</span> : null}</>,
       }))} />
-      <div className="grid gap-2 pt-3 text-sm" role="tabpanel">
+      <div className="grid gap-2 pt-4 text-sm" role="tabpanel">
+        {shown === "overview" ? <Overview item={item} detail={detail} where={where} /> : null}
         {shown === "artifacts" ? <Artifacts detail={detail} where={where} read={read} /> : null}
-        {shown === "overview" ? <Overview detail={detail} /> : null}
         {shown === "checks" ? <Checks detail={detail} /> : null}
         {shown === "tools" ? <Tools detail={detail} /> : null}
         {shown === "transcript" ? <Transcript detail={detail} /> : null}
-        {shown === "cost" ? <Cost detail={detail} /> : null}
         {shown === "events" ? <Events detail={detail} /> : null}
       </div>
     </div>
@@ -127,9 +134,14 @@ function HandoffFile({ artifact }: { artifact: Artifact }) {
       {artifact.truncated ? (
         <div className={note}>Cut at the factory&apos;s cap: the file was {formatBytes(artifact.size)}, and this is its start.</div>
       ) : null}
-      <pre className={body}>{artifact.content}</pre>
+      <FileBody path={artifact.path} content={artifact.content} />
     </>
   );
+}
+
+/** A file's text: rendered when it is markdown, exactly as written otherwise. */
+function FileBody({ path, content }: { path: string; content: string }) {
+  return isMarkdown(path) ? <Markdown text={content} className="max-h-[32rem] overflow-auto px-4 py-3" /> : <pre className={body}>{content}</pre>;
 }
 
 /** A repo file, read from the forge as its tab is shown, and never kept. */
@@ -158,7 +170,7 @@ export function RepoFile({ artifact, got }: { artifact: Artifact; got: Read | nu
       {got.truncated ? (
         <div className={note}>Cut at {formatBytes(READ_BYTES)}: the file is {formatBytes(artifact.size)}, and this is its start.</div>
       ) : null}
-      {got.binary ? <p className={quiet}>Not text: nothing to show.</p> : <pre className={body}>{got.content}</pre>}
+      {got.binary ? <p className={quiet}>Not text: nothing to show.</p> : <FileBody path={artifact.path} content={got.content} />}
     </>
   );
 }
@@ -176,43 +188,104 @@ const quiet = "px-3 py-2 text-muted";
 
 // ── Overview ─────────────────────────────────────────────────────────────────
 
-function Overview({ detail }: { detail: PhaseDetail }) {
+/**
+ * What the phase was for and what came of it: the summary it reported, the
+ * error it ended on, what a person said at its gate, the flags an agent filed,
+ * the command it ran with the end of its output, and the commit it made.
+ */
+function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; where: Where }) {
   const { envelope } = detail;
+  const error = (item.type === "gate" ? "" : item.error) || detail.error;
   return (
-    <>
-      <Facts>
-        <dt>For</dt><dd>{detail.description || "—"}</dd>
-        <dt>Run by</dt><dd>{detail.kind}{detail.owner ? ` · ${detail.owner}` : ""}</dd>
-        <dt>Outcome</dt><dd>{detail.status || "—"}{detail.error ? <span className="text-bad"> — {detail.error}</span> : null}</dd>
-        {detail.task ? <><dt>Instructions</dt><dd><code>{detail.task}</code>, and the journal as of this phase</dd></> : null}
-        {detail.promptDigest ? <><dt>Prompt digest</dt><dd><code>{detail.promptDigest.slice(0, 16)}</code></dd></> : null}
-      </Facts>
-      {detail.commits.length ? (
-        <>
-          <h4 className="mt-2">Commits</h4>
-          <ul className="grid gap-0.5">
-            {detail.commits.map((commit) => (
-              <li key={commit.sha}>
-                <code>{commit.sha.slice(0, 7)}</code> {commit.message}
-                <span className="text-muted"> · {commit.filesTotal} file{commit.filesTotal === 1 ? "" : "s"}: {commit.files.join(", ")}
-                  {commit.filesTotal > commit.files.length ? ", …" : ""}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-      {detail.kind === "agent" ? (
-        <>
-          <h4 className="mt-2">Envelope · {envelope ? envelope.outputType : "none accepted"}</h4>
+    <div className="flex flex-col gap-4">
+      {detail.description ? <p className="text-muted">{detail.description}</p> : null}
+      {item.type === "agent" && (item.summary || envelope) ? (
+        <div>
+          <div className="mb-1 font-mono text-xs text-faint">{item.outputType || envelope?.outputType}</div>
+          {item.summary ? <p className="text-lg">{item.summary}</p> : null}
           {envelope ? (
-            <>
-              {envelope.attempt === 0 ? <p className="text-muted">Answered from the record on a resume: no agent ran.</p> : null}
-              <Pre>{envelope.json}</Pre>
-            </>
-          ) : <p className="text-muted">The agent has not reported yet, or no report was accepted.</p>}
+            <details className="mt-1">
+              <summary className="text-muted">the envelope as reported{envelope.attempt === 0 ? ", answered from the record on a resume" : ""}</summary>
+              <Pre className="mt-1">{envelope.json}</Pre>
+            </details>
+          ) : null}
+        </div>
+      ) : detail.status === "running" ? <p className="text-lg text-muted">Still running.</p> : null}
+      {error ? <div className="rounded-lg border border-bad/40 bg-bad-soft px-3 py-2 text-bad">{error}</div> : null}
+      {item.type === "gate" ? <GateRemark gate={item} /> : null}
+      {item.type === "agent" ? item.notes.map((note) => (
+        <div key={`${note.kind}:${note.what}`} className="rounded-lg border border-line bg-surface-2 px-3 py-2.5">
+          <div className="mb-0.5 text-xs font-semibold tracking-wider text-muted uppercase">⚑ {note.kind}</div>
+          <div><b className="font-medium">{note.what}</b>{note.insteadOf ? <span className="text-muted"> — instead of {note.insteadOf}</span> : null}</div>
+          {note.because ? <div className="text-muted">because {note.because}</div> : null}
+        </div>
+      )) : null}
+      {detail.commands.map((command) => (
+        <div key={command.seq} className="overflow-hidden rounded-lg border border-line">
+          <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-3 py-1.5 font-mono text-xs">
+            <span className="text-faint">$</span><span className="min-w-0 truncate">{command.argv.join(" ")}</span><span className="grow" />
+            <span className={command.exitCode ? "text-bad" : "text-ok"}>exit {command.exitCode}</span>
+          </div>
+          {command.pruned ? <p className={quiet}>Its <PrunedWords what={"output"} pruned={command.pruned} />.</p>
+            : command.outputTail ? <pre className={body}>{command.outputTail}</pre> : null}
+        </div>
+      ))}
+      {detail.task || detail.kind === "agent" ? (
+        <Facts>
+          {detail.task ? <><dt>Instructions</dt><dd><code>{detail.task}</code>, and the journal as of this phase</dd></> : null}
+          {detail.kind === "agent" ? <><dt>Context window</dt><dd><ContextWindow usage={detail.usage} /></dd></> : null}
+        </Facts>
+      ) : null}
+      {detail.commits.map((commit) => (
+        <div key={commit.sha}>
+          {where.forge ? <a href={`${where.forge}/${where.factory}/commit/${commit.sha}`}><code>{commit.sha.slice(0, 7)}</code></a>
+            : <code>{commit.sha.slice(0, 7)}</code>} {commit.message}
+          <div className="text-muted">{plural(commit.filesTotal, "file")}: {commit.files.join(", ")}{commit.filesTotal > commit.files.length ? ", …" : ""}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** How full the agent's context window got, as its harness last said: the one thing the header line's tokens do not tell. */
+function ContextWindow({ usage }: { usage: PhaseDetail["usage"] }) {
+  const last = [...usage].reverse().find((turn) => turn.contextWindow > 0);
+  if (!last) return <span className="text-muted">the harness did not say how full it was</span>;
+  const share = last.contextTokens / last.contextWindow;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span aria-hidden="true" className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-3">
+        <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.min(100, share * 100)}%` }} />
+      </span>
+      {formatTokenCount(last.contextTokens)} of {formatTokens(last.contextWindow)} · {Math.round(share * 100)}%
+    </span>
+  );
+}
+
+/** What a person said at a gate: the verdict, where, and the note the next agent reads as an instruction. */
+function GateRemark({ gate }: { gate: GateItem }) {
+  const who = useWho();
+  const { decision } = gate;
+  if (!decision) {
+    return (
+      <p className="text-muted">
+        {gate.status === "waiting" || gate.status === "open" ? "Waiting for an answer" : `Passed: ${gate.status}`} on{" "}
+        {channelWords(gate.channel, gate.issueNumber)}.
+      </p>
+    );
+  }
+  const rejected = gate.status === "rejected" || gate.status === "aborted";
+  return (
+    <div className={cx("rounded-lg border px-3 py-2.5", rejected ? "border-bad/40 bg-bad-soft" : "border-ok/30 bg-ok-soft")}>
+      <div><b className="font-semibold">{gate.status[0].toUpperCase() + gate.status.slice(1)}</b> by {who(decision.by)} · via{" "}
+        {channelWords(decision.channel, gate.issueNumber)}</div>
+      {decision.notes ? (
+        <>
+          <div className="mt-1 text-base">✎ “{decision.notes}”</div>
+          <div className="mt-1 text-xs text-muted">An instruction: the next agent reads it, and it wins over what an agent reported.</div>
         </>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -250,8 +323,6 @@ function Checks({ detail }: { detail: PhaseDetail }) {
         <span className={command.exitCode ? "text-bad" : "text-ok"}>{command.exitCode ? "✕" : "✓"}</span> <b className="font-semibold">{command.name}</b>{" "}
         <code>{command.argv.join(" ")}</code>
         <span className="text-muted"> · exit {command.exitCode} · {formatDuration(command.durationSeconds)}</span>
-        {command.pruned ? <p className="text-muted">Its <PrunedWords what={"output"} pruned={command.pruned} />.</p>
-          : command.outputTail ? <Pre className="mt-1">{command.outputTail}</Pre> : null}
       </div>
     ) })),
   ].sort((a, b) => a.seq - b.seq);
@@ -346,52 +417,6 @@ function Transcript({ detail }: { detail: PhaseDetail }) {
           {run.output ? <Pre>{run.output}</Pre> : <p className="text-muted">None yet.</p>}
         </div>
       ))}
-    </>
-  );
-}
-
-// ── Cost ─────────────────────────────────────────────────────────────────────
-
-function Cost({ detail }: { detail: PhaseDetail }) {
-  const { usage } = detail;
-  if (!usage.length) return <p className="text-muted">No spend: no agent ran here, or none reported yet.</p>;
-  const total = usage.reduce((sum, turn) => sum + turn.cost, 0);
-  const tokens = usage.reduce((sum, turn) => sum + turn.tokens, 0);
-  const last = [...usage].reverse().find((turn) => turn.contextWindow > 0);
-  return (
-    <>
-      <p><b className="font-semibold">{formatCost(total)}</b> <span className="text-muted">· {formatTokens(tokens)} · list-price equivalent</span></p>
-      <Table>
-        <thead>
-          <tr>
-            <th>model</th><th className={num}>tokens</th><th className={num}>cost</th><th className={num}>input</th>
-            <th className={num}>output</th><th className={num}>cache read</th><th className={num}>cache write</th>
-            <th className={num}>reasoning</th>
-          </tr>
-        </thead>
-        <tbody>
-          {usage.map((turn) => (
-            <tr key={turn.seq}>
-              <td>{turn.model || "—"}</td>
-              <td className={num}>{formatTokenCount(turn.tokens)}</td>
-              <td className={num}>{formatCost(turn.cost)}</td>
-              <td className={num}>{formatTokenCount(turn.breakdown.inputTokens)}</td>
-              <td className={num}>{formatTokenCount(turn.breakdown.outputTokens)}</td>
-              <td className={num}>{formatTokenCount(turn.breakdown.cacheReadTokens)}</td>
-              <td className={num}>{formatTokenCount(turn.breakdown.cacheWriteTokens)}</td>
-              <td className={num}>{formatTokenCount(turn.breakdown.reasoningTokens)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
-      <h4 className="mt-2">Context window</h4>
-      {last ? (
-        <div className="relative h-6 overflow-hidden rounded-md border border-line">
-          <i className="absolute inset-y-0 left-0 bg-accent-soft" style={{ width: `${Math.min(100, (last.contextTokens / last.contextWindow) * 100)}%` }} />
-          <span className="relative px-2 leading-6">{formatTokenCount(last.contextTokens)} of {formatTokens(last.contextWindow)} ·{" "}
-            {Math.round((last.contextTokens / last.contextWindow) * 100)}%</span>
-        </div>
-      ) : <p className="text-muted">The harness did not say how full it was.</p>}
     </>
   );
 }

@@ -21,7 +21,8 @@ import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
 import { NowCard } from "./NowCard";
-import { chapterOpen, type SessionTab, type Shown, SHOWN, stageKey, withChapter, writeShown } from "./shown";
+import { type PhaseTabsOf, SessionDrawer } from "./SessionDrawer";
+import { chapterOpen, goTo, type SessionTab, type Shown, SHOWN, stageKey, withChapter, withPhase, withStage } from "./shown";
 import { Timeline } from "./Timeline";
 import { answeringWords } from "./words";
 
@@ -42,7 +43,8 @@ export function sessionMenu(page: Page): ("copy" | "purge")[] {
  * The session page (#104): a header with the one action that applies now,
  * the session's chapters each drawn as its stage graph, a Now card saying
  * where it is, and tabs for what the page shows nowhere else (Details), every
- * phase in order (Timeline) and the journal the next agent reads.
+ * phase in order (Timeline) and the journal the next agent reads. A stage or a
+ * phase opens in the drawer over it (SessionDrawer.tsx).
  *
  * Pure: everything it shows comes from `page`, the clock `now` and `shown` —
  * what the address says is open — so a test renders it from a golden session
@@ -65,19 +67,14 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
   onRelease?: (claim: ClaimView) => void;
   /** Purge the session's bodies, for why. Offered only where the page says the viewer may. */
   onPurge?: (reason: string) => Promise<Purged>;
-  /** One phase's tabs, as the page asks for them: the phase the Timeline has open. */
-  phase?: (phaseId: string, tab: string | null) => ReactNode;
+  /** One phase's tabs, as the page asks for them: the phase the drawer has open. */
+  phase?: PhaseTabsOf;
 }) {
   const { summary, story, session, factory } = page;
   const viewer = useContext(ViewerLogin);
   const who = useWho();
-  const show = (next: Partial<Shown>) => {
-    const to = { ...shown, ...next };
-    return { href: writeShown(to) || "?", onClick: () => onShow?.(to) };
-  };
-  const openPhase: OpenPhase = (phaseId) => show({ tab: "timeline", phase: phaseId, phaseTab: null });
-  const togglePhase: OpenPhase = (phaseId) =>
-    shown.phase === phaseId ? show({ phase: null, phaseTab: null }) : openPhase(phaseId);
+  const go = (to: Shown) => goTo(to, onShow);
+  const openPhase: OpenPhase = (phaseId) => go(withPhase(shown, phaseId));
   const latest = story.chapters.at(-1)?.number ?? 0;
   // Where a chapter that never said it finished stops counting: now, or where the session stopped.
   const stops = until(summary, now);
@@ -102,7 +99,8 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
           return (
             <ChapterRow key={chapter.number} chapter={chapter} open={open} onOpen={toggleChapter} until={stops} latest={chapter.number === latest}
                         sessionDone={!isLive(summary)}>
-              <StageGraph graph={chapter.graph} opened={opened} onToggle={toggleStage} openPhase={openPhase} />
+              <StageGraph graph={chapter.graph} opened={opened} onToggle={toggleStage} openPhase={openPhase}
+                          openStage={(index) => go(withStage(shown, chapter.number, index))} />
             </ChapterRow>
           );
         })}
@@ -117,8 +115,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
           {shown.tab === "details" ? (
             <Details page={page} now={now} steering={steering ?? null} claims={claims ?? []} onRelease={onRelease} />
           ) : shown.tab === "timeline" ? (
-            <Timeline chapters={story.chapters} opened={shown.phase} openPhase={togglePhase}
-                      phase={phase && ((phaseId) => phase(phaseId, shown.phaseTab))} />
+            <Timeline chapters={story.chapters} opened={shown.phase} openPhase={openPhase} />
           ) : (
             <div className="max-w-[80ch]">
               <pre className="text-xs">{story.journal || "Nothing has closed yet: the next agent would be told nothing."}</pre>
@@ -129,6 +126,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
           )}
         </div>
       </Card>
+      <SessionDrawer page={page} shown={shown} onShow={onShow} phase={phase} />
     </div>
   );
 }

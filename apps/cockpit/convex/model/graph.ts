@@ -68,6 +68,14 @@ export function markOfStatus(status: string): Mark {
 
 const moving = (status: StageStatus | Mark) => status === "running" || status === "waiting" || status === "failed";
 
+/** A chapter's phases in order: the one that read its work item first, then what agents, code and people did. */
+export function phasesOf(chapter: Pick<Chapter, "reader" | "items">): Phase[] {
+  return [
+    ...(chapter.reader ? [chapter.reader] : []),
+    ...chapter.items.filter((item): item is Phase => item.type === "agent" || item.type === "code" || item.type === "gate"),
+  ];
+}
+
 export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">, { here, ended }: Standing): Graph {
   const statusOf = (mark: Mark): StageStatus => (mark === "rejected" ? ended ?? "running" : mark);
   // The NOW: what is moving, or else — the session live and between two phases — the last phase reached.
@@ -78,10 +86,7 @@ export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">, {
     const last = steps.findLastIndex(reached);
     return ended === null && last !== -1 ? last : null;
   };
-  const phases: Phase[] = [
-    ...(chapter.reader ? [chapter.reader] : []),
-    ...chapter.items.filter((item): item is Phase => item.type === "agent" || item.type === "code" || item.type === "gate"),
-  ];
+  const phases = phasesOf(chapter);
   const flat = (): Graph => ({
     kind: "phases", phases, current: currentOf(phases, (phase) => statusOf(markOf(phase)), () => true),
   });

@@ -1,6 +1,6 @@
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Check, ChevronsUpDown } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, MouseEvent, ReactNode } from "react";
 import { type Tone, toneOf } from "./session/words";
 
 /**
@@ -15,6 +15,21 @@ import { type Tone, toneOf } from "./session/words";
  */
 
 export const cx = (...classes: (string | false | null | undefined)[]) => classes.filter(Boolean).join(" ");
+
+/** Where a link that changes what a page shows goes: an address to link to, and what following it does in place. */
+export interface Go {
+  href: string;
+  onClick: () => void;
+}
+
+/** A link's click, followed in place — but a modified click (a new tab, a new window) left to the browser. */
+export function followInPlace(onClick: () => void): (event: MouseEvent) => void {
+  return (event) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    onClick();
+  };
+}
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "icon";
