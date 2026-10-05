@@ -7,7 +7,7 @@ import { repoKey, type Role } from "./forge/forge";
 import type { Facts } from "./model/attention";
 import { type Period, periodValidator } from "./model/period";
 import type { Spend } from "./model/spend";
-import { roleOn, viewing, type Viewing } from "./viewer";
+import { canRead, roleOn, viewing, type Viewing } from "./viewer";
 
 export interface FactoryRow {
   /** `owner/name`: a factory is known to a cockpit through its repository. */
@@ -51,8 +51,15 @@ export interface Readable {
  * show as a factory — a checkout with no remote, a machine with no `gh`. It
  * is one person's own machine, and their factory is there whatever the forge
  * can see of it, once a station has shipped a session of it.
+ *
+ * With `shipped`, a team's cockpit does too, for the repositories the viewer
+ * can read: a factory stamped on a branch ships sessions before its
+ * `asf/factory.yaml` reaches the default branch. Now goes by every session
+ * the viewer may see, as the inbox does; the Factories list goes by what the
+ * forge shows.
  */
-export async function readableFactories(ctx: QueryCtx, { mode, viewer }: Viewing): Promise<Readable[]> {
+export async function readableFactories(ctx: QueryCtx, who: Viewing, shipped = who.mode === "local"): Promise<Readable[]> {
+  const { mode, viewer } = who;
   // A station's ingest token names its factory as it was first spelled here
   // (`spelling.ts`), which may not be the forge's case; the forge's names
   // are case-insensitive.
@@ -71,10 +78,11 @@ export async function readableFactories(ctx: QueryCtx, { mode, viewer }: Viewing
     const names = [...(shippedAs.get(repo.key) ?? []), repo.name];
     factories.push({ repo: repo.name, role, private: repo.private, onForge: true, names });
   }
-  if (mode === "local") {
+  if (shipped) {
     const shown = new Set(found.map((repo) => repo.key));
     for (const [key, names] of shippedAs) {
       if (shown.has(key) || !(await reported(ctx, names)).reporting) continue;
+      if (mode === "team" && !(await canRead(ctx, who, names[0]))) continue;
       factories.push({ repo: names[0], role: null, private: null, onForge: false, names });
     }
   }

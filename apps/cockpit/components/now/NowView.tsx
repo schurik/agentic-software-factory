@@ -27,7 +27,7 @@ export function NowView({ page, now, factory, selected, openGate, runningRow }: 
   const running = onlyOf(page.running, factory);
   const others = onlyOf(page.others, factory);
   return (
-    <div className="max-w-[960px]">
+    <div>
       <PageHeader title="Now" sub={factory ? <>Only {factory}. <Link href="/">Every factory</Link></> : undefined} />
       <section>
         <div className="mb-3 flex items-baseline gap-2">
