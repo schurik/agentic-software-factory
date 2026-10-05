@@ -3,12 +3,12 @@ import { api } from "../convex/_generated/api";
 import { onlyFactory, rank } from "../convex/model/factories";
 import { fakeForge, type FakeForge } from "./forge";
 import { catchUp, factory, fixture, ingest, signIn, type WireEvent } from "./helpers";
-import { approved, localOf, poll, STATION, teamOf } from "./station";
+import { approved, localOf, poll, post, STATION, teamOf } from "./station";
 
-// A row of the Factories list (spec #40): live sessions, gates waiting (on the
-// viewer / in all), stations online of all, spend in the period the viewer
-// picked, and the facts what needs attention is read from — the same ones the
-// Factory page's Activity reads.
+// A row of the Factories list (spec #40, #117): live sessions, gates waiting
+// (on the viewer / in all), stations online of all, the workflows it loads,
+// spend in the period asked for, and the facts what needs attention is read
+// from — the same ones the Factory page's Activity reads.
 
 const NOW = Date.parse("2026-10-14T12:00:00.000Z");
 const HOUR = 3600_000;
@@ -39,6 +39,16 @@ function failed(seq: number, endedAt: number): WireEvent {
   const event = fixture("session_finished", seq);
   Object.assign(event.payload, { status: "fail", ended_at: new Date(endedAt).toISOString() });
   return event;
+}
+
+const golden = import.meta.glob("../../../tests/golden/self-description/v1.json",
+                                { eager: true, import: "default" }) as Record<string, Record<string, unknown>>;
+
+/** The factory's CI pushing its self-description for `ref`. */
+async function described(t: Awaited<ReturnType<typeof teamOf>>, token: string, ref: string): Promise<void> {
+  const description = { ...structuredClone(Object.values(golden)[0]), checked: { head: "a".repeat(40), ref, config_hash: "c0ffee" } };
+  const station = { id: "st_ci0001", name: "runner@fv-az123:widgets", kind: "ci" };
+  expect((await post(t, "/describe", token, { station, description })).status).toBe(200);
 }
 
 let forge: FakeForge;
@@ -119,8 +129,8 @@ describe("a row of the Factories list", () => {
 
     const row = await rowOf(t, alex);
     expect(row.seen.sort()).toEqual([0, NOW]);
-    expect(rank([row], NOW + 2_000, "attention")[0].online).toBe(1);
-    expect(rank([row], NOW + 60_000, "attention")[0].online).toBe(0);         // its loop went quiet
+    expect(rank([row], NOW + 2_000)[0].online).toBe(1);
+    expect(rank([row], NOW + 60_000)[0].online).toBe(0);         // its loop went quiet
   });
 
   it("leaves spend out when no period is asked for", async () => {
@@ -131,10 +141,23 @@ describe("a row of the Factories list", () => {
     expect(list?.factories[0].spend).toBeNull();
     expect(list?.factories[0].live).toBe(0);
   });
+
+  it("says how many workflows its default branch's self-description loads, and nothing before one is pushed", async () => {
+    const t = await teamOf(forge, { alex: "write" });
+    const token = await factory(t, "acme/widgets");
+    const alex = await signIn(t, forge, "alex");
+    expect((await rowOf(t, alex)).workflows).toBeNull();
+
+    await described(t, token, "feature");                    // a branch's check is not the factory's
+    expect((await rowOf(t, alex)).workflows).toBeNull();
+
+    await described(t, token, "main");                       // seven load; `nightly` is a problem, not a workflow
+    expect((await rowOf(t, alex)).workflows).toBe(7);
+  });
 });
 
 describe("the Factories list's order, over what stations shipped", () => {
-  it("ranks a factory with a fresh failure first, then the most recently active, and by name on the toggle", async () => {
+  it("ranks a factory with a fresh failure first, then the most recently active, then the rest by name", async () => {
     for (const name of ["acme/gadgets", "acme/tools"]) forge.repo(name, { factory: true, roles: { alex: "write" } });
     const t = await teamOf(forge, { alex: "write" });
     const widgets = await factory(t, "acme/widgets");
@@ -146,11 +169,10 @@ describe("the Factories list's order, over what stations shipped", () => {
     vi.setSystemTime(NOW);
 
     const list = await t.query(api.factories.list, { signIn: await signIn(t, forge, "alex"), period: OCTOBER });
-    const names = (order: "attention" | "name", now = NOW) => rank(list!.factories, now, order).map((each) => each.row.repo);
+    const names = (now = NOW) => rank(list!.factories, now).map((each) => each.row.repo);
 
-    expect(names("attention")).toEqual(["acme/widgets", "acme/gadgets", "acme/tools"]);
-    expect(names("attention", NOW + 23 * HOUR)).toEqual(["acme/gadgets", "acme/widgets", "acme/tools"]);
-    expect(names("name")).toEqual(["acme/gadgets", "acme/tools", "acme/widgets"]);
+    expect(names()).toEqual(["acme/widgets", "acme/gadgets", "acme/tools"]);
+    expect(names(NOW + 23 * HOUR)).toEqual(["acme/gadgets", "acme/widgets", "acme/tools"]);
   });
 });
 

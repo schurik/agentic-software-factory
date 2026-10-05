@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Look } from "@/convex/factory";
 import type { Drift } from "@/convex/model/drift";
 import { PageHeader, Tag } from "../ui";
@@ -6,14 +7,16 @@ import { budgetWords, checkWords, type Page, short } from "./view";
 /**
  * The Factory page's fixed header: the repository, its default branch's
  * commit, what its `asf check` last said, the flags worth acting on, the
- * configured per-session budget. Run a prompt is the app header's (#108). Pure.
+ * configured per-session budget, and on the right `children`: what the
+ * viewer can start here. Run a prompt is the app header's (#108). Pure.
  */
-export function FactoryHeader({ page, look, drifts, forge }: {
+export function FactoryHeader({ page, look, drifts, forge, children }: {
   page: Page;
   look: Look | null;
   drifts: Map<string, Drift>;
   /** The forge's web origin, e.g. https://github.com. */
   forge: string;
+  children?: ReactNode;
 }) {
   const check = checkWords(page.check);
   const tip = (look?.ok ? look.tip : null) ?? page.check?.head ?? null;
@@ -39,6 +42,8 @@ export function FactoryHeader({ page, look, drifts, forge }: {
             {page.check?.description.newer ? <Tag tone="wait">upgrade the cockpit</Tag> : null}
           </p>
         </div>
-      } />
+      }>
+      {children}
+    </PageHeader>
   );
 }

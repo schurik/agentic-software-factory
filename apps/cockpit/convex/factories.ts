@@ -2,9 +2,10 @@ import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import { attentionOf, liveIn, recentOf } from "./activity";
 import { readProgress } from "./discovery";
-import { reporting } from "./factory";
+import { defaultCheck, repoOf, reporting } from "./factory";
 import { repoKey, type Role } from "./forge/forge";
 import type { Facts } from "./model/attention";
+import { readDescription } from "./model/description";
 import { type Period, periodValidator } from "./model/period";
 import type { Spend } from "./model/spend";
 import { canRead, roleOn, viewing, type Viewing } from "./viewer";
@@ -26,6 +27,8 @@ export interface FactoryRow {
   seen: number[];
   /** What its agent calls cost in the period asked for, list-price equivalent; null when none was. */
   spend: Spend | null;
+  /** How many workflows its default branch's self-description loads; null before a CI workflow pushed one. */
+  workflows: number | null;
   /** What needs attention is read from, as the Factory page's Activity reads it (`model/attention.ts`). */
   facts: Facts;
 }
@@ -119,8 +122,15 @@ async function standing(ctx: QueryCtx, who: Viewing, names: string[], period: Pe
     live: liveIn(known),
     seen: (await reporting(ctx, factory)).map((row) => row.seenAt),
     spend: period === undefined ? null : await spentOn(ctx, names, period),
+    workflows: await workflowsOf(ctx, factory),
     facts: await attentionOf(ctx, who, factory, known),
   };
+}
+
+/** How many workflows the default branch's check of `factory` loaded — a broken one is among its problems, not these. */
+async function workflowsOf(ctx: QueryCtx, factory: string): Promise<number | null> {
+  const check = await defaultCheck(ctx, factory, (await repoOf(ctx, factory))?.defaultBranch || null);
+  return check === null ? null : readDescription(check.description).workflows.length;
 }
 
 /** What the factory known as `names` spent in `period`. */

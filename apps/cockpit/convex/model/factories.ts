@@ -1,7 +1,6 @@
 /**
- * How the Factories list ranks its rows (spec #40): those that need
- * attention first, then the most recently active, then the rest by name —
- * or by name alone, when the viewer toggles it.
+ * How the Factories list ranks its rows (spec #40, #117): those that need
+ * attention first, then the most recently active, then the rest by name.
  *
  * Read against the page's own clock, like the Factory page's Needs attention
  * (`model/attention.ts`), whose facts each row carries: a failure stops
@@ -11,8 +10,6 @@ import { repoKey } from "../forge/forge";
 import { type Attention, type Facts, needsAttention } from "./attention";
 import { liveness } from "./command";
 import type { Mode } from "./mode";
-
-export type Order = "attention" | "name";
 
 /** What of a `factories.list` row the order goes by. */
 export interface Rankable {
@@ -31,7 +28,7 @@ export interface Ranked<R extends Rankable> {
   online: number;
 }
 
-export function rank<R extends Rankable>(rows: R[], now: number, order: Order): Ranked<R>[] {
+export function rank<R extends Rankable>(rows: R[], now: number): Ranked<R>[] {
   const ranked = rows.map((row) => ({
     row,
     attention: needsAttention(row.facts, now),
@@ -41,7 +38,6 @@ export function rank<R extends Rankable>(rows: R[], now: number, order: Order): 
     const [x, y] = [repoKey(a.row.repo), repoKey(b.row.repo)];
     return x < y ? -1 : x > y ? 1 : 0;
   };
-  if (order === "name") return ranked.sort(byName);
   return ranked.sort((a, b) =>
     Number(b.attention.length > 0) - Number(a.attention.length > 0) ||
     (b.row.lastActivity ?? 0) - (a.row.lastActivity ?? 0) ||

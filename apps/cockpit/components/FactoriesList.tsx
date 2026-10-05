@@ -2,43 +2,39 @@
 
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
-import { onlyFactory, type Order, rank } from "@/convex/model/factories";
-import { type PeriodKind, PERIODS, periodOf } from "@/convex/model/period";
+import { onlyFactory, rank } from "@/convex/model/factories";
+import { periodOf } from "@/convex/model/period";
 import { PENDING_SHOWN } from "@/convex/model/progress";
 import { useClock, viewersTimeZone } from "./clock";
-import { FactoriesTable } from "./FactoriesTable";
+import { FactoryRows } from "./factories/FactoryRows";
 import { factoryHref } from "./factory/view";
 import { useCockpit } from "./Shell";
 import { formatTime } from "./format";
 import { useSignIn } from "./signIn";
-import { TriggerForm } from "./trigger/Trigger";
-import { control, Field, Loading, Notice, PageHeader } from "./ui";
+import { Loading, Notice, PageHeader } from "./ui";
 
 /**
- * Every factory the viewer can read (spec #40), what needs attention first
- * and then the most recently active — or by name, on the toggle — with spend
- * in a calendar period of the viewer's own timezone, month-to-date unless
- * they pick another.
+ * Every factory the viewer can read (spec #40), drawn with Now's rows (#117):
+ * what needs attention first and then the most recently active, each with
+ * what it spent this month, by the viewer's own timezone. A row opens its
+ * factory, where an issue is triggered and the rest is said.
  */
 export function FactoriesList() {
   const signIn = useSignIn();
-  const { mode, forge, viewer } = useCockpit();
+  const { mode, forge } = useCockpit();
   const now = useClock();
-  const [kind, setKind] = useState<PeriodKind>("month");
-  const [order, setOrder] = useState<Order>("attention");
-  // The period's bounds stay put between its midnights, so the query is asked again only when it moves on.
-  const { from, to } = periodOf(kind, now, viewersTimeZone());
+  // The month's bounds stay put between its midnights, so the query is asked again only when it moves on.
+  const { from, to } = periodOf("month", now, viewersTimeZone());
   const list = useQuery(api.factories.list, { signIn, period: { from, to } });
-  const [triggering, setTriggering] = useState<string | null>(null);
   const router = useRouter();
   // A solo developer's one factory is not a list: straight to its page.
   const only = list ? onlyFactory(mode, list.factories) : null;
   useEffect(() => {
     if (only !== null) router.replace(factoryHref(only));
   }, [only, router]);
-  const ranked = useMemo(() => (list ? rank(list.factories, now, order) : []), [list, now, order]);
+  const ranked = useMemo(() => (list ? rank(list.factories, now) : []), [list, now]);
   if (list === undefined) return <Loading />;
   if (list === null) return null;       // signed out between two renders: the shell is about to say so
   const { factories, discovery } = list;
@@ -78,27 +74,7 @@ export function FactoriesList() {
           ) : null}
         </Notice>
       ) : (
-        <>
-          <div className="mb-3 flex flex-wrap items-end gap-x-4 gap-y-2">
-            <Field label="Spend">
-              <select value={kind} onChange={(event) => setKind(event.target.value as PeriodKind)} className={control}>
-                {Object.entries(PERIODS).map(([value, words]) => <option key={value} value={value}>{words}</option>)}
-              </select>
-            </Field>
-            <label className="flex h-9 items-center gap-2 text-sm">
-              <input type="checkbox" className="accent-accent" checked={order === "name"}
-                     onChange={(event) => setOrder(event.target.checked ? "name" : "attention")} />
-              A–Z
-            </label>
-            <span className="pb-2 text-sm text-muted">
-              {order === "name" ? "By name." : "What needs attention first, then the most recently active."}{" "}
-              Spend is list-price equivalent.
-            </span>
-          </div>
-          <FactoriesTable rows={ranked} now={now} host={forge.host} period={PERIODS[kind]} triggering={triggering}
-                          onTrigger={(repo) => setTriggering(triggering === repo ? null : repo)}
-                          form={triggering === null ? null : <TriggerForm factory={triggering} signIn={signIn} as={viewer?.login ?? ""} />} />
-        </>
+        <FactoryRows rows={ranked} now={now} />
       )}
 
       {discovery.listedAt !== null ? (

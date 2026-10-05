@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FactoriesTable } from "../components/FactoriesTable";
+import { FactoryRows } from "../components/factories/FactoryRows";
 import type { FactoryRow } from "../convex/factories";
 import type { Facts } from "../convex/model/attention";
 import type { ClaimView } from "../convex/model/claim";
 import { rank } from "../convex/model/factories";
 
-// The Factories list's rows, rendered to static markup with no backend (spec
-// #40): each factory's live sessions, gates waiting on the viewer and in all,
-// stations online of all, spend in the period with tokens alongside, and the
-// flags that say why it needs attention.
+// The Factories list (#117), drawn with Now's rows and rendered to static
+// markup with no backend: each factory says what needs the viewer, what is
+// moving, what it spent this month and when it last moved — the factories
+// that need attention first — and opens its own page.
 
 const NOW = Date.parse("2026-10-14T12:00:00.000Z");
 const HOUR = 3600_000;
@@ -27,7 +27,7 @@ const CLAIM: ClaimView = {
 function row(repo: string, fields: Partial<FactoryRow> = {}): FactoryRow {
   return {
     repo, role: "write", private: false, onForge: true, reporting: true, lastActivity: NOW - HOUR,
-    live: 0, seen: [], spend: { cost: 0, tokens: 0 }, facts: QUIET, ...fields,
+    live: 0, seen: [], spend: { cost: 0, tokens: 0 }, workflows: 3, facts: QUIET, ...fields,
   };
 }
 
@@ -37,64 +37,98 @@ function text(html: string): string {
 }
 
 function render(rows: FactoryRow[]) {
-  return renderToStaticMarkup(
-    <FactoriesTable rows={rank(rows, NOW, "attention")} now={NOW} host="github.com" period="this month"
-                    triggering={null} onTrigger={() => {}} />);
+  return renderToStaticMarkup(<FactoryRows rows={rank(rows, NOW)} now={NOW} />);
 }
 
+/** One factory's row of `html`: from its link to the next one. */
+function rowOf(html: string, repo: string): string {
+  const start = html.indexOf(`href="/factories/${repo}"`);
+  expect(start).toBeGreaterThan(-1);
+  const next = html.indexOf('href="/factories/', start + 1);
+  return html.slice(start, next === -1 ? undefined : next);
+}
+
+const busy = row("acme/widgets", {
+  live: 2,
+  seen: [NOW - 2_000, NOW - 5 * 60_000],
+  spend: { cost: 2.75, tokens: 4500 },
+  workflows: 7,
+  lastActivity: NOW - 2 * HOUR,
+  facts: {
+    ...QUIET,
+    gates: { mine: 1, total: 3 },
+    failed: [{ session: "f1", title: "#42 health check broken", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 3 * HOUR }],
+    claims: [CLAIM],
+    check: "failing",
+    drifted: [{ station: "st_alex", name: "alex@mbp:widgets", badges: ["3 commits behind"] }],
+    queued: [42, 43],
+    watchers: [],
+  },
+});
+
 describe("a row of the Factories list", () => {
-  const busy = row("acme/widgets", {
-    live: 2,
-    seen: [NOW - 2_000, NOW - 5 * 60_000],
-    spend: { cost: 2.75, tokens: 4500 },
-    facts: {
-      ...QUIET,
-      gates: { mine: 1, total: 3 },
-      failed: [{ session: "f1", title: "#42 health check broken", workflow: "issue", station: "alex@mbp:widgets", endedAt: NOW - 3 * HOUR }],
-      claims: [CLAIM],
-      check: "failing",
-      drifted: [{ station: "st_alex", name: "alex@mbp:widgets", badges: ["3 commits behind"] }],
-      queued: [42, 43],
-      watchers: [],
-    },
+  it("says what needs the viewer: the gates on them, a failing check, and how much more needs attention", () => {
+    expect(text(render([busy]))).toContain("1 gate on you · check failing · 4 more need attention");
   });
 
-  it("says how many sessions run, and the gates waiting on the viewer of all that wait", () => {
-    const said = text(render([busy]));
+  it("says nothing needs attention where nothing does — a gate waiting on someone else included", () => {
+    const said = text(render([row("acme/alpha", { facts: { ...QUIET, gates: { mine: 0, total: 2 } } })]));
 
-    expect(said).toContain("2 live");
-    expect(said).toContain("1 on you / 3");
+    expect(said).toContain("Nothing needs attention");
+    expect(said).not.toMatch(/on you|check failing|more need/);
   });
 
-  it("says how many of its stations are online, of all it has", () => {
-    expect(text(render([busy]))).toContain("1 / 2 online");
-    expect(text(render([row("acme/widgets", { reporting: false })]))).toContain("no station yet");
+  it("says what is moving: sessions running, stations online of all, and the workflows it loads", () => {
+    expect(text(render([busy]))).toContain("2 running · 1/2 stations online · 7 workflows");
   });
 
-  it("says what it spent in the period, list-price equivalent, with the tokens alongside", () => {
-    const html = render([busy]);
+  it("says when no station has reported yet, and leaves workflows out until a self-description says how many", () => {
+    const said = text(render([row("acme/alpha", { reporting: false, workflows: null })]));
 
-    expect(text(html)).toContain("Spend this month");
-    expect(text(html)).toContain("$2.75");
-    expect(text(html)).toContain("4,500 tokens");
-    expect(html).toContain("list-price equivalent");
+    expect(said).toContain("0 running · no station yet");
+    expect(said).not.toContain("workflows");
   });
 
-  it("flags what needs attention — a failure, a waiting claim, drift, a failing check, nobody watching — never calling a claim orphaned", () => {
-    const said = text(render([busy]));
+  it("says what it spent this month, list-price equivalent, and when it was last active", () => {
+    const html = render([busy, row("acme/alpha", { lastActivity: null, reporting: false })]);
 
-    expect(said).toContain("1 failed in 24h");
-    expect(said).toContain("#42 held by bob@desk:widgets, offline 2d");
-    expect(said).toContain("1 station drifted");
-    expect(said).toContain("check failing");
-    expect(said).toContain("nobody watching");
-    expect(said).not.toMatch(/orphan/i);
+    expect(text(rowOf(html, "acme/widgets"))).toContain("$2.75 this month");
+    expect(rowOf(html, "acme/widgets")).toContain("list-price equivalent");
+    expect(text(rowOf(html, "acme/widgets"))).toContain("active 2h ago");
+    expect(text(rowOf(html, "acme/alpha"))).toContain("never active");
   });
 
-  it("has no flags where nothing needs attention, and leads with what does", () => {
-    const html = render([row("acme/alpha"), busy]);
+  it("opens its factory", () => {
+    expect(render([busy])).toContain('href="/factories/acme/widgets"');
+  });
 
-    expect(html.indexOf("acme/widgets")).toBeLessThan(html.indexOf("acme/alpha"));
-    expect(text(html.slice(html.indexOf("acme/alpha")))).not.toMatch(/failed|drifted|check failing|nobody watching/);
+  it("marks a failing factory as failed, one waiting on something as waiting, and a quiet one as fine", () => {
+    const html = render([busy, row("acme/beta", { facts: { ...QUIET, gates: { mine: 1, total: 1 } } }), row("acme/alpha")]);
+
+    expect(rowOf(html, "acme/widgets")).toContain('aria-label="failed"');
+    expect(rowOf(html, "acme/beta")).toContain('aria-label="waiting"');
+    expect(rowOf(html, "acme/alpha")).toContain('aria-label="done"');
+  });
+
+  it("says a factory is private, or not found on the forge", () => {
+    const said = text(render([row("acme/secret", { private: true }), row("acme/local", { onForge: false })]));
+
+    expect(said).toContain("private");
+    expect(said).toContain("not found on the forge");
+  });
+});
+
+describe("the Factories list's rows", () => {
+  it("lead with the factories that need attention, then the most recently active", () => {
+    const html = render([
+      row("acme/alpha", { lastActivity: NOW - HOUR }),
+      row("acme/beta", { lastActivity: NOW - 3 * HOUR }),
+      busy,
+      row("acme/gamma", { lastActivity: null }),
+    ]);
+    const at = (repo: string) => html.indexOf(`href="/factories/${repo}"`);
+
+    expect([at("acme/widgets"), at("acme/alpha"), at("acme/beta"), at("acme/gamma")]).toEqual(
+      [at("acme/widgets"), at("acme/alpha"), at("acme/beta"), at("acme/gamma")].sort((a, b) => a - b));
   });
 });

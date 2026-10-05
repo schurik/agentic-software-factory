@@ -42,7 +42,8 @@ function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
   );
 }
 
-function Row({ glyph, title, lines, where, when, go, href, active }: {
+/** One row of a list drawn as Now's are; the Factories list's too. */
+export function Row({ glyph, title, lines, where, when, go, href, active }: {
   glyph: ReactNode;
   title: ReactNode;
   lines: ReactNode[];

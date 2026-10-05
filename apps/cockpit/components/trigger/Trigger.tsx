@@ -11,7 +11,7 @@ import { Button, control, Field, Notice } from "../ui";
 import { useWho } from "../viewer";
 
 /**
- * The trigger on a factory's row: enabled from triage up, which is what the
+ * The trigger in a factory's page header: enabled from triage up, which is what the
  * forge asks of a labeller, and otherwise disabled with the reason. Pure, so a
  * test renders it.
  */
