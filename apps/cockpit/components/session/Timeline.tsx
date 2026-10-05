@@ -7,8 +7,8 @@ import { formatClock, formatCost, formatDuration } from "../format";
 import { KindIcon, StatusIcon } from "../icons";
 import { cx } from "../ui";
 import { useWho } from "../viewer";
-import type { OpenPhase } from "../graph/StageGraph";
-import { phaseName } from "./words";
+import { followInPlace, type OpenPhase } from "../graph/StageGraph";
+import { answeringWords, phaseName } from "./words";
 
 /**
  * The session in order: every phase of every chapter, a row each — when, its
@@ -35,7 +35,7 @@ export function Timeline({ chapters, opened, openPhase, phase }: {
         <section key={chapter.number}>
           <h4 className="mb-2">
             {chapter.number ? `Chapter ${chapter.number} · ` : ""}{chapter.title}
-            {chapter.answering ? ` · answering ${chapter.answering.kind === "issue" ? "issue" : "pull request"} #${chapter.answering.number}` : ""}
+            {chapter.answering ? ` · ${answeringWords(chapter.answering)}` : ""}
           </h4>
           <ol className="grid">
             {[...(chapter.reader ? [chapter.reader] : []), ...chapter.items].map((item) => (
@@ -70,7 +70,7 @@ function Line({ item, chapter, opened, openPhase }: { item: Item; chapter: Chapt
   const open = item.phaseId === opened;
   return (
     <a href={href} aria-expanded={open}
-       onClick={(event) => { if (event.metaKey || event.ctrlKey || event.shiftKey) return; event.preventDefault(); onClick(); }}
+       onClick={followInPlace(onClick)}
        className={cx(ROW, "text-fg no-underline hover:bg-surface-2 hover:no-underline", open && "bg-surface-2")}>
       <span className="pt-px text-sm text-faint tabular-nums">{formatClock(item.at)}</span>
       <StatusIcon status={markOf(item)} className="mt-1" />

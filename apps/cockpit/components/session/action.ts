@@ -2,7 +2,7 @@ import { liveness, pending, type SteeringView } from "@/convex/model/command";
 import { permitted } from "@/convex/model/inbox";
 import type { Summary } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
-import { formatClock } from "../format";
+import { formatClock, prNumber } from "../format";
 
 /**
  * The one thing a person can do about a session right now, in its header
@@ -51,7 +51,7 @@ export function actionFor(session: string, summary: Summary, story: Story, steer
     case "fail":
       return commandAction("resume", { session, at, who }, steering, now);
     case "success":
-      return summary.prUrl ? { kind: "link", label: `Pull request #${summary.prUrl.split("/").pop()}`, href: summary.prUrl } : null;
+      return summary.prUrl ? { kind: "link", label: `Pull request #${prNumber(summary.prUrl) || "…"}`, href: summary.prUrl } : null;
     default:
       return null;
   }

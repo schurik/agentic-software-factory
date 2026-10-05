@@ -148,3 +148,14 @@ export function formatDay(ts: string): string {
 export function formatPruned(what: string, pruned: Pruned, who: (login: string) => string = (login) => login): string {
   return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${who(pruned.by)}` : ""}`;
 }
+
+/** A pull request's number, off its forge URL; "" for a URL that names none. */
+export function prNumber(url: string): string {
+  return /\/pull\/(\d+)\/?$/.exec(url)?.[1] ?? "";
+}
+
+/** Seconds from `from` to `to` (epoch ms), never below zero; null when either end is unknown. */
+export function secondsBetween(from: string, to: number): number | null {
+  const start = Date.parse(from);
+  return Number.isNaN(start) || Number.isNaN(to) ? null : Math.max(0, (to - start) / 1000);
+}

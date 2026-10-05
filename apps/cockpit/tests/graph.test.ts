@@ -16,6 +16,8 @@ function graphs(events: WireEvent[]): Graph[] {
   return view(stored, events.at(-1)!.seq).story.chapters.map((chapter) => chapter.graph);
 }
 
+const BUILDING_SEQ = 126;                         // the builder has just started
+
 /** The recording up to and including the event at `seq`. */
 const upTo = (seq: number) => STAGED.filter((event) => event.seq <= seq);
 
@@ -70,6 +72,29 @@ describe("a chapter's graph, from a factory that records its stages", () => {
 
     const killed = [...working, fixture("session_finished", 127)];
     expect(graphs(killed)[0]).toMatchObject({ current: 3, stages: { 3: { name: "implement", status: "failed" } } });
+  });
+});
+
+describe("where a chapter's graph says the session is", () => {
+  it("keeps the stage it is in as current between two of its phases", () => {
+    const [issue] = graphs(upTo(32));              // the plan is in, and its gate not yet asked
+    expect(issue).toMatchObject({ current: 1, stages: { 1: { status: "done" } } });
+  });
+
+  it("goes on from a rejected round while the session lives, and stops there when it ended", () => {
+    const answered = upTo(38);                     // rejected, and the session not yet resumed
+    expect(graphs(answered)[0]).toMatchObject({ current: 1, stages: { 1: { status: "running", rejected: 1 } } });
+
+    const ended = [...answered, fixture("session_finished", 39)];
+    expect(graphs(ended)[0]).toMatchObject({ current: 1, stages: { 1: { status: "failed", rejected: 1 } } });
+  });
+
+  it("marks a current stage only in the chapter the session is in", () => {
+    const review = STAGED.filter((event) => event.seq >= 184 && event.seq <= 214);
+    const [issue, next] = graphs([...upTo(BUILDING_SEQ), fixture("session_finished", BUILDING_SEQ + 1), ...review]);
+
+    expect(issue).toMatchObject({ current: null, stages: { 3: { name: "implement", status: "failed" } } });
+    expect(next.current).toBeNull();
   });
 });
 

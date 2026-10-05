@@ -9,7 +9,13 @@
  * a flat chain of its phases — rather than a grouping guessed at.
  *
  * A stage's status is its latest phase's: a stage whose verify failed once and
- * then passed is done. It also counts the gate rounds a person rejected.
+ * then passed is done. A round a person rejected is the latest word only until
+ * the revision starts — the stage goes on, unless the session stopped there.
+ * It also counts the gate rounds a person rejected.
+ *
+ * The current stage — the one marked NOW — is only ever in the chapter the
+ * session is in: the first stage moving, waiting or failed, or, between two
+ * phases of a live session, the last one it reached.
  */
 import type { AgentItem, Chapter, CodeItem, GateItem } from "./story";
 
@@ -40,28 +46,45 @@ const GATE_MARKS: Record<string, Mark> = {
   waiting: "waiting", open: "waiting", aborted: "failed", failed: "failed",
 };
 
-const MARKS: Record<string, Mark> = { success: "done", fail: "failed", running: "running", waiting: "waiting" };
-
 export function markOf(phase: Phase): Mark {
-  return (phase.type === "gate" ? GATE_MARKS : MARKS)[phase.status] ?? "pending";
+  return phase.type === "gate" ? GATE_MARKS[phase.status] ?? "pending" : markOfStatus(phase.status);
 }
 
-// A rejected round is the latest word only until the revision starts: the stage goes on.
-const STAGE_OF: Record<Mark, StageStatus> = {
-  done: "done", running: "running", waiting: "waiting", failed: "failed", rejected: "running", pending: "pending",
-};
+/**
+ * Where the session stands toward a chapter: whether it is the chapter the
+ * session is in, and — once the chapter or the session stopped — how it ended.
+ */
+export interface Standing {
+  here: boolean;
+  ended: "done" | "failed" | null;
+}
+
+const MARKS_OF_STATUS: Record<string, Mark> = { success: "done", fail: "failed", running: "running", waiting: "waiting" };
+
+/** A session's, a chapter's or a phase's status, as the graph marks it. */
+export function markOfStatus(status: string): Mark {
+  return MARKS_OF_STATUS[status] ?? "pending";
+}
 
 const moving = (status: StageStatus | Mark) => status === "running" || status === "waiting" || status === "failed";
 
-export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">): Graph {
+export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">, { here, ended }: Standing): Graph {
+  const statusOf = (mark: Mark): StageStatus => (mark === "rejected" ? ended ?? "running" : mark);
+  // The NOW: what is moving, or else — the session live and between two phases — the last phase reached.
+  const currentOf = <T>(steps: T[], status: (step: T) => StageStatus, reached: (step: T) => boolean): number | null => {
+    if (!here) return null;
+    const index = steps.findIndex((step) => moving(status(step)));
+    if (index !== -1) return index;
+    const last = steps.findLastIndex(reached);
+    return ended === null && last !== -1 ? last : null;
+  };
   const phases: Phase[] = [
     ...(chapter.reader ? [chapter.reader] : []),
     ...chapter.items.filter((item): item is Phase => item.type === "agent" || item.type === "code" || item.type === "gate"),
   ];
-  const flat = (): Graph => {
-    const current = phases.findIndex((phase) => moving(markOf(phase)));
-    return { kind: "phases", phases, current: current === -1 ? null : current };
-  };
+  const flat = (): Graph => ({
+    kind: "phases", phases, current: currentOf(phases, (phase) => statusOf(markOf(phase)), () => true),
+  });
   if (!chapter.stages.length) return flat();
 
   const start = chapter.reader;
@@ -74,10 +97,10 @@ export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">): 
     const last = mine.at(-1);
     return {
       index, name, phases: mine,
-      status: last ? STAGE_OF[markOf(last)] : "pending",
+      status: last ? statusOf(markOf(last)) : "pending",
       rejected: mine.filter((phase) => markOf(phase) === "rejected").length,
     };
   });
-  const current = stages.findIndex((stage) => moving(stage.status));
-  return { kind: "stages", start, stages, end: unstaged[0] ?? null, current: current === -1 ? null : current };
+  const current = currentOf(stages, (stage) => stage.status, (stage) => stage.phases.length > 0);
+  return { kind: "stages", start, stages, end: unstaged[0] ?? null, current };
 }

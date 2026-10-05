@@ -32,8 +32,8 @@ export function Details({ page, now, steering, claims, onRelease }: {
       <dd>{who(summary.triggeredBy) || "—"}{summary.trigger ? <span className="text-muted"> · {summary.trigger}</span> : null}</dd>
       <dt>Started</dt><dd className="tabular-nums">{formatTime(summary.startedAt, now)}</dd>
       <dt>Tokens</dt><dd><Tokens spent={summary.totalTokens} budget={page.budget} /></dd>
-      <dt>Base</dt>
-      <dd>{summary.baseRef ? <code>{summary.baseRef}</code> : "—"}{story.baseCommit ? <> at <code>{story.baseCommit.slice(0, 7)}</code></> : null}</dd>
+      <dt>Base commit</dt>
+      <dd>{story.baseCommit ? <code>{story.baseCommit.slice(0, 7)}</code> : "—"}</dd>
       <dt>Claim</dt>
       <dd>{claims.length ? claims.map((claim) => <ClaimRow key={claim.id} claim={claim} now={now} onRelease={onRelease} />)
         : <span className="text-muted">none held</span>}</dd>
@@ -41,7 +41,8 @@ export function Details({ page, now, steering, claims, onRelease }: {
       <dd>
         {page.transcripts
           ? <>on: the prompts and the harness&apos;s output are kept{summary.transcriptDays ? `, for ${plural(summary.transcriptDays, "day")} after it finishes` : ""}</>
-          : <>off: no prompt and no tool call&apos;s arguments leave the station. <code>cockpit: {"{transcripts: true}"}</code> in <code>asf/factory.yaml</code> turns them on</>}
+          : <>none kept: the session shipped no prompt and no tool call&apos;s arguments.{" "}
+            <code>cockpit: {"{transcripts: true}"}</code> in <code>asf/factory.yaml</code> sends them</>}
       </dd>
     </Facts>
   );

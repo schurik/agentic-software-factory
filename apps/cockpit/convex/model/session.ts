@@ -145,6 +145,16 @@ export function endedAt({ summary, activity }: { summary: Summary; activity: num
   return at(summary.endedAt) ?? at(summary.lastEventAt) ?? activity;
 }
 
+/** Whether a session is still going: running, or waiting at a gate. */
+export function isLive(summary: Summary): boolean {
+  return summary.status === "running" || summary.status === "waiting";
+}
+
+/** Where a session's clock stops, epoch ms: `now` while it is live, else when it ended (NaN when it never said). */
+export function until(summary: Summary, now: number): number {
+  return isLive(summary) ? now : Date.parse(summary.endedAt || summary.lastEventAt);
+}
+
 /** A summary's timestamp in epoch ms; null when it has none. */
 export function at(ts: string): number | null {
   const parsed = Date.parse(ts);

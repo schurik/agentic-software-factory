@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import { EXPENSIVE } from "@/convex/model/attention";
 import type { Budget } from "@/convex/model/description";
-import type { Summary } from "@/convex/model/session";
+import { isLive, type Summary, until } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
-import { formatDollars, formatDuration, inboxHref } from "../format";
+import { formatDollars, formatDuration, inboxHref, prNumber, secondsBetween } from "../format";
 import { buttonClass, Card, cx } from "../ui";
 import { useWho } from "../viewer";
-import type { OpenPhase } from "../graph/StageGraph";
+import { followInPlace, type OpenPhase } from "../graph/StageGraph";
 import { waitsOn } from "./action";
 import { channelWords, phaseName } from "./words";
 
@@ -32,8 +32,10 @@ export function NowCard({ factory, session, summary, story, budget, now, viewer,
   if (summary.status === "running") {
     sentence = here.phase ? (
       <><b className="font-semibold">{who(here.phase.owner) || here.phase.name}</b> is working on{" "}
-        <b className="font-semibold">{phaseName({ type: here.phase.kind, name: here.phase.name })}</b> in {here.chapter}</>
+        <b className="font-semibold">{phaseName({ name: here.phase.name })}</b> in {here.chapter}</>
     ) : <>Running {here.chapter}</>;
+  } else if (summary.status === "waiting" && !here.waiting) {
+    sentence = <>Waiting</>;
   } else if (summary.status === "waiting" && here.waiting) {
     const whom = mine ? (viewer ? "you" : "a person") : on.map(who).join(", ") || "a person";
     sentence = (
@@ -43,25 +45,23 @@ export function NowCard({ factory, session, summary, story, budget, now, viewer,
     if (mine) next = <a className={cx(buttonClass("primary"), "mt-3")} href={inboxHref(factory, session)}>Answer in the inbox</a>;
   } else if (summary.status === "fail") {
     const failed = here.failed;
-    const name = failed ? phaseName({ type: "phase", name: failed.name }) : "";
+    const name = failed ? phaseName({ name: failed.name }) : "";
     sentence = failed ? <>Failed in <b className="font-semibold">{name}</b>{failed.error ? `: ${failed.error}` : ""}</> : <>Failed</>;
     if (failed) {
       const { href, onClick } = openPhase(failed.phaseId);
       next = (
-        <a className="mt-1 inline-block text-sm" href={href} onClick={(event) => { event.preventDefault(); onClick(); }}>
+        <a className="mt-1 inline-block text-sm" href={href} onClick={followInPlace(onClick)}>
           See {name}’s output →
         </a>
       );
     }
   } else if (summary.status === "success") {
-    sentence = summary.prUrl ? <>All work landed in <a href={summary.prUrl}>pull request #{summary.prUrl.split("/").pop()}</a></> : <>Finished</>;
+    sentence = summary.prUrl ? <>All work landed in <a href={summary.prUrl}>pull request #{prNumber(summary.prUrl)}</a></> : <>Finished</>;
   } else {
     sentence = <>Nothing has started yet</>;
   }
-  const live = summary.status === "running" || summary.status === "waiting";
-  const started = Date.parse(summary.startedAt);
-  const ended = live ? now : Date.parse(summary.endedAt || summary.lastEventAt);
-  const took = Number.isNaN(started) || Number.isNaN(ended) ? null : Math.max(0, (ended - started) / 1000);
+  const live = isLive(summary);
+  const took = secondsBetween(summary.startedAt, until(summary, now));
   return (
     <section data-now="" className={className}>
       <Card className={cx("flex flex-col gap-4 border-l-[3px] px-5 py-4 md:flex-row md:items-center", EDGE[summary.status] ?? "border-l-line-strong")}>

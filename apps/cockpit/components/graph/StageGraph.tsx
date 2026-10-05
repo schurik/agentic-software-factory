@@ -2,7 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type Graph, markOf, type Phase, type Stage, type StageStatus } from "@/convex/model/graph";
+import { type Graph, type Mark, markOf, type Phase, type Stage, type StageStatus } from "@/convex/model/graph";
 import { formatDuration, plural } from "../format";
 import { KindIcon, StageIcon, StatusIcon } from "../icons";
 import { phaseName } from "../session/words";
@@ -29,6 +29,22 @@ import { useWho } from "../viewer";
 /** Where opening a phase goes: an address to link to, and what following it does in place. */
 export type OpenPhase = (phaseId: string) => { href: string; onClick: () => void };
 
+/** A link's click, followed in place — but a modified click (a new tab, a new window) left to the browser. */
+export function followInPlace(onClick: () => void): (event: MouseEvent) => void {
+  return (event) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    onClick();
+  };
+}
+
+/**
+ * How a phase drawn on its own looks: a rejected round in the colour of a
+ * failure. A stage only reads its latest phase's mark (graph.ts), so a stage
+ * whose round was rejected looks like it goes on instead.
+ */
+const lookOf = (mark: Mark): StageStatus => (mark === "rejected" ? "failed" : mark);
+
 export interface StageGraphProps {
   graph: Graph;
   /** The stages opened by hand, by index. */
@@ -43,25 +59,25 @@ export function opensItself(graph: Graph, stage: Stage): boolean {
 }
 
 export function StageGraph({ graph, opened, onToggle, openPhase }: StageGraphProps) {
-  const nodes: ReactNode[] = [];
+  const links: ReactNode[] = [];
   if (graph.kind === "phases") {
     graph.phases.forEach((phase, index) => {
-      if (index) nodes.push(<Connector key={`c${index}`} done={markOf(phase) !== "pending"} />);
-      nodes.push(<PhaseNode key={phase.phaseId} phase={phase} current={index === graph.current} openPhase={openPhase} />);
+      if (index) links.push(<Connector key={`c${index}`} done={markOf(phase) !== "pending"} />);
+      links.push(<PhaseCard key={phase.phaseId} phase={phase} current={index === graph.current} openPhase={openPhase} />);
     });
-    return <Chain focus={graph.current === null ? null : `[data-phase="${graph.phases[graph.current].phaseId}"]`}>{nodes}</Chain>;
+    return <Chain focus={graph.current === null ? null : `[data-phase="${graph.phases[graph.current].phaseId}"]`}>{links}</Chain>;
   }
-  nodes.push(<End key="start" phase={graph.start} label={graph.start ? phaseName(graph.start) : "prompt"} openPhase={openPhase} />);
+  links.push(<End key="start" phase={graph.start} label={graph.start ? phaseName(graph.start) : "prompt"} openPhase={openPhase} />);
   for (const stage of graph.stages) {
-    nodes.push(<Connector key={`c${stage.index}`} done={stage.phases.length > 0} />);
-    nodes.push(
+    links.push(<Connector key={`c${stage.index}`} done={stage.phases.length > 0} />);
+    links.push(
       <StageCard key={stage.index} stage={stage} current={graph.current === stage.index} itself={opensItself(graph, stage)}
                  opened={opened.includes(stage.index)} onToggle={onToggle} openPhase={openPhase} />,
     );
   }
-  nodes.push(<Connector key="cend" done={graph.end !== null} />);
-  nodes.push(<End key="end" phase={graph.end} label="report" openPhase={openPhase} />);
-  return <Chain focus={graph.current === null ? null : `[data-stage="${graph.current}"]`}>{nodes}</Chain>;
+  links.push(<Connector key="cend" done={graph.end !== null} />);
+  links.push(<End key="end" phase={graph.end} label="report" openPhase={openPhase} />);
+  return <Chain focus={graph.current === null ? null : `[data-stage="${graph.current}"]`}>{links}</Chain>;
 }
 
 // ── the look ─────────────────────────────────────────────────────────────────
@@ -75,7 +91,7 @@ const EDGE: Record<StageStatus, string> = {
 const WASH: Record<StageStatus, string> = {
   done: "bg-[color-mix(in_oklab,var(--ok)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--ok)_9%,var(--surface))]",
   running: "bg-[color-mix(in_oklab,var(--accent)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--accent)_10%,var(--surface))]",
-  waiting: "bg-[color-mix(in_oklab,#d98a00_7%,var(--surface))] dark:bg-[color-mix(in_oklab,#e5a73f_10%,var(--surface))]",
+  waiting: "bg-[color-mix(in_oklab,var(--wait)_7%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--wait)_10%,var(--surface))]",
   failed: "bg-[color-mix(in_oklab,var(--bad)_5%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--bad)_10%,var(--surface))]",
   pending: "",
 };
@@ -155,12 +171,7 @@ function PhaseLink({ phaseId, openPhase, className, children }: {
 }) {
   if (!openPhase) return <span className={className}>{children}</span>;
   const { href, onClick } = openPhase(phaseId);
-  const follow = (event: MouseEvent) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-    event.preventDefault();
-    onClick();
-  };
-  return <a href={href} onClick={follow} className={cx(className, "text-fg no-underline hover:no-underline")}>{children}</a>;
+  return <a href={href} onClick={followInPlace(onClick)} className={cx(className, "text-fg no-underline hover:no-underline")}>{children}</a>;
 }
 
 function PhaseRow({ phase, openPhase }: { phase: Phase; openPhase?: OpenPhase }) {
@@ -182,10 +193,10 @@ function PhaseRow({ phase, openPhase }: { phase: Phase; openPhase?: OpenPhase })
   );
 }
 
-/** A phase as a node of its own: the chain of a chapter recorded before stages. */
-function PhaseNode({ phase, current, openPhase }: { phase: Phase; current: boolean; openPhase?: OpenPhase }) {
+/** A phase as a card of its own: the chain of a chapter recorded before stages. */
+function PhaseCard({ phase, current, openPhase }: { phase: Phase; current: boolean; openPhase?: OpenPhase }) {
   const mark = markOf(phase);
-  const status: StageStatus = mark === "rejected" ? "failed" : mark;
+  const status = lookOf(mark);
   return (
     <div data-phase={phase.phaseId} className={cx("relative w-full shrink-0 rounded-lg md:w-auto", card(status, current))}>
       {current ? <NowTab status={status} /> : null}
@@ -207,7 +218,7 @@ function End({ phase, label, openPhase }: { phase: Phase | null; label: string; 
   return phase ? <PhaseLink phaseId={phase.phaseId} openPhase={openPhase} className={shape}>{body}</PhaseLink> : <span className={shape}>{body}</span>;
 }
 
-/** Between two nodes: green up to where the session got, dashed beyond, with an arrowhead across; a short stem down a phone. */
+/** Between two links of the chain: green up to where the session got, dashed beyond, with an arrowhead across; a short stem down a phone. */
 function Connector({ done }: { done: boolean }) {
   return (
     <span aria-hidden="true" className="relative ml-5 h-3 w-0 shrink-0 md:mt-[1.1rem] md:ml-0 md:h-0 md:w-4">
@@ -282,23 +293,20 @@ const CHIP: Record<StageStatus, string> = {
  * where it has not. For a list's row, and a folded chapter's line.
  */
 export function MiniGraph({ graph }: { graph: Graph }) {
-  const steps = graph.kind === "stages"
+  const blocks = graph.kind === "stages"
     ? graph.stages.map((stage) => ({ key: String(stage.index), name: stage.name, status: stage.status }))
-    : graph.phases.map((phase) => {
-      const mark = markOf(phase);
-      return { key: phase.phaseId, name: phaseName(phase), status: (mark === "rejected" ? "failed" : mark) as StageStatus };
-    });
+    : graph.phases.map((phase) => ({ key: phase.phaseId, name: phaseName(phase), status: lookOf(markOf(phase)) }));
   return (
-    <span className="flex items-center gap-1">
-      {steps.map((step, index) => index === graph.current ? (
-        <span key={step.key} className={cx("flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap", CHIP[step.status])}>
-          <StatusIcon status={step.status} size={11} />{step.name}
+    <span className="flex flex-wrap items-center gap-1">
+      {blocks.map((block, index) => index === graph.current ? (
+        <span key={block.key} className={cx("flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap", CHIP[block.status])}>
+          <StatusIcon status={block.status} size={11} />{block.name}
         </span>
       ) : (
-        <span key={step.key} title={step.name}
+        <span key={block.key} title={block.name}
               className={cx("h-4 w-3 shrink-0 rounded-sm border",
-                            step.status === "pending" ? "border-dashed border-line-strong"
-                              : step.status === "failed" ? "border-transparent bg-bad/60" : "border-transparent bg-ok/45")} />
+                            block.status === "pending" ? "border-dashed border-line-strong"
+                              : block.status === "failed" ? "border-transparent bg-bad/60" : "border-transparent bg-ok/45")} />
       ))}
     </span>
   );

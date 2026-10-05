@@ -101,9 +101,9 @@ describe("phase names", () => {
 
   it("say what a phase did in words, and keep any name the table does not know", () => {
     expect(["plan_revise_1", "verify_2", "fix_1", "review_3", "commit_plan", "commit_implement", "commit_document",
-            "issue", "pr", "changes", "scout", "integrate"].map((name) => phaseName(phase(name)))).toEqual([
+            "issue", "pr", "changes", "scout", "integrate", "commit_release"].map((name) => phaseName(phase(name)))).toEqual([
       "plan revision 1", "verify #2", "fix #1", "review #3", "commit plan", "commit code", "commit docs",
-      "read the issue", "read the review", "collect the diff", "scout", "integrate"]);
+      "read the issue", "read the review", "collect the diff", "scout", "integrate", "commit_release"]);
   });
 
   it("name a gate by what it asks and its round", () => {

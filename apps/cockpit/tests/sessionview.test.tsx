@@ -181,20 +181,21 @@ describe("the chapters, each one row", () => {
   });
 
   it("opens a stage that had a rejected round, and counts the rounds", () => {
-    const row = chapter(html({ shown: { chapters: [1] } }), 1);
+    const row = chapter(html({ shown: { opened: [1] } }), 1);
     expect(stage(row, 1)).toContain("plan ↺ 1");
     expect(stage(row, 1)).toMatch(/plan .*plan gate · round 1 rejected by asf tests .*plan revision 1 .*plan gate · round 2 approved by asf tests/);
     expect(stage(row, 7)).toContain("document 2 phases ›");
   });
 
   it("shows a chapter, and a stage, opened from the address one click away", () => {
-    const markup = html({ shown: { chapters: [1, 3], stages: ["3.1", "1.7"] } });
+    const markup = html({ shown: { opened: [1], stages: ["3.1", "1.7"] } });
     expect(chapter(markup, 1)).toContain('data-open="true"');
     expect(chapter(markup, 2)).toContain('data-open="false"');
     expect(stage(chapter(markup, 3), 1)).toMatch(/verify verify #1 /);
     expect(stage(chapter(markup, 1), 7)).toMatch(/document collect the diff .*document /);
-    // Folding every chapter is an address too.
-    expect(html({ shown: { chapters: [] } })).not.toContain('data-open="true"');
+    // Folding the latest is an address too — and one that folded an earlier chapter still opens a later one.
+    expect(html({ shown: { folded: [3] } })).not.toContain('data-open="true"');
+    expect(chapter(html({ events: upTo(SUSPENDED), shown: { folded: [2] } }), 1)).toContain('data-open="true"');
   });
 
   it("draws a session recorded before stages as a flat chain of its phases", () => {
@@ -250,9 +251,10 @@ describe("the tabs", () => {
     expect(details).toContain("Station schurik@mbp:widgets run by asf tests");
     expect(details).toContain("Triggered by asf tests");
     expect(details).toContain("Tokens 27.1k of 2M tokens");
-    expect(details).toContain("Base main at 2029981");
+    expect(details).toContain("Base commit 2029981");
     expect(details).toContain("Transcripts on: the prompts and the harness's output are kept");
-    expect(details).not.toContain("Branch");
+    // The branch and what it is based on are under the title.
+    expect(details).not.toMatch(/Branch|main at/);
   });
 
   it("list every phase on the Timeline, per chapter, by its name for people, with who ran it and what came of it", () => {
@@ -298,7 +300,7 @@ describe("without the transcript opt-in", () => {
       }
     }
     expect(everything).not.toContain('"args"');
-    expect(everything).toContain("Transcripts off: no prompt and no tool call's arguments leave the station");
+    expect(everything).toContain("Transcripts none kept: the session shipped no prompt and no tool call's arguments");
     expect(everything).toContain("Transcripts are off for this factory: the session shipped no prompt and no harness output.");
     expect(everything).toContain("What a call was given and returned is transcript material, and this factory has not opted in");
   });
@@ -312,11 +314,10 @@ describe("without the transcript opt-in", () => {
 
 describe("the address", () => {
   it("reads back what it wrote, and writes nothing for the page as it first opens", () => {
-    const shown: Shown = { tab: "timeline", chapters: [1, 3], stages: ["3.1"], phase: "a9f259f0_03_plan", phaseTab: "checks" };
+    const shown: Shown = { tab: "timeline", opened: [1], folded: [3], stages: ["3.1"], phase: "a9f259f0_03_plan", phaseTab: "checks" };
     expect(readShown(new URLSearchParams(writeShown(shown)))).toEqual(shown);
-    expect(readShown(new URLSearchParams(writeShown({ ...SHOWN, chapters: [] })))).toEqual({ ...SHOWN, chapters: [] });
     expect(writeShown(SHOWN)).toBe("");
-    expect(readShown(new URLSearchParams("tab=nonsense&chapters=x,2"))).toEqual({ ...SHOWN, chapters: [2] });
+    expect(readShown(new URLSearchParams("tab=nonsense&opened=x,2"))).toEqual({ ...SHOWN, opened: [2] });
   });
 
   it("keeps whatever else the address says", () => {

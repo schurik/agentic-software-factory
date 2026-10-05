@@ -8,10 +8,11 @@ import { type ReactNode, useContext, useState } from "react";
 import type { ClaimView } from "@/convex/model/claim";
 import type { SteeringView } from "@/convex/model/command";
 import type { Budget } from "@/convex/model/description";
-import type { SessionView as View } from "@/convex/model/session";
+import { isLive, type SessionView as View, until } from "@/convex/model/session";
+import { markOfStatus } from "@/convex/model/graph";
 import type { Chapter } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
-import { formatCost, formatDuration, formatNumber, pretty } from "../format";
+import { formatCost, formatDuration, plural, pretty, prNumber, secondsBetween } from "../format";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
 import { PurgeForm } from "../Purge";
@@ -20,8 +21,9 @@ import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
 import { NowCard } from "./NowCard";
-import { chapterOpen, type SessionTab, type Shown, SHOWN, stageKey, writeShown } from "./shown";
+import { chapterOpen, type SessionTab, type Shown, SHOWN, stageKey, withChapter, writeShown } from "./shown";
 import { Timeline } from "./Timeline";
+import { answeringWords } from "./words";
 
 export type Page = View & {
   factory: string; session: string; acked: number; forge: string;
@@ -77,9 +79,8 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
   const togglePhase: OpenPhase = (phaseId) =>
     shown.phase === phaseId ? show({ phase: null, phaseTab: null }) : openPhase(phaseId);
   const latest = story.chapters.at(-1)?.number ?? 0;
-  const live = summary.status === "running" || summary.status === "waiting";
   // Where a chapter that never said it finished stops counting: now, or where the session stopped.
-  const until = live ? now : Date.parse(summary.endedAt || summary.lastEventAt);
+  const stops = until(summary, now);
 
   return (
     <div className="flex flex-col gap-5">
@@ -97,13 +98,10 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
             const key = stageKey(chapter.number, index);
             onShow?.({ ...shown, stages: shown.stages.includes(key) ? shown.stages.filter((each) => each !== key) : [...shown.stages, key] });
           };
-          const toggleChapter = (to: boolean) => {
-            const already = story.chapters.filter((each) => chapterOpen(shown, each.number, latest)).map((each) => each.number);
-            onShow?.({ ...shown, chapters: to ? [...already, chapter.number] : already.filter((each) => each !== chapter.number) });
-          };
+          const toggleChapter = (to: boolean) => onShow?.(withChapter(shown, chapter.number, to));
           return (
-            <ChapterRow key={chapter.number} chapter={chapter} open={open} onOpen={toggleChapter} until={until} latest={chapter.number === latest}
-                        sessionDone={!live}>
+            <ChapterRow key={chapter.number} chapter={chapter} open={open} onOpen={toggleChapter} until={stops} latest={chapter.number === latest}
+                        sessionDone={!isLive(summary)}>
               <StageGraph graph={chapter.graph} opened={opened} onToggle={toggleStage} openPhase={openPhase} />
             </ChapterRow>
           );
@@ -140,7 +138,7 @@ function Header({ page, action, onCommand, onPurge }: {
 }) {
   const { summary, story, session, factory, forge } = page;
   const issue = summary.issueUrl.match(/\/issues\/(\d+)\/?$/)?.[1];
-  const pr = summary.prUrl.match(/\/pull\/(\d+)\/?$/)?.[1];
+  const pr = prNumber(summary.prUrl);
   return (
     <header>
       <div className="text-sm text-muted">{factory} / sessions / <code>{session}</code></div>
@@ -192,8 +190,7 @@ function More({ page, onPurge }: { page: Page; onPurge?: (reason: string) => Pro
   return (
     <>
       <Menu.Root>
-        <Menu.Trigger aria-label="More"
-                      className="grid size-9 shrink-0 place-items-center rounded-md border border-line-strong bg-surface text-muted shadow-card hover:bg-surface-2 hover:text-fg data-popup-open:bg-surface-2">
+        <Menu.Trigger aria-label="More" className={cx(buttonClass("secondary", "icon"), "text-muted hover:text-fg data-popup-open:bg-surface-2")}>
           <Ellipsis size={16} aria-hidden="true" />
         </Menu.Trigger>
         <Menu.Portal>
@@ -244,10 +241,7 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, childre
   chapter: Chapter; open: boolean; onOpen: (open: boolean) => void; until: number; latest: boolean; sessionDone: boolean;
   children: ReactNode;
 }) {
-  const started = Date.parse(chapter.startedAt);
-  const ended = chapter.endedAt ? Date.parse(chapter.endedAt) : until;
-  const took = Number.isNaN(started) || Number.isNaN(ended) ? null : Math.max(0, (ended - started) / 1000);
-  const { answering } = chapter;
+  const took = secondsBetween(chapter.startedAt, chapter.endedAt ? Date.parse(chapter.endedAt) : until);
   return (
     <Collapsible.Root open={open} onOpenChange={onOpen}
                       render={<section data-chapter={chapter.number} data-open={open} className="rounded-xl border border-line bg-surface shadow-card" />}>
@@ -256,16 +250,15 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, childre
         <span className="text-xs font-medium tracking-wider text-faint uppercase">{chapter.number ? `Chapter ${chapter.number}` : "Chapter"}</span>
         <span className="font-semibold">{chapter.title}</span>
         <span className="text-sm text-muted">
-          {answering ? `answering ${answering.kind === "issue" ? "issue" : "pull request"} #${answering.number}`
-            : chapter.input === "prompt" ? "from a prompt" : ""}
+          {chapter.answering ? answeringWords(chapter.answering) : chapter.input === "prompt" ? "from a prompt" : ""}
         </span>
-        {open ? null : <span className="hidden sm:block"><MiniGraph graph={chapter.graph} /></span>}
+        {open ? null : <MiniGraph graph={chapter.graph} />}
         <span className="grow" />
         <span className="flex items-center gap-3 text-sm text-muted tabular-nums">
           <span>{formatDuration(took)}</span>
           <span>{formatCost(chapter.cost)}</span>
           {/* The chapter in progress says its status once, in the header's pill. */}
-          {latest && !sessionDone ? null : <StatusIcon status={chapterMark(chapter.status)} />}
+          {latest && !sessionDone ? null : <StatusIcon status={markOfStatus(chapter.status)} />}
         </span>
       </Collapsible.Trigger>
       <Collapsible.Panel className="overflow-hidden">
@@ -275,8 +268,6 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, childre
   );
 }
 
-const CHAPTER_MARKS = { success: "done", fail: "failed", running: "running", waiting: "waiting" } as const;
-const chapterMark = (status: string) => CHAPTER_MARKS[status as keyof typeof CHAPTER_MARKS] ?? "pending";
 
 /** The events this cockpit cannot read, listed as they were sent: nothing is hidden, and the page says to upgrade. */
 function Unread({ page }: { page: Page }) {
@@ -284,7 +275,7 @@ function Unread({ page }: { page: Page }) {
   return (
     <Notice>
       <details open>
-        <summary>{formatNumber(unread.length)} event{unread.length === 1 ? "" : "s"} of this session came from a newer factory than
+        <summary>{plural(unread.length, "event")} of this session came from a newer factory than
           this cockpit reads: upgrade the cockpit to read them.</summary>
         <Table className="mt-3 text-sm">
           <thead><tr><th className={num}>seq</th><th>kind</th><th>why it is shown as sent</th></tr></thead>

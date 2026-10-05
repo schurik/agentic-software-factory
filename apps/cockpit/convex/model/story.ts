@@ -26,7 +26,7 @@
  * Handlers are keyed by kind and version like session.ts's readers, and are
  * only ever called for an event a reader there could read.
  */
-import { graphOf, type Graph } from "./graph";
+import { graphOf, type Graph, markOfStatus, type Standing } from "./graph";
 import { file, readEntry, render, type Entry, type Note } from "./journal";
 import type { Payload } from "./payload";
 import { prunedOf, type Pruned } from "./retention";
@@ -623,6 +623,13 @@ function answering(chapter: ChapterState): Answering | null {
 
 export function finish(state: StoryState, summary: Summary): Story {
   const ordered = [...state.chapters].sort((a, b) => a.number - b.number);
+  const live = summary.status === "running" || summary.status === "waiting";
+  const inChapter = state.current ?? ordered.at(-1)?.number;
+  // A chapter that did not say how it ended stopped where the session did, if the session stopped.
+  const standing = (chapter: ChapterState): Standing => {
+    const ended = markOfStatus(chapter.status === "success" || chapter.status === "fail" || live ? chapter.status : summary.status);
+    return { here: chapter.number === inChapter, ended: ended === "done" || ended === "failed" ? ended : null };
+  };
   const rounds = new Map<string, number>();
   const chapters = ordered.map((each): Chapter => {
     const mine = state.phases.filter((phase) => phase.chapter === each.number);
@@ -639,7 +646,7 @@ export function finish(state: StoryState, summary: Summary): Story {
     rounds.set(each.workflow, round);
     const told = { stages: each.stages, reader: reader ? codeItem(reader) : null, items };
     return {
-      ...told, graph: graphOf(told), number: each.number, workflow: each.workflow, input: each.input,
+      ...told, graph: graphOf(told, standing(each)), number: each.number, workflow: each.workflow, input: each.input,
       title: each.input === "pr" ? `${each.workflow}, round ${round}` : each.workflow,
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
       endedAt: each.endedAt, status: each.status, reason: each.reason,
