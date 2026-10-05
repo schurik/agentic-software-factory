@@ -85,6 +85,51 @@ describe("the golden self-descriptions", () => {
     expect(read.problems).toEqual([{ workflow: "nightly", error: expect.stringContaining("nobody") }]);
   });
 
+  it("reads the factory's settings, grouped by what each decides, from format 2", () => {
+    const { settings } = readDescription(corpus["v2.json"]);
+
+    expect(settings).not.toBeNull();
+    expect(settings!.intake).toMatchObject({
+      issues: true, queuedLabel: "asf:queued", trustedAuthors: ["alex", "sam"], maxConcurrent: 2,
+      routes: { "asf:ship": "issue", "asf:refine": "refine", "asf:refine-ship": "refine-ship" },
+      promptWorkflows: ["quick", "sdlc", "ship"],
+    });
+    expect(settings!.intake.reviews).toEqual({
+      watched: true, workflow: "pr-review", trustedReviewers: [], ignoreAuthors: ["codecov[bot]"],
+      replyToThreads: true, resolveThreads: true, maxThreads: 20, maxConcurrent: 2, reapMerged: true,
+    });
+    expect(settings!.hitl).toEqual({
+      default: false, gates: { integrate: false, plan: false }, waitSeconds: 900,
+      whenUnattended: "suspend", maxRounds: 3, notifyCommand: ["scripts/notify.sh"],
+    });
+    expect(settings!.landing).toEqual({
+      mode: "pr", issueMode: "pr", openPr: true, remote: "origin", branchPrefix: "asf/", baseRef: "",
+      publish: "on_create", worktrees: true, worktreeDir: ".asf-worktrees", keepOnSuccess: false,
+    });
+    // The budget is the one described since format 1, grouped here with the rest of the limits.
+    expect(settings!.limits).toEqual({
+      budget: { maxCostUsd: 2.5, maxTokens: 2_000_000 }, transcripts: true, transcriptRetentionDays: 14,
+      commands: ["answer", "abort", "kill", "resume"],
+    });
+    expect(settings!.forge).toMatchObject({ project: "acme/widgets", reviewProject: "acme/widgets", remote: "origin" });
+    expect(settings!.forge.labels).toMatchObject({ queued: "asf:queued", refined: "asf:refined", pr_failed: "asf:pr-failed" });
+  });
+
+  it("reads no settings out of format 1, which had none, and the rest of it as before", () => {
+    const read = readDescription(corpus["v1.json"]);
+
+    expect(read.settings).toBeNull();
+    expect(read.workflows.map((workflow) => workflow.name)).toContain("issue");
+  });
+
+  it("reads a map of settings loosely: what is not a string is left out", () => {
+    const later = described();
+    const settings = later.settings as { intake: { routes: unknown } };
+    settings.intake.routes = { "asf:ship": "issue", "asf:odd": 3 };
+
+    expect(readDescription(JSON.stringify(later)).settings!.intake.routes).toEqual({ "asf:ship": "issue" });
+  });
+
   it("reads a newer format loosely, and says the cockpit is the older one", () => {
     const later = { ...described(), format: KNOWN_FORMAT + 1, something_new: { at: 1 } };
 

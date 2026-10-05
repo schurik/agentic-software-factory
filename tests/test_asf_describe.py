@@ -108,6 +108,78 @@ def test_the_budget_is_factory_yaml_s_per_session_ceiling(stamped: Path):
     assert raw["budget"] == {"max_cost_usd": 2.5, "max_tokens": 900000}
 
 
+# ── the settings ─────────────────────────────────────────────────────────────
+
+def test_the_settings_are_the_stamped_factory_yaml_s_as_its_code_reads_them(stamped: Path):
+    _, raw = described(stamped)
+
+    settings = SelfDescription.model_validate(raw).settings
+    intake = settings.intake
+    assert intake.issues and intake.queued_label == "asf:queued"
+    assert intake.routes == {"asf:ship": "issue", "asf:refine": "refine",
+                             "asf:refine-ship": "refine-ship"}
+    assert intake.trusted_authors == [] and intake.max_concurrent == 2
+    assert intake.prompt_workflows == ["quick", "sdlc", "ship"]
+    reviews = intake.reviews
+    assert reviews.watched and reviews.workflow == "pr-review"
+    assert (reviews.reply_to_threads, reviews.resolve_threads, reviews.reap_merged) == (
+        True, True, True)
+    assert (reviews.max_threads, reviews.max_concurrent) == (20, 2)
+    assert reviews.trusted_reviewers == [] and reviews.ignore_authors == []
+
+    hitl = settings.hitl
+    # Every gate a workflow places, as factory.yaml switches it: all off.
+    assert not hitl.default and hitl.gates == {"integrate": False, "plan": False}
+    assert (hitl.wait_seconds, hitl.when_unattended, hitl.max_rounds) == (900, "suspend", 0)
+    assert hitl.notify_command == []
+
+    landing = settings.landing
+    assert (landing.mode, landing.issue_mode, landing.open_pr) == ("pr", "pr", True)
+    assert landing.branch_prefix == "asf/" and landing.base_ref == ""
+    # No cockpit is configured here, so nothing is pushed before integration.
+    assert landing.publish == "on_integrate"
+    assert landing.worktrees and landing.worktree_dir == ".asf-worktrees"
+    assert not landing.keep_on_success
+
+    limits = settings.limits
+    assert not limits.transcripts and limits.transcript_retention_days == 0
+    assert limits.commands == ["answer", "abort", "kill", "resume"]
+
+    # The stamp has no origin to resolve a project from; the labels are the tracker's.
+    forge = settings.forge
+    assert forge.project == "" and forge.review_project == "" and forge.remote == "origin"
+    assert forge.labels == {"queued": "asf:queued", "running": "asf:running",
+                            "done": "asf:done", "failed": "asf:failed",
+                            "refined": "asf:refined", "pr_failed": "asf:pr-failed"}
+    assert "fetch_command" not in json.dumps(raw)        # the tracker's raw commands stay home
+
+
+def test_a_setting_factory_yaml_leaves_out_is_the_code_s_default_and_merge_is_resolved(
+        stamped: Path):
+    """A key the operator deleted is not a hole: it is what the factory's own
+    code does without it. And an issue run lands as a pull request whatever
+    `mode` says, while `issues.force_pr` holds."""
+    config = stamped / "asf" / "factory.yaml"
+    # A block given again replaces the stamped one whole, so every key it
+    # leaves out is the code's default.
+    config.write_text(config.read_text().replace("    mode: pr ", "    mode: merge ")
+                      + "\ncockpit: {transcripts: true, transcript_retention_days: 7}\n"
+                      "issues: {project: acme/widgets, route: {'asf:go': quick}}\n"
+                      "hitl: {gates: {plan: on, checkpoint: on}}\n")
+
+    _, raw = described(stamped)
+
+    settings = SelfDescription.model_validate(raw).settings
+    assert settings.limits.commands == []
+    assert settings.limits.transcripts and settings.limits.transcript_retention_days == 7
+    assert (settings.landing.mode, settings.landing.issue_mode) == ("merge", "pr")
+    assert settings.hitl.wait_seconds == 900
+    assert settings.hitl.gates == {"checkpoint": True, "integrate": False, "plan": True}
+    assert settings.forge.project == "acme/widgets"
+    assert settings.intake.routes == {"asf:go": "quick"}
+    assert settings.intake.max_concurrent == 2
+
+
 # ── the golden corpus ────────────────────────────────────────────────────────
 
 def test_the_writer_matches_the_golden_fixture_for_the_current_format():
