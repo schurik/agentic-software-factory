@@ -282,8 +282,26 @@ describe("the tabs", () => {
     expect(timeline).toMatch(/Chapter 3 · pr-review, round 2 .*read the review/);
   });
 
-  it("keep the Journal exactly as the next agent reads it", () => {
-    expect(text({ shown: { tab: "journal" } })).toContain(read(STAGED_JOURNAL).trim().slice(0, 400));
+  it("render the Journal's markdown under the journal's own numbers, never renumbered", () => {
+    const journal = html({ shown: { tab: "journal" } });
+    expect(journal).not.toContain("<pre");
+    const numbers = [...journal.matchAll(/<li value="(\d+)"/g)].map((match) => Number(match[1]));
+    expect(numbers).toEqual([...STAGED_JOURNAL.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1])));
+    // Each number is drawn, not left to a list's counter that would make 7, 10, 12 into 7, 8, 9.
+    expect(read(journal)).toMatch(/ 10\. review_1 · reviewer · success — approved: R1 and R2 are met /);
+    // Markdown inside an entry is rendered: the journal's backticks and line breaks.
+    expect(journal).toMatch(/⚑ risk \(planner, in plan\): the date is local midnight<br\/>\s*because: converted in UTC/);
+    expect(journal).toContain("max-w-[80ch]");
+  });
+
+  it("tell an agent's ⚑ note, a report, from a person's ✎ remark, an instruction that wins", () => {
+    const legend = text({ shown: { tab: "journal" } });
+    expect(legend).toMatch(/⚑ a note an agent filed — a report, judged like any claim/);
+    expect(legend).toMatch(/✎ what a person typed at a gate — an instruction, and where it disagrees it wins/);
+  });
+
+  it("keep, in the Journal, the factory's own preamble the next agent reads before it", () => {
+    expect(text({ shown: { tab: "journal" } })).toContain("It is a REPORT. Judge it like any other claim");
   });
 
   it("open a phase in the drawer from a Timeline row, and mark the row the drawer has open", () => {

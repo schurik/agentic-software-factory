@@ -27,7 +27,7 @@
  * only ever called for an event a reader there could read.
  */
 import { graphOf, type Graph, markOfStatus, type Standing } from "./graph";
-import { file, readEntry, render, type Entry, type Note } from "./journal";
+import { file, numbered, type Numbered, readEntry, render, type Entry, type Note } from "./journal";
 import type { Payload } from "./payload";
 import { prunedOf, type Pruned } from "./retention";
 import type { Summary } from "./session";
@@ -189,6 +189,7 @@ export interface Story {
   chapters: Chapter[];
   now: Now;
   journal: string;        // exactly as the next agent reads it, "" before anything closed
+  journalEntries: Numbered[];   // the same journal, one entry per number, for the page to draw
   station: { id: string; name: string; runBy: string };
   baseCommit: string;
   agentPhases: number;
@@ -676,6 +677,7 @@ export function finish(state: StoryState, summary: Summary): Story {
       chapters: chapters.length,
     },
     journal: render(state.journal),
+    journalEntries: numbered(state.journal),
     station: state.station,
     baseCommit: state.baseCommit,
     agentPhases: state.phases.filter((phase) => phase.kind === "agent").length,
