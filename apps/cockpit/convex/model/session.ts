@@ -146,6 +146,21 @@ export function endedAt({ summary, activity }: { summary: Summary; activity: num
 }
 
 /** Whether a session is still going: running, or waiting at a gate. */
+/** The workflow a session is in now: what its latest process said it ran, else the last it passed through. */
+export function workflowOf(summary: Summary): string {
+  return summary.workflow || (summary.workflows.at(-1) ?? "");
+}
+
+/** A pull request's number, off its forge URL; "" for a URL that names none. */
+export function prNumber(url: string): string {
+  return /\/pull\/(\d+)\/?$/.exec(url)?.[1] ?? "";
+}
+
+/** An issue's number, off its forge URL; "" for a URL that names none. */
+export function issueNumber(url: string): string {
+  return /\/issues\/(\d+)\/?$/.exec(url)?.[1] ?? "";
+}
+
 export function isLive(summary: Summary): boolean {
   return summary.status === "running" || summary.status === "waiting";
 }

@@ -3,18 +3,18 @@ import type { ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import { repoKey } from "@/convex/forge/forge";
-import { isLive } from "@/convex/model/session";
+import { isLive, workflowOf } from "@/convex/model/session";
 import { formatAgo, formatCost, formatTime, issueNumber, plural, prNumber, sessionHref } from "../format";
 import { MiniGraph } from "../graph/StageGraph";
 import { ForgeRef } from "../icons";
 import { type Progress, titleOf } from "../now/rows";
-import { control, cx, Notice, PageHeader, StatusDot } from "../ui";
+import { control, cx, Notice, num, PageHeader, pillClass, StatusDot, Table } from "../ui";
 
 /** What the sessions list answers, as much of it as the page draws. */
-export type SessionsPage = Pick<NonNullable<FunctionReturnType<typeof api.sessions.list>>, "sessions" | "looked" | "cut" | "factories">;
+export type SessionsFound = Pick<NonNullable<FunctionReturnType<typeof api.sessions.list>>, "sessions" | "looked" | "cut" | "factories">;
 
 /** A session as the sessions list returns it. */
-export type Listed = SessionsPage["sessions"][number];
+export type Listed = SessionsFound["sessions"][number];
 
 /**
  * The Sessions page (#116), as first painted: the factory pills — `factory`
@@ -25,7 +25,7 @@ export type Listed = SessionsPage["sessions"][number];
  * with its progress — a query of its own per row.
  */
 export function SessionsView({ list, factory, tab = false, search, onSearch, now, live }: {
-  list: SessionsPage;
+  list: SessionsFound;
   factory?: string;
   tab?: boolean;
   search: string;
@@ -70,12 +70,11 @@ function FactoryPills({ factories, active }: { factories: string[]; active?: str
   const named = active ? factories.find((each) => repoKey(each) === repoKey(active)) ?? active : null;
   const pills = [null, ...factories, ...(named && !factories.includes(named) ? [named] : [])];
   return (
-    <nav aria-label="Factories" className="flex flex-wrap gap-1.5 text-sm">
+    <nav aria-label="Factories" className="flex flex-wrap gap-1.5">
       {pills.map((each) => (
         <Link key={each ?? ""} href={each ? `/sessions?factory=${encodeURIComponent(each)}` : "/sessions"}
               aria-current={each === named ? "page" : undefined}
-              className={cx("rounded-full border px-2.5 py-0.5 no-underline hover:no-underline",
-                            each === named ? "border-fg bg-fg text-bg" : "border-line-strong text-muted hover:text-fg")}>
+              className={pillClass(each === named)}>
           {each ?? "all"}
         </Link>
       ))}
@@ -91,57 +90,53 @@ function FactoryPills({ factories, active }: { factories: string[]; active?: str
  */
 export function SessionsTable({ rows, now, live }: { rows: Listed[]; now: number; live: (row: Listed) => ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
-      <table className="w-full table-fixed border-collapse text-left">
-        <colgroup>
-          <col className="w-9" />
-          <col />
-          <col className="hidden w-[38%] md:table-column" />
-          <col className="w-20" />
-          <col className="hidden w-24 sm:table-column" />
-        </colgroup>
-        <thead className="border-b border-line text-xs text-muted">
-          <tr>
-            <th className="py-2" aria-label="Status" />
-            <th className="py-2 pr-3 font-medium">Session</th>
-            <th className="hidden py-2 pr-3 font-medium md:table-cell">Where</th>
-            <th className="py-2 pr-3 text-right font-medium"
-                title="list-price equivalent: what the tokens would cost at the provider's list price, subscription or not">Cost</th>
-            <th className="hidden py-2 pr-4 text-right font-medium sm:table-cell">Started</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line">
-          {rows.map((row) => <SessionRow key={`${row.factory}/${row.session}`} row={row} now={now} live={live} />)}
-        </tbody>
-      </table>
-    </div>
+    <Table fixed>
+      <colgroup>
+        <col className="w-9" />
+        <col />
+        <col className="hidden w-[38%] md:table-column" />
+        <col className="w-20" />
+        <col className="hidden w-24 sm:table-column" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th aria-label="Status" />
+          <th>Session</th>
+          <th className="hidden md:table-cell">Where</th>
+          <th className={num} title="list-price equivalent: what the tokens would cost at the provider's list price, subscription or not">Cost</th>
+          <th className={cx(num, "hidden sm:table-cell")}>Started</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => <SessionRow key={`${row.factory}/${row.session}`} row={row} now={now} live={live} />)}
+      </tbody>
+    </Table>
   );
 }
 
 function SessionRow({ row, now, live }: { row: Listed; now: number; live: (row: Listed) => ReactNode }) {
   const { factory, session, summary } = row;
   const [issue, pr] = [issueNumber(summary.issueUrl), prNumber(summary.prUrl)];
-  const workflow = summary.workflow || (summary.workflows.at(-1) ?? "");
   return (
     <tr className="hover:bg-surface-2">
-      <td className="py-2.5 pl-3.5 align-top"><StatusDot status={summary.status} className="mt-2" /></td>
-      <td className="py-2.5 pr-3 align-top">
+      <td><StatusDot status={summary.status} className="mt-2 ml-0.5" /></td>
+      <td>
         <Link href={sessionHref(factory, session)} className="block font-medium text-fg [overflow-wrap:anywhere] hover:text-accent">
           {titleOf(summary.request, Number(issue)) || session}
         </Link>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2.5 text-xs text-muted">
           <span>{factory}</span>
+          {/* A session that answers a pull request alone was started from it, not from a prompt. */}
           {issue ? <ForgeRef kind="issue" href={summary.issueUrl}>#{issue}</ForgeRef> : pr ? null : <span>prompt</span>}
           {pr ? <ForgeRef kind="pr" href={summary.prUrl}>#{pr}</ForgeRef> : null}
           <span className="font-mono text-faint">{session}</span>
         </span>
       </td>
-      <td className="hidden py-2.5 pr-3 align-top md:table-cell">
-        {isLive(summary) ? live(row) : <Where workflow={workflow} progress={null} />}
+      <td className="hidden md:table-cell">
+        {isLive(summary) ? live(row) : <Where workflow={workflowOf(summary)} progress={null} />}
       </td>
-      <td className="py-2.5 pr-3 text-right align-top tabular-nums whitespace-nowrap">{formatCost(summary.totalCost)}</td>
-      <td className="hidden py-2.5 pr-4 text-right align-top whitespace-nowrap text-muted tabular-nums sm:table-cell"
-          title={formatTime(summary.startedAt, now)}>
+      <td className={num}>{formatCost(summary.totalCost)}</td>
+      <td className={cx(num, "hidden text-muted sm:table-cell")} title={formatTime(summary.startedAt, now)}>
         {formatAgo(summary.startedAt, now)}
       </td>
     </tr>

@@ -23,6 +23,7 @@ import { type Other, waitsFor } from "./inbox";
 import type { Facts } from "./model/attention";
 import { readDescription } from "./model/description";
 import type { Row } from "./model/inbox";
+import { workflowOf } from "./model/session";
 import { viewing } from "./viewer";
 
 /** A session running now, as Now's Running lists it. */
@@ -65,7 +66,7 @@ export const page = query({
       const ceiling = check ? readDescription(check.description).budget.maxCostUsd : 0;
       for (const { session, summary } of live) {
         running.push({
-          factory, session, title: summary.request, workflow: summary.workflow || (summary.workflows.at(-1) ?? ""),
+          factory, session, title: summary.request, workflow: workflowOf(summary),
           issueUrl: summary.issueUrl, prUrl: summary.prUrl, startedAt: summary.startedAt, cost: summary.totalCost, ceiling,
         });
       }

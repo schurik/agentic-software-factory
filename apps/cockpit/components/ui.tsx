@@ -47,6 +47,12 @@ export function buttonClass(variant: Variant = "secondary", size: Size = "md"): 
   );
 }
 
+/** A pill's look, for a link that picks one of a few: the picked one filled. */
+export function pillClass(picked: boolean): string {
+  return cx("rounded-full border px-2.5 py-0.5 text-sm no-underline hover:no-underline",
+            picked ? "border-fg bg-fg text-bg" : "border-line-strong text-muted hover:text-fg");
+}
+
 export function Button({ variant, size, className, type = "button", ...rest }: ComponentProps<"button"> & { variant?: Variant; size?: Size }) {
   return <button type={type} {...rest} className={cx(buttonClass(variant, size), className)} />;
 }
@@ -147,13 +153,15 @@ export function Facts({ className, children }: { className?: string; children: R
 
 /**
  * A table on a card. On a narrow screen it scrolls inside its own box, so the
- * page around it never scrolls sideways. `num` right-aligns a column of figures.
+ * page around it never scrolls sideways; a `fixed` one is laid out to the
+ * box's width instead, its columns as its `<colgroup>` sizes them, and never
+ * scrolls at all. `num` right-aligns a column of figures.
  */
-export function Table({ className, children }: { className?: string; children: ReactNode }) {
+export function Table({ fixed = false, className, children }: { fixed?: boolean; className?: string; children: ReactNode }) {
   return (
     <div className={cx("overflow-x-auto rounded-xl border border-line bg-surface shadow-card", className)}>
       <table className={cx(
-        "w-full border-collapse text-left [overflow-wrap:normal]",
+        "w-full border-collapse text-left [overflow-wrap:normal]", fixed && "table-fixed",
         "[&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2 [&_th]:text-xs [&_th]:font-medium [&_th]:whitespace-nowrap [&_th]:text-muted",
         "[&_td]:border-b [&_td]:border-line [&_td]:px-3 [&_td]:py-2 [&_td]:align-top [&_tbody_tr:last-child_td]:border-b-0",
       )}>

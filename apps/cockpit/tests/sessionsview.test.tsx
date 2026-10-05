@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { type Listed, type SessionsPage, SessionsView, Where } from "../components/sessions/SessionsTable";
+import { type Listed, type SessionsFound, SessionsView, Where } from "../components/sessions/SessionsTable";
 import { EMPTY_SUMMARY, type Summary } from "../convex/model/session";
 
 // The Sessions page (#116), rendered to static markup with no backend: the
@@ -33,11 +33,11 @@ const ROWS = [
   listed("7d2f90aa", { status: "running", request: "Tidy the README's install section", issueUrl: "", prUrl: "", workflows: ["prompt"], workflow: "prompt", totalCost: 0 }, "acme/gadgets"),
 ];
 
-function page(fields: Partial<SessionsPage> = {}): SessionsPage {
+function page(fields: Partial<SessionsFound> = {}): SessionsFound {
   return { sessions: ROWS, looked: 2, cut: false, factories: ["acme/gadgets", "acme/widgets"], ...fields };
 }
 
-function render(fields: Partial<SessionsPage> = {}, factory?: string, live = (row: Listed) => <i>graph of {row.session}</i>) {
+function render(fields: Partial<SessionsFound> = {}, factory?: string, live = (row: Listed) => <i>graph of {row.session}</i>) {
   return renderToStaticMarkup(
     <SessionsView list={page(fields)} factory={factory} search="" onSearch={() => {}} now={NOW} live={live} />);
 }

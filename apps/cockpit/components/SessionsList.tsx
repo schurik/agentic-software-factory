@@ -1,12 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { workflowOf } from "@/convex/model/session";
 import { useClock } from "./clock";
 import { type Listed, SessionsView, Where } from "./sessions/SessionsTable";
 import { useSignIn } from "./signIn";
-import { Loading, PageHeader } from "./ui";
+import { Loading, Notice, PageHeader } from "./ui";
 
 /** How long the search waits for typing to pause before it asks again. */
 const SETTLE_MS = 250;
@@ -32,7 +34,15 @@ export function SessionsList({ factory, tab = false }: { factory?: string; tab?:
   if (asked !== undefined && asked !== last) setLast(asked);
   const list = asked ?? last;
   if (list === undefined) return <>{tab ? null : <PageHeader title="Sessions" />}<Loading /></>;
-  if (list === null) return null;       // signed out, or a factory the page already said cannot be read
+  // Signed out — the shell says so — or a factory the viewer cannot read, which a factory's own page has already said.
+  if (list === null) {
+    return tab || !factory ? null : (
+      <>
+        <PageHeader title="Sessions" />
+        <Notice>{factory} is not a factory you can read. <Link href="/sessions">All sessions</Link></Notice>
+      </>
+    );
+  }
   return (
     <SessionsView list={list} factory={factory} tab={tab} search={typed} onSearch={setTyped} now={now}
                   live={(row) => <LiveWhere row={row} signIn={signIn} />} />
@@ -42,5 +52,5 @@ export function SessionsList({ factory, tab = false }: { factory?: string; tab?:
 /** Where a live session is in its workflow: its own query, so one long record weighs on its row alone. */
 function LiveWhere({ row, signIn }: { row: Listed; signIn: string | undefined }) {
   const progress = useQuery(api.sessions.progress, { factory: row.factory, session: row.session, signIn });
-  return <Where workflow={row.summary.workflow || (row.summary.workflows.at(-1) ?? "")} progress={progress} />;
+  return <Where workflow={workflowOf(row.summary)} progress={progress} />;
 }

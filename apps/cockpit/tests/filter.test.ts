@@ -128,10 +128,11 @@ describe("a search", () => {
     expect(matches(later, { search: "#421" })).toBe(true);
   });
 
-  it("finds a session by its id, or the start of it", () => {
+  it("finds a session by its id, or any part of it a person remembers", () => {
     expect(matches(reviewed, { search: "c41e7b02" })).toBe(true);
     expect(matches(reviewed, { search: "C41E" })).toBe(true);
-    expect(matches(reviewed, { search: "7b02" })).toBe(false);
+    expect(matches(reviewed, { search: "7b02" })).toBe(true);
+    expect(matches(reviewed, { search: "7b03" })).toBe(false);
   });
 });
 
