@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
-import { createContext, useContext, useEffect, useState } from "react";
+import { type ComponentProps, createContext, useContext, useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { Header, type Me } from "./Header";
+import { Header, knows, type Me } from "./Header";
+import { RunPrompt, useRunPrompt } from "./run/RunDialog";
+import { said } from "./said";
 import { carry, holdSignIn, useSignIn } from "./signIn";
 import { Loading } from "./ui";
 import { ViewerLogin } from "./viewer";
@@ -18,12 +19,6 @@ export function useCockpit(): Me {
   const me = useContext(Cockpit);
   if (me === null) throw new Error("useCockpit is for pages inside the Shell");
   return me;
-}
-
-/** What went wrong, as the backend put it. */
-export function said(error: unknown): string {
-  if (error instanceof ConvexError && typeof error.data === "string") return error.data;
-  return error instanceof Error ? error.message : String(error);
 }
 
 // The pages a person reaches before they are anyone here: registering the
@@ -59,9 +54,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const walled = me !== undefined && me.mode === "team" && me.viewer === null && !open;
 
   return (
-    <>
-      <Header me={me} path={pathname}
-              onSignOut={() => { if (signIn) void signOut({ signIn }).finally(() => holdSignIn(null)); }} />
+    <RunPrompt enabled={knows(me)}>
+      <RunHeader me={me} path={pathname}
+                 onSignOut={() => { if (signIn) void signOut({ signIn }).finally(() => holdSignIn(null)); }} />
       <main className="mx-auto max-w-[1280px] px-4 pt-6 pb-16 md:px-6 md:pt-8">
         {me === undefined ? <Loading />
           : walled ? <Wall me={me} />
@@ -74,8 +69,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Cockpit.Provider>
             )}
       </main>
-    </>
+    </RunPrompt>
   );
+}
+
+/** The header, its Run a prompt opening the dialog on the factory in view. */
+function RunHeader(props: Omit<ComponentProps<typeof Header>, "onRun">) {
+  const run = useRunPrompt();
+  return <Header {...props} onRun={() => run()} />;
 }
 
 function Wall({ me }: { me: Me }) {

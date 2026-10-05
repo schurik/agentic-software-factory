@@ -10,16 +10,17 @@ import { needsAttention } from "@/convex/model/attention";
 import { useClock } from "../clock";
 import { CostPanel } from "../cost/CostPanel";
 import { SessionsList } from "../SessionsList";
-import { RunPanel } from "../run/RunPrompt";
-import { said, useCockpit } from "../Shell";
+import { useRunPrompt } from "../run/RunDialog";
+import { said } from "../said";
+import { useCockpit } from "../Shell";
 import { useSignIn } from "../signIn";
-import { Card, Loading, Notice, Tabs } from "../ui";
+import { Loading, Notice, Tabs } from "../ui";
 import { ActivityTab } from "./ActivityTab";
 import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
 import { FactoryHeader } from "./FactoryHeader";
 import { StationsTab } from "./StationsTab";
-import { drifts, promptWorkflows } from "./view";
+import { drifts } from "./view";
 import { WorkflowsTab } from "./WorkflowsTab";
 
 const TABS = {
@@ -53,7 +54,7 @@ export function FactoryPage({ factory }: { factory: string }) {
   const [released, setReleased] = useState("");
   const [station, setStation] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("activity");
-  const [running, setRunning] = useState<{ workflow?: string } | null>(null);
+  const run = useRunPrompt();
   // The file open in the config editor, and the commit the editor reads every file at — fixed when it first opens.
   const [editing, setEditing] = useState<{ path: string; base: string } | null>(null);
   const now = useClock();
@@ -88,14 +89,7 @@ export function FactoryPage({ factory }: { factory: string }) {
 
   return (
     <div>
-      <FactoryHeader page={page} look={look} drifts={measured} forge={web}
-                     running={running !== null && running.workflow === undefined}
-                     onRun={() => setRunning(running && running.workflow === undefined ? null : {})} />
-      {running && running.workflow === undefined ? (
-        <Card className="mb-6 p-4 sm:p-5">
-          <RunPanel factory={page.repo} workflows={promptWorkflows(page.check)} />
-        </Card>
-      ) : null}
+      <FactoryHeader page={page} look={look} drifts={measured} forge={web} />
       <Tabs label="Factory" selected={tab} onSelect={setTab}
             tabs={(Object.keys(TABS) as Tab[]).map((id) => ({ id, label: TABS[id] }))} />
       {released ? <Notice>{released}</Notice> : null}
@@ -103,11 +97,7 @@ export function FactoryPage({ factory }: { factory: string }) {
         <ActivityTab factory={factory} forge={web} now={now} attention={attention} page={happening} onRelease={onRelease} />
       </div>
       <div className="pt-6" hidden={tab !== "workflows"}>
-        <WorkflowsTab check={page.check} running={running?.workflow ?? null}
-                      onRun={(workflow) => setRunning(running?.workflow === workflow ? null : { workflow })}
-                      runner={(workflow) => (
-                        <RunPanel factory={page.repo} workflow={workflow} workflows={promptWorkflows(page.check)} />
-                      )} />
+        <WorkflowsTab check={page.check} onRun={(workflow) => run({ factory: page.repo, workflow })} />
       </div>
       <div className="pt-6" hidden={tab !== "stations"}>
         {stations ? <StationsTab stations={stations.stations} ci={stations.ci} drifts={measured} now={now} factory={factory}

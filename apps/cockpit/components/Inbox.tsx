@@ -10,7 +10,7 @@ import { useClock } from "./clock";
 import { AnswerView, type Read } from "./inbox/AnswerView";
 import { InboxList, keyOf, onlyOf } from "./inbox/InboxList";
 import { keyed } from "./inbox/keys";
-import { said } from "./Shell";
+import { said } from "./said";
 import { useSignIn } from "./signIn";
 import { Kbd, Loading, Notice, PageHeader } from "./ui";
 

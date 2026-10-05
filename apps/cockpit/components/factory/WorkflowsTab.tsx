@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment } from "react";
 import type { DescribedWorkflow } from "@/convex/model/description";
 import { Button, Card, cx, Notice, Pre, Table, Tag } from "../ui";
 import { budgetWords, type Check } from "./view";
@@ -22,11 +22,10 @@ export function triggerWords(workflow: DescribedWorkflow): string {
  * who plays each, where it may stop for a person — and the agents with what
  * they may touch. Everything comes from the factory's own self-description.
  */
-export function WorkflowAbout({ workflow, onRun, run }: {
+export function WorkflowAbout({ workflow, onRun }: {
   workflow: DescribedWorkflow;
+  /** Open the Run a prompt dialog on this workflow. */
   onRun?: () => void;
-  /** The run form, open in place under its heading, when Run was pressed here. */
-  run?: ReactNode;
 }) {
   return (
     <Card className="mb-4 p-4 sm:p-5" id={`workflow-${workflow.name}`}>
@@ -36,12 +35,9 @@ export function WorkflowAbout({ workflow, onRun, run }: {
           <Tag>{workflow.input}</Tag>
           <span className="grow" />
           {workflow.input === "prompt" && onRun ? (
-            <Button size="sm" variant={run !== undefined ? "secondary" : "primary"} aria-expanded={run !== undefined} onClick={onRun}>
-              {run !== undefined ? "Close" : "Run"}
-            </Button>
+            <Button size="sm" variant="primary" aria-haspopup="dialog" onClick={onRun}>Run</Button>
           ) : null}
         </div>
-        {run !== undefined ? <div className="my-4 border-y border-line py-4">{run}</div> : null}
         <p className="mt-2">{workflow.description}</p>
         <p className="mt-1 text-sm text-muted">Started by {triggerWords(workflow)}.</p>
         <ol className="my-4 flex flex-wrap items-stretch gap-1.5" aria-label="stages">
@@ -90,13 +86,10 @@ function GateTag({ workflow, name }: { workflow: DescribedWorkflow; name: string
  * branch described, the configured per-session budget, and — for a factory
  * with no CI workflow — why there is nothing to show yet.
  */
-export function WorkflowsTab({ check, onRun, running = null, runner }: {
+export function WorkflowsTab({ check, onRun }: {
   check: Check | null;
+  /** Open the Run a prompt dialog on a prompt workflow. */
   onRun?: (workflow: string) => void;
-  /** The workflow whose run form is open, if any. */
-  running?: string | null;
-  /** The run form for a workflow: the live one on the page, anything in a test. */
-  runner?: (workflow: string) => ReactNode;
 }) {
   if (check === null) {
     return (
@@ -124,8 +117,7 @@ export function WorkflowsTab({ check, onRun, running = null, runner }: {
         </Notice>
       ))}
       {description.workflows.map((workflow) => (
-        <WorkflowAbout key={workflow.name} workflow={workflow} onRun={onRun && (() => onRun(workflow.name))}
-                       run={running === workflow.name && runner ? runner(workflow.name) : undefined} />
+        <WorkflowAbout key={workflow.name} workflow={workflow} onRun={onRun && (() => onRun(workflow.name))} />
       ))}
     </>
   );

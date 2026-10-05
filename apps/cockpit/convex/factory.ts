@@ -75,6 +75,24 @@ export const page = query({
   },
 });
 
+/**
+ * The workflows of `factory` that take a prompt, as its default branch's
+ * self-description names them: what the Run a prompt dialog offers (#108).
+ * `described` is false while no CI workflow has pushed one. Null for a
+ * factory the viewer cannot read.
+ */
+export const promptWorkflows = query({
+  args: { factory: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory: named, signIn }) => {
+    const factory = await readable(ctx, await viewing(ctx, signIn), named);
+    if (factory === null) return null;
+    const check = await defaultCheck(ctx, factory, (await repoOf(ctx, factory))?.defaultBranch || null);
+    if (check === null) return { described: false, workflows: [] };
+    const { workflows } = readDescription(check.description);
+    return { described: true, workflows: workflows.filter((workflow) => workflow.input === "prompt").map((workflow) => workflow.name) };
+  },
+});
+
 export type Look =
   | { ok: true; tip: string | null; files: string[] | null; distances: Record<string, Distance | null> }
   | { ok: false; because: string };

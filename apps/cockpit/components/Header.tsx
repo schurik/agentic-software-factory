@@ -1,26 +1,27 @@
 "use client";
 
 import { Menu } from "@base-ui/react/menu";
-import { Check, LogOut, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
+import { Check, LogOut, Monitor, Moon, Play, Sun, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import { type Theme, THEMES } from "./theme";
 import { useTheme } from "./useTheme";
-import { cx } from "./ui";
+import { Button, cx, menuItem, menuPopup } from "./ui";
 
 export type Me = FunctionReturnType<typeof api.viewer.me>;
 
 /**
  * The header every page sits under (#105): the brand — with "local" under it
- * in a local cockpit — the three places, and the viewer's avatar, whose menu
- * holds who they are, which kind of cockpit this is, the theme, and Sign out
- * in a team cockpit. It stands up from the page: the card surface over the
- * page's grey, and the place you are in underlined in the accent on its rule.
+ * in a local cockpit — the three places, Run a prompt (#108), the one way
+ * to start one, and the viewer's avatar, whose menu holds who they are,
+ * which kind of cockpit this is, the theme, and Sign out in a team
+ * cockpit. It stands up from the page: the card surface over the page's
+ * grey, and the place you are in underlined in the accent on its rule.
  */
-export function Header({ me, path, onSignOut }: { me: Me | undefined; path: string; onSignOut: () => void }) {
-  const known = me !== undefined && (me.mode === "local" || me.viewer !== null);
+export function Header({ me, path, onSignOut, onRun }: { me: Me | undefined; path: string; onSignOut: () => void; onRun: () => void }) {
+  const known = knows(me);
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-surface/95 shadow-[0_1px_3px_rgb(0_0_0/0.05)] backdrop-blur dark:border-line-strong">
       <div className="mx-auto flex h-14 max-w-[1280px] items-center gap-3 px-4 md:gap-6 md:px-6">
@@ -35,10 +36,22 @@ export function Header({ me, path, onSignOut }: { me: Me | undefined; path: stri
         </Link>
         {known ? <Places path={path} /> : null}
         <span className="grow" />
+        {known ? (
+          <Button size="sm" aria-label="Run a prompt" onClick={onRun}>
+            <Play size={12} fill="currentColor" aria-hidden="true" />
+            {/* On a phone the icon alone, beside the three places. */}
+            <span className="hidden sm:inline">Run a prompt</span>
+          </Button>
+        ) : null}
         {me !== undefined ? <AvatarMenu me={me} onSignOut={onSignOut} /> : null}
       </div>
     </header>
   );
+}
+
+/** Whether the cockpit knows who is looking: a local one always, a team's once they signed in. */
+export function knows(me: Me | undefined): boolean {
+  return me !== undefined && (me.mode === "local" || me.viewer !== null);
 }
 
 function Logo() {
@@ -93,12 +106,6 @@ export function viewerMenu(me: Me): { login: string; kind: string; signOut: bool
 }
 
 const THEME_ICON: Record<Theme, LucideIcon> = { system: Monitor, light: Sun, dark: Moon };
-
-const menuPopup = cx(
-  "min-w-56 origin-[var(--transform-origin)] rounded-lg border border-line bg-surface p-1 text-sm text-fg shadow-pop outline-none",
-  "transition-[scale,opacity] duration-100 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
-);
-const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 outline-none select-none data-highlighted:bg-surface-2";
 
 /** The viewer's avatar, and behind it who they are, the kind of cockpit, the theme and Sign out: one control instead of four. */
 function AvatarMenu({ me, onSignOut }: { me: Me; onSignOut: () => void }) {

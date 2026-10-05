@@ -277,9 +277,13 @@ which settles only that station's own commands. Revoking a token under Stations 
 - **answer** (approve, reject, a question round's answers) and **abort** a gate on no work item,
   from the inbox. The command names the gate, round and subject digest the person was shown, and
   the station refuses it once the session has moved past them or the round has a decision.
-- **run** a prompt workflow, from `/run` (the Factory page, Workflows tab and a palette will open
-  the same form): only on one of the asking person's own stations — their most recently seen by
-  default, another of theirs on request — and the station takes it only from the person it is
+- **run** a prompt workflow, from **Run a prompt** in the header on every page: one dialog,
+  opened on the factory in view (a factory page, a session's factory, a sessions list filtered to
+  one), offering only that factory's prompt workflows as its self-description names them. A
+  workflow's Run on the Workflows tab opens the same dialog on that workflow, and the retired
+  `/run` sends a person back where they came from with it open. A run goes only to one of the
+  asking person's own stations — their most recently seen, or another of theirs when that one
+  would refuse it, which the dialog names — and the station takes it only from the person it is
   registered to.
 
 Each verb is the station's to obey: its `asf/factory.yaml` lists it under `cockpit.commands` (`run`
@@ -413,7 +417,7 @@ kind is not `ci` is refused with a 403 — a checkout's own edits are what drift
 it is measured against.
 
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header — the repository, its default
-branch's commit, the check's state, flags, the per-session budget, and Run a prompt — and six tabs.
+branch's commit, the check's state, flags and the per-session budget — and six tabs.
 
 **Activity**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
 that the viewer may answer (a link into the inbox, `/?factory=<owner>/<repo>`), the sessions that

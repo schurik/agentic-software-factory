@@ -44,11 +44,6 @@ export function drifts(page: Page, look: Look | null): Map<string, Drift> {
   }));
 }
 
-/** The prompt workflows a description names: what Run a prompt may start. */
-export function promptWorkflows(check: Page["check"]): string[] {
-  return (check?.description.workflows ?? []).filter((workflow) => workflow.input === "prompt").map((workflow) => workflow.name);
-}
-
 export function factoryHref(repo: string): string {
   return `/factories/${repo.split("/").map(encodeURIComponent).join("/")}`;
 }

@@ -51,17 +51,8 @@ describe("the Workflows tab", () => {
     expect(html).toContain("docs/asf/spec/");                       // the planner's write boundary
     expect(html).toContain("$2.50 · 2M tokens per session");
     expect(html).toContain("nightly");                               // a workflow that does not load, said
-    // Run in place, for a prompt workflow only.
+    // Run, for a prompt workflow only: it opens the header's dialog on that workflow (#108).
     expect(html.match(/>Run<\/button>/g)?.length).toBe(DESCRIPTION.workflows.filter((w) => w.input === "prompt").length);
-  });
-
-  it("runs a prompt workflow in place, inside its own About", () => {
-    const html = renderToStaticMarkup(
-      <WorkflowsTab check={page().check} onRun={() => {}} running="quick" runner={(name) => <p>run form for {name}</p>} />);
-
-    const quick = html.slice(html.indexOf('id="workflow-quick"'));
-    expect(quick.slice(0, quick.indexOf('id="workflow-', 1))).toContain("run form for quick");
-    expect(html.match(/run form for/g)?.length).toBe(1);
   });
 
   it("says a factory without a description is unchecked, and how to check it", () => {
@@ -77,18 +68,18 @@ describe("the header", () => {
   it("names the check's state, the budget, and the stations whose config drifted", () => {
     const shown = page();
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} running={false} onRun={() => {}} />);
+      <FactoryHeader page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} />);
 
     expect(html).toContain("check failing");
     expect(html).toContain("2 stations drifted");
     expect(html).toContain(`<code>main</code> at <code>${TIP.slice(0, 7)}</code>`);
-    expect(html).toContain("Run a prompt");
+    expect(html).not.toContain("Run a prompt");                     // the app header's, not the factory's (#108)
   });
 
   it("is unchecked, never broken, without a CI workflow", () => {
     const shown = page({ check: null, stations: [] });
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} drifts={new Map()} forge={FORGE} running={false} onRun={() => {}} />);
+      <FactoryHeader page={shown} look={null} drifts={new Map()} forge={FORGE} />);
 
     expect(html).toContain("unchecked");
     expect(html).not.toContain("failing");

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Proposed } from "@/convex/config";
 import { asCommitted, branchFor, type Edited, proposalProblem, yamlProblem } from "@/convex/model/config";
-import { said } from "../Shell";
+import { said } from "../said";
 import { unified } from "./diff";
 import { Button, Card, control, cx, DiffBlock, Field, Notice, Section, Tabs } from "../ui";
 import { useWho } from "../viewer";

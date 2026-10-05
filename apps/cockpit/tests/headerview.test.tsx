@@ -11,7 +11,7 @@ const alex = { login: "alex", name: "Alex Doe", avatarUrl: "https://avatars.exam
 const TEAM: Me = { mode: "team", forge, viewer: alex };
 const LOCAL: Me = { mode: "local", forge, viewer: { ...alex, avatarUrl: "" } };
 
-const html = (me: Me | undefined, path = "/") => renderToStaticMarkup(<Header me={me} path={path} onSignOut={() => {}} />);
+const html = (me: Me | undefined, path = "/") => renderToStaticMarkup(<Header me={me} path={path} onSignOut={() => {}} onRun={() => {}} />);
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 describe("the places", () => {
@@ -35,6 +35,21 @@ describe("the places", () => {
   it("are not offered to someone a team cockpit does not know yet", () => {
     expect(html({ ...TEAM, viewer: null })).not.toContain("<nav");
     expect(html(undefined)).not.toContain("<nav");
+  });
+});
+
+describe("Run a prompt", () => {
+  it("is on every page, phone included, for anyone the cockpit knows (#108)", () => {
+    for (const path of ["/", "/sessions", "/factories/acme/widgets", "/sessions/acme/widgets/a9f259f0", "/stations"]) {
+      // The words give way to the icon on a phone; its name stays.
+      expect(html(TEAM, path)).toMatch(/<button[^>]*aria-label="Run a prompt"[^>]*>.*<span class="hidden sm:inline">Run a prompt<\/span><\/button>/);
+    }
+    expect(html(LOCAL)).toContain('aria-label="Run a prompt"');
+  });
+
+  it("is not offered to someone a team cockpit does not know yet", () => {
+    expect(html({ ...TEAM, viewer: null })).not.toContain("Run a prompt");
+    expect(html(undefined)).not.toContain("Run a prompt");
   });
 });
 
