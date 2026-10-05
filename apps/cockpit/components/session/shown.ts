@@ -6,6 +6,8 @@
  * the default view, not a frozen copy of one.
  */
 
+import type { Go } from "../ui";
+
 export const TABS = ["details", "timeline", "journal"] as const;
 export type SessionTab = (typeof TABS)[number];
 
@@ -65,6 +67,10 @@ export function writeShown(shown: Shown, rest = new URLSearchParams()): string {
   const query = search.toString();
   return query ? `?${query}` : "";
 }
+
+/** A link to `to`: its address, and following it in place through `onShow`. */
+export const goTo = (to: Shown, onShow?: (shown: Shown) => void): Go =>
+  ({ href: writeShown(to) || "?", onClick: () => onShow?.(to) });
 
 /** Whether chapter `number` is open, the latest being `latest`. */
 export function chapterOpen(shown: Shown, number: number, latest: number): boolean {

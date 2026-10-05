@@ -129,6 +129,8 @@ describe("the other tabs", () => {
     expect(text).toContain("PlanOutput a required meeting date, and a test for its format");
     expect(text).toContain('"summary": "a required meeting date, and a test for its format"');
     expect(text).toContain("⚑ risk the date is local midnight");
+    expect(text).toMatch(/Instructions asf\/stages\/plan\/task\.md ?, and the journal as of this phase/);
+    expect(text).toContain("Context window 121k of 200k tokens · 61%");
   });
 
   it("Overview: what a person said at a gate, as the instruction the next agent reads", () => {

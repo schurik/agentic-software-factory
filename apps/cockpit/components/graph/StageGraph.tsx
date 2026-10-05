@@ -1,12 +1,12 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type Graph, type Mark, markOf, type Phase, type Stage, type StageStatus } from "@/convex/model/graph";
 import { formatDuration, plural } from "../format";
 import { KindIcon, StageIcon, StatusIcon } from "../icons";
 import { phaseName } from "../session/words";
-import { cx } from "../ui";
+import { cx, followInPlace, type Go } from "../ui";
 import { useWho } from "../viewer";
 
 /**
@@ -27,20 +27,11 @@ import { useWho } from "../viewer";
  * drawer (`openStage`), and a phase opens its own (`openPhase`).
  */
 
-/** Where opening a phase goes: an address to link to, and what following it does in place. */
-export type OpenPhase = (phaseId: string) => { href: string; onClick: () => void };
+/** Where opening a phase goes. */
+export type OpenPhase = (phaseId: string) => Go;
 
-/** Where opening a stage goes, by its index, the same way. */
-export type OpenStage = (index: number) => { href: string; onClick: () => void };
-
-/** A link's click, followed in place — but a modified click (a new tab, a new window) left to the browser. */
-export function followInPlace(onClick: () => void): (event: MouseEvent) => void {
-  return (event) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-    event.preventDefault();
-    onClick();
-  };
-}
+/** Where opening a stage goes, by its index. */
+export type OpenStage = (index: number) => Go;
 
 /**
  * How a phase drawn on its own looks: a rejected round in the colour of a
@@ -162,7 +153,7 @@ function StageCard({ stage, current, itself, opened, onToggle, openPhase, openSt
 }
 
 /** A stage card's name line: the link to its drawer, where there is one. */
-function Heading({ go, className, children }: { go?: { href: string; onClick: () => void }; className: string; children: ReactNode }) {
+function Heading({ go, className, children }: { go?: Go; className: string; children: ReactNode }) {
   if (!go) return <div className={className}>{children}</div>;
   return <a href={go.href} onClick={followInPlace(go.onClick)} className={className}>{children}</a>;
 }

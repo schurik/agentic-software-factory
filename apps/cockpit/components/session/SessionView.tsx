@@ -22,7 +22,7 @@ import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
 import { NowCard } from "./NowCard";
 import { type PhaseTabsOf, SessionDrawer } from "./SessionDrawer";
-import { chapterOpen, type SessionTab, type Shown, SHOWN, stageKey, withChapter, withPhase, withStage, writeShown } from "./shown";
+import { chapterOpen, goTo, type SessionTab, type Shown, SHOWN, stageKey, withChapter, withPhase, withStage } from "./shown";
 import { Timeline } from "./Timeline";
 import { answeringWords } from "./words";
 
@@ -73,7 +73,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
   const { summary, story, session, factory } = page;
   const viewer = useContext(ViewerLogin);
   const who = useWho();
-  const go = (to: Shown) => ({ href: writeShown(to) || "?", onClick: () => onShow?.(to) });
+  const go = (to: Shown) => goTo(to, onShow);
   const openPhase: OpenPhase = (phaseId) => go(withPhase(shown, phaseId));
   const latest = story.chapters.at(-1)?.number ?? 0;
   // Where a chapter that never said it finished stops counting: now, or where the session stopped.
@@ -126,7 +126,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
           )}
         </div>
       </Card>
-      <SessionDrawer page={page} now={now} shown={shown} onShow={onShow} phase={phase} />
+      <SessionDrawer page={page} shown={shown} onShow={onShow} phase={phase} />
     </div>
   );
 }

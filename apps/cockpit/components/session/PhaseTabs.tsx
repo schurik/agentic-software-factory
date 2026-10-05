@@ -7,8 +7,8 @@ import { type Pruned, prunedWord } from "@/convex/model/retention";
 import type { Phase } from "@/convex/model/graph";
 import type { GateItem } from "@/convex/model/story";
 import { isMarkdown, Markdown } from "../Markdown";
-import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, plural, pretty } from "../format";
-import { cx, num, Pre, Table, Tabs } from "../ui";
+import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, plural, pretty } from "../format";
+import { cx, Facts, num, Pre, Table, Tabs } from "../ui";
 import { useWho } from "../viewer";
 import { channelWords } from "./words";
 
@@ -230,6 +230,12 @@ function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; w
             : command.outputTail ? <pre className={body}>{command.outputTail}</pre> : null}
         </div>
       ))}
+      {detail.task || detail.kind === "agent" ? (
+        <Facts>
+          {detail.task ? <><dt>Instructions</dt><dd><code>{detail.task}</code>, and the journal as of this phase</dd></> : null}
+          {detail.kind === "agent" ? <><dt>Context window</dt><dd><ContextWindow usage={detail.usage} /></dd></> : null}
+        </Facts>
+      ) : null}
       {detail.commits.map((commit) => (
         <div key={commit.sha}>
           {where.forge ? <a href={`${where.forge}/${where.factory}/commit/${commit.sha}`}><code>{commit.sha.slice(0, 7)}</code></a>
@@ -238,6 +244,21 @@ function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; w
         </div>
       ))}
     </div>
+  );
+}
+
+/** How full the agent's context window got, as its harness last said: the one thing the header line's tokens do not tell. */
+function ContextWindow({ usage }: { usage: PhaseDetail["usage"] }) {
+  const last = [...usage].reverse().find((turn) => turn.contextWindow > 0);
+  if (!last) return <span className="text-muted">the harness did not say how full it was</span>;
+  const share = last.contextTokens / last.contextWindow;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span aria-hidden="true" className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-3">
+        <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.min(100, share * 100)}%` }} />
+      </span>
+      {formatTokenCount(last.contextTokens)} of {formatTokens(last.contextWindow)} · {Math.round(share * 100)}%
+    </span>
   );
 }
 

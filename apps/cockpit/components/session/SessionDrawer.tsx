@@ -2,16 +2,15 @@
 
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { markOf, type Phase, type Stage } from "@/convex/model/graph";
+import { markOf, type Phase, phasesOf, type Stage } from "@/convex/model/graph";
 import type { Chapter, Story } from "@/convex/model/story";
-import { Drawer, DrawerFrame, type Go } from "../Drawer";
+import { Drawer, DrawerFrame } from "../Drawer";
 import { formatClock, formatCost, formatDuration, formatTokens, plural, secondsBetween } from "../format";
-import { followInPlace } from "../graph/StageGraph";
 import { KindIcon, StageIcon, StatusIcon } from "../icons";
-import { StatusPill, Tag } from "../ui";
+import { followInPlace, type Go, StatusPill, Tag } from "../ui";
 import { useWho } from "../viewer";
 import type { Page } from "./SessionView";
-import { back, closed, pushPhase, type Shown, writeShown } from "./shown";
+import { back, closed, goTo, pushPhase, type Shown } from "./shown";
 import { said } from "./Timeline";
 import { phaseName, stagePurpose } from "./words";
 
@@ -23,8 +22,9 @@ import { phaseName, stagePurpose } from "./words";
  */
 export function SessionDrawer(props: DrawerProps) {
   const { page, shown, onShow } = props;
-  // What the address opens, named: no name, nothing open — a link to a phase this session never had included.
-  const label = labelOf(page.story, shown);
+  // A link to a stage or a phase this session never had opens nothing.
+  const { found, stage } = openIn(page.story, shown);
+  const label = found ? `${phaseName(found.phase)} phase` : stage ? `${stage.stage.name} stage` : "";
   return (
     <Drawer open={label !== ""} label={label} onClose={() => onShow?.(closed(shown))}>
       <DrawerView {...props} />
@@ -34,7 +34,6 @@ export function SessionDrawer(props: DrawerProps) {
 
 export interface DrawerProps {
   page: Page;
-  now: number;
   shown: Shown;
   /** Go to what the page shows next: the address a click sets. */
   onShow?: (shown: Shown) => void;
@@ -47,9 +46,8 @@ export type PhaseTabsOf = (item: Phase, tab: string | null, onTab: (tab: string)
 
 /** What the drawer holds for the address, or null when nothing is open in it. Pure: a test renders it as is. */
 export function DrawerView({ page, shown, onShow, phase }: DrawerProps): ReactNode {
-  const go = (to: Shown): Go => ({ href: writeShown(to) || "?", onClick: () => onShow?.(to) });
-  const stage = stageAt(page.story, shown.stage);
-  const found = phaseAt(page.story, shown.phase);
+  const go = (to: Shown) => goTo(to, onShow);
+  const { found, stage } = openIn(page.story, shown);
   if (found) {
     return (
       <DrawerFrame icon={<KindIcon type={found.phase.type} className="size-4" />} title={phaseName(found.phase)}
@@ -78,12 +76,16 @@ interface Found {
   stage: Stage | null;
 }
 
+/** What the address opens in the drawer: a phase (over the stage it was opened from, if any), or a stage. */
+function openIn(story: Story, shown: Shown): { found: Found | null; stage: { chapter: Chapter; stage: Stage } | null } {
+  return { found: phaseAt(story, shown.phase), stage: stageAt(story, shown.stage) };
+}
+
 /** The phase the address names, in the chapter it is a phase of. */
 function phaseAt(story: Story, phaseId: string | null): Found | null {
   if (!phaseId) return null;
   for (const chapter of story.chapters) {
-    const phase = [...(chapter.reader ? [chapter.reader] : []), ...chapter.items]
-      .find((item): item is Phase => "phaseId" in item && item.phaseId === phaseId);
+    const phase = phasesOf(chapter).find((each) => each.phaseId === phaseId);
     if (!phase) continue;
     const stage = chapter.graph.kind === "stages"
       ? chapter.graph.stages.find((each) => each.phases.includes(phase)) ?? null : null;
@@ -101,10 +103,11 @@ function stageAt(story: Story, key: string | null): { chapter: Chapter; stage: S
   return chapter && stage ? { chapter, stage } : null;
 }
 
-function labelOf(story: Story, shown: Shown): string {
-  const found = phaseAt(story, shown.phase);
-  const stage = stageAt(story, shown.stage);
-  return found ? `${phaseName(found.phase)} phase` : stage ? `${stage.stage.name} stage` : "";
+/** How long a phase took: its work, or — at a gate a person answered — how long it waited for them. "" while that is unknown. */
+function howLong(phase: Phase): string {
+  if (phase.type !== "gate") return phase.duration === null ? "" : formatDuration(phase.duration);
+  const waited = phase.decision ? secondsBetween(phase.at, Date.parse(phase.decision.decidedAt)) : null;
+  return waited === null ? "" : `waited ${formatDuration(waited)}`;
 }
 
 /**
@@ -121,13 +124,7 @@ function PhaseView({ page, found, children }: { page: Page; found: Found; childr
   if (phase.type === "agent") facts.push(["agent", phase.owner, phase.model].filter(Boolean).join(" · "));
   else if (phase.type === "gate") facts.push(phase.decision ? `person · ${who(phase.decision.by)}` : "person");
   else facts.push(["code", phase.owner].filter(Boolean).join(" · "));
-  facts.push(formatClock(phase.at));
-  if (phase.type !== "gate") {
-    if (phase.duration !== null) facts.push(formatDuration(phase.duration));
-  } else if (phase.decision) {
-    const waited = secondsBetween(phase.at, Date.parse(phase.decision.decidedAt));
-    if (waited !== null) facts.push(`waited ${formatDuration(waited)}`);
-  }
+  facts.push(formatClock(phase.at), howLong(phase));
   if (phase.type === "agent") {
     if (phase.tokens) facts.push(formatTokens(phase.tokens));
     if (phase.cost) facts.push(formatCost(phase.cost));
@@ -160,6 +157,7 @@ function StageView({ page, chapter, stage, open }: {
 }) {
   const who = useWho();
   const stages = chapter.stages.length;
+  const purpose = stagePurpose(stage.name);
   const took = stage.phases.reduce((total, phase) => total + (phase.type === "gate" ? 0 : phase.duration ?? 0), 0);
   return (
     <div className="flex flex-col gap-4">
@@ -168,7 +166,7 @@ function StageView({ page, chapter, stage, open }: {
           {page.factory} · <code>{page.session}</code> · chapter {chapter.number} · {chapter.workflow} · stage {stage.index + 1} of {stages}
         </div>
         <div className="mt-2"><StatusPill status={stage.status}>{STAGE_WORDS[stage.status]}</StatusPill></div>
-        {stagePurpose(stage.name) ? <p className="mt-2 text-sm text-muted">{stagePurpose(stage.name)}</p> : null}
+        {purpose ? <p className="mt-2 text-sm text-muted">{purpose}</p> : null}
       </div>
       {stage.phases.length ? (
         <div>
@@ -188,7 +186,7 @@ function StageView({ page, chapter, stage, open }: {
                       <span className="flex items-center gap-1.5 font-medium">{phaseName(phase)}<KindIcon type={phase.type} /></span>
                       <span className="block text-sm text-muted">{remarkOrSummary(phase, chapter, who)}</span>
                     </span>
-                    <span className="shrink-0 text-sm text-faint tabular-nums">{phase.type === "gate" ? "" : formatDuration(phase.duration)}</span>
+                    <span className="shrink-0 text-sm text-faint tabular-nums">{howLong(phase)}</span>
                     <ChevronRight size={14} aria-hidden="true" className="mt-1 shrink-0 text-faint" />
                   </a>
                 </li>

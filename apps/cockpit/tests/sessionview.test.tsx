@@ -57,10 +57,10 @@ function html({ events = STAGED, shown = {}, steering, claims, extra, viewer }: 
   const phase = (item: Phase, tab: string | null): ReactNode => (
     <PhaseTabs item={item} detail={phaseView(stored(events), events.at(-1)!.seq, item.phaseId)!} where={WHERE} tab={tab} />
   );
-  const at = { page: page(events, extra), now: NOW, shown: { ...SHOWN, ...shown }, onShow: () => {}, phase };
+  const at = { page: page(events, extra), shown: { ...SHOWN, ...shown }, onShow: () => {}, phase };
   return renderToStaticMarkup(
     <ViewerLogin.Provider value={viewer ?? null}>
-      <SessionView {...at} steering={steering} claims={claims} onCommand={() => {}} onRelease={() => {}} />
+      <SessionView {...at} now={NOW} steering={steering} claims={claims} onCommand={() => {}} onRelease={() => {}} />
       <DrawerView {...at} />
     </ViewerLogin.Provider>,
   );

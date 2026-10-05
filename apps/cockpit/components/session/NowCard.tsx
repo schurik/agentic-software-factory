@@ -4,9 +4,9 @@ import type { Budget } from "@/convex/model/description";
 import { isLive, type Summary, until } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
 import { formatDollars, formatDuration, inboxHref, prNumber, secondsBetween } from "../format";
-import { buttonClass, Card, cx } from "../ui";
+import { buttonClass, Card, cx, followInPlace } from "../ui";
 import { useWho } from "../viewer";
-import { followInPlace, type OpenPhase } from "../graph/StageGraph";
+import type { OpenPhase } from "../graph/StageGraph";
 import { waitsOn } from "./action";
 import { channelWords, phaseName } from "./words";
 

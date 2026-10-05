@@ -3,8 +3,7 @@
 import { Drawer as Base } from "@base-ui/react/drawer";
 import { ChevronLeft, X } from "lucide-react";
 import { type ReactNode, useState, useSyncExternalStore } from "react";
-import { followInPlace } from "./graph/StageGraph";
-import { buttonClass, cx } from "./ui";
+import { buttonClass, cx, followInPlace, type Go } from "./ui";
 
 /**
  * The one drawer (#104): everything deeper than a page — a stage, a phase,
@@ -64,12 +63,6 @@ export function Drawer({ open, label, onClose, children }: { open: boolean; labe
       </Base.Portal>
     </Base.Root>
   );
-}
-
-/** Where a control of the drawer goes: an address to link to, and what following it does in place. */
-export interface Go {
-  href: string;
-  onClick: () => void;
 }
 
 /**

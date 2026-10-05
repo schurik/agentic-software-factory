@@ -5,9 +5,9 @@ import { markOf, type Phase } from "@/convex/model/graph";
 import type { Chapter, Item } from "@/convex/model/story";
 import { formatClock, formatCost, formatDuration } from "../format";
 import { KindIcon, StatusIcon } from "../icons";
-import { cx } from "../ui";
+import { cx, followInPlace } from "../ui";
 import { useWho } from "../viewer";
-import { followInPlace, type OpenPhase } from "../graph/StageGraph";
+import type { OpenPhase } from "../graph/StageGraph";
 import { answeringWords, phaseName } from "./words";
 
 /**

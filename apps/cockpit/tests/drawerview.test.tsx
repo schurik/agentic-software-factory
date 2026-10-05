@@ -18,7 +18,6 @@ import { recorded, type WireEvent } from "./helpers";
 
 const STAGED = recorded["issue-then-two-reviews-in-stages"].events;
 const WHERE = { factory: "acme/widgets", session: "a9f259f0", forge: "https://github.com" };
-const NOW = Date.parse("2026-10-04T22:45:00Z");
 
 const stored = (events: WireEvent[]) => events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) }));
 
@@ -34,7 +33,7 @@ function html(shown: Partial<Shown>, { events = STAGED, viewer = null as string 
   );
   return renderToStaticMarkup(
     <ViewerLogin.Provider value={viewer}>
-      <DrawerView page={page(events)} now={NOW} shown={{ ...SHOWN, ...shown }} onShow={() => {}} phase={phase} />
+      <DrawerView page={page(events)} shown={{ ...SHOWN, ...shown }} onShow={() => {}} phase={phase} />
     </ViewerLogin.Provider>,
   );
 }
@@ -53,6 +52,8 @@ describe("a stage's drawer", () => {
     expect(text).toContain("Turn the request into a plan");
     expect(text).toMatch(/plan gate · round 1 .*✎ asf tests: name the module the date is converted in/);
     expect(text).toMatch(/plan revision 1 .*plan gate · round 2/);
+    // A gate took no work: what it took is how long it waited for the person.
+    expect(text).toMatch(/plan gate · round 1 .*✎ asf tests: name the module the date is converted in waited (<1s|\d+s)/);
   });
 });
 
