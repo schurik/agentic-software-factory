@@ -300,12 +300,14 @@ export function asked(events: StoredEvent[], acked: number, waiting: WaitingFor)
   let root = "";
   let suspended: Payload | null = null;
   const decided = new Map<number, Earlier>();
-  // Each earlier round of this gate's latest suspend: a resumed session may have asked one twice.
+  // This chapter's earlier rounds of the gate, each by its latest suspend: a resumed session may
+  // have asked one twice, and a chapter numbers its rounds from 1 again.
   const rounds = new Map<number, Payload>();
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     if (event.seq > acked) break;
     const p = Payload.parse(event.payload);
     if (event.kind === "session_started") root = p.str("repo_root") || root;
+    if (event.kind === "workflow_started") rounds.clear();
     if (event.kind === "suspended") {
       suspended = p;
       const round = p.obj("waiting_for")?.num("round") || 1;
@@ -337,25 +339,16 @@ export function asked(events: StoredEvent[], acked: number, waiting: WaitingFor)
   };
 }
 
-/**
- * The sections of a diff the forge printed that are `paths`', in its order:
- * what changed in the subject, and nothing a stage beside it also wrote.
- */
-export function onlyFiles(diff: string, paths: string[]): string {
-  return diff.split(/^(?=diff --git )/m)
-    .filter((section) => paths.some((path) => section.startsWith(`diff --git a/${path} b/${path}\n`)))
-    .join("");
-}
-
 /** Round `round`'s commit, if both it and the round now asking (`now`) are on the forge. */
 function lastRoundOf(round: number, then: Payload | undefined, now: Payload | null): LastRound {
   if (then === undefined) {
     return { round, because: `round ${round} was answered at the station's terminal before the session suspended, so no commit holds it` };
   }
-  const unpublished = !then.bool("published") ? round : !now?.bool("published") ? round + 1 : null;
-  if (unpublished !== null || !then.str("head_sha")) {
-    return { round, because: `the forge holds no commit of round ${unpublished ?? round} to compare with: ` +
-                             "a factory publishes each round only under worktree.publish: on_create" };
+  // A `suspended` v1 says nothing of it, and is taken as not published: nothing is compared on a guess.
+  const unpublished = !then.bool("published") || !then.str("head_sha") ? round : !now?.bool("published") ? round + 1 : null;
+  if (unpublished !== null) {
+    return { round, because: `the forge holds no commit of round ${unpublished} to compare with: a round is published ` +
+                             "as it suspends only under worktree.publish: on_create, and only when the push went through" };
   }
   return { round, headSha: then.str("head_sha") };
 }

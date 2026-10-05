@@ -52,14 +52,14 @@ export const locateChanges = internalQuery({
 export const commit = action({
   args: { factory: v.string(), session: v.string(), sha: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, args): Promise<Read> =>
-    await read(ctx, await ctx.runQuery(internal.diffs.locateCommit, args)),
+    await readDiff(ctx, await ctx.runQuery(internal.diffs.locateCommit, args)),
 });
 
 /** What a session changed, from the commit it started from to the latest one it made, as the forge shows it. */
 export const changes = action({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, args): Promise<Read> =>
-    await read(ctx, await ctx.runQuery(internal.diffs.locateChanges, args)),
+    await readDiff(ctx, await ctx.runQuery(internal.diffs.locateChanges, args)),
 });
 
 /**
@@ -67,7 +67,7 @@ export const changes = action({
  * artifact (artifacts.ts): whether the viewer may see it is the mirror's word,
  * asked before the forge is.
  */
-export async function read(ctx: ActionCtx, located: Located | { because: string }): Promise<Read> {
+export async function readDiff(ctx: ActionCtx, located: Located | { because: string }): Promise<Read> {
   if ("because" in located) return { ok: false, because: located.because };
   const opened = await open(ctx);
   if (opened === null) return { ok: false, because: NO_CREDENTIAL };
@@ -87,4 +87,17 @@ export async function read(ctx: ActionCtx, located: Located | { because: string 
 
 function ask(forge: Forge, located: Located): Promise<string | null> {
   return "sha" in located ? forge.commitDiff(located.repo, located.sha) : forge.compare(located.repo, located.base, located.head);
+}
+
+/**
+ * The sections of a diff the forge printed that are `paths`', in its order:
+ * what changed in a subject, and nothing a stage beside it also wrote. The
+ * whole diff when none of it is theirs — a subject renamed, or a path git
+ * quotes — so a change is never shown as none.
+ */
+export function onlyFiles(diff: string, paths: string[]): string {
+  const theirs = diff.split(/^(?=diff --git )/m)
+    .filter((section) => paths.some((path) => section.startsWith(`diff --git a/${path} b/${path}\n`)))
+    .join("");
+  return theirs || diff;
 }

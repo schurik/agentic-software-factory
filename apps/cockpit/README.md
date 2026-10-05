@@ -149,8 +149,8 @@ does the waiting gate's phase in the graph (`?gate=<phase id>`). The drawer asks
 title, under the session's title, how long it has waited and where; from round 2 the round before's
 verdict and the person's own note; every ⚑ flag an agent filed in the chapter; and tabs by the gate's
 kind, which is its name — a plan gate's plan, the issue in the reporter's words and the scout's
-findings, opening from round 2 on "Changes since round N−1" (#114); an integrate gate's changes, checks, review and issue; a question round's questions; any
-other gate's subject (`convex/model/gate.ts` reads all but the subject off the session's events).
+findings, opening from round 2 on "Changes since round N−1" (#114); an integrate gate's changes,
+checks, review and issue; a question round's questions; any other gate's subject (`convex/model/gate.ts` reads all but the subject off the session's events).
 Its footer answers it: notes with the gate's own placeholder, Reject (Send back at integrate)
 refusing an empty note because the next agent reads it as an instruction, the primary Approve plan
 (Open pull request), and a quiet Abort session. Answered, it moves to the next gate that can still

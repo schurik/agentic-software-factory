@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
+import { onlyFiles } from "../convex/diffs";
 import { fakeForge, type FakeForge, localMode } from "./forge";
 import { catchUp, cockpit, type Cockpit, factory, fixture, ingest, recorded, signIn, team, type WireEvent } from "./helpers";
 
@@ -420,8 +421,8 @@ describe("the changes since a plan gate's last round", () => {
     const alex = await signIn(t, forge, "alex");
 
     const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "r4r4r4r4", signIn: alex });
-    const because = "the forge holds no commit of round 1 to compare with: " +
-      "a factory publishes each round only under worktree.publish: on_create";
+    const because = "the forge holds no commit of round 1 to compare with: a round is published as it suspends " +
+      "only under worktree.publish: on_create, and only when the push went through";
     expect(gate!.lastRound).toEqual({ round: 1, because });
     const mark = forge.requests.length;
     expect(await t.action(api.inbox.sinceLastRound, { factory: "acme/widgets", session: "r4r4r4r4", signIn: alex }))
@@ -440,6 +441,26 @@ describe("the changes since a plan gate's last round", () => {
     expect(gate!.lastRound).toEqual({
       round: 1, because: "round 1 was answered at the station's terminal before the session suspended, so no commit holds it",
     });
+  });
+
+  it("compares rounds of the same chapter: a later one numbers them from 1 again", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    const [started, first, rejected, second] = twoRounds("r7r7r7r7");
+    // Chapter 1's plan was asked at round 1; chapter 2's round 1 was answered at the terminal.
+    const chapter = fixture("workflow_started", 5, 2);
+    await ship(t, await factory(t, "acme/widgets"), "r7r7r7r7",
+               [started, first, rejected, { ...fixture("decision_recorded", 4) }, chapter, { ...second, seq: 6 }]);
+
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "r7r7r7r7",
+                                                 signIn: await signIn(t, forge, "alex") });
+    expect(gate!.lastRound).toMatchObject({ round: 1, because: expect.stringContaining("answered at the station's terminal") });
+  });
+
+  it("is the whole comparison when none of it is the plan's files: a plan renamed is never shown as unchanged", () => {
+    const app = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n";
+    expect(onlyFiles(OF_THE_PLAN + app, [PLAN])).toBe(OF_THE_PLAN);
+    expect(onlyFiles(app, [PLAN])).toBe(app);
   });
 
   it("is not there in a first round", async () => {

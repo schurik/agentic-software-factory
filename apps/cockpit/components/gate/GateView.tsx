@@ -64,6 +64,16 @@ export function lands(gate: Gate, now: number, who: (login: string) => string = 
            then: "the factory's answers watcher picks it up" };
 }
 
+/**
+ * The commit of a plan gate's round before, when the forge holds it and
+ * this round both (#114): what "Changes since" compares with. Null at any
+ * other gate, in a first round, or with nothing on the forge to compare.
+ */
+export function comparedWith(gate: Gate): string | null {
+  const last = gate.row.gate === "plan" ? gate.lastRound : null;
+  return last && "headSha" in last ? last.headSha : null;
+}
+
 type Tab = "since" | "plan" | "changes" | "subject" | "questions" | "checks" | "review" | "issue" | "findings";
 
 /**
@@ -71,17 +81,15 @@ type Tab = "since" | "plan" | "changes" | "subject" | "questions" | "checks" | "
  * something in it, the first being what the person decides on: a plan gate's
  * plan — from round 2, what changed in it since the round before (#114), when
  * the forge holds both rounds — the issue in the reporter's words and the
- * scout's findings; an
- * integrate gate's changes, checks, review and issue; a question round's
- * questions; and any other gate's subject.
+ * scout's findings; an integrate gate's changes, checks, review and issue; a
+ * question round's questions; and any other gate's subject.
  */
 function tabsFor(gate: Gate, read: Read | null): { id: Tab; label: string }[] {
   const { row, material } = gate;
   const issue = material.issue ? [{ id: "issue" as const, label: row.issueNumber ? `Issue #${row.issueNumber}` : "Issue" }] : [];
   if (row.kind === "questions") return [{ id: "questions", label: "Questions" }, ...issue];
   if (row.gate === "plan") {
-    const since = gate.lastRound && "headSha" in gate.lastRound
-      ? [{ id: "since" as const, label: `Changes since round ${gate.lastRound.round}` }] : [];
+    const since = comparedWith(gate) ? [{ id: "since" as const, label: `Changes since round ${row.round - 1}` }] : [];
     return [...since, { id: "plan", label: "Plan" }, ...issue,
             ...(material.findings ? [{ id: "findings" as const, label: "Scout's findings" }] : [])];
   }

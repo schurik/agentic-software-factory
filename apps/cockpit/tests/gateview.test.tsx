@@ -24,8 +24,8 @@ const GATE: Gate = {
   subject: { headSha: "89abcdef0123456789abcdef0123456789abcdef", baseCommit: "", outside: [],
              files: [{ path: "docs/asf/spec/plan.md", absolute: "/w/docs/asf/spec/plan.md" }] },
   questions: [], earlier: [{ round: 1, verdict: "reject", by: "schurik", notes: "name the module", channel: "issue" }],
-  lastRound: { round: 1, because: "the forge holds no commit of round 1 to compare with: " +
-                                   "a factory publishes each round only under worktree.publish: on_create" },
+  lastRound: { round: 1, because: "the forge holds no commit of round 1 to compare with: a round is published as it " +
+                                   "suspends only under worktree.publish: on_create, and only when the push went through" },
   material: {
     flags: [{ kind: "risk", what: "the date is local midnight", because: "converted in UTC it is the previous day", insteadOf: "", by: "planner" }],
     issue: { path: "context_handoff/issue.md", content: "# Resolve relative due dates\n\n- R1 the meeting date\n", truncated: false, pruned: false },
@@ -136,7 +136,8 @@ describe("a plan gate's later round", () => {
     const markup = html(GATE);
     expect(tabs(markup)).not.toContain("Changes since round 1");
     expect(read(markup)).toContain("No “Changes since round 1”: the forge holds no commit of round 1 to compare with: " +
-                                   "a factory publishes each round only under worktree.publish: on_create.");
+                                   "a round is published as it suspends only under worktree.publish: on_create, " +
+                                   "and only when the push went through.");
   });
 
   it("opens a first round on the plan, and says nothing of changes", () => {

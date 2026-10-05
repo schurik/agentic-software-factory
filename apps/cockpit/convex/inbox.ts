@@ -21,7 +21,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { shown as readable } from "./artifacts";
-import { type Located, read as readDiff, type Read as DiffRead } from "./diffs";
+import { type Located, onlyFiles, type Read as Diff, readDiff } from "./diffs";
 import { ForgeError, RateLimited } from "./forge/github";
 import { credentialed, forgeWeb } from "./forge/memory";
 import { open } from "./forge/open";
@@ -30,7 +30,7 @@ import { pending } from "./model/command";
 import { refusal, render, spoken, type Asked as Answering } from "./model/answer";
 import { subjectDigest } from "./model/digest";
 import {
-  asked, blocked, byCommand, type Commanding, type Judged, onlyFiles, permitted, ranked, row, type Row, type Sent,
+  asked, blocked, byCommand, type Commanding, type Judged, permitted, ranked, row, type Row, type Sent,
   type Subject, waitsOnOthers,
 } from "./model/inbox";
 import { materialOf } from "./model/gate";
@@ -285,10 +285,13 @@ export const subject = action({
   },
 });
 
+/** Two commits to compare, and the files of the subject the comparison is cut to. */
+type Rounds = Located & { paths: string[] };
+
 /** The two rounds of a wait's gate the viewer can see, and the files it asks about: what "Changes since" compares. */
 export const locateLastRound = internalQuery({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory, session, signIn }): Promise<(Located & { paths: string[] }) | { because: string }> => {
+  handler: async (ctx, { factory, session, signIn }): Promise<Rounds | { because: string }> => {
     const wait = await waitOf(ctx, await viewing(ctx, signIn), { factory, session, signIn }, { ready: true, others: true });
     if (wait === null) return { because: "no such wait in a session you can see" };
     const { subject, lastRound } = asked(wait.stored.events, wait.stored.acked, wait.waiting);
@@ -306,9 +309,8 @@ export const locateLastRound = internalQuery({
  */
 export const sinceLastRound = action({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, args): Promise<DiffRead> => {
-    const located: (Located & { paths: string[] }) | { because: string } =
-      await ctx.runQuery(internal.inbox.locateLastRound, args);
+  handler: async (ctx, args): Promise<Diff> => {
+    const located: Rounds | { because: string } = await ctx.runQuery(internal.inbox.locateLastRound, args);
     if ("because" in located) return { ok: false, because: located.because };
     const read = await readDiff(ctx, located);
     return read.ok ? { ok: true, diff: onlyFiles(read.diff, located.paths) } : read;
