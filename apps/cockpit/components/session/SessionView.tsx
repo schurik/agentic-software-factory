@@ -12,7 +12,7 @@ import { isLive, type SessionView as View, until } from "@/convex/model/session"
 import { markOfStatus, miniOf } from "@/convex/model/graph";
 import type { Chapter } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
-import { formatCost, formatDuration, plural, pretty, prNumber, secondsBetween } from "../format";
+import { formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
@@ -150,7 +150,7 @@ function Header({ page, action, onCommand, onPurge }: {
   page: Page; action: Action | null; onCommand?: (command: Command) => void; onPurge?: (reason: string) => Promise<Purged>;
 }) {
   const { summary, story, session, factory, forge } = page;
-  const issue = summary.issueUrl.match(/\/issues\/(\d+)\/?$/)?.[1];
+  const issue = issueNumber(summary.issueUrl);
   const pr = prNumber(summary.prUrl);
   return (
     <header>

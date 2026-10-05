@@ -149,6 +149,11 @@ export function prNumber(url: string): string {
   return /\/pull\/(\d+)\/?$/.exec(url)?.[1] ?? "";
 }
 
+/** An issue's number, off its forge URL; "" for a URL that names none. */
+export function issueNumber(url: string): string {
+  return /\/issues\/(\d+)\/?$/.exec(url)?.[1] ?? "";
+}
+
 /** Seconds from `from` to `to` (epoch ms), never below zero; null when either end is unknown. */
 export function secondsBetween(from: string, to: number): number | null {
   const start = Date.parse(from);

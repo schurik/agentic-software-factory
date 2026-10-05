@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { NowPage, Running } from "@/convex/now";
 import { onlyOf } from "../inbox/waits";
 import { type Go, Kbd, PageHeader } from "../ui";
-import { AttentionRows, Empty, FoldSection, InboxRows, neededAt, OtherRows, RunningRow, Rows } from "./rows";
+import { AttentionRows, Empty, FoldSection, InboxRows, neededAt, OtherRows, Rows } from "./rows";
 
 /**
  * Now (#115), as first painted: the Inbox of gates waiting on the viewer —
@@ -20,7 +20,7 @@ export function NowView({ page, now, factory, selected, openGate, runningRow }: 
   factory?: string;
   selected: string | null;
   openGate: (key: string) => Go;
-  runningRow?: (row: Running) => ReactNode;
+  runningRow: (row: Running) => ReactNode;
 }) {
   const inbox = onlyOf(page.inbox, factory);
   const needed = neededAt(onlyOf(page.attention, factory), now);
@@ -51,7 +51,7 @@ export function NowView({ page, now, factory, selected, openGate, runningRow }: 
           <Rows label="Running">
             {running.map((row) => (
               <li key={`${row.factory}/${row.session}`}>
-                {runningRow ? runningRow(row) : <RunningRow row={row} progress={undefined} now={now} />}
+                {runningRow(row)}
               </li>
             ))}
           </Rows>

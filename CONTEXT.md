@@ -85,7 +85,13 @@ _Avoid_: queue, pending list, notifications
 Something on a factory a person should look at now, read against the clock: a gate waiting on
 them, a session that failed within the last day, a claim whose station has been away for over a
 day, a station whose config drifted, a failing check, or queued work no online station is watching.
-_Avoid_: alerts, problems, stuck
+_Avoid_: alerts, problems
+
+**Stuck**:
+A running session whose current phase has been running for more than ten minutes, judged against
+the page's clock. It is shown where the session is listed as running, never in Needs attention:
+a phase running long is worth noticing, not a fault, and nothing is done to it.
+_Avoid_: hung, stalled, frozen, timed out
 
 **Command**:
 One steering action, from a closed set, that a cockpit asks a station to carry out on a named session

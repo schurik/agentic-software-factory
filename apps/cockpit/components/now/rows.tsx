@@ -9,7 +9,7 @@ import { stationWords, type Row as Wait } from "@/convex/model/inbox";
 import type { Other } from "@/convex/inbox";
 import type { Running } from "@/convex/now";
 import { factoryHref } from "../factory/view";
-import { formatAgoAt, formatDollars, formatDuration, formatSpan, plural, prNumber, secondsBetween, sessionHref } from "../format";
+import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref } from "../format";
 import { asks, verbsOf } from "../gate/answer";
 import { MiniGraph } from "../graph/StageGraph";
 import { StageIcon, StatusIcon } from "../icons";
@@ -19,7 +19,7 @@ import { Card, cx, followInPlace, type Go, Tag } from "../ui";
 import { useWho } from "../viewer";
 
 /**
- * Now's rows (#115, the prototype's round 3): every list on the page is drawn
+ * Now's rows (#115): every list on the page is drawn
  * with one row, so the four line up on one grid — an icon, the title and its
  * detail lines, and on the right where it is above when it is. On a phone the
  * right column folds into one "where · when" line under the detail.
@@ -126,10 +126,13 @@ function question(wait: Wait): ReactNode {
     : <><span className="font-medium text-fg">{asked}</span> {asks(wait)} · round {wait.round}</>;
 }
 
-/** Where a wait is: its factory, and the work item it is asked on. */
-function whereOf({ factory, issueNumber }: Pick<Wait, "factory" | "issueNumber">): string {
-  return issueNumber ? `${factory} #${issueNumber}` : `${factory} · prompt`;
+/** Where a row is: its factory, and its work item — `#42`, `PR #9` — or that it was a prompt, with none. */
+function whereOf(factory: string, ref: string): string {
+  return ref ? `${factory} ${ref}` : `${factory} · prompt`;
 }
+
+/** Where a wait is: its factory, and the work item it is asked on. */
+const waitsAt = ({ factory, issueNumber: number }: Pick<Wait, "factory" | "issueNumber">) => whereOf(factory, number ? `#${number}` : "");
 
 /** The gates waiting on the viewer, each opening in the drawer over Now; `selected` is the one the keys are on. */
 export function InboxRows({ rows, selected, now, open }: { rows: Wait[]; selected: string | null; now: number; open: (key: string) => Go }) {
@@ -149,7 +152,7 @@ export function InboxRows({ rows, selected, now, open }: { rows: Wait[]; selecte
                    ...(row.summary ? [row.summary] : []),
                    ...(row.blocked ? [<i key="blocked">{row.blocked}{row.queued ? `: ${stationWords(row, now)}` : ""}</i>] : []),
                  ]}
-                 where={whereOf(row)} when={<Waited since={row.since} now={now} />} />
+                 where={waitsAt(row)} when={<Waited since={row.since} now={now} />} />
           </li>
         );
       })}
@@ -167,7 +170,7 @@ export function OtherRows({ rows, now, open }: { rows: Other[]; now: number; ope
           <Row glyph={<StageGlyph name={row.gate} tone="wait" />} go={open(keyOf(row))}
                title={<span className="truncate">{titleOf(row.workItem, row.issueNumber) || row.session}</span>}
                lines={[<>{question(row)} · asked of {row.waitsOn.map(who).join(", ") || "someone else"}</>]}
-               where={whereOf(row)} when={<Waited since={row.since} now={now} />} />
+               where={waitsAt(row)} when={<Waited since={row.since} now={now} />} />
         </li>
       ))}
     </Rows>
@@ -189,8 +192,8 @@ interface Needed {
  * What needs attention across `attention`'s factories at `now`, a row each:
  * every failed session on its own, each claim, and the rest one row a factory.
  * The gates waiting on the viewer are the Inbox's, and are not said again.
- * The factory's tabs are not in its address yet, so the steps that belong on
- * one go to its page.
+ * A claim is released from its session's page; the factory's tabs are not in
+ * its address yet, so the steps that belong on one go to its page.
  */
 export function neededAt(attention: { factory: string; facts: Facts }[], now: number): Needed[] {
   return attention.flatMap(({ factory, facts }) => needsAttention(facts, now).flatMap((item: Attention): Needed[] => {
@@ -210,7 +213,7 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
           key: `${factory}/claim/${item.claim.id}`, failed: false, factory,
           title: <>Claim held by a station away for {formatSpan(item.away)}</>,
           line: `${item.claim.stationName} · ${item.claim.kind === "pr" ? "pull request" : "issue"} #${item.claim.number}`,
-          step: "Release", href: page,
+          step: "Release", href: sessionHref(factory, item.claim.session),
         }];
       case "drift":
         return [{
@@ -247,40 +250,33 @@ export function AttentionRows({ rows }: { rows: Needed[] }) {
   );
 }
 
-/** A session's work item, the way a row names it on the right. */
-function refOf({ issueUrl, prUrl }: Pick<Running, "issueUrl" | "prUrl">): string {
-  const pr = prNumber(prUrl);
-  if (pr) return `PR #${pr}`;
-  const issue = /\/issues\/(\d+)\/?$/.exec(issueUrl)?.[1];
-  return issue ? `#${issue}` : "· prompt";
-}
-
 /**
  * A session running now: the stage it is in, its mini graph, how long it has
  * been in the phase when that is long enough to call it stuck, what it spent
- * — against its ceiling once that is close — and how long it has been going.
+ * — against its ceiling once that is close, in red once it is over — and how
+ * long it has been going.
  * `progress` is its own query, undefined until it answers.
  */
 export function RunningRow({ row, progress, now }: { row: Running; progress: Progress | null | undefined; now: number }) {
-  const issue = Number(/\/issues\/(\d+)\/?$/.exec(row.issueUrl)?.[1] ?? 0);
+  const [issue, pr] = [issueNumber(row.issueUrl), prNumber(row.prUrl)];
   const phase = progress?.phase ?? null;
   const where = progress?.stage ?? (phase ? phaseName({ name: phase.name }) : "");
   const elapsed = secondsBetween(row.startedAt, now);
   return (
     <Row href={sessionHref(row.factory, row.session)}
          glyph={progress?.stage ? <StageGlyph name={progress.stage} tone="run" /> : <StatusIcon status="running" size={16} className="mt-1 ml-1" />}
-         title={<span className="truncate">{titleOf(row.title, issue) || row.session}</span>}
+         title={<span className="truncate">{titleOf(row.title, Number(issue)) || row.session}</span>}
          lines={[
            <span key="graph" className="flex flex-wrap items-center gap-x-3 gap-y-1">
              {progress ? <MiniGraph mini={progress.mini} /> : <span>{row.workflow}</span>}
              {phase && stuck(phase.since, now)
-               ? <span className="font-medium text-wait">{formatDuration((now - Date.parse(phase.since)) / 1000)} in {where}</span> : null}
+               ? <span className="font-medium text-wait">{formatDuration(secondsBetween(phase.since, now))} in {where}</span> : null}
            </span>,
          ]}
-         where={`${row.factory} ${refOf(row)}`}
+         where={whereOf(row.factory, pr ? `PR #${pr}` : issue ? `#${issue}` : "")}
          when={<>
            {expensive(row.cost, row.ceiling)
-             ? <span className="font-medium text-wait">{formatDollars(row.cost)} of {formatDollars(row.ceiling)}</span>
+             ? <span className={cx("font-medium", row.cost >= row.ceiling ? "text-bad" : "text-wait")}>{formatDollars(row.cost)} of {formatDollars(row.ceiling)}</span>
              : <span className="text-faint">{formatDollars(row.cost)}</span>}
            <span className="text-faint"> · {formatDuration(elapsed)}</span>
          </>} />
