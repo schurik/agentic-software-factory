@@ -11,8 +11,9 @@ export const STATION = { id: "st_7f3a9c", name: "alex@mbp:widgets", kind: "local
 export const SESSION = "5c0075aa";
 export const REPORT = { verbs: ["kill"], head: "89abcdef", config_hash: "c0ffee", watchers: ["issues", "answers"] };
 
-export async function post(t: Cockpit, path: string, token: string | null, body: unknown): Promise<Response> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+export async function post(t: Cockpit, path: string, token: string | null, body: unknown,
+                           more: Record<string, string> = {}): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...more };
   if (token !== null) headers.Authorization = `Bearer ${token}`;
   return await t.fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
 }
@@ -24,6 +25,17 @@ export async function json(response: Response): Promise<Record<string, unknown>>
 /** `asf station register`'s first request: the code and the device secret. */
 export async function register(t: Cockpit, ingestToken: string, station = STATION) {
   const response = await post(t, "/station/register", ingestToken, { station });
+  expect(response.status).toBe(200);
+  return await json(response) as { device: string; code: string; url: string; interval: number; expires_in: number };
+}
+
+/** `asf station register` with no ingest token: the station names its factory, and says its host. */
+export async function asksOpenly(t: Cockpit, factory = "acme/widgets", station = STATION, from = "203.0.113.7") {
+  return await post(t, "/station/register", null, { station, factory, host: "mbp" }, { "X-Forwarded-For": `${from}, 10.0.0.1` });
+}
+
+export async function registerOpenly(t: Cockpit, factory = "acme/widgets", station = STATION) {
+  const response = await asksOpenly(t, factory, station);
   expect(response.status).toBe(200);
   return await json(response) as { device: string; code: string; url: string; interval: number; expires_in: number };
 }

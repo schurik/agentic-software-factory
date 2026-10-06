@@ -22,6 +22,10 @@ export interface Ci {
 /** A station asking to become one of the factory's (stations.registrations). */
 export type Registration = NonNullable<FunctionReturnType<typeof api.stations.registrations>>[number];
 
+/** The factory's live ingest tokens, and whether the viewer may issue one for CI (tokens.list). */
+export type Tokens = NonNullable<FunctionReturnType<typeof api.tokens.list>>;
+export type Token = Tokens["tokens"][number];
+
 /** What each watcher a station loop runs does, in words. */
 const WATCHES: Record<string, string> = {
   issues: "labelled issues", answers: "answers on work items", prs: "pull-request reviews",
@@ -110,6 +114,10 @@ function Asking({ registration, factory, now, onApprove }: {
       <div className="min-w-0 grow">
         <div><code>{registration.name}</code> asks to become a station of {factory}</div>
         <div className="mt-0.5 text-sm text-muted">
+          {registration.kind} · on {registration.host ? <code>{registration.host}</code> : "a host it did not name"}
+          {registration.ingest ? " · asked without an ingest token: approving hands it one for this factory, as yours" : null}
+        </div>
+        <div className="mt-0.5 text-sm text-muted">
           {registration.approved ? "Approved: it picks up its token on its next poll."
             : <>Approve it with the code its terminal shows, only if that terminal is one you started · the code expires
                 in {formatSpan(registration.expiresAt - now)}</>}
@@ -122,6 +130,79 @@ function Asking({ registration, factory, now, onApprove }: {
                  aria-label={`The code ${registration.name}'s terminal shows`} className={cx(control, "h-7 w-32 font-mono text-sm")} />
           <Button type="submit" variant="primary" size="sm" disabled={!code.trim()}>Approve</Button>
         </form>
+      )}
+    </Card>
+  );
+}
+
+const ISSUED_AS: Record<Token["kind"], string> = {
+  station: "a station's, handed over when its registration was approved",
+  ci: "for CI",
+  operator: "issued with the deployment's admin key",
+};
+
+/**
+ * The factory's ingest tokens (#142): what its stations ship with, each its
+ * own, so one is revoked without the others — a machine's, handed over when
+ * its registration was approved; CI's, which an admin issues here; and the
+ * operator's. A token issued here is shown once, as `issued`, and never again.
+ */
+export function IngestTokens({ tokens, factory, now, issued, onIssue, onRevoke }: {
+  tokens: Tokens;
+  factory: string;
+  now: number;
+  /** The token just issued for CI: shown this once. */
+  issued: string | null;
+  onIssue: (label: string) => void;
+  onRevoke: (token: Token) => void;
+}) {
+  const who = useWho();
+  const [label, setLabel] = useState("");
+  return (
+    <Card className="flex min-w-0 flex-col gap-3 px-4 py-4 sm:px-5">
+      <div>
+        <h3>Ingest tokens</h3>
+        <p className="text-sm text-muted">
+          What a station ships {factory}&apos;s sessions with: it can add to this factory and read nothing back. A machine is
+          handed one when <code>just station-register</code> is approved; a CI job holds one an admin issues here.
+        </p>
+      </div>
+      {tokens.tokens.length ? (
+        <Table className="text-sm">
+          <thead><tr><th>token</th><th>issued</th><th>by</th><th>when</th><th /></tr></thead>
+          <tbody>
+            {tokens.tokens.map((token) => (
+              <tr key={token.id}>
+                <td>{token.label ? <code>{token.label}</code> : <span className="text-muted">unnamed</span>}</td>
+                <td>{ISSUED_AS[token.kind]}</td>
+                <td>{token.issuedBy ? who(token.issuedBy) : <span className="text-muted">the operator</span>}</td>
+                <td className="whitespace-nowrap">{formatAgoAt(token.issuedAt, now)}</td>
+                <td className="text-right">
+                  {token.revocable ? <Button variant="danger" size="sm" onClick={() => onRevoke(token)}>Revoke</Button> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      ) : <p className="text-sm text-muted">None yet: nothing ships to this factory.</p>}
+      {issued ? (
+        <div className="grid gap-1 rounded-lg bg-wait-soft px-3 py-2 text-sm">
+          <div>Copy it now — it is shown this once:</div>
+          <code className="break-all select-all">{issued}</code>
+          <div>
+            Store it as the repository&apos;s <code>secrets.ASF_COCKPIT_TOKEN</code>
+            {tokens.site ? <>, with <code>vars.ASF_COCKPIT_URL</code> set to <code>{tokens.site}</code></> : null}.
+          </div>
+        </div>
+      ) : null}
+      {tokens.mayIssue ? (
+        <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); onIssue(label.trim() || "CI"); setLabel(""); }}>
+          <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="CI"
+                 aria-label="What to call the token" className={cx(control, "h-7 w-48 text-sm")} />
+          <Button type="submit" variant="primary" size="sm">Issue a token for CI</Button>
+        </form>
+      ) : (
+        <p className="text-xs text-muted">A token for CI is issued here by an admin of the repository.</p>
       )}
     </Card>
   );

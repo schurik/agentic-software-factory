@@ -16,6 +16,7 @@ export function SetupPage() {
   const { mode, forge } = useCockpit();
   const begin = useAction(api.setup.begin);
   const webhook = useQuery(api.setup.webhook, {});
+  const deployment = useQuery(api.setup.deployment, {});
   const [code, setCode] = useState("");
   const [host, setHost] = useState("github.com");
   const [organization, setOrganization] = useState("");
@@ -78,7 +79,7 @@ export function SetupPage() {
       <ol className="steps">
         <li>
           Print a setup code on the deployment. It shows you run this cockpit, and works once, for an hour.
-          <pre>docker compose exec app ./convex.sh run setup:code</pre>
+          <SetupCodeRoute dashboard={deployment?.dashboard ?? null} />
         </li>
         <li>
           Fill this in and continue to GitHub, which shows the App it is about to create: private to your
@@ -107,6 +108,25 @@ export function SetupPage() {
         {problem ? <p className="error">{problem}</p> : null}
       </form>
     </div>
+  );
+}
+
+/**
+ * How to print a setup code where this backend runs: on Convex Cloud, its
+ * dashboard's Functions page or `npx convex run`; else the compose file's
+ * container. Both prove the same thing — that whoever is here can run a
+ * function on this deployment — and neither needs the cockpit's source.
+ */
+export function SetupCodeRoute({ dashboard }: { dashboard: string | null }) {
+  if (dashboard === null) return <pre>docker compose exec app ./convex.sh run setup:code</pre>;
+  return (
+    <>
+      <p>
+        This backend runs on Convex Cloud: open its <a href={dashboard}>Functions page</a> in the Convex dashboard,
+        pick <code>setup:code</code> and Run it. Or, from a directory linked to this deployment:
+      </p>
+      <pre>npx convex run setup:code</pre>
+    </>
   );
 }
 

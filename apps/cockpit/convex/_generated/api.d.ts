@@ -36,6 +36,7 @@ import type * as model_attention from "../model/attention.js";
 import type * as model_claim from "../model/claim.js";
 import type * as model_command from "../model/command.js";
 import type * as model_config from "../model/config.js";
+import type * as model_deployment from "../model/deployment.js";
 import type * as model_description from "../model/description.js";
 import type * as model_digest from "../model/digest.js";
 import type * as model_drift from "../model/drift.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   "model/claim": typeof model_claim;
   "model/command": typeof model_command;
   "model/config": typeof model_config;
+  "model/deployment": typeof model_deployment;
   "model/description": typeof model_description;
   "model/digest": typeof model_digest;
   "model/drift": typeof model_drift;

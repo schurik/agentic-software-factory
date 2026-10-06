@@ -41,23 +41,28 @@ http.route({
 });
 
 // A station asks to take commands (`asf station register`, stations.ts): with
-// the factory's ingest token, which says whose station it is. The answer is a
-// code for a person to approve and a secret to poll with — and where to
-// approve it, when this deployment was told where its pages are.
+// the factory's ingest token, which says whose station it is, or with none,
+// naming its factory itself — and then it is handed an ingest token too, and
+// what may wait is limited (OPEN_PER_SOURCE). The answer is a code for a
+// person to approve and a secret to poll with — and where to approve it,
+// when this deployment was told where its pages are.
 http.route({
   path: "/station/register",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const token = bearer(request);
-    if (!token) return reply(401, { error: "registering needs the factory's ingest token" });
-    const station = parseRegistration(await body(request));
-    if (isCommandRefusal(station)) return reply(station.status, { error: station.error });
+    const asking = parseRegistration(await body(request));
+    if (isCommandRefusal(asking)) return reply(asking.status, { error: asking.error });
+    if (!token && !asking.factory) {
+      return reply(400, { error: "registering names the factory, as owner/name, or carries its ingest token" });
+    }
     const device = secret("asf_device_");
     const code = approvalCode(crypto.getRandomValues(new Uint8Array(8)));
     const asked = await ctx.runMutation(internal.stations.request, {
-      ingest: await digest(token), device: await digest(device), code, station,
+      ...(token ? { ingest: await digest(token) } : { factory: asking.factory, source: source(request) }),
+      host: asking.host, device: await digest(device), code, station: asking.station,
     });
-    if (asked === null) return reply(401, { error: "this ingest token is not one the cockpit issued" });
+    if (!asked.ok) return reply(asked.status, { error: asked.because });
     const app = (process.env.COCKPIT_APP_URL ?? "").trim().replace(/\/+$/, "");
     return reply(200, {
       device, code, interval: REGISTRATION_POLL, expires_in: REGISTRATION_FOR / 1000,
@@ -80,9 +85,14 @@ http.route({
     if (state === "expired") return reply(410, { status: "expired", error: "this code expired, or was never asked for" });
     if (state === "pending") return reply(200, { status: "pending" });
     const token = secret("asf_station_");
-    const handed = await ctx.runMutation(internal.stations.handOver, { device: held, token: await digest(token) });
+    const ingest = secret("asf_ingest_");
+    const handed = await ctx.runMutation(internal.stations.handOver, {
+      device: held, token: await digest(token), ingest: await digest(ingest),
+    });
     if (handed.state !== "approved") return reply(handed.state === "pending" ? 200 : 410, { status: handed.state });
-    return reply(200, { status: "approved", token, owner: handed.owner, station: handed.station });
+    return reply(200, {
+      status: "approved", token, owner: handed.owner, station: handed.station, ...(handed.ingest ? { ingest } : {}),
+    });
   }),
 });
 
@@ -174,6 +184,16 @@ http.route({
     return reply(202, {});
   }),
 });
+
+/**
+ * Where a request came from, as the proxy in front of the deployment says —
+ * or "unknown" where none does, which every such request shares. Only what
+ * the open registration limits count by, never what anything is granted on.
+ */
+function source(request: Request): string {
+  const forwarded = request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("X-Real-IP")?.trim() || "unknown";
+}
 
 function bearer(request: Request): string | null {
   return /^Bearer (\S+)$/.exec(request.headers.get("Authorization") ?? "")?.[1] ?? null;

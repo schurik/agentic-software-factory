@@ -6,6 +6,7 @@ import { retained } from "./model/retention";
 import { advance, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
+import { tokenBy } from "./tokens";
 
 /**
  * Store a batch for the factory whose token digests to `digest`, and return the
@@ -19,10 +20,7 @@ export const append = internalMutation({
   args: { digest: v.string(), session: v.string(), events: v.array(v.object(storedEventFields)) },
   returns: v.union(v.null(), v.object({ acked: v.number() })),
   handler: async (ctx, { digest, session, events }) => {
-    const token = await ctx.db
-      .query("ingestTokens")
-      .withIndex("by_digest", (q) => q.eq("digest", digest))
-      .unique();
+    const token = await tokenBy(ctx, digest);
     if (token === null) return null;
     const { factory } = token;
 

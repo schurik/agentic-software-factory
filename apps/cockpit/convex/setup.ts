@@ -2,8 +2,10 @@
  * Setting up a team cockpit: registering its GitHub App through the manifest
  * flow, and keeping the key and secrets GitHub hands back.
  *
- *   1. the deployment's admin prints a setup code:
- *        docker compose exec app ./convex.sh run setup:code
+ *   1. the deployment's admin prints a setup code, by whatever runs a
+ *      function on their deployment (`deployment` says which one /setup shows):
+ *        docker compose exec app ./convex.sh run setup:code     # self-hosted
+ *        npx convex run setup:code     # Convex Cloud, or its dashboard's Functions page
  *   2. the setup page sends it to `begin`, with the GitHub host and the
  *      organization, and posts the manifest it gets to the URL it gets;
  *   3. the admin names the App on GitHub and confirms; GitHub sends the
@@ -21,6 +23,7 @@ import { internal } from "./_generated/api";
 import { action, internalAction, internalMutation, query } from "./_generated/server";
 import { appValidator, convert, deliverable, installUrl, manifest, registrationUrl, webhookUrl } from "./forge/app";
 import { ForgeError, GitHub } from "./forge/github";
+import { dashboardOf } from "./model/deployment";
 import { digest, secret } from "./model/digest";
 
 const HOUR = 3600_000;
@@ -37,6 +40,17 @@ export const webhook = query({
     const url = webhookUrl(process.env.CONVEX_SITE_URL ?? "");
     return { url, deliverable: deliverable(url) };
   },
+});
+
+/**
+ * Where to print a setup code on this deployment: the Convex dashboard's
+ * functions page on Convex Cloud, else null — the compose file's backend,
+ * where `docker compose exec app ./convex.sh run setup:code` prints one.
+ */
+export const deployment = query({
+  args: {},
+  returns: v.object({ dashboard: v.union(v.null(), v.string()) }),
+  handler: async () => ({ dashboard: dashboardOf(process.env.CONVEX_SITE_URL ?? "") }),
 });
 
 /** A setup code, printed once and good for one `begin` within the hour. */
@@ -66,7 +80,7 @@ export const begin = action({
 
     const taken = await ctx.runMutation(internal.handshakes.take, { digest: await digest(asked.code.trim()), purpose: "setup code" });
     if (taken === null) {
-      throw new ConvexError("that is not a setup code this deployment printed in the last hour: run `./convex.sh run setup:code` for a fresh one");
+      throw new ConvexError("that is not a setup code this deployment printed in the last hour: print a fresh one with setup:code, on the deployment this page's backend is (the setup page says how)");
     }
     const state = secret("");
     await ctx.runMutation(internal.handshakes.offer, {

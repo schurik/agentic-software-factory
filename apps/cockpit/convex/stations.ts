@@ -4,15 +4,23 @@
  * Registering is a device flow, so no secret is copy-pasted and no forge
  * credential reaches the cockpit from a station:
  *
- *   1. `asf station register` asks `/station/register` with the factory's
- *      ingest token — which says which factory the station is — and gets a
- *      code to show and a device secret to poll with (`request`);
+ *   1. `asf station register` asks `/station/register` — with the factory's
+ *      ingest token, which says which factory the station is, or with none,
+ *      naming its factory (its origin remote) itself — and gets a code to
+ *      show and a device secret to poll with (`request`);
  *   2. a person signed in to the cockpit, with write on that factory, opens
  *      the approval page and approves the code (`approve`): the station
  *      becomes theirs;
  *   3. the station's next poll of `/station/register/poll` is handed a command
  *      token — that person's, for this station alone — of which only the
- *      digest is kept (`handOver`).
+ *      digest is kept (`handOver`); and, when it asked without an ingest
+ *      token, one of those for its factory as well, issued by its approver.
+ *
+ * Asked without a token, a request is something anyone who can reach the
+ * site can make, naming any repository: the approval is then the only gate.
+ * So the page names the repository, the station and the host before its
+ * button, and what may wait is limited per source and per factory
+ * (OPEN_PER_SOURCE), as well as running out.
  *
  * Revoking that token (`revoke`) is what takes a station offline for
  * commands: its polls are refused, and nothing reaches it. A local cockpit is
@@ -23,8 +31,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery, mutation, type MutationCtx, query, type QueryCtx } from "./_generated/server";
 import { LAPSED_PER_WRITE } from "./handshakes";
-import { normalCode, REGISTRATION_FOR, stationFieldsValidator, writes } from "./model/command";
+import { normalCode, OPEN_PER_FACTORY, OPEN_PER_SOURCE, REGISTRATION_FOR, stationFieldsValidator, writes } from "./model/command";
 import { digest, secret } from "./model/digest";
+import { spellingFor } from "./spelling";
+import { keepToken, replaceStationToken, tokenBy } from "./tokens";
 import { canRead, readable, roleOn, viewing, type Viewing } from "./viewer";
 
 type Result = { ok: true } | { ok: false; because: string };
@@ -52,27 +62,56 @@ async function own(ctx: MutationCtx, asking: Asking, owner: Doc<"viewers"> | nul
 // ── 1. a station asks ────────────────────────────────────────────────────────
 
 /**
- * Keep a station's request, for the factory whose ingest token digests to
- * `ingest` — or null when no factory holds that token.
+ * Keep a station's request: for the factory whose ingest token digests to
+ * `ingest`, or — asked without one — for the `factory` it names, when no more
+ * open requests wait from its `source` or for that factory than may. Refused
+ * with the status the station is answered with.
  */
 export const request = internalMutation({
-  args: { ingest: v.string(), device: v.string(), code: v.string(), station: stationFieldsValidator },
-  returns: v.union(v.null(), v.object({ factory: v.string() })),
-  handler: async (ctx, { ingest, device, code, station }) => {
-    const token = await ctx.db.query("ingestTokens").withIndex("by_digest", (q) => q.eq("digest", ingest)).unique();
-    if (token === null) return null;
-    // Anyone holding an ingest token can ask and walk away: each request
-    // clears out what has run out, so the table holds what is pending.
+  args: {
+    ingest: v.optional(v.string()), factory: v.optional(v.string()), source: v.optional(v.string()),
+    host: v.string(), device: v.string(), code: v.string(), station: stationFieldsValidator,
+  },
+  returns: v.union(
+    v.object({ ok: v.literal(true), factory: v.string() }),
+    v.object({ ok: v.literal(false), status: v.number(), because: v.string() }),
+  ),
+  handler: async (ctx, { ingest, factory: named, source, host, device, code, station }) => {
+    // Anyone can ask and walk away: each request clears out what has run
+    // out, so the table holds what is pending, and the limits count that.
+    const now = Date.now();
     const lapsed = await ctx.db
       .query("registrations")
-      .withIndex("by_expiry", (q) => q.lt("expiresAt", Date.now()))
+      .withIndex("by_expiry", (q) => q.lt("expiresAt", now))
       .take(LAPSED_PER_WRITE);
     for (const gone of lapsed) await ctx.db.delete(gone._id);
-    await ctx.db.insert("registrations", {
-      device, code, factory: token.factory, station: station.id, name: station.name, kind: station.kind,
-      expiresAt: Date.now() + REGISTRATION_FOR, approvedBy: null,
-    });
-    return { factory: token.factory };
+
+    const asking = { device, code, station: station.id, name: station.name, kind: station.kind, host,
+                     expiresAt: now + REGISTRATION_FOR, approvedBy: null };
+    if (ingest !== undefined) {
+      const token = await tokenBy(ctx, ingest);
+      if (token === null) return { ok: false as const, status: 401, because: "this ingest token is not one the cockpit issued, or it was revoked" };
+      await ctx.db.insert("registrations", { ...asking, factory: token.factory });
+      return { ok: true as const, factory: token.factory };
+    }
+
+    const factory = await spellingFor(ctx, named ?? "");
+    const from = source || "unknown";
+    const fromThere = await ctx.db.query("registrations")
+      .withIndex("by_source", (q) => q.eq("source", from).gt("expiresAt", now))
+      .take(OPEN_PER_SOURCE);
+    if (fromThere.length >= OPEN_PER_SOURCE) {
+      return { ok: false as const, status: 429, because: `${OPEN_PER_SOURCE} registrations from where this one came are waiting already: approve one, or let them run out` };
+    }
+    const forIt = await ctx.db.query("registrations")
+      .withIndex("by_factory", (q) => q.eq("factory", factory).gt("expiresAt", now))
+      .filter((q) => q.eq(q.field("open"), true))
+      .take(OPEN_PER_FACTORY);
+    if (forIt.length >= OPEN_PER_FACTORY) {
+      return { ok: false as const, status: 429, because: `${OPEN_PER_FACTORY} registrations without an ingest token are waiting for ${factory} already: approve one, or let them run out` };
+    }
+    await ctx.db.insert("registrations", { ...asking, factory, open: true, source: from });
+    return { ok: true as const, factory };
   },
 });
 
@@ -119,6 +158,7 @@ export const pending = query({
     const decided = await approvalRefusal(ctx, signIn, asked);
     return {
       code: asked.code, factory: asked.factory, name: asked.name, kind: asked.kind, station: asked.station,
+      host: asked.host ?? "", ingest: asked.open === true,
       expiresAt: asked.expiresAt, approved: asked.approvedBy !== null,
       because: "because" in decided ? decided.because : null,
     };
@@ -145,8 +185,8 @@ export const registrations = query({
     return await Promise.all(asking.map(async (asked) => {
       const decided = await approvalRefusal(ctx, signIn, asked);
       return {
-        station: asked.station, name: asked.name, expiresAt: asked.expiresAt,
-        approved: asked.approvedBy !== null, because: "because" in decided ? decided.because : null,
+        station: asked.station, name: asked.name, kind: asked.kind, host: asked.host ?? "", ingest: asked.open === true,
+        expiresAt: asked.expiresAt, approved: asked.approvedBy !== null, because: "because" in decided ? decided.because : null,
       };
     }));
   },
@@ -182,23 +222,31 @@ export const registration = internalQuery({
 
 /**
  * Register the approved station behind `device` as its approver's, holding the
- * token whose digest is `token`, and spend the request — or say it is still
- * pending, or gone.
+ * command token whose digest is `token`, and spend the request — or say it is
+ * still pending, or gone. A request asked without an ingest token keeps
+ * `ingest` too, as its factory's ingest token for this station, issued by
+ * its approver — replacing any an earlier registration of it was handed —
+ * and says so (`ingest: true`), so the station is handed it.
  */
 export const handOver = internalMutation({
-  args: { device: v.string(), token: v.string() },
+  args: { device: v.string(), token: v.string(), ingest: v.string() },
   returns: v.union(
-    v.object({ state: v.literal("approved"), owner: v.string(), station: v.string() }),
+    v.object({ state: v.literal("approved"), owner: v.string(), station: v.string(), ingest: v.boolean() }),
     v.object({ state: v.union(v.literal("pending"), v.literal("expired")) }),
   ),
-  handler: async (ctx, { device, token }) => {
+  handler: async (ctx, { device, token, ingest }) => {
     const asked = await ctx.db.query("registrations").withIndex("by_device", (q) => q.eq("device", device)).unique();
     if (asked === null || Date.now() >= asked.expiresAt) return { state: "expired" as const };
     if (asked.approvedBy === null) return { state: "pending" as const };
     const owner = await ctx.db.get(asked.approvedBy);
     await own(ctx, asked, owner, token);
+    const open = asked.open === true;
+    if (open) {
+      await replaceStationToken(ctx, asked.factory, asked.station);
+      await keepToken(ctx, asked.factory, ingest, { kind: "station", label: asked.name, station: asked.station, issuedBy: owner });
+    }
     await ctx.db.delete(asked._id);
-    return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station };
+    return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station, ingest: open };
   },
 });
 

@@ -21,7 +21,7 @@ import { ActivityTab } from "./ActivityTab";
 import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
 import { FactoryView } from "./FactoryView";
-import { StationsTab } from "./StationsTab";
+import { IngestTokens, StationsTab } from "./StationsTab";
 import { drifts, type FactoryTab, tabOf } from "./view";
 import { WorkflowsTab } from "./WorkflowsTab";
 
@@ -53,6 +53,11 @@ export function FactoryPage({ factory }: { factory: string }) {
   const registrations = useQuery(api.stations.registrations, { factory, signIn });
   const approve = useMutation(api.stations.approve);
   const revoke = useMutation(api.stations.revoke);
+  const tokens = useQuery(api.tokens.list, { factory, signIn });
+  const issueToken = useAction(api.tokens.issueForCi);
+  const revokeToken = useMutation(api.tokens.revoke);
+  // A token issued for CI, shown this once: leaving the page forgets it.
+  const [issued, setIssued] = useState<string | null>(null);
   const release = useAction(api.claims.release);
   const purges = useQuery(api.retention.purges, { factory, signIn });
   const purge = useAction(api.retention.purgeFactory);
@@ -135,6 +140,22 @@ export function FactoryPage({ factory }: { factory: string }) {
                                         void revoke({ factory, station: station.station, signIn }).then(settled("revoked")).catch(failed("revoked"));
                                       }} />
                        ) : <Loading />}
+                       {tokens ? (
+                         <div className="mt-4">
+                           <IngestTokens tokens={tokens} factory={factory} now={now} issued={issued}
+                                         onIssue={(label) => {
+                                           setProblem("");
+                                           setIssued(null);
+                                           void issueToken({ factory, label, signIn })
+                                             .then((done) => (done.ok ? setIssued(done.token) : setProblem(`Not issued: ${done.because}`)))
+                                             .catch(failed("issued"));
+                                         }}
+                                         onRevoke={(token) => {
+                                           setProblem("");
+                                           void revokeToken({ token: token.id, signIn }).then(settled("revoked")).catch(failed("revoked"));
+                                         }} />
+                         </div>
+                       ) : null}
                      </>
                    ),
                    config: (

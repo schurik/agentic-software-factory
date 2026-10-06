@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { catchUp, cockpit, signIn, team } from "./helpers";
 import { APP_URL, fakeForge, SITE_URL, teamMode } from "./forge";
+import { dashboardOf } from "../convex/model/deployment";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -188,5 +189,22 @@ describe("setting up a team cockpit", () => {
     await catchUp(t);
     const list = await t.query(api.factories.list, { signIn: await signIn(t, forge, "alex") });
     expect(list?.factories.map((factory) => factory.repo)).toEqual(["acme-labs/widgets"]);
+  });
+});
+
+describe("where /setup says to print a setup code", () => {
+  it("is the Convex dashboard's functions page on Convex Cloud, and the compose command anywhere else", () => {
+    expect(dashboardOf("https://happy-otter-123.convex.site")).toBe("https://dashboard.convex.dev/d/happy-otter-123/functions");
+    expect(dashboardOf("https://happy-otter-123.eu-west-1.convex.site/")).toBe("https://dashboard.convex.dev/d/happy-otter-123/functions");
+    expect(dashboardOf("https://happy-otter-123.convex.cloud")).toBeNull();
+    expect(dashboardOf("http://127.0.0.1:3211")).toBeNull();
+    expect(dashboardOf("https://cockpit.acme.test")).toBeNull();
+  });
+
+  it("is what the deployment says of its own site", async () => {
+    vi.stubEnv("CONVEX_SITE_URL", "https://happy-otter-123.convex.site");
+    expect(await cockpit().query(api.setup.deployment, {})).toEqual({ dashboard: "https://dashboard.convex.dev/d/happy-otter-123/functions" });
+    vi.stubEnv("CONVEX_SITE_URL", "http://127.0.0.1:3211");
+    expect(await cockpit().query(api.setup.deployment, {})).toEqual({ dashboard: null });
   });
 });

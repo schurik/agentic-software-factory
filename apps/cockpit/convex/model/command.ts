@@ -73,6 +73,16 @@ export const REDELIVER_AFTER = 30_000;
 export const REGISTRATION_FOR = 10 * 60_000;
 /** How often a registering station asks whether it was approved, in seconds. */
 export const REGISTRATION_POLL = 2;
+/**
+ * How many registrations asked without an ingest token may wait at once from
+ * one source, and for one factory. Anyone who can reach the site can ask, so
+ * the approval is the only gate — and these keep the table from being
+ * flooded while it waits. A source is the address the request came from,
+ * where the deployment's proxy says it; where it does not, every open
+ * request shares the one source "unknown".
+ */
+export const OPEN_PER_SOURCE = 5;
+export const OPEN_PER_FACTORY = 10;
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";     // nothing a person misreads
 
@@ -96,15 +106,35 @@ export function isRefusal(value: unknown): value is Refusal {
   return isRecord(value) && typeof value.error === "string" && typeof value.status === "number";
 }
 
-/** A registration request's body: `{station: {id, name, kind}}`. */
-export function parseRegistration(body: unknown): StationFields | Refusal {
+/** A registration request, as the cockpit reads it. */
+export interface Registering {
+  station: StationFields;
+  /** The repository the station names as its factory, `owner/name`: "" when it did not. */
+  factory: string;
+  /** The machine's own name for itself, as it said: "" when it did not. */
+  host: string;
+}
+
+const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/**
+ * A registration request's body: `{station: {id, name, kind}, factory?, host?}`.
+ * `factory` is what a station asking without an ingest token names itself
+ * by; one asking with a token is that token's, whatever it says.
+ */
+export function parseRegistration(body: unknown): Registering | Refusal {
   const station = isRecord(body) ? body.station : undefined;
   if (!isRecord(station) || !text(station.id) || typeof station.name !== "string") {
     return { status: 400, error: "a registration names its station: {station: {id, name, kind}}" };
   }
   const kind = typeof station.kind === "string" ? station.kind : "local";
   if (kind === "ci") return { status: 400, error: "a CI station takes no commands, so it is never registered" };
-  return { id: station.id as string, name: station.name || (station.id as string), kind };
+  const factory = isRecord(body) && typeof body.factory === "string" ? body.factory.trim() : "";
+  if (factory && !REPOSITORY.test(factory)) {
+    return { status: 400, error: `"${factory}" is not a repository: a factory is named as owner/name` };
+  }
+  const host = isRecord(body) && typeof body.host === "string" ? body.host.trim().slice(0, 100) : "";
+  return { station: { id: station.id as string, name: station.name || (station.id as string), kind }, factory, host };
 }
 
 /** A station's word on what it did with a command: a `command_result` payload, as the cockpit keeps it. */

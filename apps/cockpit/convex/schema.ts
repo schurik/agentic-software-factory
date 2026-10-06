@@ -27,10 +27,26 @@ export default defineSchema({
   // A factory-scoped, append-only credential: it can add events to its own
   // factory's sessions and nothing else — no read, no command. Only a digest is
   // kept, so the table leaking is not every station's secret leaking.
+  //
+  // One row per token, so each is revoked alone (tokens.ts). A row the
+  // operator issued with the admin key (`tokens:issue`) says no more than
+  // that; one a person issued says who and when: handed to a station whose
+  // registration they approved, or issued on the factory page for CI.
+  // Revoking keeps the row, because the earliest token's factory is how the
+  // factory's name is spelled here (`spelling.ts`).
   ingestTokens: defineTable({
     factory: v.string(),
     digest: v.string(),
-  }).index("by_digest", ["digest"]),
+    kind: v.optional(v.union(v.literal("station"), v.literal("ci"))),
+    label: v.optional(v.string()),            // the station's name, or what the admin called the CI token
+    station: v.optional(v.string()),          // the station id a registration handed it to
+    issuedBy: v.optional(v.id("viewers")),
+    issuedByLogin: v.optional(v.string()),
+    issuedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_digest", ["digest"])
+    .index("by_factory", ["factory"]),
 
   // One document per domain event, exactly as the station sent it. The payload
   // is kept as the JSON text it arrived as (model/wire.ts) and never validated
@@ -248,7 +264,10 @@ export default defineSchema({
 
   // A station asking to be registered (`asf station register`): the digest of
   // the secret it polls with, and the code a person approves it by. Gone once
-  // the station has its token, or once it ran out.
+  // the station has its token, or once it ran out. One asked without an
+  // ingest token (`open`) named its factory itself, is handed an ingest token
+  // too, and counts against what may wait from its `source` and for its
+  // factory (model/command.ts, OPEN_PER_SOURCE).
   registrations: defineTable({
     device: v.string(),
     code: v.string(),
@@ -256,13 +275,17 @@ export default defineSchema({
     station: v.string(),
     name: v.string(),
     kind: v.string(),
+    host: v.optional(v.string()),             // the machine's own name for itself, as it said
+    open: v.optional(v.boolean()),
+    source: v.optional(v.string()),           // where an open request came from: its address, or "unknown"
     expiresAt: v.number(),
     approvedBy: v.union(v.null(), v.id("viewers")),
   })
     .index("by_device", ["device"])
     .index("by_code", ["code"])
     .index("by_expiry", ["expiresAt"])
-    .index("by_factory", ["factory", "expiresAt"]),
+    .index("by_factory", ["factory", "expiresAt"])
+    .index("by_source", ["source", "expiresAt"]),
 
   // When a run's own shipper last polled for its session's commands: a
   // session is attended while that is recent. Kept apart from `sessions`, so a

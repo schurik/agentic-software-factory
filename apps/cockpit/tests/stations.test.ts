@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { ATTENDED_FOR, liveness, REDELIVER_AFTER, TTL } from "../convex/model/command";
+import { ATTENDED_FOR, liveness, OPEN_PER_FACTORY, OPEN_PER_SOURCE, REDELIVER_AFTER, TTL } from "../convex/model/command";
 import { fakeForge, type FakeForge, type Role } from "./forge";
 import { factory, fixture, ingest, signIn } from "./helpers";
 import {
-  approved, handed, json, localOf, poll, post, register, REPORT, running, SESSION, STATION, steerable, teamOf,
+  approved, asksOpenly, handed, json, localOf, poll, post, register, registerOpenly, REPORT, running, SESSION, STATION,
+  steerable, teamOf,
 } from "./station";
 
 // Stations a person can steer (spec #40, #54): a station registers by a device
@@ -34,7 +35,8 @@ describe("registering a station", () => {
     vi.stubEnv("COCKPIT_APP_URL", "https://cockpit.acme.test/");
     const ingestToken = await factory(t, "acme/widgets");
 
-    expect((await post(t, "/station/register", null, { station: STATION })).status).toBe(401);
+    // Without a token it must name its factory (see "registering without an ingest token").
+    expect((await post(t, "/station/register", null, { station: STATION })).status).toBe(400);
     expect((await post(t, "/station/register", "asf_ingest_nope", { station: STATION })).status).toBe(401);
     expect((await post(t, "/station/register", ingestToken, { station: { ...STATION, kind: "ci" } })).status).toBe(400);
     expect((await post(t, "/station/register", ingestToken, {})).status).toBe(400);
@@ -60,6 +62,7 @@ describe("registering a station", () => {
     const answer = await json(await handed(t, device));
     expect(answer).toMatchObject({ status: "approved", owner: "alex", station: STATION.id });
     expect(answer.token).toMatch(/^asf_station_/);
+    expect(answer.ingest).toBeUndefined();                        // it holds one already
     expect((await handed(t, device)).status).toBe(410);           // spent
     expect(await t.query(api.stations.mine, { signIn: alex })).toEqual([
       expect.objectContaining({ factory: "acme/widgets", station: STATION.id, owner: "alex", registered: true }),
@@ -124,7 +127,7 @@ describe("registering a station", () => {
     const listed = (holding?: string) => t.query(api.stations.registrations, { factory: "acme/widgets", signIn: holding });
 
     expect(await listed(alex)).toEqual([
-      { station: STATION.id, name: STATION.name, expiresAt: Date.now() + 10 * 60_000, approved: false, because: null },
+      { station: STATION.id, name: STATION.name, kind: "local", host: "", ingest: false, expiresAt: Date.now() + 10 * 60_000, approved: false, because: null },
       expect.objectContaining({ station: "st_late", name: "late@box:widgets" }),
     ]);
     // Typing the code is what proves the approver saw the station's terminal: the list never says it.
@@ -152,6 +155,99 @@ describe("registering a station", () => {
     expect(issued.owner).toBe("alex");
     expect((await poll(t, issued.token)).status).toBe(200);
     expect(await t.query(api.stations.mine, {})).toEqual([expect.objectContaining({ owner: "alex", registered: true })]);
+  });
+});
+
+// ── registering without an ingest token ──────────────────────────────────────
+
+describe("registering a station without an ingest token", () => {
+  it("names its factory, and is handed that factory's ingest token beside its command token once a writer approved it", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const alex = await signIn(t, forge, "alex");
+    const { device, code } = await registerOpenly(t);
+
+    // What the approver sees before the button: which repository, which station, what kind, from which host.
+    expect(await t.query(api.stations.pending, { code, signIn: alex })).toMatchObject({
+      factory: "acme/widgets", name: STATION.name, kind: "local", station: STATION.id, host: "mbp", ingest: true, because: null,
+    });
+    expect(await json(await handed(t, device))).toEqual({ status: "pending" });
+    expect(await t.mutation(api.stations.approve, { code, signIn: alex })).toEqual({ ok: true });
+
+    const answer = await json(await handed(t, device));
+    expect(answer).toMatchObject({ status: "approved", owner: "alex", station: STATION.id });
+    expect(answer.token).toMatch(/^asf_station_/);
+    expect(answer.ingest).toMatch(/^asf_ingest_/);
+    expect((await ingest(t, answer.ingest as string, { session: SESSION, events: running() })).status).toBe(200);
+    expect((await poll(t, answer.token as string)).status).toBe(200);
+    // The approver's, recorded with who and when, and listed on the factory page.
+    expect((await t.query(api.tokens.list, { factory: "acme/widgets", signIn: alex }))?.tokens).toEqual([
+      expect.objectContaining({ kind: "station", label: STATION.name, station: STATION.id, issuedBy: "alex", issuedAt: Date.now() }),
+    ]);
+  });
+
+  it("is refused to a viewer without write on the repository it names, and hidden from one who cannot read it", async () => {
+    const forge = fakeForge();
+    forge.person("dana");
+    const t = await teamOf(forge, { sam: "read" });
+    const { code } = await registerOpenly(t);
+    const sam = await signIn(t, forge, "sam");
+
+    expect((await t.query(api.stations.pending, { code, signIn: sam }))?.because).toMatch(/needs write on acme\/widgets/);
+    expect(await t.mutation(api.stations.approve, { code, signIn: sam })).toMatchObject({ ok: false });
+    expect(await t.query(api.stations.pending, { code, signIn: await signIn(t, forge, "dana") })).toBeNull();
+    // Naming a repository the cockpit has never heard of gets it nobody's approval.
+    const nowhere = await registerOpenly(t, "someone/else");
+    expect(await t.query(api.stations.pending, { code: nowhere.code, signIn: sam })).toBeNull();
+  });
+
+  it("refuses a factory that is not owner/name, and a CI station", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+
+    expect((await asksOpenly(t, "widgets")).status).toBe(400);
+    expect((await asksOpenly(t, "acme/widgets", { ...STATION, kind: "ci" })).status).toBe(400);
+  });
+
+  it("replaces the ingest token an earlier registration of the same station was handed", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const alex = await signIn(t, forge, "alex");
+    const handOver = async () => {
+      const { device, code } = await registerOpenly(t);
+      await t.mutation(api.stations.approve, { code, signIn: alex });
+      return (await json(await handed(t, device))).ingest as string;
+    };
+    const first = await handOver();
+    const second = await handOver();
+
+    expect((await ingest(t, first, { session: SESSION, events: running() })).status).toBe(401);
+    expect((await ingest(t, second, { session: SESSION, events: running() })).status).toBe(200);
+    expect((await t.query(api.tokens.list, { factory: "acme/widgets", signIn: alex }))?.tokens).toHaveLength(1);
+  });
+
+  it("may wait only so many at once from one source, and for one factory, and runs out like any other", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const ingestToken = await factory(t, "acme/widgets");
+    const station = (n: number) => ({ id: `st_${n}`, name: `n${n}@box:widgets`, kind: "local" });
+
+    for (let n = 0; n < OPEN_PER_SOURCE; n += 1) expect((await asksOpenly(t, "acme/widgets", station(n))).status).toBe(200);
+    const flooded = await asksOpenly(t, "acme/elsewhere", station(99));
+    expect(flooded.status).toBe(429);
+    expect((await json(flooded)).error).toMatch(/waiting already/);
+
+    // Other sources fill the factory's share; then nobody gets one in for it.
+    for (let n = OPEN_PER_SOURCE; n < OPEN_PER_FACTORY; n += 1) {
+      expect((await asksOpenly(t, "acme/widgets", station(n), `198.51.100.${n}`)).status).toBe(200);
+    }
+    expect((await asksOpenly(t, "acme/widgets", station(98), "192.0.2.1")).status).toBe(429);
+    expect((await asksOpenly(t, "acme/elsewhere", station(97), "192.0.2.1")).status).toBe(200);
+    // A station holding the factory's ingest token is not what the limits are for.
+    await register(t, ingestToken, station(96));
+
+    vi.advanceTimersByTime(11 * 60_000);
+    expect((await asksOpenly(t, "acme/widgets", station(95))).status).toBe(200);
   });
 });
 

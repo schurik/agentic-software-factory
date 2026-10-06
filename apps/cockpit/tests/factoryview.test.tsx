@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { FactoryHeader } from "../components/factory/FactoryHeader";
 import { FactoryView } from "../components/factory/FactoryView";
-import { type Registration, StationsTab } from "../components/factory/StationsTab";
+import { IngestTokens, type Registration, StationsTab, type Token, type Tokens } from "../components/factory/StationsTab";
 import {
   behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, stationsAddress, tabHref, tabOf,
 } from "../components/factory/view";
@@ -264,7 +264,7 @@ describe("the Stations tab", () => {
                    panels={{ ...PANELS, stations: (
                      <StationsTab stations={[CARD]} ci={{ jobs: [], checks: [] }} drifts={drifts(shown, LOOK)} now={NOW} factory="acme/widgets"
                                   forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
-                                  registrations={[{ station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 60_000, approved: false, because: null }]} />
+                                  registrations={[{ station: "st_new", name: "alex@new:widgets", kind: "local", host: "new", ingest: false, expiresAt: NOW + 60_000, approved: false, because: null }]} />
                    ) }} />);
     const stations = html.slice(html.indexOf('id="factory-stations"'), html.indexOf('id="factory-config"'));
 
@@ -276,10 +276,10 @@ describe("the Stations tab", () => {
 
   it("puts pending registrations on top, to approve with the code the station's terminal shows", () => {
     const html = stationsTab([CARD], [
-      { station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 8 * 60_000, approved: false, because: null },
-      { station: "st_sam", name: "sam@lab:widgets", expiresAt: NOW + 9 * 60_000, approved: false,
+      { station: "st_new", name: "alex@new:widgets", kind: "local", host: "new", ingest: true, expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+      { station: "st_sam", name: "sam@lab:widgets", kind: "local", host: "lab", ingest: false, expiresAt: NOW + 9 * 60_000, approved: false,
         because: "a station takes commands for its owner, which needs write on acme/widgets; the forge says you have read" },
-      { station: "st_ok", name: "dana@box:widgets", expiresAt: NOW + 9 * 60_000, approved: true, because: null },
+      { station: "st_ok", name: "dana@box:widgets", kind: "local", host: "box", ingest: false, expiresAt: NOW + 9 * 60_000, approved: true, because: null },
     ]);
 
     expect(html.indexOf("alex@new:widgets")).toBeLessThan(html.indexOf("alex@mbp:widgets"));
@@ -290,5 +290,44 @@ describe("the Stations tab", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
     expect(html).toContain("the forge says you have read");
     expect(html).toContain("Approved: it picks up its token on its next poll.");
+    // Which machine asks, and that approving one asked without a token hands it this factory's ingest token.
+    expect(html).toContain("local · on <code>new</code> · asked without an ingest token: approving hands it one for this factory, as yours");
+    expect(html).toContain("local · on <code>lab</code></div>");
+  });
+});
+
+describe("the Stations tab's ingest tokens", () => {
+  const TOKENS: Tokens = {
+    mayIssue: true, site: "https://happy-otter-123.convex.site",
+    tokens: [
+      { id: "t1" as Token["id"], kind: "operator", label: "", station: "", issuedBy: "", issuedAt: NOW - 86_400_000, revocable: true },
+      { id: "t2" as Token["id"], kind: "station", label: "alex@mbp:widgets", station: "st_a", issuedBy: "alex", issuedAt: NOW - 3_600_000, revocable: false },
+      { id: "t3" as Token["id"], kind: "ci", label: "GitHub Actions", station: "", issuedBy: "sam", issuedAt: NOW - 60_000, revocable: true },
+    ],
+  };
+  const drawn = (tokens: Tokens, issued: string | null = null) => renderToStaticMarkup(
+    <IngestTokens tokens={tokens} factory="acme/widgets" now={NOW} issued={issued} onIssue={() => {}} onRevoke={() => {}} />);
+
+  it("lists each by what it was issued for, by whom and when — and Revoke only where the viewer may", () => {
+    const html = drawn(TOKENS);
+
+    expect(html).toContain("issued with the deployment&#x27;s admin key");
+    expect(html).toContain("<code>alex@mbp:widgets</code>");
+    expect(html).toContain("<code>GitHub Actions</code>");
+    expect(html).toContain("the operator");
+    expect(html.match(/>Revoke<\/button>/g)).toHaveLength(2);
+    expect(html).toContain("Issue a token for CI");
+    expect(html).not.toContain("shown this once");
+  });
+
+  it("shows a token just issued once, with where CI keeps it — and no issuing to a viewer who is no admin", () => {
+    const html = drawn(TOKENS, "asf_ingest_abc123");
+    expect(html).toContain("asf_ingest_abc123");
+    expect(html).toContain("secrets.ASF_COCKPIT_TOKEN");
+    expect(html).toContain("<code>https://happy-otter-123.convex.site</code>");
+
+    const reader = drawn({ ...TOKENS, mayIssue: false });
+    expect(reader).not.toContain("Issue a token for CI");
+    expect(reader).toContain("issued here by an admin");
   });
 });

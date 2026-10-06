@@ -10,6 +10,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { stationFieldsValidator } from "./model/command";
+import { tokenBy } from "./tokens";
 
 /** Keep a description for the factory whose ingest token digests to `digest`; false when none holds it. */
 export const keep = internalMutation({
@@ -19,7 +20,7 @@ export const keep = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, { digest, station, text, ref, head, configHash, format, ok }) => {
-    const token = await ctx.db.query("ingestTokens").withIndex("by_digest", (q) => q.eq("digest", digest)).unique();
+    const token = await tokenBy(ctx, digest);
     if (token === null) return false;
     const { factory } = token;
     const row = {
