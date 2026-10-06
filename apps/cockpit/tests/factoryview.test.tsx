@@ -122,8 +122,8 @@ describe("the Config tab", () => {
 
   it("leads with Edit config, the files it edits, and the proposals still open", () => {
     const opened: Look = { ...LOOK, proposals: [{
-      number: 12, title: "Raise the budget", url: `${FORGE}/acme/widgets/pull/12`, branch: "cockpit/alex/raise-the-budget",
-      by: "alex", at: NOW - 3_600_000,
+      number: 12, title: "Raise the budget", url: `${FORGE}/acme/widgets/pull/12`, head: "cockpit/alex/raise-the-budget",
+      author: "alex", at: NOW - 3_600_000,
     }] };
     const html = config(described, { look: opened });
 
@@ -154,7 +154,8 @@ describe("the Config tab", () => {
     expect(forge).toContain("GitHub · github.com");
     expect(forge).toContain("Issues GitHub Issues of acme/widgets");
     expect(forge).toContain("Reviews pull requests of acme/widgets, answered by pr-review");
-    expect(forge).toContain("asf:pr-failed");
+    expect(forge).toContain("queued asf:queued");
+    expect(forge).toContain("review failed asf:pr-failed");
 
     const intake = group(html, "Where work comes from");
     expect(intake).toContain("asf:ship → issue");
@@ -163,7 +164,7 @@ describe("the Config tab", () => {
     expect(intake).toContain("Trusted authors you, sam");
     expect(intake).toContain("At once 2 issue runs");
     expect(intake).toContain("Trusted reviewers anyone who can review");
-    expect(intake).toContain("Ignored codecov[bot]");
+    expect(intake).toContain("Never work review comments by codecov[bot]");
     expect(intake).toContain("Prompts quick, sdlc, ship");
 
     const gates = group(html, "People at gates");
@@ -178,14 +179,32 @@ describe("the Config tab", () => {
     expect(landing).toContain("Prompt runs a pull request, opened by the factory");
     expect(landing).toContain("Branches asf/<session> on origin");
     expect(landing).toContain("Based on the branch each station's checkout has out");
-    expect(landing).toContain("Worktrees .asf-worktrees/, removed after success and kept on failure for resume");
+    expect(landing).toContain("Worktrees .asf-worktrees/, removed after a clean success, kept otherwise for resume");
 
     const limits = group(html, "Limits and data");
-    expect(limits).toContain("Per session $2.50 · 2M tokens per session");
+    expect(limits).toContain("Budget $2.50 · 2M tokens per session");
     expect(limits).toContain("Transcripts kept, and aged out 14 days after a session finishes");
     expect(limits).toContain("The cockpit may send answer, abort, kill, resume");
     expect(limits).toContain("Drift 2 stations on another config → Stations");    // st_a edited, st_b behind on another
     expect(limits).toContain("Purged nothing");
+  });
+
+  it("says what a setting's empty or zero value means, and leaves out what an unwatched review watcher would do", () => {
+    const settings = structuredClone(SETTINGS.settings!);
+    settings.hitl = { ...settings.hitl, waitSeconds: 0, maxRounds: 0, notifyCommand: [] };
+    settings.intake.reviews.watched = false;
+    settings.intake.trustedAuthors = [];
+    const html = config(page({ check: { ...page().check!, description: { ...SETTINGS, settings } } }));
+
+    const gates = group(html, "People at gates");
+    expect(gates).toContain("Attended suspends at once");
+    expect(gates).toContain("Rounds until the person approves or aborts");
+    expect(gates).toContain("Notifies runs no command");
+    const intake = group(html, "Where work comes from");
+    expect(intake).toContain("Trusted authors anyone whose issue gets labelled");
+    expect(intake).toContain("Reviews not watched");
+    expect(intake).not.toContain("Trusted reviewers");
+    expect(group(html, "Forge and tracker")).toContain("Reviews not watched");
   });
 
   it("says the settings are not described when the self-description predates them, and still shows the check", () => {
@@ -197,7 +216,7 @@ describe("the Config tab", () => {
     for (const title of ["Forge and tracker", "Where work comes from", "People at gates", "How work lands"]) {
       expect(html).not.toContain(`<h2>${title}</h2>`);
     }
-    expect(group(html, "Limits and data")).toContain("Per session $2.50 · 2M tokens per session");
+    expect(group(html, "Limits and data")).toContain("Budget $2.50 · 2M tokens per session");
   });
 
   it("says a factory without a self-description is unchecked, never broken", () => {

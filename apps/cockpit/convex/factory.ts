@@ -14,10 +14,10 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { action, internalQuery, query, type QueryCtx } from "./_generated/server";
-import { repoKey, type Distance } from "./forge/forge";
+import { repoKey, type Distance, type OpenPull } from "./forge/forge";
 import { ForgeError, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
-import { type OpenProposal, proposalsOf } from "./model/config";
+import { proposalsOf } from "./model/config";
 import { readDescription } from "./model/description";
 import { roleOf } from "./commands";
 import { editing } from "./config";
@@ -98,7 +98,7 @@ export type Look =
   | {
     ok: true; tip: string | null; files: string[] | null; distances: Record<string, Distance | null>;
     /** The Config tab's pull requests still open: none when the forge will not show them. */
-    proposals: OpenProposal[];
+    proposals: OpenPull[];
   }
   | { ok: false; because: string };
 
@@ -117,7 +117,8 @@ export const looking = internalQuery({
 /**
  * Ask the forge what the page cannot be told: the default branch's commit,
  * the files under `asf/` there, each reporting station's distance from it,
- * and the config edits proposed from the Config tab that are still open. Read on the cockpit's own credential, for a viewer the mirror lets read
+ * and the config edits proposed from the Config tab that are still open.
+ * Read on the cockpit's own credential, for a viewer the mirror lets read
  * the repository; nothing read here is stored.
  */
 export const look = action({

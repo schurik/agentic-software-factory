@@ -368,8 +368,8 @@ describe("the Config tab's open proposals", () => {
     const looked = await t.action(api.factory.look, { factory: "acme/widgets", signIn: alex });
 
     expect(looked.ok && looked.proposals).toEqual([{
-      number: opened.number, title: "Raise the budget", url: opened.url, branch: "cockpit/alex/raise-the-budget",
-      by: "alex", at: expect.any(Number),
+      number: opened.number, title: "Raise the budget", url: opened.url, head: "cockpit/alex/raise-the-budget",
+      author: "alex", at: expect.any(Number),
     }]);
   });
 
@@ -384,6 +384,6 @@ describe("the Config tab's open proposals", () => {
 
     const looked = await t.action(api.factory.look, { factory: "acme/widgets" });
 
-    expect(looked.ok && looked.proposals.map((proposal) => proposal.branch)).toEqual(["cockpit/alex/raise-the-budget"]);
+    expect(looked.ok && looked.proposals.map((proposal) => proposal.head)).toEqual(["cockpit/alex/raise-the-budget"]);
   });
 });

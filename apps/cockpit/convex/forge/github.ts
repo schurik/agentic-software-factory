@@ -5,8 +5,8 @@
  */
 import { isRecord } from "../model/wire";
 import {
-  type Change, type Distance, FACTORY_FILE, type Issue, type Label, type OpenPull, type Person, type Proposal, type Pull, type Repository,
-  type Role,
+  type Change, type Distance, FACTORY_FILE, type Issue, type Label, type OpenPull, type Person, type Proposal, type Pull,
+  type Repository, type Role,
 } from "./forge";
 
 export interface Credential {
@@ -286,18 +286,8 @@ export class GitHub {
   /** Every open pull request of `repo`, as `as` is shown them, or null when they are not. */
   async pulls(as: Credential, repo: string): Promise<OpenPull[] | null> {
     try {
-      return await this.list(as, `/repos/${repo}/pulls?state=open&per_page=100`, (body) => items(body).map((pull) => {
-        const head = isRecord(pull.head) ? pull.head : {};
-        // A fork's branch is not one of this repository's: nothing the cockpit pushed.
-        const own = isRecord(head.repo) && String(head.repo.full_name).toLowerCase() === repo.toLowerCase();
-        return {
-          number: Number(pull.number), title: typeof pull.title === "string" ? pull.title : "",
-          url: typeof pull.html_url === "string" ? pull.html_url : "",
-          head: own && typeof head.ref === "string" ? head.ref : "",
-          author: isRecord(pull.user) && typeof pull.user.login === "string" ? pull.user.login : "",
-          at: typeof pull.created_at === "string" ? Date.parse(pull.created_at) || 0 : 0,
-        };
-      }));
+      return await this.list(as, `/repos/${repo}/pulls?state=open&per_page=100`,
+        (body) => items(body).map((pull) => readPull(pull, repo)));
     } catch (error) {
       if (error instanceof ForgeError && UNSHOWN.has(error.status)) return null;
       throw error;
@@ -379,6 +369,20 @@ function readIssue(body: unknown, number: number): Issue {
     number, title: typeof issue.title === "string" ? issue.title : "", open: issue.state === "open",
     pull: isRecord(issue.pull_request), url: typeof issue.html_url === "string" ? issue.html_url : "",
     labels: items(issue.labels).map((label) => String(label.name)),
+  };
+}
+
+/** An open pull request of `repo` as the forge's body for it describes it. */
+function readPull(pull: Record<string, unknown>, repo: string): OpenPull {
+  const head = isRecord(pull.head) ? pull.head : {};
+  // A fork's branch is not one of this repository's: nothing the cockpit pushed.
+  const own = isRecord(head.repo) && String(head.repo.full_name).toLowerCase() === repo.toLowerCase();
+  return {
+    number: Number(pull.number), title: typeof pull.title === "string" ? pull.title : "",
+    url: typeof pull.html_url === "string" ? pull.html_url : "",
+    head: own && typeof head.ref === "string" ? head.ref : "",
+    author: isRecord(pull.user) && typeof pull.user.login === "string" ? pull.user.login : "",
+    at: typeof pull.created_at === "string" ? Date.parse(pull.created_at) || 0 : 0,
   };
 }
 

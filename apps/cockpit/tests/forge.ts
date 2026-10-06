@@ -354,10 +354,7 @@ export class FakeForge {
   /** A pull request opened on `name` from its branch `head` by `author`, as if on GitHub itself. */
   pull(name: string, given: { head: string; title: string; author: string }): number {
     const repo = this.known(name);
-    const number = Math.max(0, ...repo.issues.keys()) + 1;
-    repo.issues.set(number, { title: given.title, state: "open", pull: true, labels: [] });
-    repo.pulls.push({ number, ...given, body: "", base: repo.defaultBranch, via: "person", at: opened(number) });
-    return number;
+    return opening(repo, { ...given, body: "", base: repo.defaultBranch, via: "person" });
   }
 
   /** What `path` holds on `name` at `ref` — a branch or a commit — or undefined when it holds nothing there. */
@@ -709,9 +706,7 @@ export class FakeForge {
     }
     const [head, base] = [String(body.head), String(body.base)];
     if (!repo.branches.has(head) || base !== repo.defaultBranch || typeof body.title !== "string" || !body.title) return invalid;
-    const number = Math.max(0, ...repo.issues.keys()) + 1;
-    repo.issues.set(number, { title: body.title, state: "open", pull: true, labels: [] });
-    repo.pulls.push({ number, title: body.title, body: String(body.body ?? ""), head, base, author, via, at: opened(number) });
+    const number = opening(repo, { title: body.title, body: String(body.body ?? ""), head, base, author, via });
     return [201, { number, html_url: `https://${this.host}/${repo.name}/pull/${number}`, user: { login: author } }];
   }
 
@@ -836,9 +831,15 @@ export class FakeForge {
   }
 }
 
-/** When pull request `number` was opened: a minute after the one before it. */
-function opened(number: number): string {
-  return new Date(Date.UTC(2026, 8, 1) + number * 60_000).toISOString();
+/**
+ * Pull request `pull` opened on `repo`, numbered as GitHub numbers it — after
+ * every issue — and opened a minute after the one before it. Its number.
+ */
+function opening(repo: Repo, pull: Omit<Pull, "number" | "at">): number {
+  const number = Math.max(0, ...repo.issues.keys()) + 1;
+  repo.issues.set(number, { title: pull.title, state: "open", pull: true, labels: [] });
+  repo.pulls.push({ ...pull, number, at: new Date(Date.UTC(2026, 8, 1) + number * 60_000).toISOString() });
+  return number;
 }
 
 /** A unified diff of two trees, as far as a test reads one: every changed file, its old lines out and its new lines in. */

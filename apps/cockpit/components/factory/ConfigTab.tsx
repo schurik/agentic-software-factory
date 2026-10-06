@@ -46,6 +46,7 @@ export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purg
 }) {
   const { check } = page;
   const settings = check?.description.settings ?? null;
+  const workflows = check?.description.workflows ?? [];
   return (
     <div className="grid gap-6">
       <Edit page={page} look={look} forge={forge} now={now} onEdit={onEdit} />
@@ -56,7 +57,7 @@ export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purg
           <>
             <ForgeGroup settings={settings} forge={forge} />
             <IntakeGroup settings={settings} />
-            <GatesGroup settings={settings} workflows={check!.description.workflows} />
+            <GatesGroup settings={settings} workflows={workflows} />
             <LandingGroup settings={settings} />
           </>
         )}
@@ -137,7 +138,7 @@ function Edit({ page, look, forge, now, onEdit }: {
                   {look.proposals.map((proposal) => (
                     <li key={proposal.number}>
                       <a href={proposal.url} target="_blank" rel="noreferrer">#{proposal.number} {proposal.title}</a>
-                      <span className="text-muted"> · by {who(proposal.by)} {formatAgoAt(proposal.at, now)}</span>
+                      <span className="text-muted"> · by {who(proposal.author)} {formatAgoAt(proposal.at, now)}</span>
                     </li>
                   ))}
                 </ul>
@@ -214,7 +215,7 @@ function NotDescribed({ check }: { check: Check | null }) {
         <strong>Not described.</strong>{" "}
         {check === null ? <>The factory&apos;s settings arrive with its self-description, which no CI workflow has pushed yet.</>
           : <>This factory&apos;s self-description is format {check.description.format}, written before a factory described its
-            settings. Its next check on a release that does (skill 1.3.0 or later) fills them in.</>}
+            settings. Its next check on a release that describes them fills them in.</>}
       </p>
       <p className="mt-2 text-sm text-muted">The cockpit never reads <code>{FACTORY_FILE}</code> itself: only what the factory says of it.</p>
     </Group>
@@ -234,14 +235,22 @@ function ForgeGroup({ settings, forge }: { settings: Settings; forge: string }) 
           ? <>pull requests of {project(tracker.reviewProject)}, answered by <strong className="font-medium">{intake.reviews.workflow}</strong></>
           : "not watched"],
         ["Labels it writes", (
-          <span key="labels" className="flex flex-wrap gap-1">
-            {Object.values(tracker.labels).filter(Boolean).map((label) => <Tag key={label}><code>{label}</code></Tag>)}
+          <span key="labels" className="flex flex-wrap gap-x-3 gap-y-1">
+            {LABELS.map(([state, key]) => (tracker.labels[key] ? (
+              <span key={key}><span className="text-muted">{state}</span> <code>{tracker.labels[key]}</code></span>
+            ) : null))}
           </span>
         )],
       ]} />
     </Group>
   );
 }
+
+/** Each label the factory writes, by what it marks. */
+const LABELS: [string, keyof Settings["forge"]["labels"]][] = [
+  ["queued", "queued"], ["running", "running"], ["done", "done"], ["failed", "failed"],
+  ["refined", "refined"], ["review failed", "prFailed"],
+];
 
 /** Which labels start which workflow, whose work is taken, how much at once — and reviews and prompts. */
 function IntakeGroup({ settings }: { settings: Settings }) {
@@ -266,14 +275,17 @@ function IntakeGroup({ settings }: { settings: Settings }) {
         ["Trusted authors", names(intake.trustedAuthors, who, "anyone whose issue gets labelled")],
         ["At once", plural(intake.maxConcurrent, "issue run")],
         ["Reviews", reviews.watched ? reviewWords(settings) : "not watched"],
-        ["Trusted reviewers", names(reviews.trustedReviewers, who, "anyone who can review")],
-        ["Ignored", reviews.ignoreAuthors.join(", ") || "nobody"],
+        ...(reviews.watched ? [
+          ["Trusted reviewers", names(reviews.trustedReviewers, who, "anyone who can review")],
+          ["Never work", reviews.ignoreAuthors.length ? `review comments by ${reviews.ignoreAuthors.join(", ")}` : "every review comment can be"],
+        ] as [string, ReactNode][] : []),
         ["Prompts", intake.promptWorkflows.join(", ") || "no workflow takes a prompt"],
       ]} />
     </Group>
   );
 }
 
+/** What the review watcher does with a review: replies, resolves, how much at once, and what ends it. */
 function reviewWords({ intake: { reviews } }: Settings): string {
   const replies = reviews.replyToThreads ? "replies in the thread" : "no replies in the thread";
   const resolves = reviews.resolveThreads ? ", resolves what it addressed" : "";
@@ -306,11 +318,11 @@ function GatesGroup({ settings, workflows }: { settings: Settings; workflows: De
         <li className="text-muted">Every other gate {asks(hitl.default)}.</li>
       </ul>
       <Rows className="mt-3 text-sm" rows={[
-        ["Attended", `asks in place for ${formatDuration(hitl.waitSeconds)}, then suspends`],
+        ["Attended", hitl.waitSeconds ? `asks in place for ${formatDuration(hitl.waitSeconds)}, then suspends` : "suspends at once"],
         ["Unattended", hitl.whenUnattended === "auto" ? "passes on its own" : "suspends, and asks on the work item"],
         ["Rounds", hitl.maxRounds ? `at most ${hitl.maxRounds}` : "until the person approves or aborts"],
         ["Notifies", hitl.notifyCommand.length ? <code key="notify">{hitl.notifyCommand.join(" ")}</code>
-          : "nobody — the comment on the work item is the notice"],
+          : "runs no command"],
       ]} />
     </Group>
   );
@@ -333,7 +345,7 @@ function LandingGroup({ settings }: { settings: Settings }) {
           ? "from the session's first moment, so a gate's subject can be read here"
           : "when it is integrated — until then, a gate's subject is on the station only"],
         ["Worktrees", landing.worktrees
-          ? <><code key="dir">{landing.worktreeDir}/</code>, {landing.keepOnSuccess ? "kept after success" : "removed after success and kept on failure for resume"}</>
+          ? <><code key="dir">{landing.worktreeDir}/</code>, {landing.keepOnSuccess ? "kept after success" : "removed after a clean success, kept otherwise for resume"}</>
           : "none — a session runs in the station's checkout itself"],
       ]} />
     </Group>
@@ -363,7 +375,7 @@ function LimitsGroup({ page, settings, budget, drifts, now, purges, onPurge, onT
   return (
     <Group title="Limits and data">
       <Rows rows={[
-        ...(budget ? [["Per session", budgetWords(budget)] as [string, ReactNode]] : []),
+        ...(budget ? [["Budget", budgetWords(budget)] as [string, ReactNode]] : []),
         ...(limits ? [
           ["Transcripts", !limits.transcripts ? "off — no prompt or tool argument leaves the machine"
             : limits.transcriptRetentionDays ? `kept, and aged out ${plural(limits.transcriptRetentionDays, "day")} after a session finishes`
