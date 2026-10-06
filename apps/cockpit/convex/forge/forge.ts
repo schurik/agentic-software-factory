@@ -81,6 +81,18 @@ export interface Pull {
   url: string;
 }
 
+/** An open pull request: what it is called, the branch it is from, who opened it and when. */
+export interface OpenPull {
+  number: number;
+  title: string;
+  url: string;
+  /** The branch it is from, in the repository itself; "" for a fork's. */
+  head: string;
+  author: string;
+  /** When it was opened, in ms. */
+  at: number;
+}
+
 export type Role = Infer<typeof roleValidator>;
 export type Repository = Infer<typeof repositoryValidator>;
 export type Reach = Infer<typeof reachValidator>;
@@ -145,6 +157,8 @@ export interface Forge {
    * show them. What the cockpit reads to tell queued work nobody watches.
    */
   labelled(repo: string, label: string): Promise<Issue[] | null>;
+  /** Every open pull request of `repo`, or null when the forge will not show them. */
+  pulls(repo: string): Promise<OpenPull[] | null>;
   /** Issue (or pull request) `number` of `repo`, or null when the forge shows none. */
   issue(repo: string, number: number): Promise<Issue | null>;
   /**

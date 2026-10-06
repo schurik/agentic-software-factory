@@ -125,7 +125,7 @@ export function FactoryPage({ factory }: { factory: string }) {
                      </>
                    ),
                    config: (
-                     <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges}
+                     <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges} onTab={onTab}
                                 onPurge={(reason) => purge({ factory, reason, signIn })}
                                 onEdit={(path) => {
                                   const base = editing?.base ?? (look?.ok ? look.tip : null);

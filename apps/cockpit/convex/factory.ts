@@ -17,6 +17,7 @@ import { action, internalQuery, query, type QueryCtx } from "./_generated/server
 import { repoKey, type Distance } from "./forge/forge";
 import { ForgeError, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
+import { type OpenProposal, proposalsOf } from "./model/config";
 import { readDescription } from "./model/description";
 import { roleOf } from "./commands";
 import { editing } from "./config";
@@ -94,7 +95,11 @@ export const promptWorkflows = query({
 });
 
 export type Look =
-  | { ok: true; tip: string | null; files: string[] | null; distances: Record<string, Distance | null> }
+  | {
+    ok: true; tip: string | null; files: string[] | null; distances: Record<string, Distance | null>;
+    /** The Config tab's pull requests still open: none when the forge will not show them. */
+    proposals: OpenProposal[];
+  }
   | { ok: false; because: string };
 
 /** What the look needs from the database: whether the viewer may, which branch, and the commits stations stand on. */
@@ -111,8 +116,8 @@ export const looking = internalQuery({
 
 /**
  * Ask the forge what the page cannot be told: the default branch's commit,
- * the files under `asf/` there, and each reporting station's distance from
- * it. Read on the cockpit's own credential, for a viewer the mirror lets read
+ * the files under `asf/` there, each reporting station's distance from it,
+ * and the config edits proposed from the Config tab that are still open. Read on the cockpit's own credential, for a viewer the mirror lets read
  * the repository; nothing read here is stored.
  */
 export const look = action({
@@ -124,13 +129,14 @@ export const look = action({
     const opened = await open(ctx);
     if (opened === null) return { ok: false, because: "this cockpit has no forge credential to ask with" };
     try {
+      const proposals = proposalsOf(await opened.forge.pulls(args.factory) ?? []);
       const tip = await opened.forge.tip(args.factory, asked.branch);
-      if (tip === null) return { ok: true, tip, files: null, distances: {} };
+      if (tip === null) return { ok: true, tip, files: null, distances: {}, proposals };
       const distances: Record<string, Distance | null> = {};
       for (const head of asked.heads) {
         if (head !== tip) distances[head] = await opened.forge.distance(args.factory, tip, head);
       }
-      return { ok: true, tip, files: await opened.forge.paths(args.factory, tip, "asf"), distances };
+      return { ok: true, tip, files: await opened.forge.paths(args.factory, tip, "asf"), distances, proposals };
     } catch (error) {
       if (!(error instanceof ForgeError || error instanceof RateLimited)) throw error;
       return { ok: false, because: error.message };

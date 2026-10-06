@@ -10,7 +10,9 @@ import {
 import { WorkflowsTab } from "../components/factory/WorkflowsTab";
 import type { StationDetail } from "../convex/activity";
 import type { Look } from "../convex/factory";
+import { editRefusal } from "../convex/model/config";
 import { readDescription } from "../convex/model/description";
+import { ViewerLogin } from "../components/viewer";
 
 // The Factory page's header and tabs, rendered to static markup with no
 // backend (spec #40): workflows from the factory's own self-description, a
@@ -20,6 +22,9 @@ import { readDescription } from "../convex/model/description";
 const golden = import.meta.glob("../../../tests/golden/self-description/v1.json",
                                 { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
 const DESCRIPTION = readDescription(Object.values(golden)[0]);
+const current = import.meta.glob("../../../tests/golden/self-description/v2.json",
+                                 { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+const SETTINGS = readDescription(Object.values(current)[0]);
 const TIP = DESCRIPTION.checked.head;
 const NOW = Date.parse("2026-10-01T12:00:00.000Z");
 const FORGE = "https://github.com";
@@ -41,7 +46,7 @@ function page(fields: Partial<Page> = {}): Page {
 
 const LOOK: Look = {
   ok: true, tip: TIP, files: ["asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml"],
-  distances: { ["1".repeat(40)]: { ahead: 0, behind: 3 } },
+  distances: { ["1".repeat(40)]: { ahead: 0, behind: 3 } }, proposals: [],
 };
 
 describe("the Workflows tab", () => {
@@ -96,16 +101,118 @@ describe("the header", () => {
 });
 
 describe("the Config tab", () => {
-  it("lists the default branch's files, the check, and each station's drift", () => {
-    const shown = page();
-    const html = renderToStaticMarkup(
-      <ConfigTab page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} />);
+  /** The Config tab of `shown`, its stations' drift measured by LOOK, for the viewer alex. */
+  function config(shown: Page, given: Partial<Parameters<typeof ConfigTab>[0]> = {}): string {
+    return renderToStaticMarkup(
+      <ViewerLogin.Provider value="alex">
+        <ConfigTab page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} onEdit={() => {}}
+                   onTab={() => {}} {...given} />
+      </ViewerLogin.Provider>);
+  }
+  /** The text of the group titled `title`, up to the next one. */
+  function group(html: string, title: string): string {
+    const from = html.indexOf(`<h2>${title}</h2>`);
+    expect(from).toBeGreaterThan(-1);
+    const to = html.indexOf("<h2>", from + 1);
+    return text(html.slice(from, to < 0 ? undefined : to));
+  }
+  const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&#x27;/g, "'").replace(/\s+/g, " ").replace(/ ([,.:;])(?= )/g, "$1");
+  const described = page({ check: { ...page().check!, description: SETTINGS } });
 
+  it("leads with Edit config, the files it edits, and the proposals still open", () => {
+    const opened: Look = { ...LOOK, proposals: [{
+      number: 12, title: "Raise the budget", url: `${FORGE}/acme/widgets/pull/12`, branch: "cockpit/alex/raise-the-budget",
+      by: "alex", at: NOW - 3_600_000,
+    }] };
+    const html = config(described, { look: opened });
+
+    expect(html).toMatch(/<button[^>]*>Edit config<\/button>/);
     expect(html).toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);
-    expect(html).toContain("failing");
-    expect(html).toContain("✗</span> nightly");
-    expect(html).toContain("local edits");
-    expect(html).toContain("3 commits behind");
+    expect(html).toContain(`<a href="${FORGE}/acme/widgets/pull/12"`);
+    expect(text(html)).toContain("#12 Raise the budget · by you 1h ago");
+    expect(text(config(described))).toContain("No config edit proposed here is open.");
+  });
+
+  it("disables Edit config without write access, and says why", () => {
+    const because = editRefusal("triage")!;
+    const html = config(page({ ...described, edit: because }));
+
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Edit config<\/button>/);
+    expect(html).toContain(because);
+  });
+
+  it("shows each group's resolved settings, from the factory's own self-description", () => {
+    const html = config(described);
+
+    const check = group(html, "Check");
+    expect(check).toContain("failing");
+    expect(check).toMatch(/✓ issue/);
+    expect(check).toMatch(/✗ nightly .*agent 'nobody' is neither in the roster/);
+
+    const forge = group(html, "Forge and tracker");
+    expect(forge).toContain("GitHub · github.com");
+    expect(forge).toContain("Issues GitHub Issues of acme/widgets");
+    expect(forge).toContain("Reviews pull requests of acme/widgets, answered by pr-review");
+    expect(forge).toContain("asf:pr-failed");
+
+    const intake = group(html, "Where work comes from");
+    expect(intake).toContain("asf:ship → issue");
+    expect(intake).toContain("asf:refine-ship → refine-ship");
+    expect(intake).toContain("Queued as asf:queued");
+    expect(intake).toContain("Trusted authors you, sam");
+    expect(intake).toContain("At once 2 issue runs");
+    expect(intake).toContain("Trusted reviewers anyone who can review");
+    expect(intake).toContain("Ignored codecov[bot]");
+    expect(intake).toContain("Prompts quick, sdlc, ship");
+
+    const gates = group(html, "People at gates");
+    expect(gates).toContain("plan passes by policy — on in issue");
+    expect(gates).toContain("integrate passes by policy");
+    expect(gates).toContain("Every other gate passes by policy.");
+    expect(gates).toContain("Attended asks in place for 15m, then suspends");
+    expect(gates).toContain("Rounds at most 3");
+    expect(gates).toContain("Notifies scripts/notify.sh");
+
+    const landing = group(html, "How work lands");
+    expect(landing).toContain("Prompt runs a pull request, opened by the factory");
+    expect(landing).toContain("Branches asf/<session> on origin");
+    expect(landing).toContain("Based on the branch each station's checkout has out");
+    expect(landing).toContain("Worktrees .asf-worktrees/, removed after success and kept on failure for resume");
+
+    const limits = group(html, "Limits and data");
+    expect(limits).toContain("Per session $2.50 · 2M tokens per session");
+    expect(limits).toContain("Transcripts kept, and aged out 14 days after a session finishes");
+    expect(limits).toContain("The cockpit may send answer, abort, kill, resume");
+    expect(limits).toContain("Drift 2 stations on another config → Stations");    // st_a edited, st_b behind on another
+    expect(limits).toContain("Purged nothing");
+  });
+
+  it("says the settings are not described when the self-description predates them, and still shows the check", () => {
+    const html = config(page());
+
+    expect(group(html, "Check")).toMatch(/✗ nightly/);
+    expect(text(html)).toContain("Not described.");
+    expect(text(html)).toContain("format 1");
+    for (const title of ["Forge and tracker", "Where work comes from", "People at gates", "How work lands"]) {
+      expect(html).not.toContain(`<h2>${title}</h2>`);
+    }
+    expect(group(html, "Limits and data")).toContain("Per session $2.50 · 2M tokens per session");
+  });
+
+  it("says a factory without a self-description is unchecked, never broken", () => {
+    const html = text(config(page({ check: null })));
+
+    expect(html).toContain("Unchecked");
+    expect(html).toContain("install.py --ci");
+    expect(html).toContain("Not described.");
+    expect(html).not.toMatch(/broken|failing/);
+  });
+
+  it("lists every purge of the factory's bodies", () => {
+    const html = config(described, { purges: [{ at: NOW - 60_000, session: "", via: "cockpit", by: "sam", reason: "a key in a prompt" }] });
+
+    expect(group(html, "Limits and data")).toContain("Purged every session, by sam 1m ago: a key in a prompt");
   });
 
   it("measures config only against a check made at the default branch's commit", () => {
