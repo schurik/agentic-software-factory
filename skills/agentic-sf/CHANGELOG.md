@@ -29,6 +29,8 @@ before — `None` when there are none, never omitted.
   where the URL is (`CONVEX_SITE_ORIGIN`, or `<deployment>.convex.site`; not `:3000` or `:3210`,
   which it names when given) and the `tokens:issue` command for this repository's `owner/name`.
   A re-run keeps team once `.env` names one. The stamped `.env.sample` explains both modes.
+  `cookbooks/cockpit.md` is switching an installed checkout either way: what the old cockpit
+  still holds (claims, the command token), and which watchers are safe on local beside a team.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw

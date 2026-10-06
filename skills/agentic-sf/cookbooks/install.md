@@ -91,7 +91,8 @@ writes the URL, and the token it asked for, into `.env` on the sample's own
 lines, never over a value already there, and prints what is still missing with
 the `tokens:issue` command for this repository's `owner/name`. With an agent
 driving the install there is no terminal: pass `--cockpit team --cockpit-url …`
-and leave the token to the engineer.
+and leave the token to the engineer. Switching an installed checkout later is
+[cockpit.md](cockpit.md).
 
 ## What gets stamped
 
