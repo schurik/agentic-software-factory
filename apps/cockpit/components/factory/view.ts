@@ -1,7 +1,8 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
-import type { Budget } from "@/convex/model/description";
+import { liveness } from "@/convex/model/command";
+import type { Budget, DescribedWorkflow } from "@/convex/model/description";
 import { type Drift, drift, type Reference } from "@/convex/model/drift";
 import { formatDollars, formatTokens, plural } from "../format";
 
@@ -88,13 +89,13 @@ export function tabHref(repo: string, tab: FactoryTab): string {
 }
 
 /**
- * Where an old `/stations` link goes, now that a factory's page holds its
- * stations: the Stations tab of the one factory the viewer's stations are
- * in, or the Factories list to choose one from.
+ * Where an old link goes, now that a factory's page holds what it showed —
+ * `/stations` to the Stations tab, `/cost` to the Overview: that tab of the
+ * one factory among `factories`, or the Factories list to choose one from.
  */
-export function stationsAddress(factories: string[]): string {
+export function soleAddress(factories: string[], tab: FactoryTab): string {
   const distinct = new Set(factories);
-  return distinct.size === 1 ? tabHref([...distinct][0], "stations") : "/factories";
+  return distinct.size === 1 ? tabHref([...distinct][0], tab) : "/factories";
 }
 
 /** Whether release `release` is older than `main`'s, both `X.Y.Z`; never, when either cannot be read. */
@@ -108,4 +109,18 @@ export function behind(release: string, main: string): boolean {
 function parts(release: string): number[] | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(release);
   return match ? match.slice(1).map(Number) : null;
+}
+
+/** The watcher a station loop runs that starts a workflow of each input. */
+const WATCHER: Record<string, string> = { issue: "issues", pr: "prs" };
+
+/**
+ * How many stations online at `now` run the watcher that starts `workflow`;
+ * null for a workflow no watcher starts — a prompt's, or one no route label
+ * or review setting hands to its watcher.
+ */
+export function watchedBy(workflow: DescribedWorkflow, stations: StationRow[], now: number): number | null {
+  const watcher = WATCHER[workflow.input];
+  if (watcher === undefined || !workflow.trigger.watched || (workflow.input === "issue" && !workflow.trigger.labels.length)) return null;
+  return stations.filter((row) => row.watchers.includes(watcher) && liveness(row.seenAt, null, now).online).length;
 }

@@ -1,14 +1,13 @@
 /**
- * A factory's Activity (spec #40): what needs attention, what is running now,
- * and what finished last — and its Stations: who runs what, where. Whatever
- * depends on a station is shown under it: the watchers it runs, the sessions
- * it holds and the claims it holds. CI jobs, which come and go, are one entry.
+ * A factory's Stations (spec #40): who runs what, where. Whatever depends on a
+ * station is shown under it: the watchers it runs, the sessions it holds and
+ * the claims it holds. CI jobs, which come and go, are one entry.
  *
- * `attentionOf` is the one place what needs attention is read: by the
- * Factory page's `attention` query, and by `factories.list`, whose rows are
- * ranked by it. It returns the facts — what the cockpit was told, with
- * their timestamps — and `model/attention.ts` says which of them are worth
- * a person's attention against the page's own clock.
+ * And `attentionOf`, the one place what needs attention is read: by Now
+ * (`now.page`), across every factory the viewer can read, and by
+ * `factories.list`, whose rows are ranked by it. It returns the facts — what
+ * the cockpit was told, with their timestamps — and `model/attention.ts` says
+ * which of them are worth a person's attention against the page's own clock.
  */
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
@@ -30,7 +29,7 @@ import { readable, viewing, type Viewing } from "./viewer";
 const SCANNED = 500;
 /** How many failures the facts carry: more than a day's worth is not news to anyone. */
 const FAILURES = 20;
-/** How many finished sessions Recent lists, and how many CI jobs and check pushes the CI entry does. */
+/** How many CI jobs and check pushes the CI entry lists. */
 const RECENT = 10;
 
 /** A session's record with its summary read: what every list here is made of. */
@@ -55,7 +54,7 @@ function workflowOf(summary: Summary): string {
   return summary.workflows.at(-1) ?? "";
 }
 
-/** A session as Activity and the Stations tab list it. */
+/** A session as the Stations tab lists it. */
 export interface SessionRow {
   session: string;
   workflow: string;
@@ -83,7 +82,7 @@ function rowOf(known: Recorded): SessionRow {
   };
 }
 
-/** Whether a session is live or suspended: what Running now shows. */
+/** Whether a session is live or suspended. */
 function open({ summary }: Recorded): boolean {
   return summary.status === "running" || summary.status === "waiting";
 }
@@ -91,10 +90,6 @@ function open({ summary }: Recorded): boolean {
 /** How many of `known` are live: running now, not suspended at a gate. */
 export function liveIn(known: Recorded[]): number {
   return known.filter(({ summary }) => summary.status === "running").length;
-}
-
-function finished({ summary }: Recorded): boolean {
-  return summary.status === "success" || summary.status === "fail";
 }
 
 /** Whether a station still holds a session: live, suspended, or failed — which only it can resume. */
@@ -159,39 +154,6 @@ export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string, 
   return { gates: await gatesOf(ctx, who, factory), failed: failures(known), claims: await heldOn(ctx, who, factory),
            ...(await checkOf(ctx, factory, repo, stations)), queued: repo?.queued ?? null, watchers };
 }
-
-export const attention = query({
-  args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory: named, signIn }): Promise<Facts | null> => {
-    const who = await viewing(ctx, signIn);
-    const factory = await readable(ctx, who, named);
-    if (factory === null) return null;
-    return await attentionOf(ctx, who, factory);
-  },
-});
-
-/**
- * Running now — the live and suspended sessions, grouped by the workflow each
- * is in, most recently active first — and Recent: the last finished ones,
- * however they ended.
- */
-export const page = query({
-  args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory: named, signIn }) => {
-    const factory = await readable(ctx, await viewing(ctx, signIn), named);
-    if (factory === null) return null;
-    const known = await recentOf(ctx, factory);
-    const groups = new Map<string, SessionRow[]>();
-    for (const each of known.filter(open)) {
-      const row = rowOf(each);
-      groups.set(row.workflow, [...(groups.get(row.workflow) ?? []), row]);
-    }
-    return {
-      running: [...groups].sort(([a], [b]) => (a < b ? -1 : 1)).map(([workflow, sessions]) => ({ workflow, sessions })),
-      recent: known.filter(finished).map(rowOf).sort((a, b) => b.endedAt - a.endedAt).slice(0, RECENT),
-    };
-  },
-});
 
 /** A command waiting for a station: queued, or delivered and not yet answered. The page's clock says whether it expired. */
 export interface Waiting {

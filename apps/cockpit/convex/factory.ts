@@ -70,6 +70,8 @@ export const page = query({
       stations: (await reporting(ctx, factory)).map((row) => ({
         station: row.station, name: row.name, kind: row.kind, owner: row.ownerLogin, seenAt: row.seenAt,
         head: row.report?.head ?? "", configHash: row.report?.configHash ?? "",
+        // What its loop watches for — issues, answers, prs — as its last poll said: what starts a workflow.
+        watchers: row.report?.watchers ?? [],
       })),
     };
   },

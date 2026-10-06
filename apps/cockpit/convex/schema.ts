@@ -82,8 +82,13 @@ export default defineSchema({
     // (retention.ts) has looked at its events.
     transcripts: v.optional(v.boolean()),
     transcriptsDue: v.optional(v.number()),
+    // Whether its phases' rows (`phases`) were written from its first event.
+    // Unset on a session stored before they existed: the backfill, or its next
+    // batch, writes them from the start (phases.ts).
+    phased: v.optional(v.boolean()),
   })
     .index("by_session", ["factory", "session"])
+    .index("by_phased", ["phased"])
     .index("by_transcripts", ["transcripts"])
     .index("by_transcripts_due", ["transcriptsDue"])
     .index("by_activity", ["activity"])
@@ -111,6 +116,38 @@ export default defineSchema({
     .index("by_session_at", ["factory", "session", "at"])
     .index("by_factory_at", ["factory", "at"])
     .index("by_at", ["at"]),
+
+  // What one phase of a session did (model/phases.ts): its chapter, workflow
+  // and stage, how it went, how long it worked, what it cost, and — a round a
+  // person was asked at a gate — what they answered and how long it waited.
+  // Written by ingest as the phase's events become contiguous, the way spend
+  // is, so a factory's Overview and Workflows count phases without reading
+  // events. `since` and `replay` are only what the next batch goes on from.
+  phases: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    phase: v.string(),                // the phase's id
+    chapter: v.number(),
+    workflow: v.string(),
+    stage: v.union(v.null(), v.string()),       // none for the work item, the report, or a factory before stages
+    stageIndex: v.union(v.null(), v.number()),
+    kind: v.string(),                 // agent | code | gate
+    name: v.string(),
+    status: v.string(),               // running | waiting | success | fail
+    at: v.number(),                   // when it first started, epoch ms
+    duration: v.number(),             // seconds its live runs worked
+    since: v.union(v.null(), v.number()),
+    replay: v.boolean(),
+    cost: v.number(),
+    tokens: v.number(),
+    gate: v.string(),
+    round: v.number(),
+    askedAt: v.union(v.null(), v.number()),
+    verdict: v.string(),              // "" until a person answered
+    wait: v.union(v.null(), v.number()),        // seconds from asked to answered
+  })
+    .index("by_session", ["factory", "session", "phase"])
+    .index("by_factory_at", ["factory", "at"]),
 
   // An answer a viewer posted from the inbox: the comment on the work item,
   // which is the answer itself — this only remembers that it was sent, so the

@@ -151,7 +151,7 @@ itself goes on the installation token, like the cockpit's other reading.
 
 The home page, `/` (#115, `convex/now.ts`), is one query for the viewer across every factory the
 permission mirror lets them read, in four sections. The **Inbox**, which never folds, is the gates
-waiting on them (below). **Needs attention** is the Factory page's rule (`model/attention.ts`)
+waiting on them (below). **Needs attention** is the attention rule (`model/attention.ts`)
 gathered across factories, less the gates the Inbox already holds: each row names its next step and
 goes there — Open a failed session, Release a claim, Compare a drifted station, See config for a
 failing check, Stations when nobody watches; the steps that belong on a factory's tab go to that tab
@@ -164,7 +164,7 @@ its clock, as constants beside the attention rule: a phase running over 10 minut
 verify" in amber, a spend from 80% of the factory's per-session ceiling is "$0.21 of $0.25" in amber,
 and a wait over 30 minutes reads amber. The header's Now carries the count of gates waiting on the
 viewer from every page (`inbox:count`), and nothing at zero. `/?factory=<owner>/<repo>` narrows every
-section to that factory's, as its Factory page links here.
+section to that factory's.
 
 ### The inbox
 
@@ -381,7 +381,7 @@ A local cockpit is one person's and grants nothing: a factory claims only from a
 ## The Factories list: what needs attention first
 
 `/factories` ranks the factories the viewer can read, drawn with Now's rows: those that need
-attention first — the same facts as a Factory page's Needs attention, from the same `attentionOf` —
+attention first — the same facts as Now's Needs attention, from the same `attentionOf` —
 then the most recently active, then the rest by name (`convex/model/factories.ts`). Like the Factory
 page, the ranking is read against the page's clock, so a failure stops ranking its factory first a
 day after it ended. Each row says what needs the viewer — the **gates waiting on them**, a **failing
@@ -402,17 +402,26 @@ so a session that went on into a pull request's review spends in both workflows.
 use is offset from UTC by a multiple of fifteen minutes, so a period starting at any viewer's
 midnight takes whole rows.
 
+Each phase is kept the same way, one row a phase (`phases`, `convex/model/phases.ts`), folded as its
+events become contiguous: its chapter, workflow and stage — by the stage index its `phase_started`
+v3 carries, none for the work item, the report or a factory before stages — its kind and status, the
+time its live runs worked (a replay works none), what its agent calls cost, and, for a round a person
+was asked at a gate, their verdict and how long it waited for it. A gate the policy passed asked
+nobody, and is no row. Sessions an older cockpit stored are written from their first event by
+`phases:backfill`, which `docker/start.sh` (and a Vercel production build) runs after each deploy, or by their next batch if it comes
+first.
+
 ## Cost: who spent, and who asked
 
-`/cost`, and the Factory page's Overview for one factory, roll that spend up
-(`convex/cost.ts`) by **session**, **workflow** (a factory's own: two factories' `ship` are two),
-**factory**, **station** — whose machine and key paid, so it names the station's owner, the person
-who registered it — and **person**, who triggered the run. The two differ whenever a teammate's
-label is picked up by your watcher: your station paid, they asked. The period is today, this week
-or this month in the viewer's own timezone, month-to-date by default, or a range of calendar days
-there (`daysOf` in `convex/model/period.ts`). Every amount is labelled **list-price equivalent** —
-what the tokens would cost at the provider's list price, subscription or not — with the tokens
-alongside.
+`convex/cost.ts` rolls one factory's spend up by **workflow**, **station** — whose machine and key
+paid, so it names the station's owner, the person who registered it — and **person**, who triggered
+the run. The two differ whenever
+a teammate's label is picked up by your watcher: your station paid, they asked. A factory's Overview
+reads it over the last 7 or 30 calendar days in the viewer's own timezone (`lastDays` in
+`convex/model/period.ts`); `/cost`, which once showed it across factories, goes on to the Overview of
+the viewer's one factory, or to the Factories list. Every amount is labelled **list-price
+equivalent** — what the tokens would cost at the provider's list price, subscription or not — with
+the tokens alongside.
 
 A factory is summed under every spelling its rows were stored under, as the Factories list sums
 it. One roll-up sums at most `SUMMED` rows (a quarter hour a session and charge): a range long
@@ -466,7 +475,7 @@ CLI. Each one writes an
 audit line to `purges` — who, what, when and why — which the Config tab lists.
 Core events are never purged, so a factory's cost history holds.
 
-## The Factory page: what needs attention, who runs what, and the factory's own self-description
+## The Factory page: what it spent, how it went, and the factory's own self-description
 
 The cockpit never reads a factory's workflow files. What it shows of them is the factory's own
 **self-description**: what `asf check --json` prints (`engine/describe.py`) — every workflow's
@@ -490,20 +499,29 @@ attention rows land on the tab that answers them (Compare and Stations on Statio
 Config), and a dot marks a tab that holds a problem: a broken workflow, a drifted station, a failing
 check. **All sessions →** beside the tabs is `/sessions?factory=<owner>/<repo>`.
 
-**Overview**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
-that the viewer may answer (a link to Now narrowed to the factory, `/?factory=<owner>/<repo>`), the sessions that
-failed in the last day, each claim whose station has not been heard of for over a day — "held by
-`alex@mbp`, offline 2 d", never orphaned, with Release claim — the stations whose config drifted, a
-failing check, and **nobody watching**: issues queued for a route while no station online runs an
-issues watcher. `activity:attention` is the one query that reads those facts, for this page and for
-the Factories list to rank by; which of them are news is read against the page's clock
-(`convex/model/attention.ts`), so a failure stops being news without anything new arriving. Then
-**Running now** — the live and suspended sessions, by the workflow each is in, naming its station —
-and **Recent**, the last finished ones, and what the factory spent in a period, as `/cost` rolls it up
-(below).
+**Overview**, the default (`convex/overview.ts`), shows only what no other page does — what is
+happening now is Now's, any one session the Sessions page's — for the last 7 or 30 days, one filter
+row above everything it filters. **Spend**: the total with its tokens, per day and per session, a
+column a day, and by station ("whose key paid") and by person ("who started it"), from the spend
+rows. **Outcomes**: the period's sessions done, failed and open — a session is the period's when it
+ended in it, or, still going, was last heard from in it — the share that finished well, the median
+time to finish, and the median wait at gates with the rounds a person answered and how many they
+rejected, from the phase rows. **By workflow**: the same per workflow, a session counting toward
+each it passed through — done in one it went on from — with what was charged to it and when a phase
+of it last started (`convex/model/overview.ts`).
 
-**Workflows** renders the description from the default branch, with Run in place for a workflow
-that takes a prompt.
+**Workflows** renders the description from the default branch: the workflows `asf check` refused
+first, each with its error, then a card per workflow — its input, its trigger labels and how many
+stations online run the watcher that starts it (in amber when none do), what it does, its last 30
+days (sessions, done and failed, median time, spend) with a link to the factory's sessions, and its
+`asf check` warnings. Its shape is the session page's stage graph (`WorkflowGraph`), in neutral cards
+with neutral connectors, each stage annotated with the agents bound to it, the median time its
+phases worked in a chapter and what they cost, whether its gate asks a person and — when one was asked —
+the rounds they rejected and the median wait, and markers for the slowest stage and the chapters that
+failed there (`convex/model/workflows.ts`). The figures are the Overview's query over the last 30
+days, read off the phase rows; a figure goes on a stage only when that stage held its place when it
+ran. The agents fold into a table — where each runs, its model and thinking, its tools, and what it
+may write — and a prompt workflow's Run opens the header's dialog on that factory and workflow.
 
 **Stations** has the stations asking to join on top (`stations:registrations`), each approved by
 typing the code its `asf station register` printed — never shown here, because typing it is what

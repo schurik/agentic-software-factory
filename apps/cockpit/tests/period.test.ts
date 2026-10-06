@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayOf, daysOf, periodOf } from "../convex/model/period";
+import { dayOf, daysOf, lastDays, periodOf } from "../convex/model/period";
 
 // A period is a calendar day, week or month in the viewer's own timezone
 // (spec #40): where it starts there, and where the next one does.
@@ -58,5 +58,25 @@ describe("the calendar day an instant falls on in the viewer's timezone", () => 
   it("is the day it already is there, as a date input writes it", () => {
     expect(dayOf(at("2026-10-31T23:30:00Z"), "Europe/Berlin")).toBe("2026-11-01");
     expect(dayOf(at("2026-10-31T23:30:00Z"), "UTC")).toBe("2026-10-31");
+  });
+});
+
+describe("the last days, as the Overview's period has them", () => {
+  it("is each midnight of the last 7 days there, today's included, and the one after today", () => {
+    const days = lastDays(7, at("2026-10-14T09:30:00Z"), "UTC");
+
+    expect(days).toHaveLength(8);
+    expect(days[0]).toBe(at("2026-10-08T00:00:00Z"));
+    expect(days.at(-1)).toBe(at("2026-10-15T00:00:00Z"));
+  });
+
+  it("keeps to the viewer's midnights across a DST change, so one day is 25 hours long", () => {
+    // Europe/Berlin leaves summer time on 2026-10-25.
+    const days = lastDays(30, at("2026-10-27T12:00:00Z"), "Europe/Berlin");
+
+    expect(days).toHaveLength(31);
+    expect(days[0]).toBe(at("2026-09-27T22:00:00Z"));           // CEST
+    expect(days.at(-1)).toBe(at("2026-10-27T23:00:00Z"));       // CET
+    expect(days.indexOf(at("2026-10-25T23:00:00Z")) - days.indexOf(at("2026-10-24T22:00:00Z"))).toBe(1);
   });
 });

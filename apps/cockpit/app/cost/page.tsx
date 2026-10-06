@@ -1,12 +1,6 @@
-import { CostPanel } from "@/components/cost/CostPanel";
-import { PageHeader } from "@/components/ui";
+import { CostRedirect } from "@/components/CostRedirect";
 
-// No longer in the nav (#105): the factory page absorbs it, and until then the route keeps working.
+// A factory's Overview holds what it spent now (#119): an old link goes on to it.
 export default function CostPage() {
-  return (
-    <>
-      <PageHeader title="Cost" />
-      <CostPanel />
-    </>
-  );
+  return <CostRedirect />;
 }
