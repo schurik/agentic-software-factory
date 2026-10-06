@@ -11,7 +11,7 @@
  * page blocks and what the action refuses are the same thing.
  */
 import { parseDocument } from "yaml";
-import { atLeast, type Role } from "../forge/forge";
+import { atLeast, type OpenPull, type Role } from "../forge/forge";
 
 /** The directory a factory's config lives under: the only files the cockpit edits. */
 export const CONFIG_DIR = "asf";
@@ -101,11 +101,19 @@ export function asCommitted(text: string, crlf: boolean): string {
   return crlf ? text.replace(/\n/g, "\r\n") : text;
 }
 
+/** What every proposal's branch starts with: what tells a proposal from any other pull request. */
+const PROPOSAL_BRANCH_PREFIX = "cockpit/";
+
 /** The branch a proposal by `login` titled `title` goes on: `cockpit/<login>/<slug>`. */
 export function branchFor(login: string, title: string): string {
   const slug = title.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
     .replace(/[^a-z0-9]+/g, "-").slice(0, SLUG_LENGTH).replace(/^-+|-+$/g, "");
-  return `cockpit/${login}/${slug || "config-edit"}`;
+  return `${PROPOSAL_BRANCH_PREFIX}${login}/${slug || "config-edit"}`;
+}
+
+/** The open pull requests among `pulls` that the Config tab proposed — from a `cockpit/` branch — newest first. */
+export function proposalsOf(pulls: OpenPull[]): OpenPull[] {
+  return pulls.filter((pull) => pull.head.startsWith(PROPOSAL_BRANCH_PREFIX)).sort((a, b) => b.at - a.at);
 }
 
 /** The pull request's body: the person's own words, then where it came from and what was checked. */

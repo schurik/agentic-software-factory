@@ -352,3 +352,38 @@ describe("the Factory page says whether the viewer may edit", () => {
     expect((await t.query(api.factory.page, { factory: "acme/widgets", signIn: alex }))!.edit).toBe(because);
   });
 });
+
+describe("the Config tab's open proposals", () => {
+  it("are the open pull requests from a cockpit/ branch, as the factory's look finds them", async () => {
+    const forge = fakeForge();
+    const { t, alex } = await teamWith(forge, "write");
+    const opened = await t.action(api.config.propose, { ...proposing(), signIn: alex });
+    const closed = await t.action(api.config.propose, { ...proposing({ title: "Lower it again" }), signIn: alex });
+    if (!opened.ok || !closed.ok) throw new Error("not proposed");
+    forge.issue("acme/widgets", closed.number, { title: "Lower it again", state: "closed", pull: true });
+    // Someone's own pull request is no proposal of the Config tab's.
+    forge.branch("acme/widgets", "feature/faster", BASE);
+    forge.pull("acme/widgets", { head: "feature/faster", title: "Go faster", author: "sam" });
+
+    const looked = await t.action(api.factory.look, { factory: "acme/widgets", signIn: alex });
+
+    expect(looked.ok && looked.proposals).toEqual([{
+      number: opened.number, title: "Raise the budget", url: opened.url, head: "cockpit/alex/raise-the-budget",
+      author: "alex", at: expect.any(Number),
+    }]);
+  });
+
+  it("are read with the person's own token in a local cockpit", async () => {
+    const forge = fakeForge();
+    localMode(forge, forge.person("alex"));
+    forge.repo("acme/widgets", { factory: true, roles: { alex: "admin" } });
+    committed(forge);
+    const t = cockpit();
+    await catchUp(t);
+    await t.action(api.config.propose, proposing());
+
+    const looked = await t.action(api.factory.look, { factory: "acme/widgets" });
+
+    expect(looked.ok && looked.proposals.map((proposal) => proposal.head)).toEqual(["cockpit/alex/raise-the-budget"]);
+  });
+});

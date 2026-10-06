@@ -25,7 +25,9 @@ function page(fields: Partial<Page> = {}): Page {
   };
 }
 
-const LOOK: Look = { ok: true, tip: BASE, files: ["asf/factory.yaml", "asf/agents/planner/agent.md"], distances: {} };
+const LOOK: Look = {
+  ok: true, tip: BASE, files: ["asf/factory.yaml", "asf/agents/planner/agent.md"], distances: {}, proposals: [],
+};
 
 // Rendered for alex, the viewer the pull request goes up as.
 function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorView>[0]> = {}): string {

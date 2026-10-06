@@ -66,6 +66,8 @@ export interface Pull {
   base: string;
   author: string;
   via: "person" | "user" | "installation";
+  /** When it was opened. */
+  at: string;
 }
 
 interface Issue {
@@ -349,6 +351,12 @@ export class FakeForge {
     return [...this.known(name).pulls];
   }
 
+  /** A pull request opened on `name` from its branch `head` by `author`, as if on GitHub itself. */
+  pull(name: string, given: { head: string; title: string; author: string }): number {
+    const repo = this.known(name);
+    return opening(repo, { ...given, body: "", base: repo.defaultBranch, via: "person" });
+  }
+
   /** What `path` holds on `name` at `ref` — a branch or a commit — or undefined when it holds nothing there. */
   at(name: string, ref: string, path: string): string | undefined {
     const repo = this.known(name);
@@ -523,6 +531,20 @@ export class FakeForge {
         }));
       return this.page(request, token, url, found, (items) => items);
     }
+    const pulls = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(path);
+    if (pulls && method === "GET" && !as("app")) {
+      const repo = this.repos.get(pulls[1].toLowerCase());
+      if (!repo || !this.reads(bearer, repo)) return this.reply(request, token, 404, { message: "Not Found" });
+      // As GitHub lists them: open unless asked, its state the issue's it is served as too.
+      const state = url.searchParams.get("state") ?? "open";
+      const found = repo.pulls.filter((pull) => state === "all" || repo.issues.get(pull.number)?.state === state)
+        .map((pull) => ({
+          number: pull.number, title: pull.title, state: repo.issues.get(pull.number)?.state, user: { login: pull.author },
+          html_url: `https://${this.host}/${repo.name}/pull/${pull.number}`, created_at: pull.at,
+          head: { ref: pull.head, repo: { full_name: repo.name } }, base: { ref: pull.base },
+        }));
+      return this.page(request, token, url, found, (items) => items);
+    }
     const reading = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(path);
     if (reading && method === "GET" && !as("app")) {
       const repo = this.repos.get(reading[1].toLowerCase());
@@ -684,9 +706,7 @@ export class FakeForge {
     }
     const [head, base] = [String(body.head), String(body.base)];
     if (!repo.branches.has(head) || base !== repo.defaultBranch || typeof body.title !== "string" || !body.title) return invalid;
-    const number = Math.max(0, ...repo.issues.keys()) + 1;
-    repo.issues.set(number, { title: body.title, state: "open", pull: true, labels: [] });
-    repo.pulls.push({ number, title: body.title, body: String(body.body ?? ""), head, base, author, via });
+    const number = opening(repo, { title: body.title, body: String(body.body ?? ""), head, base, author, via });
     return [201, { number, html_url: `https://${this.host}/${repo.name}/pull/${number}`, user: { login: author } }];
   }
 
@@ -809,6 +829,17 @@ export class FakeForge {
     this.pushes += 1;
     return new Date(Date.UTC(2026, 8, 1) + this.pushes * 1000).toISOString();
   }
+}
+
+/**
+ * Pull request `pull` opened on `repo`, numbered as GitHub numbers it — after
+ * every issue — and opened a minute after the one before it. Its number.
+ */
+function opening(repo: Repo, pull: Omit<Pull, "number" | "at">): number {
+  const number = Math.max(0, ...repo.issues.keys()) + 1;
+  repo.issues.set(number, { title: pull.title, state: "open", pull: true, labels: [] });
+  repo.pulls.push({ ...pull, number, at: new Date(Date.UTC(2026, 8, 1) + number * 60_000).toISOString() });
+  return number;
 }
 
 /** A unified diff of two trees, as far as a test reads one: every changed file, its old lines out and its new lines in. */
