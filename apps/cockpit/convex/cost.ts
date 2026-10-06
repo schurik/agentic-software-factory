@@ -1,52 +1,35 @@
 /**
- * What the factories' agent calls cost in a period, rolled up (spec #40):
- * by session, workflow, factory, station — whose machine and key paid, and so
- * whose it is — and person, who triggered the run. "Who spent" and "who
- * asked" differ whenever a teammate's label is picked up by your watcher.
+ * What a factory's agent calls cost in a period, rolled up (spec #40): by
+ * workflow, station — whose machine and key paid, and so whose it is — and
+ * person, who triggered the run. "Who spent" and "who asked" differ whenever
+ * a teammate's label is picked up by your watcher. A factory's Overview
+ * reads it (overview.ts).
  *
  * Read off the `spend` table (model/spend.ts), which ingest charges as each
- * `usage` event arrives, and summed for whichever period the page asks for:
- * a calendar day, week or month of the viewer's own timezone, or a range of
- * days (model/period.ts). Every amount is list-price equivalent, with the
- * tokens it bought alongside, and nothing here is a budget: the only ceiling
- * there is is the factory's per session.
+ * `usage` event arrives, and summed for the days the page asks for, by the
+ * viewer's own midnights (model/period.ts). Every amount is list-price
+ * equivalent, with the tokens it bought alongside, and nothing here is a
+ * budget: the only ceiling there is is the factory's per session.
  */
-import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { query, type QueryCtx } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import type { Period } from "./model/period";
 import { readSummary, type Summary } from "./model/session";
 import { type Charge, chargeOf, type Spend } from "./model/spend";
-import { spellingsOf, storedAs } from "./spelling";
-import { canRead, readable, viewing } from "./viewer";
+import { spellingsOf } from "./spelling";
 
 /**
  * The most `spend` rows one roll-up sums: a quarter hour a session and
- * charge, so a busy team's month is well under it, and a range of days long
- * enough to pass it is refused (`cut`) rather than summed in part.
+ * charge, so a busy team's month is well under it, and a period long enough
+ * to pass it is refused rather than summed in part.
  */
 export const SUMMED = 10_000;
 
-export interface SessionCost extends Spend {
-  factory: string;
-  session: string;
-  /** What it was asked to do, and the workflows it passed through: what names it on the page. */
-  request: string;
-  workflows: string[];
-}
-
 export interface WorkflowCost extends Spend {
-  /** A workflow is its factory's: two factories' `ship` are two workflows. */
-  factory: string;
   workflow: string;
 }
 
-export interface FactoryCost extends Spend {
-  factory: string;
-}
-
 export interface StationCost extends Spend {
-  factory: string;
   station: string;
   name: string;
   /** The forge login of whoever registered it, "" for a station nobody did: whose machine and key paid. */
@@ -59,120 +42,58 @@ export interface PersonCost extends Spend {
 }
 
 export interface Rollup {
-  /** The period held more than `SUMMED` rows, and nothing was summed: a shorter one will be. */
-  cut: boolean;
   total: Spend;
+  /** How many sessions spent anything. */
+  sessions: number;
   /** Each dimension, most spent first. */
-  sessions: SessionCost[];
   workflows: WorkflowCost[];
-  factories: FactoryCost[];
   stations: StationCost[];
   people: PersonCost[];
 }
 
 /**
- * What was spent in `period` — in `factory` alone on its Factory page, in
- * every factory the viewer can read on the Cost page. Null for someone who
- * may not read the factory, or has not signed in to a team's cockpit. A
- * factory is summed under every spelling its rows were stored under, and
- * named by the one it is stored under now (`spelling.ts`), as the Factories
- * list sums it.
- */
-export const rollup = query({
-  args: {
-    factory: v.optional(v.string()),
-    period: v.object({ from: v.number(), to: v.number() }),
-    signIn: v.optional(v.string()),
-  },
-  handler: async (ctx, { factory: named, period: { from, to }, signIn }): Promise<Rollup | null> => {
-    const who = await viewing(ctx, signIn);
-    if (who.mode === "team" && who.viewer === null) return null;
-    const rows: Stored[] = [];
-    let scanned = 0;
-    if (named !== undefined) {
-      const factory = await readable(ctx, who, named);
-      if (factory === null) return null;
-      const found = await spentOn(ctx, factory, { from, to });
-      if (found === null) return { ...NOTHING, cut: true };
-      rows.push(...found);
-    } else {
-      const storedHere = new Map<string, string | null>();
-      for await (const row of ctx.db.query("spend").withIndex("by_at", (q) => q.gte("at", from).lt("at", to))) {
-        if ((scanned += 1) > SUMMED) return { ...NOTHING, cut: true };
-        if (!storedHere.has(row.factory)) {
-          storedHere.set(row.factory, (await canRead(ctx, who, row.factory)) ? await storedAs(ctx, row.factory) : null);
-        }
-        const factory = storedHere.get(row.factory)!;
-        if (factory !== null) rows.push({ row, factory });
-      }
-    }
-    return await rolledUp(ctx, rows);
-  },
-});
-
-const NOTHING: Rollup = {
-  cut: false, total: { cost: 0, tokens: 0 }, sessions: [], workflows: [], factories: [], stations: [], people: [],
-};
-
-/** A row as it was stored, and the factory it is summed under: the spelling its factory is stored under now. */
-export interface Stored {
-  row: Doc<"spend">;
-  factory: string;
-}
-
-/**
  * The rows `factory` — as it is stored now — spent in `period`, under every
- * spelling its rows were stored under; null when there are more than `SUMMED`.
+ * spelling its rows were stored under (`spelling.ts`), as the Factories list
+ * sums it; null when there are more than `SUMMED`.
  */
-export async function spentOn(ctx: QueryCtx, factory: string, { from, to }: Period): Promise<Stored[] | null> {
-  const rows: Stored[] = [];
+export async function spentOn(ctx: QueryCtx, factory: string, { from, to }: Period): Promise<Doc<"spend">[] | null> {
+  const rows: Doc<"spend">[] = [];
   for (const spelling of await spellingsOf(ctx, factory)) {
     const found = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", from).lt("at", to));
     for await (const row of found) {
       if (rows.length === SUMMED) return null;
-      rows.push({ row, factory });
+      rows.push(row);
     }
   }
   return rows;
 }
 
-export async function rolledUp(ctx: QueryCtx, rows: Stored[]): Promise<Rollup> {
+/** `rows` of `factory` — as it is stored now — rolled up. */
+export async function rolledUp(ctx: QueryCtx, factory: string, rows: Doc<"spend">[]): Promise<Rollup> {
   const summaries = new Map<string, Summary>();
-  const sessions = new Map<string, SessionCost>();
   const workflows = new Map<string, WorkflowCost>();
-  const factories = new Map<string, FactoryCost>();
   const stations = new Map<string, StationCost>();
   const people = new Map<string, PersonCost>();
   const total: Spend = { cost: 0, tokens: 0 };
 
-  for (const { row, factory } of rows) {
+  for (const row of rows) {
     const key = JSON.stringify([row.factory, row.session]);
     if (!summaries.has(key)) summaries.set(key, await summaryOf(ctx, row.factory, row.session));
-    const summary = summaries.get(key)!;
-    const charge = chargeIn(row, summary);
+    const charge = chargeIn(row, summaries.get(key)!);
     add(total, row);
-    add(entry(sessions, key, () => ({
-      factory, session: row.session, request: summary.request, workflows: summary.workflows,
-    })), row);
-    add(entry(workflows, JSON.stringify([factory, charge.workflow]), () => ({ factory, workflow: charge.workflow })), row);
-    add(entry(factories, factory, () => ({ factory })), row);
-    add(entry(stations, JSON.stringify([factory, charge.station]), () => ({
-      factory, station: charge.station, name: charge.stationName, owner: "",
-    })), row);
+    add(entry(workflows, charge.workflow, () => ({ workflow: charge.workflow })), row);
+    add(entry(stations, charge.station, () => ({ station: charge.station, name: charge.stationName, owner: "" })), row);
     add(entry(people, charge.person, () => ({ person: charge.person })), row);
   }
 
   // A registered station is its owner's, under the name it registered with.
   for (const station of stations.values()) {
     const registered = await ctx.db.query("stations")
-      .withIndex("by_station", (q) => q.eq("factory", station.factory).eq("station", station.station)).unique();
+      .withIndex("by_station", (q) => q.eq("factory", factory).eq("station", station.station)).unique();
     if (registered !== null) Object.assign(station, { name: registered.name, owner: registered.ownerLogin });
   }
 
-  return {
-    cut: false, total, sessions: ranked(sessions), workflows: ranked(workflows), factories: ranked(factories),
-    stations: ranked(stations), people: ranked(people),
-  };
+  return { total, sessions: summaries.size, workflows: ranked(workflows), stations: ranked(stations), people: ranked(people) };
 }
 
 /** What a row is charged to: what ingest charged it, or — stored before it charged anything — its session's summary. */

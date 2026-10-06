@@ -385,9 +385,9 @@ first.
 
 ## Cost: who spent, and who asked
 
-`convex/cost.ts` rolls that spend up by **session**, **workflow** (a factory's own: two factories'
-`ship` are two), **factory**, **station** — whose machine and key paid, so it names the station's
-owner, the person who registered it — and **person**, who triggered the run. The two differ whenever
+`convex/cost.ts` rolls one factory's spend up by **workflow**, **station** — whose machine and key
+paid, so it names the station's owner, the person who registered it — and **person**, who triggered
+the run. The two differ whenever
 a teammate's label is picked up by your watcher: your station paid, they asked. A factory's Overview
 reads it over the last 7 or 30 calendar days in the viewer's own timezone (`lastDays` in
 `convex/model/period.ts`); `/cost`, which once showed it across factories, goes on to the Overview of

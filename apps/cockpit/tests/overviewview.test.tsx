@@ -21,8 +21,8 @@ const OVERVIEW: Overview = {
     sessions: 3,
     days: WEEK.slice(0, -1).map((from, index) => ({ from, cost: DAILY[index], tokens: DAILY[index] ? 1000 : 0 })),
     stations: [
-      { factory: "acme/widgets", station: "st_8d58", name: "schurik@mbp:widgets", owner: "", cost: 0.463, tokens: 27_100 },
-      { factory: "acme/widgets", station: "st_7f3a9c", name: "alex@mbp:widgets", owner: "alex", cost: 0.056, tokens: 3_600 },
+      { station: "st_8d58", name: "schurik@mbp:widgets", owner: "", cost: 0.463, tokens: 27_100 },
+      { station: "st_7f3a9c", name: "alex@mbp:widgets", owner: "alex", cost: 0.056, tokens: 3_600 },
     ],
     people: [
       { person: "schurik", cost: 0.463, tokens: 27_100 },

@@ -62,12 +62,12 @@ export const page = query({
     const phases = await phasesIn(ctx, factory, period);
     if (spent === null || sessions === null || phases === null) return { ...NONE, cut: true };
 
-    const rollup = await rolledUp(ctx, spent);
+    const rollup = await rolledUp(ctx, factory, spent);
     return {
       cut: false,
       spend: {
-        total: rollup.total, sessions: rollup.sessions.length,
-        days: dailyOf(spent.map(({ row }) => row), days), stations: rollup.stations, people: rollup.people,
+        total: rollup.total, sessions: rollup.sessions,
+        days: dailyOf(spent, days), stations: rollup.stations, people: rollup.people,
       },
       outcomes: outcomesOf(sessions, phases),
       workflows: workflowsOf(sessions, phases, rollup.workflows),

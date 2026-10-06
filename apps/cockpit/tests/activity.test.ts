@@ -5,9 +5,9 @@ import { fakeForge, type FakeForge } from "./forge";
 import { catchUp, factory, fixture, ingest, signIn, type WireEvent } from "./helpers";
 import { approved, poll, post, REPORT, STATION, teamOf } from "./station";
 
-// A factory's Activity (spec #40): what needs attention — gates waiting, failed
+// What needs attention on a factory (spec #40) — gates waiting, failed
 // sessions, claims whose station has been away a day, drift, a failing check,
-// and nobody watching — what is running now, and what finished last. The query
+// and nobody watching — as Now reads it, and the factory's Stations. The query
 // is what the cockpit was told; whether each thing is worth a person's
 // attention is read against the page's clock (`needsAttention`), so a failure
 // stops being news without anything new arriving.
@@ -102,10 +102,15 @@ async function ship(t: Awaited<ReturnType<typeof teamOf>>, token: string, ...ses
   }
 }
 
-/** What needs attention on acme/widgets for `holding`, as the page would read it at `now`. */
+/** The facts Now reads of acme/widgets for `holding`; undefined when it shows them none. */
+async function factsOf(t: Awaited<ReturnType<typeof teamOf>>, holding: string) {
+  return (await t.query(api.now.page, { signIn: holding }))?.attention.find((each) => each.factory === "acme/widgets")?.facts;
+}
+
+/** What needs attention on acme/widgets for `holding`, as Now would read it at `now`. */
 async function attention(t: Awaited<ReturnType<typeof teamOf>>, holding: string, now = NOW): Promise<Attention[]> {
-  const facts = await t.query(api.activity.attention, { factory: "acme/widgets", signIn: holding });
-  expect(facts).not.toBeNull();
+  const facts = await factsOf(t, holding);
+  expect(facts).toBeDefined();
   return needsAttention(facts!, now);
 }
 
@@ -262,19 +267,6 @@ describe("needs attention", () => {
     ]);
   });
 
-  it("goes by the drift a page measured against the forge's tip, when it has one, over the last check's", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    const token = await factory(t, "acme/widgets");
-    const alex = await signIn(t, forge, "alex");
-    await poll(t, await approved(t, token, alex), { report: { ...REPORT, config_hash: "beef" } });
-    const facts = (await t.query(api.activity.attention, { factory: "acme/widgets", signIn: alex }))!;
-    expect(needsAttention(facts, NOW)).toEqual([]);                       // no check: nothing to measure by here
-
-    const measured = [{ station: ALEX.id, name: ALEX.name, badges: ["3 commits behind"] }];
-    expect(needsAttention(facts, NOW, measured)).toEqual([{ kind: "drift", stations: measured }]);
-    expect(needsAttention(facts, NOW, [])).toEqual([]);
-  });
-
   it("says nobody is watching when issues are queued for a route and no station runs an issues watcher", async () => {
     const t = await teamOf(forge, { alex: "write" });
     const token = await factory(t, "acme/widgets");
@@ -306,57 +298,7 @@ describe("needs attention", () => {
   it("is nothing at all to someone the forge does not let read the repository", async () => {
     const t = await teamOf(forge, { alex: "write" });
     forge.person("eve");
-    expect(await t.query(api.activity.attention, { factory: "acme/widgets", signIn: await signIn(t, forge, "eve") })).toBeNull();
-  });
-});
-
-describe("running now and recent", () => {
-  const BOB = { id: "st_bob", name: "bob@desk:widgets", kind: "local" };
-
-  it("groups live and suspended sessions by the workflow they are in, each naming its station", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    const token = await factory(t, "acme/widgets");
-    await ship(t, token,
-      { session: "r1", workflow: "issue" },
-      { session: "r2", workflow: "pr-review", station: BOB },
-      { session: "r3", workflow: "issue", status: "waiting", station: BOB },
-      { session: "done", workflow: "issue", status: "success" });
-
-    const page = await t.query(api.activity.page, { factory: "acme/widgets", signIn: await signIn(t, forge, "alex") });
-
-    expect(page!.running.map((group) => ({
-      workflow: group.workflow,
-      sessions: group.sessions.map(({ session, status, station, gate }) => ({ session, status, station, gate })),
-    }))).toEqual([
-      { workflow: "issue", sessions: [
-        { session: "r3", status: "waiting", station: BOB.name, gate: "requirements round 1" },
-        { session: "r1", status: "running", station: ALEX.name, gate: "" },
-      ] },
-      { workflow: "pr-review", sessions: [{ session: "r2", status: "running", station: BOB.name, gate: "" }] },
-    ]);
-  });
-
-  it("lists the last finished sessions, newest first, however they ended", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    const token = await factory(t, "acme/widgets");
-    await ship(t, token,
-      ...Array.from({ length: 12 }, (_, at) => ({
-        session: `s${at}`, status: at % 3 ? "success" as const : "fail" as const, endedAt: NOW - (12 - at) * HOUR,
-      })),
-      { session: "live" });
-
-    const page = await t.query(api.activity.page, { factory: "acme/widgets", signIn: await signIn(t, forge, "alex") });
-
-    expect(page!.recent.map(({ session, status }) => [session, status])).toEqual([
-      ["s11", "success"], ["s10", "success"], ["s9", "fail"], ["s8", "success"], ["s7", "success"],
-      ["s6", "fail"], ["s5", "success"], ["s4", "success"], ["s3", "fail"], ["s2", "success"],
-    ]);
-    expect(page!.recent[0]).toMatchObject({ workflow: "issue", station: ALEX.name, endedAt: NOW - HOUR });
-  });
-
-  it("is nothing to someone who may not read the factory", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    expect(await t.query(api.activity.page, { factory: "acme/widgets" })).toBeNull();
+    expect(await factsOf(t, await signIn(t, forge, "eve"))).toBeUndefined();
   });
 });
 
