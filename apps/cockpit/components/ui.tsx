@@ -136,6 +136,20 @@ export function PageHeader({ title, sub, children }: { title: ReactNode; sub?: R
   );
 }
 
+/**
+ * A page outside the three places (#122) — setting up the App, signing in,
+ * approving a station: one card, centred and no wider than a line reads
+ * well, its title on top and what it says spaced under it.
+ */
+export function Standalone({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <Card className="mx-auto max-w-2xl px-4 py-5 sm:mt-4 sm:px-6 sm:py-6">
+      <h1>{title}</h1>
+      <div className="mt-3 [&>*+*]:mt-3 [&>:first-child]:mt-0 [&>:last-child]:mb-0">{children}</div>
+    </Card>
+  );
+}
+
 /** A titled part of a page. */
 export function Section({ title, right, className, children }: { title: ReactNode; right?: ReactNode; className?: string; children: ReactNode }) {
   return (
