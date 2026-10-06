@@ -130,6 +130,77 @@ def test_the_stamped_ci_workflow_s_command_is_one_check_accepts(stamped: Path):
     assert json.loads(result.stdout)["ok"] is True
 
 
+# ── the cockpit: local or team, and `.env` is where the answer lives ─────────
+
+def uncommented(env: Path, key: str) -> list[str]:
+    return [line for line in env.read_text().splitlines() if line.startswith(f"{key}=")]
+
+
+def test_without_a_terminal_the_cockpit_is_local_and_nothing_is_written(repo: Path):
+    result = install(repo, "--harness", "claude_code")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not uncommented(repo / ".env", "ASF_COCKPIT_URL")
+    assert "cockpit: local" in result.stdout
+    assert "--cockpit team" in result.stdout                  # the other one is named
+
+
+def test_a_team_cockpit_s_url_lands_where_the_sample_explains_it(repo: Path):
+    git(repo, "remote", "add", "origin", "git@github.com:acme/widgets.git")
+    result = install(repo, "--harness", "pi", "--cockpit-url", "https://cockpit.example/")
+    assert result.returncode == 0, result.stdout + result.stderr
+    env = (repo / ".env").read_text()
+    assert uncommented(repo / ".env", "ASF_COCKPIT_URL") == \
+        ["ASF_COCKPIT_URL=https://cockpit.example"]
+    assert "# ASF_COCKPIT_URL=" not in env                    # replaced, not appended
+    # No terminal, so no token was asked for: it is named as missing, with how
+    # to get one issued for THIS repository.
+    assert "STILL MISSING from .env: ASF_COCKPIT_TOKEN" in result.stdout
+    assert "the cockpit refuses what this checkout ships" in result.stdout
+    assert """tokens:issue '{"factory": "acme/widgets"}'""" in result.stdout
+    assert "CONVEX_SITE_ORIGIN" in result.stdout and ".convex.site" in result.stdout
+
+
+def test_a_re_run_keeps_the_team_cockpit_and_never_rewrites_its_values(repo: Path):
+    install(repo, "--harness", "claude_code", "--cockpit-url", "https://one.example")
+    env = repo / ".env"
+    env.write_text(env.read_text().replace("# ASF_COCKPIT_TOKEN=asf_ingest_…",
+                                           "ASF_COCKPIT_TOKEN=asf_ingest_mine"))
+
+    again = install(repo, "--harness", "claude_code")          # no flag: .env decides
+    assert "cockpit: team — ships to https://one.example" in again.stdout
+    assert "station-register" in again.stdout
+
+    other = install(repo, "--harness", "claude_code", "--cockpit-url", "https://two.example")
+    assert "is https://one.example, not https://two.example — left as it is" in other.stdout
+    assert uncommented(env, "ASF_COCKPIT_URL") == ["ASF_COCKPIT_URL=https://one.example"]
+    assert uncommented(env, "ASF_COCKPIT_TOKEN") == ["ASF_COCKPIT_TOKEN=asf_ingest_mine"]
+
+    local = install(repo, "--harness", "claude_code", "--cockpit", "local")
+    assert "beats a local one — left as it is" in local.stdout
+    assert uncommented(env, "ASF_COCKPIT_URL") == ["ASF_COCKPIT_URL=https://one.example"]
+
+
+def test_team_mode_without_values_says_how_to_get_both(repo: Path):
+    result = install(repo, "--harness", "claude_code", "--cockpit", "team")
+    assert "STILL MISSING from .env: ASF_COCKPIT_URL, ASF_COCKPIT_TOKEN" in result.stdout
+    assert "`just up` starts a local cockpit instead" in result.stdout
+    assert "<owner>/<name>" in result.stdout                   # no origin to name it from
+
+
+def test_a_cockpit_url_that_is_not_where_stations_ship_is_named(repo: Path):
+    wrong_port = install(repo, "--harness", "claude_code", "--cockpit-url", "http://h:3210")
+    assert "a station ships to the backend's SITE origin" in wrong_port.stdout
+
+    (repo / ".env").unlink()
+    not_a_url = install(repo, "--harness", "claude_code", "--cockpit-url", "cockpit.example")
+    assert "is not an http(s) URL — not written" in not_a_url.stdout
+    assert not uncommented(repo / ".env", "ASF_COCKPIT_URL")
+
+    both = install(repo, "--harness", "claude_code", "--cockpit", "local",
+                   "--cockpit-url", "https://c.example")
+    assert both.returncode != 0 and "cannot go with --cockpit local" in both.stderr
+
+
 # ── releases: one version, stamped into every factory ────────────────────────
 
 REPO_ROOT = SKILL_ROOT.parent.parent

@@ -21,6 +21,14 @@ before — `None` when there are none, never omitted.
 
 ## Unreleased
 
+- **The installer asks which cockpit: local or team.** `--cockpit local|team`, or a question on
+  a terminal. Local is what an unset `ASF_COCKPIT_URL` already meant — `asf up` starts one on this
+  machine — and is the answer without a terminal. Team writes the shared cockpit's site origin
+  (`--cockpit-url`, or asked) and its ingest token (asked without echo, never a flag) into `.env`
+  on the sample's own lines, never over a value already there, and prints what is still missing:
+  where the URL is (`CONVEX_SITE_ORIGIN`, or `<deployment>.convex.site`; not `:3000` or `:3210`,
+  which it names when given) and the `tokens:issue` command for this repository's `owner/name`.
+  A re-run keeps team once `.env` names one. The stamped `.env.sample` explains both modes.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -48,6 +56,9 @@ before — `None` when there are none, never omitted.
 2. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning and the
    settings in the self-description; nothing else changes. A factory with the CI workflow ships
    format 2 on its next default-branch push.
+3. Nothing for the cockpit question: an existing `.env` is kept, and a re-run reads team from
+   its `ASF_COCKPIT_URL`. `--force` refreshes `.env.sample`, whose cockpit block now explains
+   both modes.
 
 ## 1.2.0 — 2026-10-02
 
