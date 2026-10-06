@@ -88,13 +88,13 @@ export function tabHref(repo: string, tab: FactoryTab): string {
 }
 
 /**
- * Where an old `/stations` link goes, now that a factory's page holds its
- * stations: the Stations tab of the one factory the viewer's stations are
- * in, or the Factories list to choose one from.
+ * Where an old link goes, now that a factory's page holds what it showed —
+ * `/stations` to the Stations tab, `/cost` to the Overview: that tab of the
+ * one factory among `factories`, or the Factories list to choose one from.
  */
-export function stationsAddress(factories: string[]): string {
+export function soleAddress(factories: string[], tab: FactoryTab): string {
   const distinct = new Set(factories);
-  return distinct.size === 1 ? tabHref([...distinct][0], "stations") : "/factories";
+  return distinct.size === 1 ? tabHref([...distinct][0], tab) : "/factories";
 }
 
 /** Whether release `release` is older than `main`'s, both `X.Y.Z`; never, when either cannot be read. */

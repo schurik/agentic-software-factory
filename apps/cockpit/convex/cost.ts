@@ -14,6 +14,7 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
+import type { Period } from "./model/period";
 import { readSummary, type Summary } from "./model/session";
 import { type Charge, chargeOf, type Spend } from "./model/spend";
 import { spellingsOf, storedAs } from "./spelling";
@@ -91,13 +92,9 @@ export const rollup = query({
     if (named !== undefined) {
       const factory = await readable(ctx, who, named);
       if (factory === null) return null;
-      for (const spelling of await spellingsOf(ctx, factory)) {
-        const found = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", from).lt("at", to));
-        for await (const row of found) {
-          if ((scanned += 1) > SUMMED) return { ...NOTHING, cut: true };
-          rows.push({ row, factory });
-        }
-      }
+      const found = await spentOn(ctx, factory, { from, to });
+      if (found === null) return { ...NOTHING, cut: true };
+      rows.push(...found);
     } else {
       const storedHere = new Map<string, string | null>();
       for await (const row of ctx.db.query("spend").withIndex("by_at", (q) => q.gte("at", from).lt("at", to))) {
@@ -118,12 +115,28 @@ const NOTHING: Rollup = {
 };
 
 /** A row as it was stored, and the factory it is summed under: the spelling its factory is stored under now. */
-interface Stored {
+export interface Stored {
   row: Doc<"spend">;
   factory: string;
 }
 
-async function rolledUp(ctx: QueryCtx, rows: Stored[]): Promise<Rollup> {
+/**
+ * The rows `factory` — as it is stored now — spent in `period`, under every
+ * spelling its rows were stored under; null when there are more than `SUMMED`.
+ */
+export async function spentOn(ctx: QueryCtx, factory: string, { from, to }: Period): Promise<Stored[] | null> {
+  const rows: Stored[] = [];
+  for (const spelling of await spellingsOf(ctx, factory)) {
+    const found = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", from).lt("at", to));
+    for await (const row of found) {
+      if (rows.length === SUMMED) return null;
+      rows.push({ row, factory });
+    }
+  }
+  return rows;
+}
+
+export async function rolledUp(ctx: QueryCtx, rows: Stored[]): Promise<Rollup> {
   const summaries = new Map<string, Summary>();
   const sessions = new Map<string, SessionCost>();
   const workflows = new Map<string, WorkflowCost>();

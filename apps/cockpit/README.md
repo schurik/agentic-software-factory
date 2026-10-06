@@ -374,17 +374,26 @@ so a session that went on into a pull request's review spends in both workflows.
 use is offset from UTC by a multiple of fifteen minutes, so a period starting at any viewer's
 midnight takes whole rows.
 
+Each phase is kept the same way, one row a phase (`phases`, `convex/model/phases.ts`), folded as its
+events become contiguous: its chapter, workflow and stage — by the stage index its `phase_started`
+v3 carries, none for the work item, the report or a factory before stages — its kind and status, the
+time its live runs worked (a replay works none), what its agent calls cost, and, for a round a person
+was asked at a gate, their verdict and how long it waited for it. A gate the policy passed asked
+nobody, and is no row. Sessions an older cockpit stored are written from their first event by
+`phases:backfill`, which `docker/start.sh` runs after each deploy, or by their next batch if it comes
+first.
+
 ## Cost: who spent, and who asked
 
-`/cost`, and the Factory page's Overview for one factory, roll that spend up
-(`convex/cost.ts`) by **session**, **workflow** (a factory's own: two factories' `ship` are two),
-**factory**, **station** — whose machine and key paid, so it names the station's owner, the person
-who registered it — and **person**, who triggered the run. The two differ whenever a teammate's
-label is picked up by your watcher: your station paid, they asked. The period is today, this week
-or this month in the viewer's own timezone, month-to-date by default, or a range of calendar days
-there (`daysOf` in `convex/model/period.ts`). Every amount is labelled **list-price equivalent** —
-what the tokens would cost at the provider's list price, subscription or not — with the tokens
-alongside.
+`convex/cost.ts` rolls that spend up by **session**, **workflow** (a factory's own: two factories'
+`ship` are two), **factory**, **station** — whose machine and key paid, so it names the station's
+owner, the person who registered it — and **person**, who triggered the run. The two differ whenever
+a teammate's label is picked up by your watcher: your station paid, they asked. A factory's Overview
+reads it over the last 7 or 30 calendar days in the viewer's own timezone (`lastDays` in
+`convex/model/period.ts`); `/cost`, which once showed it across factories, goes on to the Overview of
+the viewer's one factory, or to the Factories list. Every amount is labelled **list-price
+equivalent** — what the tokens would cost at the provider's list price, subscription or not — with
+the tokens alongside.
 
 A factory is summed under every spelling its rows were stored under, as the Factories list sums
 it. One roll-up sums at most `SUMMED` rows (a quarter hour a session and charge): a range long
@@ -462,17 +471,16 @@ attention rows land on the tab that answers them (Compare and Stations on Statio
 Config), and a dot marks a tab that holds a problem: a broken workflow, a drifted station, a failing
 check. **All sessions →** beside the tabs is `/sessions?factory=<owner>/<repo>`.
 
-**Overview**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
-that the viewer may answer (a link to Now narrowed to the factory, `/?factory=<owner>/<repo>`), the sessions that
-failed in the last day, each claim whose station has not been heard of for over a day — "held by
-`alex@mbp`, offline 2 d", never orphaned, with Release claim — the stations whose config drifted, a
-failing check, and **nobody watching**: issues queued for a route while no station online runs an
-issues watcher. `activity:attention` is the one query that reads those facts, for this page and for
-the Factories list to rank by; which of them are news is read against the page's clock
-(`convex/model/attention.ts`), so a failure stops being news without anything new arriving. Then
-**Running now** — the live and suspended sessions, by the workflow each is in, naming its station —
-and **Recent**, the last finished ones, and what the factory spent in a period, as `/cost` rolls it up
-(below).
+**Overview**, the default (`convex/overview.ts`), shows only what no other page does — what is
+happening now is Now's, any one session the Sessions page's — for the last 7 or 30 days, one filter
+row above everything it filters. **Spend**: the total with its tokens, per day and per session, a
+column a day, and by station ("whose key paid") and by person ("who started it"), from the spend
+rows. **Outcomes**: the period's sessions done, failed and open — a session is the period's when it
+ended in it, or, still going, was last heard from in it — the share that finished well, the median
+time to finish, and the median wait at gates with the rounds a person answered and how many they
+rejected, from the phase rows. **By workflow**: the same per workflow, a session counting toward
+each it passed through — done in one it went on from — with what was charged to it and when a phase
+of it last started (`convex/model/overview.ts`).
 
 **Workflows** renders the description from the default branch, with Run in place for a workflow
 that takes a prompt.

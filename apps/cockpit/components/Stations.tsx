@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { stationsAddress, tabHref } from "./factory/view";
+import { soleAddress, tabHref } from "./factory/view";
 import { said } from "./said";
 import { useSignIn } from "./signIn";
 import { Loading } from "./ui";
@@ -19,7 +19,7 @@ export function StationsRedirect() {
   const signIn = useSignIn();
   const stations = useQuery(api.stations.mine, { signIn });
   const router = useRouter();
-  const to = stations === undefined ? null : stationsAddress(stations.map((row) => row.factory));
+  const to = stations === undefined ? null : soleAddress(stations.map((row) => row.factory), "stations");
   useEffect(() => {
     if (to !== null) router.replace(to);
   }, [to, router]);
