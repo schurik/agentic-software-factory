@@ -6,7 +6,7 @@
  * route while no station online runs an issues watcher.
  *
  * Split in two, like liveness (`command.ts`): the FACTS are what the cockpit
- * was told, read in one place (`activity.attentionOf`) for the Factory page
+ * was told, read in one place (`activity.attentionOf`) for Now
  * and, to rank by, the Factories list (`model/factories.ts`); whether each
  * fact is worth attention now is read here against the page's own clock. A query that read the clock would
  * keep saying a failure is news until something else re-ran it.
@@ -98,13 +98,10 @@ export type Attention =
   | { kind: "unwatched"; issues: number[] };
 
 /**
- * What of `facts` needs attention at `now`. `drifted` is drift a page measured
- * against the forge's tip of the default branch (`factory.look`), which it
- * goes by over the facts' own — measured against the commit the last check
- * ran on, all a query can do — so the page never says two things of one
- * station, and a factory no CI checks still shows its drift.
+ * What of `facts` needs attention at `now`. Drift is measured against the
+ * commit the last check ran on, all a query can do without the forge.
  */
-export function needsAttention(facts: Facts, now: number, drifted: Drifted[] = facts.drifted): Attention[] {
+export function needsAttention(facts: Facts, now: number): Attention[] {
   const items: Attention[] = [];
   if (facts.gates.mine > 0) items.push({ kind: "gates", ...facts.gates });
   const failed = facts.failed.filter((each) => now - each.endedAt < FAILED_WITHIN);
@@ -113,7 +110,7 @@ export function needsAttention(facts: Facts, now: number, drifted: Drifted[] = f
     const away = now - claim.heardAt;
     if (away > AWAY_FOR) items.push({ kind: "claim", claim, away });
   }
-  if (drifted.length) items.push({ kind: "drift", stations: drifted });
+  if (facts.drifted.length) items.push({ kind: "drift", stations: facts.drifted });
   if (facts.check === "failing") items.push({ kind: "check" });
   if (facts.queued?.length && !facts.watchers.some((each) => liveness(each.seenAt, null, now).online)) {
     items.push({ kind: "unwatched", issues: facts.queued });

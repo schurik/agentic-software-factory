@@ -69,9 +69,8 @@ describe("a factory its stations spell otherwise than the forge", () => {
     const asked = { factory: "Acme/Widgets", signIn: alex };
 
     expect((await t.query(api.factory.page, asked))?.stations.map((row) => row.name)).toEqual([STATION.name]);
-    expect((await t.query(api.activity.attention, asked))?.gates).toEqual({ mine: 1, total: 1 });
-    expect((await t.query(api.activity.page, asked))?.running.flatMap((group) => group.sessions.map((row) => row.session)).sort())
-      .toEqual(["g1", "r1"]);
+    expect((await t.query(api.overview.page, { ...asked, days: [0, Date.now() + 1] }))?.outcomes)
+      .toMatchObject({ sessions: 2, open: 2 });
     expect((await t.query(api.activity.stations, { ...asked, period: { from: 0, to: Date.now() + 1 } }))?.stations.map((row) => row.sessions.length)).toEqual([2]);
     expect(await t.query(api.commands.runTargets, asked)).toMatchObject({ stations: [{ name: STATION.name }] });
   });

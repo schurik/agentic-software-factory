@@ -44,6 +44,8 @@ export const summaryValidator = v.object({
   status: v.string(),                 // unknown until session_started | running | waiting | success | fail
   workflows: v.array(v.string()),     // every workflow the session passed through, in order
   workflow: v.string(),               // the one running now: what the latest process said it ran
+  chapter: v.number(),                // the chapter it is in now; 0 for a factory before chapters
+  stages: v.array(v.string()),        // that chapter's stages, as its `workflow_started` v2 named them; [] when it did not
   request: v.string(),
   branch: v.string(),
   baseRef: v.string(),
@@ -79,7 +81,7 @@ const EMPTY_WAITING: WaitingFor = {
 };
 
 export const EMPTY_SUMMARY: Summary = {
-  status: "unknown", workflows: [], workflow: "", request: "", branch: "", baseRef: "", trigger: "",
+  status: "unknown", workflows: [], workflow: "", chapter: 0, stages: [], request: "", branch: "", baseRef: "", trigger: "",
   triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", stationKind: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
   totalTokens: 0, totalCost: 0, unread: 0, transcriptDays: 0,
@@ -268,6 +270,10 @@ const ANSWERING: Record<string, string> = { issue: "an issue", pr: "a pull reque
 const describeWorkflowStarted = (p: Payload) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
   (ANSWERING[p.str("input")] ? `, answering ${ANSWERING[p.str("input")]}` : "");
 
+function chapterStarted(summary: Summary, p: Payload, stages: string[]): void {
+  Object.assign(summary, { chapter: p.num("chapter"), stages });
+}
+
 const money = (cost: number) => `$${cost.toFixed(4)}`;
 const gateRound = (p: Payload | null) => (p ? `${p.str("gate")} round ${p.num("round")}` : "a gate");
 
@@ -323,9 +329,10 @@ const READERS: Record<string, Record<number, Reader>> = {
   },
   // A chapter: one workflow the session passes through (the story, story.ts).
   workflow_started: {
-    1: { describe: describeWorkflowStarted },
+    1: { fold: (state, p) => chapterStarted(state.summary, p, []), describe: describeWorkflowStarted },
     // v2 adds the workflow's stages, in order: the chapter's shape, as it ran.
     2: {
+      fold: (state, p) => chapterStarted(state.summary, p, p.strs("stages")),
       describe: (p) => describeWorkflowStarted(p) +
         (p.strs("stages").length ? ` · ${p.strs("stages").join(" → ")}` : ""),
     },
@@ -337,7 +344,13 @@ const READERS: Record<string, Record<number, Reader>> = {
     },
   },
   session_resumed: {
-    1: { describe: (p) => `resumed chapter ${p.num("chapter")}: ${p.str("workflow")}` },
+    1: {
+      // A process picking up the chapter it was in keeps its stages; any other, whose stages it never said, has none.
+      fold: ({ summary }, p) => {
+        if (p.num("chapter") !== summary.chapter) Object.assign(summary, { chapter: p.num("chapter"), stages: [] });
+      },
+      describe: (p) => `resumed chapter ${p.num("chapter")}: ${p.str("workflow")}`,
+    },
   },
   phase_started: {
     1: { describe: describePhaseStarted },

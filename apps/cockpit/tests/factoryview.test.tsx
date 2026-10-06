@@ -5,7 +5,7 @@ import { FactoryHeader } from "../components/factory/FactoryHeader";
 import { FactoryView } from "../components/factory/FactoryView";
 import { type Registration, StationsTab } from "../components/factory/StationsTab";
 import {
-  behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, stationsAddress, tabHref, tabOf,
+  behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
 } from "../components/factory/view";
 import { WorkflowsTab } from "../components/factory/WorkflowsTab";
 import type { StationDetail } from "../convex/activity";
@@ -182,9 +182,14 @@ describe("the factory page", () => {
   });
 
   it("is where /stations goes: the stations tab of the viewer's one factory, or the factories to choose from", () => {
-    expect(stationsAddress(["acme/widgets", "acme/widgets"])).toBe("/factories/acme/widgets?tab=stations");
-    expect(stationsAddress(["acme/widgets", "acme/gadgets"])).toBe("/factories");
-    expect(stationsAddress([])).toBe("/factories");
+    expect(soleAddress(["acme/widgets", "acme/widgets"], "stations")).toBe("/factories/acme/widgets?tab=stations");
+    expect(soleAddress(["acme/widgets", "acme/gadgets"], "stations")).toBe("/factories");
+    expect(soleAddress([], "stations")).toBe("/factories");
+  });
+
+  it("is where /cost goes: the Overview of the viewer's one factory, or the factories to choose from", () => {
+    expect(soleAddress(["acme/widgets"], "overview")).toBe("/factories/acme/widgets");
+    expect(soleAddress(["acme/widgets", "acme/gadgets"], "overview")).toBe("/factories");
   });
 });
 

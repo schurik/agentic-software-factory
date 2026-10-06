@@ -6,6 +6,7 @@ import { retained } from "./model/retention";
 import { advance, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
+import { phase } from "./phases";
 
 /**
  * Store a batch for the factory whose token digests to `digest`, and return the
@@ -72,11 +73,20 @@ export const append = internalMutation({
       if (bucket === null) await ctx.db.insert("spend", { factory, session, ...spent });
       else await ctx.db.patch(bucket._id, { cost: bucket.cost + spent.cost, tokens: bucket.tokens + spent.tokens });
     }
+    // Its phases' rows, the same way — from its first event, for a session an older cockpit stored without them.
+    if (record === null || record.phased) await phase(ctx, { factory, session }, fresh, folded);
+    else {
+      const all = await ctx.db
+        .query("events")
+        .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).lte("seq", acked))
+        .collect();
+      await phase(ctx, { factory, session }, all, null);
+    }
     const waiting = summary.waitingFor !== null;
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);
-    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting, ...transcript });
-    else await ctx.db.patch(record._id, { acked, summary, activity, waiting, ...transcript });
+    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting, phased: true, ...transcript });
+    else await ctx.db.patch(record._id, { acked, summary, activity, waiting, phased: true, ...transcript });
     return { acked };
   },
 });

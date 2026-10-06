@@ -7,9 +7,8 @@ import { liveness, pending } from "@/convex/model/command";
 import type { Drift } from "@/convex/model/drift";
 import { ClaimRow } from "../ClaimRow";
 import { useState } from "react";
-import { formatAgoAt, formatDollars, formatSpan, plural, sessionHref } from "../format";
-import { Sessions } from "./ActivityTab";
-import { Button, Card, control, cx, Facts, StatusDot, Table, Tag } from "../ui";
+import { formatAgoAt, formatCost, formatDollars, formatSpan, plural, sessionHref } from "../format";
+import { Button, Card, control, cx, Facts, num, StatusDot, StatusPill, Table, Tag } from "../ui";
 import { useWho } from "../viewer";
 import { behind, short } from "./view";
 
@@ -267,5 +266,33 @@ function CiCard({ ci, factory, now }: { ci: Ci; factory: string; now: number }) 
         </Table>
       ) : <p className="text-sm text-muted">No <code>asf check</code> pushed yet: the optional CI workflow does that.</p>}
     </Card>
+  );
+}
+
+/** Sessions as a table; `workflow` and `station` say whether those columns are worth a column where it is shown. */
+function Sessions({ factory, rows, now, workflow = false, station = true }: {
+  factory: string; rows: SessionRow[]; now: number; workflow?: boolean; station?: boolean;
+}) {
+  return (
+    <Table className="text-sm">
+      <thead>
+        <tr>
+          <th>session</th>{workflow ? <th>workflow</th> : null}<th>status</th>{station ? <th>station</th> : null}
+          <th className={num}>cost</th><th>last</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.session}>
+            <td><Link href={sessionHref(factory, row.session)}><code>{row.session}</code></Link></td>
+            {workflow ? <td>{row.workflow || "—"}</td> : null}
+            <td className="whitespace-nowrap"><StatusPill status={row.status} />{row.gate ? <span className="text-muted"> at {row.gate}</span> : null}</td>
+            {station ? <td>{row.station || "—"}</td> : null}
+            <td className={num}>{formatCost(row.cost)}</td>
+            <td className="whitespace-nowrap">{formatAgoAt(row.endedAt, now)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
   );
 }
