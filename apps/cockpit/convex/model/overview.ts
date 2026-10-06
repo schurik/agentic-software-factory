@@ -27,9 +27,15 @@ export interface Ended {
   finish: number | null;
 }
 
+/** The rounds a person answered at a gate, how many of them they rejected, and the median wait for an answer. */
+export interface GateFigures {
+  rounds: number;
+  rejected: number;
+  wait: number | null;
+}
+
 export interface Outcomes extends Ended {
-  /** The rounds a person answered at a gate, how many of them they rejected, and the median wait for an answer. */
-  gates: { rounds: number; rejected: number; wait: number | null };
+  gates: GateFigures;
 }
 
 /** A workflow, as the Overview's table has it. */
@@ -91,14 +97,19 @@ function ended(outcomes: { outcome: Outcome; finish: number | null }[]): Ended {
 
 /** How the period's sessions ended, and the gate rounds a person answered among the period's phases. */
 export function outcomesOf(sessions: Summary[], phases: PhaseFacts[]): Outcomes {
-  const answered = phases.filter((phase) => phase.kind === "gate" && phase.verdict);
   return {
     ...ended(sessions.map((summary) => ({ outcome: outcomeOf(summary.status), finish: finishOf(summary) }))),
-    gates: {
-      rounds: answered.length,
-      rejected: answered.filter((phase) => phase.verdict === "reject").length,
-      wait: median(answered.flatMap((phase) => (phase.wait === null ? [] : [phase.wait]))),
-    },
+    gates: gatesOf(phases),
+  };
+}
+
+/** What people did at the gates among `phases`: the rounds they answered, those they rejected, and how long they took. */
+export function gatesOf(phases: Pick<PhaseFacts, "kind" | "verdict" | "wait">[]): GateFigures {
+  const answered = phases.filter((phase) => phase.kind === "gate" && phase.verdict);
+  return {
+    rounds: answered.length,
+    rejected: answered.filter((phase) => phase.verdict === "reject").length,
+    wait: median(answered.flatMap((phase) => (phase.wait === null ? [] : [phase.wait]))),
   };
 }
 

@@ -7,10 +7,14 @@ import { type Registration, StationsTab } from "../components/factory/StationsTa
 import {
   behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
 } from "../components/factory/view";
-import { WorkflowsTab } from "../components/factory/WorkflowsTab";
+import { type WorkflowsRecord, WorkflowsTab } from "../components/factory/WorkflowsTab";
 import type { StationDetail } from "../convex/activity";
 import type { Look } from "../convex/factory";
 import { readDescription } from "../convex/model/description";
+import { phasedIn } from "../convex/model/phases";
+import { EMPTY_SUMMARY } from "../convex/model/session";
+import { stagesOf } from "../convex/model/workflows";
+import { recorded } from "./helpers";
 
 // The Factory page's header and tabs, rendered to static markup with no
 // backend (spec #40): workflows from the factory's own self-description, a
@@ -32,8 +36,10 @@ function page(fields: Partial<Page> = {}): Page {
       station: "runner@fv-az1:widgets", description: DESCRIPTION,
     },
     stations: [
-      { station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW - 5_000, head: TIP, configHash: "beef" },
-      { station: "st_b", name: "sam@old:widgets", kind: "local", owner: "sam", seenAt: NOW - 3_600_000, head: "1".repeat(40), configHash: "0ld" },
+      { station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW - 5_000, head: TIP, configHash: "beef",
+        watchers: ["issues", "answers"] },
+      { station: "st_b", name: "sam@old:widgets", kind: "local", owner: "sam", seenAt: NOW - 3_600_000, head: "1".repeat(40), configHash: "0ld",
+        watchers: ["issues", "prs"] },
     ],
     ...fields,
   };
@@ -44,24 +50,115 @@ const LOOK: Look = {
   distances: { ["1".repeat(40)]: { ahead: 0, behind: 3 } },
 };
 
-describe("the Workflows tab", () => {
-  it("shows each workflow's purpose, trigger, chain, gates and agents from the description", () => {
-    const html = renderToStaticMarkup(<WorkflowsTab check={page().check} onRun={() => {}} />);
+// The Workflows tab (#120) reads the newer description, whose workflows are the
+// ones the staged recording ran, with a record drawn from that recording's rows.
+const goldenV2 = import.meta.glob("../../../tests/golden/self-description/v2.json",
+                                  { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+const DESCRIBED = readDescription(Object.values(goldenV2)[0]);
+const ROWS = phasedIn([], recorded["issue-then-two-reviews-in-stages"].events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) })),
+                      EMPTY_SUMMARY, 0).map((row) => ({ ...row, session: "a9f259f0" }));
+// Another issue session ended in verify.
+const FAILED = { ...ROWS.find((row) => row.workflow === "issue" && row.stage === "verify")!, session: "b0b0b0b0", status: "fail" };
+const RECORD: WorkflowsRecord = {
+  cut: false,
+  workflows: [{ workflow: "issue", sessions: 2, done: 1, failed: 1, open: 0, finish: 14.96, cost: 0.383, tokens: 23_100, last: NOW }],
+  stages: stagesOf([...ROWS, FAILED]),
+};
 
-    expect(html).toContain("a tracked work item, scouted, planned");
-    expect(html).toContain("an issue labelled `asf:queued` + `asf:ship`");
-    expect(html).toContain("gate: plan · on");
-    expect(html).toContain("gate: integrate · off");
-    expect(html).toContain("asks: requirements");
-    expect(html).toContain("docs/asf/spec/");                       // the planner's write boundary
-    expect(html).toContain("$2.50 · 2M tokens per session");
-    expect(html).toContain("nightly");                               // a workflow that does not load, said
-    // Run, for a prompt workflow only: it opens the header's dialog on that workflow (#108).
-    expect(html.match(/>Run<\/button>/g)?.length).toBe(DESCRIPTION.workflows.filter((w) => w.input === "prompt").length);
+function workflowsTab(record?: WorkflowsRecord): string {
+  const shown = page({ check: { ...page().check!, description: DESCRIBED } });
+  return renderToStaticMarkup(
+    <WorkflowsTab check={shown.check} factory="acme/widgets" stations={shown.stations} now={NOW} record={record} onRun={() => {}} />);
+}
+
+/** One workflow's card, by its name. */
+function card(html: string, name: string): string {
+  const from = html.indexOf(`<section aria-label="${name}"`);
+  return html.slice(from, html.indexOf("</section>", from));
+}
+
+/** One stage's card in a workflow's graph, by its place. */
+function stage(html: string, index: number): string {
+  const from = html.indexOf(`data-stage="${index}"`);
+  const next = html.indexOf(`data-stage="${index + 1}"`, from);
+  return html.slice(from, next === -1 ? undefined : next);
+}
+
+describe("the Workflows tab", () => {
+  it("lists a workflow that does not load first, with asf check's error", () => {
+    const html = workflowsTab(RECORD);
+
+    expect(html.indexOf('aria-label="nightly"')).toBeLessThan(html.indexOf('aria-label="issue"'));
+    expect(card(html, "nightly")).toContain("does not load, so a run of it is refused");
+    expect(card(html, "nightly")).toContain("agent &#x27;nobody&#x27; is neither in the roster");
+    expect(html).toContain(`Budget: ${budgetWords(DESCRIBED.budget)}`);
+  });
+
+  it("heads each workflow with its input, its trigger labels and how many online stations watch for it — in amber when none", () => {
+    const html = workflowsTab(RECORD);
+
+    expect(card(html, "issue")).toContain("asf:ship");
+    expect(card(html, "issue")).toContain("watched by 1 online station");           // alex's; sam's is away
+    expect(card(html, "pr-review")).toMatch(/text-wait">no online station watches for it/);
+    expect(card(html, "quick")).not.toContain("watch");                             // a prompt's: nothing watches for it
+    expect(card(html, "issue")).toContain("a tracked work item, scouted, planned");
+    expect(card(html, "issue")).toContain("an issue labelled `asf:queued` + `asf:ship`");
+  });
+
+  it("says each workflow's last 30 days, one link from its sessions", () => {
+    const html = workflowsTab(RECORD);
+
+    expect(card(html, "issue")).toMatch(/2 sessions · 1 done<span class="text-bad"> · 1 failed<\/span> · median 15s · \$0\.38/);
+    expect(card(html, "issue")).toContain('href="/sessions?factory=acme%2Fwidgets"');
+    expect(card(html, "quick")).toContain("no runs");
+    expect(workflowsTab()).not.toContain("Last 30 days");                           // still loading: no record said
+  });
+
+  it("draws each workflow with the session page's stage graph, in neutral cards from what starts it to its report", () => {
+    const html = card(workflowsTab(RECORD), "issue");
+
+    expect(html.match(/data-stage="\d+"/g)).toHaveLength(10);
+    expect(stage(html, 0)).toContain("border-t-fg/40");                             // neutral, never a status edge
+    expect(html).not.toMatch(/border-t-(ok|accent|wait|bad)/);
+    expect(html).toContain(">an issue</span>");
+    expect(html).toContain(">report</span>");
+    expect(stage(html, 0)).toContain("scout");
+    expect(stage(html, 5)).toContain("reviewer, builder");                         // the agents bound to it
+    expect(stage(html, 2)).toContain(">code</span>");
+  });
+
+  it("annotates each stage with its rows' median time and cost, its gate's rounds and wait, and marks the slowest and failures", () => {
+    const html = card(workflowsTab(RECORD), "issue");
+
+    // plan worked 0.509s for $0.143; its gate asked twice, rejected once, waiting 0.457s at the median.
+    expect(stage(html, 1)).toContain("&lt;1s · $0.14 <span class=\"text-faint\">median</span>");
+    expect(stage(html, 1)).toContain("plan gate · asks a person");
+    expect(stage(html, 1)).toContain("1 of 2 rounds rejected · wait &lt;1s");
+    expect(stage(html, 9)).toContain("integrate gate · passes by policy");
+    expect(stage(html, 7)).toContain("slowest stage");                             // document: 0.715s
+    expect(html.match(/slowest stage/g)).toHaveLength(1);
+    expect(stage(html, 4)).toContain("1 failure");
+    expect(html.match(/failure/g)).toHaveLength(1);
+  });
+
+  it("folds each workflow's agents into a table: where each runs, its tools, and what it may write", () => {
+    const html = card(workflowsTab(RECORD), "issue");
+
+    const agents = DESCRIBED.workflows.find((w) => w.name === "issue")!.agents.map((agent) => agent.name);
+    expect(html).toContain(`${agents.length} agents: ${agents.join(", ")}`);
+    expect(html).toContain("docs/asf/spec/");                                       // the planner's write boundary
+    expect(html).toContain("rolls back any change outside what it may write");
+  });
+
+  it("runs a prompt workflow from the header's dialog, and only a prompt workflow", () => {
+    const html = workflowsTab(RECORD);
+    const prompts = DESCRIBED.workflows.filter((w) => w.input === "prompt");
+
+    expect(html.match(/aria-label="Run [^"]+"/g)).toEqual(prompts.map((w) => `aria-label="Run ${w.name}"`));
   });
 
   it("says a factory without a description is unchecked, and how to check it", () => {
-    const html = renderToStaticMarkup(<WorkflowsTab check={null} />);
+    const html = renderToStaticMarkup(<WorkflowsTab check={null} factory="acme/widgets" stations={[]} now={NOW} />);
 
     expect(html).toContain("Unchecked.");
     expect(html).toContain("install.py --ci");
@@ -167,7 +264,7 @@ describe("the factory page", () => {
 
     const quiet = page({
       check: { ...page().check!, ok: true, description: { ...DESCRIPTION, problems: [] } },
-      stations: [{ station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW, head: TIP, configHash: DESCRIPTION.checked.configHash }],
+      stations: [{ station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW, head: TIP, configHash: DESCRIPTION.checked.configHash, watchers: [] }],
     });
     expect(factoryView(quiet, "overview")).not.toContain("aria-label=\"1 station drifted\"");
     expect(factoryView(quiet, "overview")).not.toMatch(/<span[^>]*aria-label="[^"]*"[^>]*class="[^"]*rounded-full/);

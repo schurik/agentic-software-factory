@@ -1,7 +1,8 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
-import type { Budget } from "@/convex/model/description";
+import { liveness } from "@/convex/model/command";
+import type { Budget, DescribedWorkflow } from "@/convex/model/description";
 import { type Drift, drift, type Reference } from "@/convex/model/drift";
 import { formatDollars, formatTokens, plural } from "../format";
 
@@ -108,4 +109,18 @@ export function behind(release: string, main: string): boolean {
 function parts(release: string): number[] | null {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(release);
   return match ? match.slice(1).map(Number) : null;
+}
+
+/** The watcher a station loop runs that starts a workflow of each input. */
+const WATCHER: Record<string, string> = { issue: "issues", pr: "prs" };
+
+/**
+ * How many stations online at `now` run the watcher that starts `workflow`;
+ * null for a workflow no watcher starts — a prompt's, or one no route label
+ * or review setting hands to its watcher.
+ */
+export function watchedBy(workflow: DescribedWorkflow, stations: StationRow[], now: number): number | null {
+  const watcher = WATCHER[workflow.input];
+  if (watcher === undefined || !workflow.trigger.watched || (workflow.input === "issue" && !workflow.trigger.labels.length)) return null;
+  return stations.filter((row) => row.watchers.includes(watcher) && liveness(row.seenAt, null, now).online).length;
 }

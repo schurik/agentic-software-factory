@@ -482,8 +482,18 @@ rejected, from the phase rows. **By workflow**: the same per workflow, a session
 each it passed through — done in one it went on from — with what was charged to it and when a phase
 of it last started (`convex/model/overview.ts`).
 
-**Workflows** renders the description from the default branch, with Run in place for a workflow
-that takes a prompt.
+**Workflows** renders the description from the default branch: the workflows `asf check` refused
+first, each with its error, then a card per workflow — its input, its trigger labels and how many
+stations online run the watcher that starts it (in amber when none do), what it does, its last 30
+days (sessions, done and failed, median time, spend) with a link to the factory's sessions, and its
+`asf check` warnings. Its shape is the session page's stage graph (`WorkflowGraph`), in neutral cards
+with neutral connectors, each stage annotated with the agents bound to it, the median time its
+phases worked in a chapter and what they cost, whether its gate asks a person and — when one was asked —
+the rounds they rejected and the median wait, and markers for the slowest stage and the chapters that
+failed there (`convex/model/workflows.ts`). The figures are the Overview's query over the last 30
+days, read off the phase rows; a figure goes on a stage only when that stage held its place when it
+ran. The agents fold into a table — where each runs, its model and thinking, its tools, and what it
+may write — and a prompt workflow's Run opens the header's dialog on that factory and workflow.
 
 **Stations** has the stations asking to join on top (`stations:registrations`), each approved by
 typing the code its `asf station register` printed — never shown here, because typing it is what
