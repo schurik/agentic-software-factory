@@ -14,7 +14,8 @@ import { useWho } from "../viewer";
  * chain — a start pill, its stages as cards joined by connectors coloured by
  * progress, an end pill — and the phases each stage produced inside its card.
  * One component, for every page that draws a workflow: the session page's
- * chapters here, and as `MiniGraph`, one row of a list.
+ * chapters here, as `MiniGraph` one row of a list, and as `WorkflowGraph` a
+ * workflow with no session behind it, on a factory's Workflows tab.
  *
  * Hand-built, with no graph library: a chapter is a straight chain, because
  * the stage vocabulary has no `if:` and no `loop:`. It never wraps: wider than
@@ -215,12 +216,20 @@ function End({ phase, label, openPhase }: { phase: Phase | null; label: string; 
   return phase ? <PhaseLink phaseId={phase.phaseId} openPhase={openPhase} className={shape}>{body}</PhaseLink> : <span className={shape}>{body}</span>;
 }
 
-/** Between two links of the chain: green up to where the session got, dashed beyond, with an arrowhead across; a short stem down a phone. */
-function Connector({ done }: { done: boolean }) {
+/**
+ * Between two links of the chain: green up to where the session got, dashed
+ * beyond, with an arrowhead across; a short stem down a phone. A workflow's
+ * chain has no progress to colour: its connectors are `neutral` ink.
+ */
+function Connector({ done, neutral = false }: { done: boolean; neutral?: boolean }) {
+  const line = neutral ? "border-fg/35 dark:border-fg/45" : "border-ok/60";
   return (
     <span aria-hidden="true" className="relative ml-5 h-3 w-0 shrink-0 md:mt-[1.1rem] md:ml-0 md:h-0 md:w-4">
-      <span className={cx("absolute inset-0", done ? "border-l-2 border-ok/60 md:border-t-2 md:border-l-0" : "border-l border-dashed border-line-strong md:border-t md:border-l-0")} />
-      {done ? <span className="absolute -top-[3px] right-0 hidden size-0 border-y-4 border-l-[5px] border-y-transparent border-l-ok/60 md:block" /> : null}
+      <span className={cx("absolute inset-0", done ? cx("border-l-2 md:border-t-2 md:border-l-0", line) : "border-l border-dashed border-line-strong md:border-t md:border-l-0")} />
+      {done ? (
+        <span className={cx("absolute -top-[3px] right-0 hidden size-0 border-y-4 border-l-[5px] border-y-transparent md:block",
+                            neutral ? "border-l-fg/35 dark:border-l-fg/45" : "border-l-ok/60")} />
+      ) : null}
     </span>
   );
 }
@@ -275,6 +284,47 @@ function Chain({ focus, children }: { focus: string | null; children: ReactNode 
       {edge.overflow ? <>{arrow(-1, edge.left)}{arrow(1, edge.right)}</> : null}
     </div>
   );
+}
+
+// ── a workflow's graph ───────────────────────────────────────────────────────
+// A workflow's stages have no status, so its cards get a neutral tint instead
+// of a status wash: a little of the text colour mixed into the surface — more
+// in dark, where the surfaces sit close together — and a border that stays
+// visible on a dark card. Its ends are neutral too.
+
+const NEUTRAL_TINT = "bg-[color-mix(in_oklab,var(--fg)_3%,var(--surface))] dark:bg-[color-mix(in_oklab,var(--fg)_8%,var(--surface))]";
+const NEUTRAL_CARD = cx("border border-line-strong border-t-[3px] border-t-fg/40 shadow-card dark:border-fg/25 dark:border-t-fg/55", NEUTRAL_TINT);
+const NEUTRAL_END = cx("border border-line-strong text-muted shadow-card dark:border-fg/25", NEUTRAL_TINT);
+
+/** A stage of a workflow, as its card shows it: its name in the vocabulary, and what the page writes under it. */
+export interface WorkflowStage {
+  name: string;
+  children: ReactNode;
+}
+
+/**
+ * A workflow drawn with no session behind it (#120): what it will do, stage
+ * by stage, from what starts it to its report — the same chain, cards,
+ * connectors and sideways scroll as a session's chapter, so a workflow and a
+ * run of it read alike. The Workflows tab writes on each card.
+ */
+export function WorkflowGraph({ start, stages }: { start: string; stages: WorkflowStage[] }) {
+  const pill = cx("flex w-fit shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm whitespace-nowrap", NEUTRAL_END);
+  const links: ReactNode[] = [<span key="start" className={pill}>{start}</span>];
+  stages.forEach((stage, index) => {
+    links.push(<Connector key={`c${index}`} done neutral />);
+    links.push(
+      <div key={index} data-stage={index} className={cx("flex w-full shrink-0 flex-col gap-1 rounded-lg px-2.5 py-2 md:w-auto", NEUTRAL_CARD)}>
+        <span className="flex items-center gap-1.5 text-base font-semibold whitespace-nowrap">
+          <StageIcon name={stage.name} className="text-muted" />{stage.name}
+        </span>
+        {stage.children}
+      </div>,
+    );
+  });
+  links.push(<Connector key="cend" done neutral />);
+  links.push(<span key="end" className={pill}>report</span>);
+  return <Chain focus={null}>{links}</Chain>;
 }
 
 // ── the mini graph ───────────────────────────────────────────────────────────
