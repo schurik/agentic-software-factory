@@ -1,14 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { type ComponentProps, createContext, useContext, useEffect, useState } from "react";
+import { type ComponentProps, createContext, useContext, useEffect } from "react";
 import { api } from "@/convex/_generated/api";
 import { Header, knows, type Me } from "./Header";
 import { RunPrompt, useRunPrompt } from "./run/RunDialog";
-import { said } from "./said";
-import { carry, holdSignIn, useSignIn } from "./signIn";
+import { holdSignIn, useSignIn } from "./signIn";
+import { SignInWall } from "./SignInPage";
 import { Loading } from "./ui";
 import { ViewerLogin } from "./viewer";
 
@@ -60,7 +59,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                  onSignOut={() => { if (signIn) void signOut({ signIn }).finally(() => holdSignIn(null)); }} />
       <main className="mx-auto max-w-[1280px] px-4 pt-6 pb-16 md:px-6 md:pt-8">
         {me === undefined ? <Loading />
-          : walled ? <Wall me={me} />
+          : walled ? <SignInWall forge={me.forge} />
           : me.viewer && !me.viewer.reachKnown && !open
             // What was known is too old to show anything on; the refresh above is asking.
             ? <Loading what={`Asking ${me.forge.host} what you can read…`} />
@@ -78,51 +77,4 @@ export function Shell({ children }: { children: React.ReactNode }) {
 function RunHeader(props: Omit<ComponentProps<typeof Header>, "onRun">) {
   const run = useRunPrompt();
   return <Header {...props} onRun={() => run()} />;
-}
-
-function Wall({ me }: { me: Me }) {
-  const start = useAction(api.auth.start);
-  const [problem, setProblem] = useState("");
-  const [leaving, setLeaving] = useState(false);
-
-  if (!me.forge.ready) {
-    return (
-      <div className="card">
-        <h1>This cockpit has no GitHub App yet</h1>
-        <p>
-          A team&apos;s cockpit signs people in with a GitHub App the team registers for itself, and sees
-          the forge through it. Whoever runs this deployment sets it up once.
-        </p>
-        <p><Link href="/setup" className="button">Set up the GitHub App</Link></p>
-      </div>
-    );
-  }
-
-  const go = async () => {
-    setLeaving(true);
-    setProblem("");
-    try {
-      const { url, state } = await start({});
-      carry("sign-in", state);
-      window.location.assign(url);
-    } catch (error) {
-      setProblem(said(error));
-      setLeaving(false);
-    }
-  };
-
-  return (
-    <div className="card">
-      <h1>Sign in</h1>
-      <p>
-        You are who <strong>{me.forge.host}</strong> says you are, and you see here what you can read there.
-      </p>
-      <p>
-        <button type="button" className="button" disabled={leaving} onClick={() => void go()}>
-          Sign in with {me.forge.host === "github.com" ? "GitHub" : me.forge.host}
-        </button>
-      </p>
-      {problem ? <p className="error">{problem}</p> : null}
-    </div>
-  );
 }
