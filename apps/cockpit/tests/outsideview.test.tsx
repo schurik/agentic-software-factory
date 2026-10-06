@@ -74,7 +74,7 @@ describe("coming back from GitHub with the App", () => {
   it("names the App it registered, and the one step left: installing it", () => {
     const page = back({ app, problem: "" });
     expect(page).toMatch(/<h1[^>]*>acme-cockpit is registered<\/h1>/);
-    expect(page).toMatch(new RegExp(`<a[^>]*href="${app.installUrl}"[^>]*>Install acme-cockpit</a>`));
+    expect(page).toMatch(new RegExp(`<a[^>]*href="${app.installUrl}"[^>]*><span[^>]*>Install acme-cockpit</span></a>`));
     expect(page).toMatch(/<a[^>]*href="\/"[^>]*>sign in<\/a>/);
   });
 
@@ -106,8 +106,8 @@ describe("signing in", () => {
     const page = wall({ ...forge, ready: true, app });
     expect(page).toMatch(/<h1[^>]*>Sign in<\/h1>/);
     expect(text(page)).toContain("You are who github.com says you are, and you see here what you can read there.");
-    expect(page).toMatch(/<button[^>]*>Sign in with GitHub<\/button>/);
-    expect(wall({ host: "git.acme.dev", ready: true, app })).toMatch(/<button[^>]*>Sign in with git.acme.dev<\/button>/);
+    expect(page).toMatch(/<button[^>]*><span[^>]*>Sign in with GitHub<\/span><\/button>/);
+    expect(wall({ host: "git.acme.dev", ready: true, app })).toMatch(/<button[^>]*><span[^>]*>Sign in with git.acme.dev<\/span><\/button>/);
   });
 
   it("says what it is doing while the forge's code is traded, and why it failed when it did", () => {

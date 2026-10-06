@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useAction, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Me } from "./Header";
 import { said } from "./said";
 import { useCockpit } from "./Shell";
 import { carried, carry } from "./signIn";
-import { Button, buttonClass, control, Field, Loading, Notice, Pre, Standalone } from "./ui";
+import { Button, buttonClass, control, cx, Field, Loading, Notice, Pre, Standalone } from "./ui";
 
 /** What the setup form sends GitHub's way: the code printed on the deployment, the host, and the owning organization. */
 export interface Begin {
@@ -54,7 +55,7 @@ export function SetupView({ mode, forge, webhook, onBegin }: {
   mode: Me["mode"];
   forge: Me["forge"];
   /** Where GitHub would deliver the App's webhook, and whether it could: undefined while that is asked. */
-  webhook: { url: string; deliverable: boolean } | undefined;
+  webhook: FunctionReturnType<typeof api.setup.webhook> | undefined;
   onBegin: (fields: Begin) => Promise<void>;
 }) {
   const [code, setCode] = useState("");
@@ -135,9 +136,12 @@ export function SetupView({ mode, forge, webhook, onBegin }: {
   );
 }
 
+/** The App the callback registered: its name, and where it is installed on repositories. */
+type Registered = FunctionReturnType<typeof api.setup.complete>;
+
 export function SetupCallback({ code, state }: { code: string; state: string }) {
   const complete = useAction(api.setup.complete);
-  const [app, setApp] = useState<{ slug: string; installUrl: string } | null>(null);
+  const [app, setApp] = useState<Registered | null>(null);
   const [problem, setProblem] = useState("");
   const asked = useRef(false);
 
@@ -161,12 +165,12 @@ export function SetupCallback({ code, state }: { code: string; state: string }) 
 }
 
 /** Back from GitHub: why the App was not registered, the App that was and the one step left, or the wait in between. */
-export function SetupCallbackView({ app, problem }: { app: { slug: string; installUrl: string } | null; problem: string }) {
+export function SetupCallbackView({ app, problem }: { app: Registered | null; problem: string }) {
   if (problem) {
     return (
       <Standalone title="The App was not registered">
         <Notice tone="bad" role="alert">{problem}</Notice>
-        <p><Link href="/setup" className={buttonClass()}>Back to setup</Link></p>
+        <p><Link href="/setup" className={buttonClass("primary")}>Back to setup</Link></p>
       </Standalone>
     );
   }
@@ -178,7 +182,12 @@ export function SetupCallbackView({ app, problem }: { app: { slug: string; insta
         left: install it on the repositories that hold your factories. An organization owner can; anyone else
         sends the owner a request from the same page.
       </p>
-      <p><a href={app.installUrl} className={buttonClass("primary")}>Install {app.slug}</a></p>
+      {/* A slug can be longer than a phone is wide: it is the title, so the button may cut it short. */}
+      <p>
+        <a href={app.installUrl} className={cx(buttonClass("primary"), "max-w-full")}>
+          <span className="min-w-0 truncate">Install {app.slug}</span>
+        </a>
+      </p>
       <p className="text-muted">
         Then <Link href="/">sign in</Link>. Factories appear as the App is installed on their repositories.
       </p>

@@ -55,8 +55,9 @@ export function SignInView({ forge, onSignIn }: { forge: Me["forge"]; onSignIn: 
         You are who <strong>{forge.host}</strong> says you are, and you see here what you can read there.
       </p>
       <p>
-        <Button variant="primary" disabled={leaving} onClick={() => void go()}>
-          Sign in with {forge.host === "github.com" ? "GitHub" : forge.host}
+        {/* A host can be longer than a phone is wide: it is named above, so the button may cut it short. */}
+        <Button variant="primary" className="max-w-full" disabled={leaving} onClick={() => void go()}>
+          <span className="min-w-0 truncate">Sign in with {forge.host === "github.com" ? "GitHub" : forge.host}</span>
         </Button>
       </p>
       {problem ? <Notice tone="bad" role="alert">{problem}</Notice> : null}
@@ -96,7 +97,7 @@ export function SignInCallbackView({ problem }: { problem: string }) {
   return (
     <Standalone title="Not signed in">
       <Notice tone="bad" role="alert">{problem}</Notice>
-      <p><Link href="/" className={buttonClass()}>Try again</Link></p>
+      <p><Link href="/" className={buttonClass("primary")}>Try again</Link></p>
     </Standalone>
   );
 }
