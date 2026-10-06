@@ -91,7 +91,7 @@ http.route({
     });
     if (handed.state !== "approved") return reply(handed.state === "pending" ? 200 : 410, { status: handed.state });
     return reply(200, {
-      status: "approved", token, owner: handed.owner, station: handed.station, ...(handed.ingest ? { ingest } : {}),
+      status: "approved", token, owner: handed.owner, station: handed.station, ...(handed.open ? { ingest } : {}),
     });
   }),
 });
@@ -187,11 +187,14 @@ http.route({
 
 /**
  * Where a request came from, as the proxy in front of the deployment says —
- * or "unknown" where none does, which every such request shares. Only what
- * the open registration limits count by, never what anything is granted on.
+ * or "unknown" where none does, which every such request shares. The last
+ * `X-Forwarded-For` entry, because that is the one the nearest proxy
+ * appended: every entry before it is the client's to write. Only what the
+ * open registration limits count by, and what the approval page shows beside
+ * the host a station says it is — never what anything is granted on.
  */
 function source(request: Request): string {
-  const forwarded = request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim();
+  const forwarded = request.headers.get("X-Forwarded-For")?.split(",").at(-1)?.trim();
   return forwarded || request.headers.get("X-Real-IP")?.trim() || "unknown";
 }
 

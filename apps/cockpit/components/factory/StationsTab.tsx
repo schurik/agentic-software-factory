@@ -115,7 +115,7 @@ function Asking({ registration, factory, now, onApprove }: {
         <div><code>{registration.name}</code> asks to become a station of {factory}</div>
         <div className="mt-0.5 text-sm text-muted">
           {registration.kind} · on {registration.host ? <code>{registration.host}</code> : "a host it did not name"}
-          {registration.ingest ? " · asked without an ingest token: approving hands it one for this factory, as yours" : null}
+          {registration.open ? " · asked without an ingest token: approving hands it one for this factory, as yours" : null}
         </div>
         <div className="mt-0.5 text-sm text-muted">
           {registration.approved ? "Approved: it picks up its token on its next poll."

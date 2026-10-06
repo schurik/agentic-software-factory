@@ -67,13 +67,17 @@ export function StationApproval({ code: given }: { code: string }) {
             <dl className="facts">
               <dt>Repository</dt><dd>{asked.factory}</dd>
               <dt>Station</dt><dd><code>{asked.name}</code> <span className="muted small">({asked.kind}, {asked.station})</span></dd>
-              <dt>Host</dt><dd>{asked.host ? <code>{asked.host}</code> : <span className="muted">it did not say</span>}</dd>
+              <dt>Host</dt>
+              <dd>
+                {asked.host ? <code>{asked.host}</code> : <span className="muted">it did not say</span>}
+                {asked.from ? <span className="muted small"> — as it says; the request came from {asked.from}</span> : null}
+              </dd>
             </dl>
             <p className="small">
               Approving makes this station yours: it takes commands from this cockpit for you, as far as its own{" "}
               <code>asf/factory.yaml</code> opts them in. Approve only a station you started, whose terminal shows this code.
             </p>
-            {asked.ingest ? (
+            {asked.open ? (
               <p className="small">
                 It asked without an ingest token, so approving also hands it one for {asked.factory}: it ships that
                 factory&apos;s sessions as yours, listed on the factory&apos;s Stations tab, where it can be revoked.

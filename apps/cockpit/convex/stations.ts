@@ -158,7 +158,7 @@ export const pending = query({
     const decided = await approvalRefusal(ctx, signIn, asked);
     return {
       code: asked.code, factory: asked.factory, name: asked.name, kind: asked.kind, station: asked.station,
-      host: asked.host ?? "", ingest: asked.open === true,
+      host: asked.host ?? "", from: asked.source ?? "", open: asked.open === true,
       expiresAt: asked.expiresAt, approved: asked.approvedBy !== null,
       because: "because" in decided ? decided.because : null,
     };
@@ -185,7 +185,7 @@ export const registrations = query({
     return await Promise.all(asking.map(async (asked) => {
       const decided = await approvalRefusal(ctx, signIn, asked);
       return {
-        station: asked.station, name: asked.name, kind: asked.kind, host: asked.host ?? "", ingest: asked.open === true,
+        station: asked.station, name: asked.name, kind: asked.kind, host: asked.host ?? "", open: asked.open === true,
         expiresAt: asked.expiresAt, approved: asked.approvedBy !== null, because: "because" in decided ? decided.because : null,
       };
     }));
@@ -225,13 +225,15 @@ export const registration = internalQuery({
  * command token whose digest is `token`, and spend the request — or say it is
  * still pending, or gone. A request asked without an ingest token keeps
  * `ingest` too, as its factory's ingest token for this station, issued by
- * its approver — replacing any an earlier registration of it was handed —
- * and says so (`ingest: true`), so the station is handed it.
+ * its approver, and says so (`open: true`), so the station is handed it.
+ * Either way the ingest token an earlier registration of the station was
+ * handed is revoked: the station keeps one credential file, and the one it
+ * wrote now no longer holds that token, so nothing would ever use it again.
  */
 export const handOver = internalMutation({
   args: { device: v.string(), token: v.string(), ingest: v.string() },
   returns: v.union(
-    v.object({ state: v.literal("approved"), owner: v.string(), station: v.string(), ingest: v.boolean() }),
+    v.object({ state: v.literal("approved"), owner: v.string(), station: v.string(), open: v.boolean() }),
     v.object({ state: v.union(v.literal("pending"), v.literal("expired")) }),
   ),
   handler: async (ctx, { device, token, ingest }) => {
@@ -241,12 +243,12 @@ export const handOver = internalMutation({
     const owner = await ctx.db.get(asked.approvedBy);
     await own(ctx, asked, owner, token);
     const open = asked.open === true;
+    await replaceStationToken(ctx, asked.factory, asked.station);
     if (open) {
-      await replaceStationToken(ctx, asked.factory, asked.station);
       await keepToken(ctx, asked.factory, ingest, { kind: "station", label: asked.name, station: asked.station, issuedBy: owner });
     }
     await ctx.db.delete(asked._id);
-    return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station, ingest: open };
+    return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station, open };
   },
 });
 

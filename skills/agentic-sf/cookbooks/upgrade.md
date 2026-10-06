@@ -131,8 +131,8 @@ the next `--force` writes over the one they read.
   `gh auth token`, which `up` hands to the container — say so before the first
   `up`.
 - **Station registration** — only against a **shared** cockpit, once per
-  checkout: [connect_cockpit.md](connect_cockpit.md). It is a person's to
-  approve, never yours. A local cockpit's station is its owner's already; a CI
+  checkout: `just station-register`, as [connect_cockpit.md](connect_cockpit.md)
+  walks it. It is a person's to approve, never yours. A local cockpit's station is its owner's already; a CI
   station takes no commands.
 - **Labels** — `just labels`, then `just labels --create` for any a release
   added. It creates only missing labels; a route or queued label made by hand

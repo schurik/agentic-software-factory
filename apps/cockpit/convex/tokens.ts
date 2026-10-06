@@ -51,7 +51,7 @@ export async function keepToken(ctx: MutationCtx, factory: string, held: string,
 
 /**
  * Revoke the live token a registration handed station `station` of `factory`
- * before: registering again replaces it, so a station holds one at a time.
+ * before: registering again replaces it, so a station holds at most one.
  */
 export async function replaceStationToken(ctx: MutationCtx, factory: string, station: string): Promise<void> {
   const rows = await ctx.db.query("ingestTokens").withIndex("by_factory", (q) => q.eq("factory", factory)).collect();

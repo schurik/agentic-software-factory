@@ -127,7 +127,7 @@ describe("registering a station", () => {
     const listed = (holding?: string) => t.query(api.stations.registrations, { factory: "acme/widgets", signIn: holding });
 
     expect(await listed(alex)).toEqual([
-      { station: STATION.id, name: STATION.name, kind: "local", host: "", ingest: false, expiresAt: Date.now() + 10 * 60_000, approved: false, because: null },
+      { station: STATION.id, name: STATION.name, kind: "local", host: "", open: false, expiresAt: Date.now() + 10 * 60_000, approved: false, because: null },
       expect.objectContaining({ station: "st_late", name: "late@box:widgets" }),
     ]);
     // Typing the code is what proves the approver saw the station's terminal: the list never says it.
@@ -169,7 +169,7 @@ describe("registering a station without an ingest token", () => {
 
     // What the approver sees before the button: which repository, which station, what kind, from which host.
     expect(await t.query(api.stations.pending, { code, signIn: alex })).toMatchObject({
-      factory: "acme/widgets", name: STATION.name, kind: "local", station: STATION.id, host: "mbp", ingest: true, because: null,
+      factory: "acme/widgets", name: STATION.name, kind: "local", station: STATION.id, host: "mbp", from: "203.0.113.7", open: true, because: null,
     });
     expect(await json(await handed(t, device))).toEqual({ status: "pending" });
     expect(await t.mutation(api.stations.approve, { code, signIn: alex })).toEqual({ ok: true });
@@ -224,6 +224,12 @@ describe("registering a station without an ingest token", () => {
     expect((await ingest(t, first, { session: SESSION, events: running() })).status).toBe(401);
     expect((await ingest(t, second, { session: SESSION, events: running() })).status).toBe(200);
     expect((await t.query(api.tokens.list, { factory: "acme/widgets", signIn: alex }))?.tokens).toHaveLength(1);
+
+    // Registering again with a token leaves the station's file without the one it was handed: it goes too.
+    await approved(t, await factory(t, "acme/widgets"), alex);
+    expect((await ingest(t, second, { session: SESSION, events: running() })).status).toBe(401);
+    expect((await t.query(api.tokens.list, { factory: "acme/widgets", signIn: alex }))?.tokens.map((each) => each.kind))
+      .toEqual(["operator"]);
   });
 
   it("may wait only so many at once from one source, and for one factory, and runs out like any other", async () => {

@@ -11,9 +11,8 @@ export const STATION = { id: "st_7f3a9c", name: "alex@mbp:widgets", kind: "local
 export const SESSION = "5c0075aa";
 export const REPORT = { verbs: ["kill"], head: "89abcdef", config_hash: "c0ffee", watchers: ["issues", "answers"] };
 
-export async function post(t: Cockpit, path: string, token: string | null, body: unknown,
-                           more: Record<string, string> = {}): Promise<Response> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...more };
+export async function post(t: Cockpit, path: string, token: string | null, body: unknown): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token !== null) headers.Authorization = `Bearer ${token}`;
   return await t.fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
 }
@@ -29,10 +28,19 @@ export async function register(t: Cockpit, ingestToken: string, station = STATIO
   return await json(response) as { device: string; code: string; url: string; interval: number; expires_in: number };
 }
 
-/** `asf station register` with no ingest token: the station names its factory, and says its host. */
+/**
+ * `asf station register` with no ingest token: the station names its factory,
+ * and says its host. `from` is the address the proxy appended — what a client
+ * wrote before it is its own, and counts for nothing.
+ */
 export async function asksOpenly(t: Cockpit, factory = "acme/widgets", station = STATION, from = "203.0.113.7") {
-  return await post(t, "/station/register", null, { station, factory, host: "mbp" }, { "X-Forwarded-For": `${from}, 10.0.0.1` });
+  spoofed += 1;
+  return await t.fetch("/station/register", {
+    method: "POST", body: JSON.stringify({ station, factory, host: "mbp" }),
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": `198.18.${spoofed >> 8}.${spoofed & 255}, ${from}` },
+  });
 }
+let spoofed = 0;
 
 export async function registerOpenly(t: Cockpit, factory = "acme/widgets", station = STATION) {
   const response = await asksOpenly(t, factory, station);

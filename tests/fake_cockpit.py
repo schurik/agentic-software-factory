@@ -8,8 +8,8 @@ stored. REGISTERING (`stations.ts`): a code asked for with the ingest token —
 or without one, naming the factory as `owner/name`, when it is handed an
 ingest token for that factory too — approved by a person (`approve`), and a
 command token handed to whoever polls with the device secret. `opens = False`
-is a cockpit older than that, which refuses a request without a token (401). COMMANDS (`commands.ts`): a poll with the command
-token or 401 (`revoke`), recording the station's report and who polled, and
+is a cockpit older than that, which refuses a request without a token (401).
+COMMANDS (`commands.ts`): a poll with the command token or 401 (`revoke`), recording the station's report and who polled, and
 answering with the queued commands for it — a run's own poll gets the ones
 naming its session, the station loop's the rest. A command is done when a
 `command_result` naming it is ingested, never when it was sent — or, for one

@@ -264,7 +264,7 @@ describe("the Stations tab", () => {
                    panels={{ ...PANELS, stations: (
                      <StationsTab stations={[CARD]} ci={{ jobs: [], checks: [] }} drifts={drifts(shown, LOOK)} now={NOW} factory="acme/widgets"
                                   forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
-                                  registrations={[{ station: "st_new", name: "alex@new:widgets", kind: "local", host: "new", ingest: false, expiresAt: NOW + 60_000, approved: false, because: null }]} />
+                                  registrations={[{ station: "st_new", name: "alex@new:widgets", kind: "local", host: "new", open: false, expiresAt: NOW + 60_000, approved: false, because: null }]} />
                    ) }} />);
     const stations = html.slice(html.indexOf('id="factory-stations"'), html.indexOf('id="factory-config"'));
 
@@ -276,10 +276,10 @@ describe("the Stations tab", () => {
 
   it("puts pending registrations on top, to approve with the code the station's terminal shows", () => {
     const html = stationsTab([CARD], [
-      { station: "st_new", name: "alex@new:widgets", kind: "local", host: "new", ingest: true, expiresAt: NOW + 8 * 60_000, approved: false, because: null },
-      { station: "st_sam", name: "sam@lab:widgets", kind: "local", host: "lab", ingest: false, expiresAt: NOW + 9 * 60_000, approved: false,
+      { station: "st_new", name: "alex@new:widgets", kind: "local", host: "new", open: true, expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+      { station: "st_sam", name: "sam@lab:widgets", kind: "local", host: "lab", open: false, expiresAt: NOW + 9 * 60_000, approved: false,
         because: "a station takes commands for its owner, which needs write on acme/widgets; the forge says you have read" },
-      { station: "st_ok", name: "dana@box:widgets", kind: "local", host: "box", ingest: false, expiresAt: NOW + 9 * 60_000, approved: true, because: null },
+      { station: "st_ok", name: "dana@box:widgets", kind: "local", host: "box", open: false, expiresAt: NOW + 9 * 60_000, approved: true, because: null },
     ]);
 
     expect(html.indexOf("alex@new:widgets")).toBeLessThan(html.indexOf("alex@mbp:widgets"));
