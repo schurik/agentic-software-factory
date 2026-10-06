@@ -2,7 +2,9 @@
  * A factory's Overview (#119), over the last days the viewer picked: what it
  * spent — in all, each day, by station and by person — how its sessions
  * ended, how long people kept its gates waiting, and the same by workflow
- * (model/overview.ts says how each is counted).
+ * (model/overview.ts says how each is counted). Asked over the last 30 days,
+ * it is the Workflows tab's too (#120): each workflow's line, and each of its
+ * stages' figures (model/workflows.ts).
  *
  * Read off the rows ingest keeps — spend, the sessions' summaries, phases —
  * and never an event. The days are the viewer's own midnights
@@ -10,12 +12,14 @@
  * this query is asked again only when a day moves on.
  */
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { type PersonCost, rolledUp, SUMMED, spentOn, type StationCost } from "./cost";
-import { type Day, dailyOf, type Outcomes, outcomesOf, type PhaseFacts, type WorkflowLine, workflowsOf } from "./model/overview";
+import { type Day, dailyOf, type Outcomes, outcomesOf, type WorkflowLine, workflowsOf } from "./model/overview";
 import type { Period } from "./model/period";
 import { endedAt, readSummary, type Summary } from "./model/session";
 import type { Spend } from "./model/spend";
+import { type StageFigures, stagesOf } from "./model/workflows";
 import { spellingsOf } from "./spelling";
 import { readable, viewing } from "./viewer";
 
@@ -33,6 +37,8 @@ export interface Overview {
   };
   outcomes: Outcomes;
   workflows: WorkflowLine[];
+  /** Each stage each workflow ran in the period, at its place in the workflow. */
+  stages: StageFigures[];
 }
 
 const NONE: Overview = {
@@ -40,6 +46,7 @@ const NONE: Overview = {
   spend: { total: { cost: 0, tokens: 0 }, sessions: 0, days: [], stations: [], people: [] },
   outcomes: { sessions: 0, done: 0, failed: 0, open: 0, finish: null, gates: { rounds: 0, rejected: 0, wait: null } },
   workflows: [],
+  stages: [],
 };
 
 /**
@@ -71,6 +78,7 @@ export const page = query({
       },
       outcomes: outcomesOf(sessions, phases),
       workflows: workflowsOf(sessions, phases, rollup.workflows),
+      stages: stagesOf(phases),
     };
   },
 });
@@ -93,8 +101,8 @@ async function endedIn(ctx: QueryCtx, factory: string, period: Period): Promise<
 }
 
 /** The rows of `factory`'s phases that started in `period`; null past `SUMMED`. */
-async function phasesIn(ctx: QueryCtx, factory: string, period: Period): Promise<PhaseFacts[] | null> {
-  const found: PhaseFacts[] = [];
+async function phasesIn(ctx: QueryCtx, factory: string, period: Period): Promise<Doc<"phases">[] | null> {
+  const found: Doc<"phases">[] = [];
   for (const spelling of await spellingsOf(ctx, factory)) {
     const rows = ctx.db.query("phases").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", period.from).lt("at", period.to));
     for await (const row of rows) {

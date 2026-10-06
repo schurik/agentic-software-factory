@@ -31,6 +31,7 @@ const OVERVIEW: Overview = {
     ],
   },
   outcomes: { sessions: 3, done: 1, failed: 1, open: 1, finish: 667.48, gates: { rounds: 2, rejected: 1, wait: 0.457 } },
+  stages: [],
   workflows: [
     { workflow: "ship", sessions: 2, done: 0, failed: 1, open: 1, finish: 1320, cost: 0.056, tokens: 3_600, last: at("2026-10-05T08:00:00Z") },
     { workflow: "issue", sessions: 1, done: 1, failed: 0, open: 0, finish: null, cost: 0.383, tokens: 23_100, last: at("2026-10-04T22:41:42Z") },
@@ -106,7 +107,7 @@ describe("a factory's Overview, when there is little to show", () => {
       cut: false,
       spend: { total: { cost: 0, tokens: 0 }, sessions: 0, days: OVERVIEW.spend.days.map((day) => ({ ...day, cost: 0, tokens: 0 })), stations: [], people: [] },
       outcomes: { sessions: 0, done: 0, failed: 0, open: 0, finish: null, gates: { rounds: 0, rejected: 0, wait: null } },
-      workflows: [],
+      workflows: [], stages: [],
     };
     const said = text(render(empty));
 

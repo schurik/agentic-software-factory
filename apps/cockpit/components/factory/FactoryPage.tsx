@@ -28,7 +28,8 @@ const DAY = 24 * 3600_000;
 /**
  * One factory (#118): its header, and its tabs — Overview, what the factory
  * spent and how its sessions and gates went over the last 7 or 30 days
- * (#119); Workflows, from the factory's own self-description; Stations, a
+ * (#119); Workflows, from the factory's own self-description, each with its
+ * last 30 days (#120); Stations, a
  * card each with the registrations waiting on top; and Config, whose files a
  * writer edits into a pull request. The tab open is the address's (`?tab=`), so a link — Now's
  * "Stations →" — lands on the tab that answers it. Live: the queries keep
@@ -48,6 +49,8 @@ export function FactoryPage({ factory }: { factory: string }) {
   const [days, setDays] = useState<OverviewDays>(30);
   const midnights = lastDays(days, now, timeZone);
   const overview = useQuery(api.overview.page, { factory, days: midnights, signIn });
+  // The Workflows tab's record is always the last 30 days: the Overview's own query, when it shows those too.
+  const record = useQuery(api.overview.page, { factory, days: lastDays(30, now, timeZone), signIn });
   const stations = useQuery(api.activity.stations, { factory, signIn, period });
   const registrations = useQuery(api.stations.registrations, { factory, signIn });
   const approve = useMutation(api.stations.approve);
@@ -104,7 +107,10 @@ export function FactoryPage({ factory }: { factory: string }) {
                  trigger={triggering ? <TriggerForm factory={page.repo} signIn={signIn} as={viewer?.login ?? ""} /> : null}
                  panels={{
                    overview: <OverviewTab overview={overview} days={days} midnights={midnights} now={now} timeZone={timeZone} onDays={setDays} />,
-                   workflows: <WorkflowsTab check={page.check} onRun={(workflow) => run({ factory: page.repo, workflow })} />,
+                   workflows: (
+                     <WorkflowsTab check={page.check} factory={page.repo} stations={page.stations} now={now} record={record ?? undefined}
+                                   onRun={(workflow) => run({ factory: page.repo, workflow })} />
+                   ),
                    stations: (
                      <>
                        {problem ? <Notice tone="bad">{problem}</Notice> : null}
