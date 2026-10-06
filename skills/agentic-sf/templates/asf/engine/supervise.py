@@ -232,7 +232,7 @@ class Target:
 
 def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Target | None:
     """The shared cockpit, the local one this process starts or joined, or None."""
-    shared = station.configured()
+    shared = station.configured(anchor(main_root, cfg.defaults.data_dir))
     if shared is not None:
         return Target(Destination(lambda: shared, label=f"shared: {shared.url}"),
                       lambda: station.credential(main_root, cfg.defaults.data_dir), local=False)

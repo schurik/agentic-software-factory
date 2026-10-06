@@ -26,6 +26,11 @@ station.
 Without ASF_COCKPIT_URL there is no cockpit, no thread and no `shipped.json`:
 the run is the run it was before stations existed.
 
+A station ships with ASF_COCKPIT_TOKEN when it is set. Unset, it ships with
+the ingest token its registration was handed (`asf station register` with
+only ASF_COCKPIT_URL, `engine/commands.py`), kept beside its command token —
+which is why `configured` is asked with the data directory to look in.
+
 COMMANDS ride the same loop. A station a person registered (`asf station
 register`, `engine/commands.py`) holds their command token in
 `<data_dir>/station-token.json`, and a `Loop` given a `steering` asks the
@@ -80,7 +85,7 @@ def identify(main_root: str | Path, data_dir: str) -> Station:
     root = Path(main_root)
     record = _station_record(anchor(root, data_dir) / STATION_FILE)
     name = os.environ.get("ASF_STATION_NAME", "").strip()
-    return Station(id=record.id, name=name or f"{_login()}@{_host()}:{root.resolve().name}",
+    return Station(id=record.id, name=name or f"{_login()}@{host()}:{root.resolve().name}",
                    kind="ci" if os.environ.get("CI", "").strip() else "local")
 
 
@@ -143,16 +148,21 @@ def operator() -> str:
     return os.environ.get("GITHUB_ACTOR", "").strip() or engineer_name()
 
 
-def _host() -> str:
+def host() -> str:
+    """This machine's own short name: part of a station's name, and what a
+    registration tells the person approving it the request came from."""
     return socket.gethostname().split(".")[0] or "localhost"
 
 
 def credential(main_root: str | Path, data_dir: str) -> StationCredential | None:
     """The command token `asf station register` kept, or None: an unregistered
     station ships all the same, and is simply never asked to do anything."""
+    return _held(anchor(Path(main_root), data_dir))
+
+
+def _held(data: Path) -> StationCredential | None:
     try:
-        return StationCredential.model_validate_json(
-            (anchor(Path(main_root), data_dir) / CREDENTIAL_FILE).read_text())
+        return StationCredential.model_validate_json((data / CREDENTIAL_FILE).read_text())
     except (OSError, ValueError):
         return None
 
@@ -167,11 +177,16 @@ def keep(main_root: str | Path, data_dir: str, held: StationCredential) -> Path:
 
 # ── where it ships ───────────────────────────────────────────────────────────
 
-def configured() -> Cockpit | None:
+def configured(data: str | Path | None = None) -> Cockpit | None:
     """The cockpit ASF_COCKPIT_URL names, or None — and None changes nothing.
 
-    The token may be empty: the cockpit refuses that as it refuses a wrong one,
-    with a 401, and a 401 is the one failure `asf station sync` reports.
+    Its token is ASF_COCKPIT_TOKEN, which wins whenever it is set; else the
+    ingest token a registration handed this station for that same cockpit,
+    kept in `data` (the data directory, `<main_root>/<data_dir>`) — so a
+    checkout connected by `asf station register` alone ships with nothing in
+    `.env` but the URL. The token may be empty: the cockpit refuses that as it
+    refuses a wrong one, with a 401, and a 401 is the one failure `asf station
+    sync` reports.
     """
     url = os.environ.get("ASF_COCKPIT_URL", "").strip()
     if not url:
@@ -181,7 +196,19 @@ def configured() -> Cockpit | None:
               f"until it is the cockpit backend's site origin, e.g. http://127.0.0.1:3211",
               file=sys.stderr, flush=True)
         return None
-    return Cockpit(url=url, token=os.environ.get("ASF_COCKPIT_TOKEN", "").strip())
+    cockpit = Cockpit(url=url, token=os.environ.get("ASF_COCKPIT_TOKEN", "").strip())
+    if cockpit.token or data is None:
+        return cockpit
+    held = _held(Path(data))
+    if held is not None and held.cockpit == cockpit.url and held.ingest:
+        return cockpit.model_copy(update={"token": held.ingest})
+    return cockpit
+
+
+def data_of(session_dir: str | Path) -> Path:
+    """The data directory a session directory lives in: sessions are
+    `<data_dir>/sessions/<adw_id>` (`artifacts.sessions_root`)."""
+    return Path(session_dir).parent.parent
 
 
 # (url, token, body) -> (status, body). Raises OSError when nothing answered.
@@ -301,12 +328,12 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
     step. A token that is wrong stays wrong until a person fixes it, which is
     what a red job is for.
     """
-    cockpit = configured()
+    main_root = git_helper.main_root()
+    cockpit = configured(anchor(main_root, cfg.defaults.data_dir))
     if cockpit is None:
         print("no cockpit configured — set ASF_COCKPIT_URL (and ASF_COCKPIT_TOKEN) in .env "
               "or the job's environment to ship sessions to one")
         return 0
-    main_root = git_helper.main_root()
     here = identify(main_root, cfg.defaults.data_dir)
     print(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}")
     root = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
@@ -322,8 +349,9 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
             continue
         print(f"  {shipped.adw_id}: {shipped.outcome} — {shipped.error}")
         if shipped.outcome == "unauthorized":
-            print("  the cockpit refused ASF_COCKPIT_TOKEN; nothing more is sent until it "
-                  "is a token that cockpit issued for this repository")
+            print("  the cockpit refused the ingest token (ASF_COCKPIT_TOKEN, or the one "
+                  "`asf station register` was handed); nothing more is sent until it is a "
+                  "token that cockpit issued for this repository and did not revoke")
             return 1
         if shipped.outcome == "unreachable":
             print("  nothing is lost: every session is kept from its acknowledged seq, "
@@ -348,7 +376,7 @@ def start(session_dir: str | Path, transport: Transport | None = None,
     lives, flushing on the way out — or None, and nothing at all, when no
     cockpit is configured. Called by every process that owns a session; the
     one that RUNS it also polls for the commands that name it (`steering`)."""
-    cockpit = configured()
+    cockpit = configured(data_of(session_dir))
     if cockpit is None:
         return None
     shipper = Shipper(session_dir, cockpit, transport or post, steering=steering).start()
@@ -360,7 +388,7 @@ def flush(session_dir: str | Path, transport: Transport = post) -> None:
     """One bounded round, for a process that writes to a session it does not
     run — a watcher aborting a run at its gate — and outlives the write by
     hours, so an exit-time flush would come far too late."""
-    cockpit = configured()
+    cockpit = configured(data_of(session_dir))
     if cockpit is not None:
         Shipper(session_dir, cockpit, transport).start().stop()
 
@@ -488,7 +516,7 @@ class Loop:
             if self.destination.refused(cockpit):
                 self._shipped_to = None
                 return False
-            self._say("unauthorized", f"the cockpit refused ASF_COCKPIT_TOKEN ({result.error}); "
+            self._say("unauthorized", f"the cockpit refused the ingest token ({result.error}); "
                                       f"nothing more is shipped from this process")
             self._gave_up = True
             return False

@@ -316,6 +316,37 @@ def test_doctor_says_whether_the_local_cockpit_will_have_a_forge_token(docker_he
     assert "gho_0a1b2c" not in with_one[0].line
 
 
+def test_doctor_says_what_a_station_ships_to_a_shared_cockpit_with(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("ASF_COCKPIT_URL", COCKPIT.url)
+
+    [nothing] = preflight.cockpit(tmp_path)
+    assert nothing.level == "warn" and "no ingest token" in nothing.detail
+    assert "just station-register" in nothing.fix
+
+    station.keep(tmp_path, ".", StationCredential(cockpit=COCKPIT.url, station="st_a", token="t",
+                                                  ingest="asf_ingest_kept"))
+    [kept] = preflight.cockpit(tmp_path)
+    assert kept.level == "ok" and "`asf station register` was handed" in kept.detail
+
+    monkeypatch.setenv("ASF_COCKPIT_TOKEN", COCKPIT.token)
+    [token] = preflight.cockpit(tmp_path)
+    assert token.level == "ok" and "ASF_COCKPIT_TOKEN" in token.detail
+
+
+def test_up_ships_to_a_shared_cockpit_with_the_ingest_token_a_registration_was_handed(
+        cfg, stamped, monkeypatch):
+    monkeypatch.setenv("ASF_COCKPIT_URL", COCKPIT.url)
+    data = stamped / cfg.defaults.data_dir
+    station.keep(stamped, cfg.defaults.data_dir, StationCredential(
+        cockpit=COCKPIT.url, station="st_a", token="asf_station_a", ingest="asf_ingest_kept"))
+
+    target = supervise.destination(cfg, stamped, None)
+
+    assert target is not None and not target.local
+    assert target.destination.get() == Cockpit(url=COCKPIT.url, token="asf_ingest_kept")
+    assert station.configured(data).token == "asf_ingest_kept"
+
+
 # ── the children of `asf up` and `asf station` ───────────────────────────────
 
 @pytest.fixture

@@ -114,6 +114,14 @@ def resolve_project(config: IssuesConfig | PullRequestsConfig, main_root) -> str
     """
     if config.project:
         return config.project
+    return origin_project(main_root)
+
+
+def origin_project(main_root) -> str:
+    """The checkout's origin remote as `owner/name`, or "" when it has none
+    the forge would know. What a station registering without an ingest token
+    names its factory by (`commands.register`): the repository the factory
+    is stamped in, whatever project its issues are tracked in."""
     if not git_helper.is_repo(main_root):
         return ""
     url = _run(["git", "remote", "get-url", "origin"], main_root)

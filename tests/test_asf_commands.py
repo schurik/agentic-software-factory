@@ -119,6 +119,99 @@ def test_register_without_a_shared_cockpit_says_a_local_one_needs_none(stamped: 
     assert "local cockpit" in said[0]
 
 
+# ── registering without an ingest token ──────────────────────────────────────
+
+def _without_a_token(repo: Path, monkeypatch) -> None:
+    """Only ASF_COCKPIT_URL set, in a checkout whose origin is acme/widgets."""
+    monkeypatch.delenv("ASF_COCKPIT_TOKEN")
+    git(repo, "remote", "add", "origin", "git@github.com:acme/widgets.git")
+
+
+def test_register_with_only_the_url_names_the_origin_and_ships_with_the_ingest_token_it_is_handed(
+        stamped: Path, monkeypatch):
+    cfg = loaded(stamped, monkeypatch)
+    _without_a_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    said: list[str] = []
+
+    def a_person_approves(_seconds: float) -> None:
+        asked = cockpit.registrations[0]
+        assert asked.factory == "acme/widgets" and asked.host       # what the approval page shows
+        cockpit.approve(asked.code, owner="alex")
+
+    assert commands.register(cfg, cockpit, wait=a_person_approves, say=said.append) == 0
+
+    here = station.identify(stamped, DATA_DIR)
+    held = station.credential(stamped, DATA_DIR)
+    assert held is not None and held.token == f"asf_station_{here.id}"
+    assert held.ingest == f"asf_ingest_{here.id}" and held.ingest in cockpit.ingest_tokens
+    shown = "\n".join(said)
+    assert "acme/widgets" in shown and "ingest token" in shown
+    assert "station-token.json" not in git(stamped, "status", "--porcelain")
+
+    # The next `up` — the station loop, and a run's own shipper — ships with it.
+    data = stamped / DATA_DIR
+    assert station.configured(data) == Cockpit(url=URL, token=held.ingest)
+    a_session(stamped).joinpath(events.EVENTS_FILE).write_text(json.dumps(
+        {"seq": 1, "kind": "session_started", "v": 1, "ts": "2026-10-06T00:00:00Z",
+         "payload": {}}) + "\n")
+    assert station.sync(cfg, cockpit) == 0
+    assert cockpit.acked("5e55i0n1") == 1
+
+
+def test_asf_cockpit_token_wins_over_a_kept_ingest_token_and_one_kept_for_another_cockpit_is_not_used(
+        stamped: Path, monkeypatch):
+    here = station.identify(stamped, DATA_DIR)
+    station.keep(stamped, DATA_DIR, StationCredential(cockpit=URL, station=here.id, token="t",
+                                                      ingest="asf_ingest_kept"))
+    data = stamped / DATA_DIR
+
+    assert station.configured(data).token == COCKPIT.token          # set: it wins
+    monkeypatch.delenv("ASF_COCKPIT_TOKEN")
+    assert station.configured(data).token == "asf_ingest_kept"
+    assert station.configured().token == ""                         # nowhere to look
+    monkeypatch.setenv("ASF_COCKPIT_URL", "https://elsewhere.convex.site/")
+    assert station.configured(data).token == ""
+
+
+def test_register_with_a_token_names_no_factory_and_is_handed_no_ingest_token(stamped: Path,
+                                                                             monkeypatch):
+    cfg = loaded(stamped, monkeypatch)
+    git(stamped, "remote", "add", "origin", "git@github.com:acme/widgets.git")
+    cockpit = FakeCockpit()
+
+    def a_person_approves(_seconds: float) -> None:
+        assert cockpit.registrations[0].factory == ""
+        cockpit.approve(cockpit.registrations[0].code)
+
+    assert commands.register(cfg, cockpit, wait=a_person_approves, say=lambda _: None) == 0
+    assert station.credential(stamped, DATA_DIR).ingest == ""
+    assert station.configured(stamped / DATA_DIR).token == COCKPIT.token
+
+
+def test_register_with_only_the_url_and_no_origin_says_what_to_set(stamped: Path, monkeypatch):
+    cfg = loaded(stamped, monkeypatch)
+    monkeypatch.delenv("ASF_COCKPIT_TOKEN")
+    cockpit = FakeCockpit()
+    said: list[str] = []
+
+    assert commands.register(cfg, cockpit, wait=lambda _: None, say=said.append) == 1
+    assert cockpit.registrations == []
+    assert "origin" in said[-1] and "ASF_COCKPIT_TOKEN" in said[-1]
+
+
+def test_register_with_only_the_url_against_an_older_cockpit_says_it_needs_the_token(
+        stamped: Path, monkeypatch):
+    cfg = loaded(stamped, monkeypatch)
+    _without_a_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    cockpit.opens = False
+    said: list[str] = []
+
+    assert commands.register(cfg, cockpit, wait=lambda _: None, say=said.append) == 1
+    assert "older" in said[-1] and "ASF_COCKPIT_TOKEN" in said[-1]
+
+
 # ── the poll and its report ──────────────────────────────────────────────────
 
 def test_every_poll_reports_the_verbs_it_obeys_its_commit_its_config_and_its_watchers(

@@ -1874,7 +1874,9 @@ class Station(BaseModel):
 
 
 class Cockpit(BaseModel):
-    """Where a station ships, from ASF_COCKPIT_URL and ASF_COCKPIT_TOKEN."""
+    """Where a station ships: ASF_COCKPIT_URL, with ASF_COCKPIT_TOKEN — or,
+    where that is unset, the ingest token a registration was handed
+    (`StationCredential.ingest`)."""
 
     url: str                        # the backend's site origin, e.g. http://127.0.0.1:3211
     token: str = ""                 # a factory-scoped ingest token; empty is refused as 401
@@ -1922,13 +1924,19 @@ class StationCredential(BaseModel):
     this station when a person approved its registration — theirs, for this
     station, and good for nothing but asking that cockpit for commands. Keyed
     by the cockpit, like `ShipAck`: a token one cockpit issued means nothing
-    to another. A CI station never holds one."""
+    to another. A CI station never holds one.
+
+    `ingest` is the factory's ingest token the same approval handed over when
+    the station registered without ASF_COCKPIT_TOKEN — its own, revoked on
+    the factory page without touching anyone else's — and what it ships with
+    while ASF_COCKPIT_TOKEN stays unset. "" when it registered with one."""
 
     cockpit: str
     station: str                    # the station id it was issued to
     token: str
     owner: str = ""                 # the forge login of whoever approved it
     issued_at: str = ""
+    ingest: str = ""
 
 
 class StationReport(BaseModel):

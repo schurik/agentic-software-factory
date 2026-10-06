@@ -40,7 +40,7 @@ import subprocess
 from pathlib import Path
 
 from . import cockpit as local_cockpit
-from . import git_helper, harnesses, publish
+from . import git_helper, harnesses, publish, station
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
 from .utils import anchor, write_atomic
@@ -461,19 +461,38 @@ def skill() -> list[Finding]:
 
 # ── the cockpit `asf up` starts ──────────────────────────────────────────────
 
-def cockpit() -> list[Finding]:
+def _shipping_to(shared: str, data: Path | None) -> Finding:
+    """What a station connected to a shared cockpit ships with, or why nothing."""
+    if os.environ.get("ASF_COCKPIT_TOKEN", "").strip():
+        return Finding(check="cockpit", detail=f"shared: {shared} — ships with ASF_COCKPIT_TOKEN; "
+                                               f"`asf up` starts no local one")
+    target = station.configured(data)
+    if target is not None and target.token:
+        return Finding(check="cockpit", detail=f"shared: {shared} — ships with the ingest token "
+                                               f"`asf station register` was handed")
+    return Finding(
+        check="cockpit", level="warn",
+        detail=f"shared: {shared}, but this station holds no ingest token for it — nothing is "
+               f"shipped there",
+        fix="just station-register, and have someone with write on the repository approve "
+            "the code it prints (the agentic-sf skill's cookbooks/connect_cockpit.md) — or "
+            "set ASF_COCKPIT_TOKEN in .env")
+
+
+def cockpit(data: Path | None = None) -> list[Finding]:
     """Whether `asf up` can start the local cockpit, and which one it would run.
 
-    Asked only when no shared cockpit is configured: with ASF_COCKPIT_URL set,
-    nothing here needs Docker. Warn, never fatal — without Docker `up` still
-    runs every watcher, and a run never needed a cockpit at all. The images
-    are asked about so the first `up` is not a surprise: a missing one is
-    pulled then, and that is minutes on a slow line.
+    With ASF_COCKPIT_URL set, nothing here needs Docker: what is asked is
+    whether the station holds an ingest token to ship there with —
+    ASF_COCKPIT_TOKEN, or the one `asf station register` was handed and kept
+    in `data`. Warn, never fatal — without Docker `up` still runs every
+    watcher, and a run never needed a cockpit at all. The images are asked
+    about so the first `up` is not a surprise: a missing one is pulled then,
+    and that is minutes on a slow line.
     """
     shared = local_cockpit.shared()
     if shared:
-        return [Finding(check="cockpit",
-                        detail=f"shared: {shared} — `asf up` starts no local one")]
+        return [_shipping_to(shared, data)]
     problem = local_cockpit.docker_problem()
     if problem:
         return [Finding(
@@ -551,5 +570,6 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamped_version(root) + cockpit()
+            + forge(cfg) + labels(cfg, root) + stamped_version(root)
+            + cockpit(anchor(root, cfg.defaults.data_dir))
             + publishing(cfg, root) + skill())

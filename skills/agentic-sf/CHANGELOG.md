@@ -39,6 +39,18 @@ before — `None` when there are none, never omitted.
   tracker's project and labels — so a cockpit shows them without parsing factory.yaml. The
   tracker's raw command arrays are left out. A 1.3.0 cockpit reads both formats; an older one
   reads format 2 as far as it can and says it is newer.
+- **A checkout connects to a team cockpit with nothing but its URL.** `just station-register` with
+  only `ASF_COCKPIT_URL` set names the factory itself — the origin remote, `owner/name` — and the
+  person with write on it who approves the code in the browser hands the station that factory's
+  ingest token beside its command token, both kept in the gitignored `asf/data/station-token.json`.
+  The station ships with it while `ASF_COCKPIT_TOKEN` is unset; set, the variable wins, and
+  registering with it behaves as before. Each token is its own row, so one station's is revoked
+  without the others. The approval page names the repository, station, kind and host before its
+  button, and requests without a token are limited per source and per factory and run out after
+  ten minutes. A repository admin issues CI's token on the factory page's Stations tab, and `/setup`
+  shows the Convex dashboard's route to a setup code on Convex Cloud. The whole path is the new
+  `cookbooks/connect_cockpit.md`, and `just doctor` says what a station ships to a shared cockpit
+  with, or that it holds nothing.
 
 ### Upgrade
 
@@ -46,8 +58,13 @@ before — `None` when there are none, never omitted.
    new factory, or a cockpit older than that shows each chapter's and phase's start as an event it
    cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
 2. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning and the
-   settings in the self-description; nothing else changes. A factory with the CI workflow ships
-   format 2 on its next default-branch push.
+   settings in the self-description, and registering without a token; nothing else changes. A
+   factory with the CI workflow ships format 2 on its next default-branch push.
+3. A checkout that ships to a shared cockpit with `ASF_COCKPIT_TOKEN` needs nothing: it keeps
+   working as it did. To connect one without the token, remove it from `.env` and run `just
+   station-register` against a cockpit of this release (the 1.3.0 minimum above; an older one
+   refuses the request and says so). A CI job keeps its `secrets.ASF_COCKPIT_TOKEN`; an admin can
+   issue a fresh one on the factory page and revoke the operator's.
 
 ## 1.2.0 — 2026-10-02
 

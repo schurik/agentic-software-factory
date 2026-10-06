@@ -16,7 +16,9 @@
 # Two settings, both optional — without them the check runs and ships nothing:
 #   vars.ASF_COCKPIT_URL       the shared cockpit backend's site origin
 #   secrets.ASF_COCKPIT_TOKEN  the factory's INGEST token: it can add to this
-#                              factory and nothing else, and receives no command
+#                              factory and nothing else, and receives no command.
+#                              An admin of the repository issues one for CI on
+#                              the factory's page in the cockpit (Stations)
 # A pull request from a fork is given no secrets, so it is checked and not shipped.
 name: asf check
 

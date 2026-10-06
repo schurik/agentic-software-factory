@@ -4,9 +4,11 @@ What `apps/cockpit/convex/http.ts` promises a station, kept to the part a
 station can observe. INGEST (`ingest.ts`): a bearer token or 401, a batch of
 at most `MAX_EVENTS` or 413, each (session, seq) stored once and never
 overwritten, and an answer naming the highest seq with every seq below it
-stored. REGISTERING (`stations.ts`): a code asked for with the ingest token,
-approved by a person (`approve`), and a command token handed to whoever polls
-with the device secret. COMMANDS (`commands.ts`): a poll with the command
+stored. REGISTERING (`stations.ts`): a code asked for with the ingest token —
+or without one, naming the factory as `owner/name`, when it is handed an
+ingest token for that factory too — approved by a person (`approve`), and a
+command token handed to whoever polls with the device secret. `opens = False`
+is a cockpit older than that, which refuses a request without a token (401). COMMANDS (`commands.ts`): a poll with the command
 token or 401 (`revoke`), recording the station's report and who polled, and
 answering with the queued commands for it — a run's own poll gets the ones
 naming its session, the station loop's the rest. A command is done when a
@@ -41,6 +43,8 @@ class Registration:
     device: str
     code: str
     station: dict
+    factory: str = ""                   # named by a request without a token
+    host: str = ""
     owner: str = ""                     # set by `approve`
     expired: bool = False
 
@@ -77,6 +81,8 @@ class Poll:
 class FakeCockpit:
     def __init__(self, token: str = "asf_ingest_test"):
         self.token = token
+        self.ingest_tokens = {token}                 # every ingest token it issued and did not revoke
+        self.opens = True                            # False: a cockpit that registers only with a token
         self.down = False
         self.stored: dict[str, dict[int, dict]] = {}
         self.batches: list[dict] = []
@@ -108,7 +114,7 @@ class FakeCockpit:
     # ── describing ───────────────────────────────────────────────────────────
 
     def _describe(self, token: str, body: dict) -> tuple[int, dict]:
-        if token != self.token:
+        if token not in self.ingest_tokens:
             return 401, {"error": "this ingest token is not one the cockpit issued"}
         if not (isinstance(body.get("description"), dict) and isinstance(body.get("station"), dict)):
             return 400, {"error": "a description names its station and carries the description"}
@@ -118,7 +124,7 @@ class FakeCockpit:
     # ── ingest ───────────────────────────────────────────────────────────────
 
     def _ingest(self, token: str, body: dict) -> tuple[int, dict]:
-        if token != self.token:
+        if token not in self.ingest_tokens:
             return 401, {"error": "this ingest token is not one the cockpit issued"}
         events = body["events"]
         if len(events) > MAX_EVENTS:
@@ -149,13 +155,20 @@ class FakeCockpit:
     # ── registering ──────────────────────────────────────────────────────────
 
     def _register(self, token: str, body: dict) -> tuple[int, dict]:
-        if token != self.token:
+        factory = str(body.get("factory") or "")
+        if not token and not self.opens:
+            return 401, {"error": "registering needs the factory's ingest token"}
+        if token and token not in self.ingest_tokens:
             return 401, {"error": "this ingest token is not one the cockpit issued"}
+        if not token and factory.count("/") != 1:
+            return 400, {"error": "registering names the factory, as owner/name, or carries "
+                                  "its ingest token"}
         if body["station"].get("kind") == "ci":
             return 400, {"error": "a CI station takes no commands"}
         number = len(self.registrations) + 1
         asked = Registration(device=f"device_{number}", code=f"ABCD-{number:04d}",
-                             station=body["station"])
+                             station=body["station"], factory="" if token else factory,
+                             host=str(body.get("host") or ""))
         self.registrations.append(asked)
         return 200, {"device": asked.device, "code": asked.code, "interval": 1,
                      "expires_in": 5, "url": f"http://cockpit.test/stations/approve?code={asked.code}"}
@@ -172,8 +185,12 @@ class FakeCockpit:
         self.registrations.remove(asked)
         token = f"asf_station_{asked.station['id']}"
         self.stations[token] = asked.station["id"]
-        return 200, {"status": "approved", "token": token, "owner": asked.owner,
-                     "station": asked.station["id"]}
+        answer = {"status": "approved", "token": token, "owner": asked.owner,
+                  "station": asked.station["id"]}
+        if asked.factory:
+            answer["ingest"] = f"asf_ingest_{asked.station['id']}"
+            self.ingest_tokens.add(answer["ingest"])
+        return 200, answer
 
     def admit(self, station: str, token: str = "asf_station_test") -> str:
         """A station somebody approved earlier: its command token."""
@@ -215,7 +232,7 @@ class FakeCockpit:
     def _claim(self, token: str, body: dict) -> tuple[int, dict]:
         if not self.grants_claims:
             return 404, {}
-        if token != self.token:
+        if token not in self.ingest_tokens:
             return 401, {"error": "this ingest token is not one the cockpit issued"}
         key = (body.get("repo") or "acme/widgets").lower(), body["kind"], int(body["number"])
         station = body["station"]

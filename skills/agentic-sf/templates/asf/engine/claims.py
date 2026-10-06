@@ -56,6 +56,7 @@ from pathlib import Path
 from . import artifacts, events, git_helper, station
 from .data_types import ClaimAnswer, ClaimAsk, FactoryConfig, Invocation
 from .inputs import REFUSED
+from .utils import anchor
 
 # Set by a watcher on the run it launches: the claim it already holds for
 # that run, so the run does not ask a second time (and is not refused for a
@@ -80,7 +81,7 @@ def take(cfg: FactoryConfig, ask: ClaimAsk,
     older `session_finished` late: the cockpit reads only what comes after
     `since` as the end of the run this claim is for.
     """
-    cockpit = station.configured()
+    cockpit = station.configured(_data(cfg))
     if cockpit is None:
         return ClaimAnswer(outcome="alone")
     body = {"op": "take", **ask.model_dump(mode="json"), "since": _since(cfg, ask),
@@ -139,12 +140,17 @@ def drop(cfg: FactoryConfig, ask: ClaimAsk, transport: station.Transport | None 
     """Give back a claim no session ever used. Never raises; True when the
     cockpit let it go — which it does only for this station's own claim, held
     by exactly this session."""
-    cockpit = station.configured()
+    cockpit = station.configured(_data(cfg))
     if cockpit is None:
         return False
     status, answer, error = _ask(cfg, cockpit, {"op": "drop", **ask.model_dump(mode="json")},
                                  transport)
     return not error and status == 200 and answer.get("dropped") is True
+
+
+def _data(cfg: FactoryConfig) -> Path:
+    """Where a registered station keeps the ingest token it claims with."""
+    return anchor(git_helper.main_root(), cfg.defaults.data_dir)
 
 
 def _ask(cfg: FactoryConfig, cockpit, body: dict,
