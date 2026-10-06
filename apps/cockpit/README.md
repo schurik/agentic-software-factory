@@ -547,10 +547,18 @@ The factory's whole history is the Sessions page narrowed to it (`/sessions?fact
 `sessions.list` (`convex/sessions.ts`), given a factory or not, searched by title, issue or pull
 request and id.
 
-**Config** lists the files under `asf/` on the default branch, what the check said, and each
-station's drift. A factory no CI workflow ever described is **unchecked**, never broken.
+**Config** shows what the factory decides, grouped as a person asks about it: the **Check** (each
+workflow loads, loads with warnings, or does not), the **forge and tracker**, **where work comes
+from**, **people at gates**, **how work lands**, and **limits and data** — with how many stations
+run another config, pointing to Stations, and every purge of the bodies. Every setting is the
+factory's own word on itself: the `settings` of its self-description (format 2), each default
+resolved by its code; the cockpit never parses `factory.yaml`. A description from before format 2
+still shows its check, and says the settings are not described; a factory no CI workflow ever
+described is **unchecked**, never broken.
 
-A writer edits those files there, and the edit becomes a pull request opened **as them**
+**Edit config** leads the tab, over the files under `asf/` on the default branch and the pull
+requests proposed from here that are still open — those from a `cockpit/` branch, which the page's
+`look` reads with the forge's `pulls`. A writer edits those files there, and the edit becomes a pull request opened **as them**
 (`convex/config.ts`). The repository stays the source of truth: the editor is the files' raw text,
 read from the forge at the commit the tab listed them at, and what is typed is committed byte for
 byte — never parsed and written back, so a comment survives. A textarea keeps only LF, so a CRLF

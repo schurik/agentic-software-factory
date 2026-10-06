@@ -293,7 +293,7 @@ describe("a station's drift from the default branch", () => {
 
     expect(looked).toEqual({
       ok: true, tip: TIP, files: ["asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml"],
-      distances: { ["1".repeat(40)]: { ahead: 0, behind: 2 } },
+      distances: { ["1".repeat(40)]: { ahead: 0, behind: 2 } }, proposals: [],
     });
     const byName = Object.fromEntries(page!.stations.map((row) => [row.name, row]));
     expect(byName[STATION.name]).toMatchObject({ head: TIP, configHash: "beef", kind: "local" });
