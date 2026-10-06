@@ -136,7 +136,7 @@ itself goes on the installation token, like the cockpit's other reading.
 
 The home page, `/` (#115, `convex/now.ts`), is one query for the viewer across every factory the
 permission mirror lets them read, in four sections. The **Inbox**, which never folds, is the gates
-waiting on them (below). **Needs attention** is the Factory page's rule (`model/attention.ts`)
+waiting on them (below). **Needs attention** is the attention rule (`model/attention.ts`)
 gathered across factories, less the gates the Inbox already holds: each row names its next step and
 goes there — Open a failed session, Release a claim, Compare a drifted station, See config for a
 failing check, Stations when nobody watches; the steps that belong on a factory's tab go to that tab
@@ -149,7 +149,7 @@ its clock, as constants beside the attention rule: a phase running over 10 minut
 verify" in amber, a spend from 80% of the factory's per-session ceiling is "$0.21 of $0.25" in amber,
 and a wait over 30 minutes reads amber. The header's Now carries the count of gates waiting on the
 viewer from every page (`inbox:count`), and nothing at zero. `/?factory=<owner>/<repo>` narrows every
-section to that factory's, as its Factory page links here.
+section to that factory's.
 
 ### The inbox
 
@@ -353,7 +353,7 @@ A local cockpit is one person's and grants nothing: a factory claims only from a
 ## The Factories list: what needs attention first
 
 `/factories` ranks the factories the viewer can read, drawn with Now's rows: those that need
-attention first — the same facts as a Factory page's Needs attention, from the same `attentionOf` —
+attention first — the same facts as Now's Needs attention, from the same `attentionOf` —
 then the most recently active, then the rest by name (`convex/model/factories.ts`). Like the Factory
 page, the ranking is read against the page's clock, so a failure stops ranking its factory first a
 day after it ended. Each row says what needs the viewer — the **gates waiting on them**, a **failing
@@ -380,7 +380,7 @@ v3 carries, none for the work item, the report or a factory before stages — it
 time its live runs worked (a replay works none), what its agent calls cost, and, for a round a person
 was asked at a gate, their verdict and how long it waited for it. A gate the policy passed asked
 nobody, and is no row. Sessions an older cockpit stored are written from their first event by
-`phases:backfill`, which `docker/start.sh` runs after each deploy, or by their next batch if it comes
+`phases:backfill`, which `docker/start.sh` (and a Vercel production build) runs after each deploy, or by their next batch if it comes
 first.
 
 ## Cost: who spent, and who asked
@@ -447,7 +447,7 @@ CLI. Each one writes an
 audit line to `purges` — who, what, when and why — which the Config tab lists.
 Core events are never purged, so a factory's cost history holds.
 
-## The Factory page: what needs attention, who runs what, and the factory's own self-description
+## The Factory page: what it spent, how it went, and the factory's own self-description
 
 The cockpit never reads a factory's workflow files. What it shows of them is the factory's own
 **self-description**: what `asf check --json` prints (`engine/describe.py`) — every workflow's

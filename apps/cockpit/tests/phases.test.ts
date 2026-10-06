@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { type PhaseRow, phasedIn } from "../convex/model/phases";
+import { foldedVersions, type PhaseRow, phasedIn } from "../convex/model/phases";
 import { advance, EMPTY_SUMMARY } from "../convex/model/session";
-import { fixture, recorded, type WireEvent } from "./helpers";
+import { corpus, fixture, recorded, type WireEvent } from "./helpers";
 
 // A session's phases as rows, one a phase, folded as ingest folds them: batch
 // by batch, each batch onto the rows the ones before it left. Every
@@ -131,5 +131,13 @@ describe("a phase's row, from a factory before stages", () => {
     expect(rows.every((row) => row.stage === null && row.stageIndex === null)).toBe(true);
     expect(rows.map((row) => `${row.chapter} ${row.name}`)).toEqual(folded(STAGED).map((row) => `${row.chapter} ${row.name}`));
     expect(named(rows, "04_approve_plan")).toMatchObject({ kind: "gate", verdict: "reject", wait: close(0.269) });
+  });
+});
+
+describe("the rows' readers", () => {
+  it.each(Object.keys(corpus))("fold %s if they fold its kind at all", (name) => {
+    const { kind, v: version } = corpus[name];
+    const folded = foldedVersions(kind);
+    if (folded.length) expect(folded, `${kind} v${version} has a reader but no fold in model/phases.ts`).toContain(version);
   });
 });

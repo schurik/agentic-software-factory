@@ -3,7 +3,7 @@
  *
  *   phase     what ingest calls with each batch it folds in: the rows those
  *             events started or changed, written over what was there.
- *   backfill  run by `docker/start.sh`: writes the rows of every session an
+ *   backfill  run by `docker/start.sh` and a Vercel production build: writes the rows of every session an
  *             older cockpit stored, from its first event. A session whose
  *             next batch comes first is written from its first event then.
  */

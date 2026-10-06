@@ -6,7 +6,7 @@
  * route while no station online runs an issues watcher.
  *
  * Split in two, like liveness (`command.ts`): the FACTS are what the cockpit
- * was told, read in one place (`activity.attentionOf`) for the Factory page
+ * was told, read in one place (`activity.attentionOf`) for Now
  * and, to rank by, the Factories list (`model/factories.ts`); whether each
  * fact is worth attention now is read here against the page's own clock. A query that read the clock would
  * keep saying a failure is news until something else re-ran it.

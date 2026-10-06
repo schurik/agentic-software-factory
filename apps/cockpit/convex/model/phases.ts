@@ -61,6 +61,16 @@ export interface PhaseRow {
 const KINDS: Record<string, string> = { engineer: "gate" };
 
 /**
+ * The versions of `kind` the rows read, or [] for a kind they take nothing
+ * from. Like the story's tellers, a kind folded here must be folded at every
+ * version a factory writes, or a new one would ship counting nothing
+ * (tests/phases.test.ts holds the corpus to that).
+ */
+export function foldedVersions(kind: string): number[] {
+  return Object.keys(FOLDS[kind] ?? {}).map(Number);
+}
+
+/**
  * The rows `events` started or changed, folded onto `rows` — every row the
  * session had before them — with the session's summary folded up to `before`
  * when they start, in the order their phases first started. An event whose
