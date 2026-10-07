@@ -144,6 +144,11 @@ export function formatPruned(what: string, pruned: Pruned, who: (login: string) 
   return `${what} ${prunedWord(pruned.reason)} on ${formatDay(pruned.on)}${pruned.by ? ` by ${who(pruned.by)}` : ""}`;
 }
 
+/** Where a work item of `repo` is on the forge at `forge` (its web origin); "" while the cockpit knows no forge. */
+export function workItemHref(forge: string, repo: string, kind: "issue" | "pr", number: number): string {
+  return forge && repo ? `${forge}/${repo}/${kind === "pr" ? "pull" : "issues"}/${number}` : "";
+}
+
 // A work item's number, off its forge URL: the model reads them too, to find a session by one.
 export { issueNumber, prNumber } from "@/convex/model/session";
 

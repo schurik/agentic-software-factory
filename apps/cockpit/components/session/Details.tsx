@@ -35,7 +35,7 @@ export function Details({ page, now, steering, claims, onRelease }: {
       <dt>Base commit</dt>
       <dd>{story.baseCommit ? <code>{story.baseCommit.slice(0, 7)}</code> : "—"}</dd>
       <dt>Claim</dt>
-      <dd>{claims.length ? claims.map((claim) => <ClaimRow key={claim.id} claim={claim} now={now} onRelease={onRelease} />)
+      <dd>{claims.length ? claims.map((claim) => <ClaimRow key={claim.id} claim={claim} now={now} forge={page.forge} onRelease={onRelease} />)
         : <span className="text-muted">none held</span>}</dd>
       <dt>Transcripts</dt>
       <dd>

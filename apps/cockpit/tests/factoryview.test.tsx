@@ -226,7 +226,9 @@ describe("the Config tab", () => {
 
     expect(html).toMatch(/<button[^>]*>Edit config<\/button>/);
     expect(html).toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);
-    expect(html).toContain(`<a href="${FORGE}/acme/widgets/pull/12"`);
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/pull/12"[^>]*><svg [^>]*aria-label="pull request"`));
+    // The default branch, as the forge has it.
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a>`));
     expect(text(html)).toContain("#12 Raise the budget · by you 1h ago");
     expect(text(config(described))).toContain("No config edit proposed here is open.");
   });

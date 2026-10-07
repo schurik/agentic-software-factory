@@ -59,22 +59,34 @@ export function KindIcon({ type, className }: { type: "gate" | "code" | "agent";
 }
 
 const REFS = { issue: CircleDot, pr: GitPullRequest, branch: GitBranch } as const;
+const REF_WORDS: Record<keyof typeof REFS, string> = { issue: "issue", pr: "pull request", branch: "branch" };
 
 /**
  * A thing on the forge — an issue, a pull request, a branch — with its icon,
- * linked there when the cockpit knows where that is. Its state on the forge
- * (open, merged…) is not something the events say, so it is not coloured as one.
+ * linked there when the cockpit knows where that is: `href` "" draws it
+ * unlinked, as a row that is itself a link must. The icon is what tells an
+ * issue's `#42` from a pull request's, so it says so to a screen reader too;
+ * the text keeps the line's baseline, so one reads in a sentence as in a row.
+ * Its state on the forge (open, merged…) is not something the events say, so
+ * it is not coloured as one.
  */
-export function ForgeRef({ kind, href, children }: { kind: keyof typeof REFS; href: string; children: ReactNode }) {
+export function ForgeRef({ kind, href, newTab = false, children }: {
+  kind: keyof typeof REFS;
+  href: string;
+  /** Opened beside the cockpit, for a link away from work the page still holds. */
+  newTab?: boolean;
+  children: ReactNode;
+}) {
   const Icon = REFS[kind];
   const body = (
     <>
-      <Icon size={14} strokeWidth={2} aria-hidden="true" className="shrink-0 text-faint" />
+      <Icon size={14} strokeWidth={2} role="img" aria-label={REF_WORDS[kind]} className="shrink-0 self-center text-faint" />
       <span className={cx("truncate", kind === "branch" && "font-mono")}>{children}</span>
     </>
   );
-  const shape = "inline-flex min-w-0 items-center gap-1 whitespace-nowrap";
-  return href ? <a className={cx(shape, "text-muted hover:text-fg")} href={href}>{body}</a> : <span className={shape}>{body}</span>;
+  const shape = "inline-flex min-w-0 items-baseline gap-1 whitespace-nowrap";
+  if (!href) return <span className={shape}>{body}</span>;
+  return <a className={cx(shape, "text-muted hover:text-fg")} href={href} {...(newTab ? { target: "_blank", rel: "noreferrer" } : {})}>{body}</a>;
 }
 
 export { ExternalLink };

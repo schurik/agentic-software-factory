@@ -69,7 +69,7 @@ describe("the editor", () => {
     expect(html).toMatch(/<span data-line="add"[^>]*>\+  max_cost_usd: 5   # per session\n<\/span>/);
     expect(html).not.toMatch(/<span data-line="(add|del)"[^>]*>(\+\+\+|---) /);       // the file's own header lines are no change
     expect(html).toContain("cockpit/alex/raise-the-budget");
-    expect(html).toContain(`<code>main</code> at <code>${BASE.slice(0, 7)}</code>`);
+    expect(html).toMatch(new RegExp(`aria-label="branch".*?main</span></span> at <code>${BASE.slice(0, 7)}</code>`));
     // The viewer's own login reads "you"; the branch keeps the login it is named by.
     expect(html).toContain("comments and all — as you, on");
     expect(html).toMatch(/<button type="submit"[^>]*>Open pull request as you<\/button>/);
@@ -103,7 +103,7 @@ describe("the editor", () => {
     expect(editor([], {
       outcome: { ok: true, number: 7, url: "https://github.com/acme/widgets/pull/7", branch: "cockpit/alex/raise-the-budget",
                  paths: ["asf/factory.yaml"] },
-    })).toContain('<a href="https://github.com/acme/widgets/pull/7" target="_blank" rel="noreferrer">#7</a>');
+    })).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/pull\/7" target="_blank" rel="noreferrer"><svg [^>]*aria-label="pull request".*?#7<\/span><\/a>/);
     expect(editor([], { outcome: { ok: false, because: "the forge answered 403" } }))
       .toContain("Not opened: the forge answered 403.");
   });

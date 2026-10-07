@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Proposed } from "@/convex/config";
 import { asCommitted, branchFor, type Edited, proposalProblem, yamlProblem } from "@/convex/model/config";
+import { ForgeRef } from "../icons";
 import { said } from "../said";
 import { unified } from "./diff";
 import { Button, Card, control, cx, DiffBlock, Field, Notice, Section, Tabs } from "../ui";
@@ -89,7 +90,7 @@ export function ConfigEditorView({
     <Section title="Edit">
       <Card className="p-4 sm:p-5">
         <p className="text-sm text-muted">
-          The files as <code>{into}</code> at <code>{short(base)}</code> held them. What is typed here is committed exactly — comments
+          The files as <ForgeRef kind="branch" href="">{into}</ForgeRef> at <code>{short(base)}</code> held them. What is typed here is committed exactly — comments
           and all — as {by}, on <code>{branchFor(as || "you", asked.title)}</code>, and proposed to <code>{into}</code> as a
           pull request. The cockpit checks only that the YAML parses: the repository&apos;s CI and its branch protection decide the rest.
         </p>
@@ -137,7 +138,7 @@ export function ConfigEditorView({
         </form>
         {outcome?.ok ? (
           <Notice tone="ok" className="text-sm">
-            Opened <a href={outcome.url} target="_blank" rel="noreferrer">#{outcome.number}</a> from <code>{outcome.branch}</code>: the
+            Opened <ForgeRef kind="pr" href={outcome.url} newTab>#{outcome.number}</ForgeRef> from <ForgeRef kind="branch" href="">{outcome.branch}</ForgeRef>: the
             repository&apos;s CI checks it, and its branch protection governs the merge.
           </Notice>
         ) : outcome ? <Notice tone="bad" className="text-sm">Not opened: {outcome.because}.</Notice> : null}
