@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Proposed } from "@/convex/config";
 import { asCommitted, branchFor, type Edited, proposalProblem, yamlProblem } from "@/convex/model/config";
+import { branchHref } from "../format";
+import { ForgeRef } from "../icons";
 import { said } from "../said";
 import { unified } from "./diff";
 import { Button, Card, control, cx, DiffBlock, Field, Notice, Section, Tabs } from "../ui";
@@ -57,8 +59,11 @@ export function blocked(drafts: Draft[], asked: Asked): string | null {
  * renders it.
  */
 export function ConfigEditorView({
-  base, into, as, drafts, shown, loading, asked, busy, outcome, onText, onOpen, onDiscard, onChange, onSubmit,
+  forge, repo, base, into, as, drafts, shown, loading, asked, busy, outcome, onText, onOpen, onDiscard, onChange, onSubmit,
 }: {
+  /** The forge's web origin and the factory's repository on it, which the branches are linked on. */
+  forge: string;
+  repo: string;
   /** The commit the files were read at, which the change is committed on top of. */
   base: string;
   /** The default branch the pull request asks to merge into. */
@@ -89,7 +94,7 @@ export function ConfigEditorView({
     <Section title="Edit">
       <Card className="p-4 sm:p-5">
         <p className="text-sm text-muted">
-          The files as <code>{into}</code> at <code>{short(base)}</code> held them. What is typed here is committed exactly — comments
+          The files as <ForgeRef kind="branch" href={branchHref(forge, repo, into)}>{into}</ForgeRef> at <code>{short(base)}</code> held them. What is typed here is committed exactly — comments
           and all — as {by}, on <code>{branchFor(as || "you", asked.title)}</code>, and proposed to <code>{into}</code> as a
           pull request. The cockpit checks only that the YAML parses: the repository&apos;s CI and its branch protection decide the rest.
         </p>
@@ -137,7 +142,7 @@ export function ConfigEditorView({
         </form>
         {outcome?.ok ? (
           <Notice tone="ok" className="text-sm">
-            Opened <a href={outcome.url} target="_blank" rel="noreferrer">#{outcome.number}</a> from <code>{outcome.branch}</code>: the
+            Opened <ForgeRef kind="pr" href={outcome.url} newTab>#{outcome.number}</ForgeRef> from <ForgeRef kind="branch" href={branchHref(forge, repo, outcome.branch)}>{outcome.branch}</ForgeRef>: the
             repository&apos;s CI checks it, and its branch protection governs the merge.
           </Notice>
         ) : outcome ? <Notice tone="bad" className="text-sm">Not opened: {outcome.because}.</Notice> : null}
@@ -151,7 +156,9 @@ export function ConfigEditorView({
  * from the forge at `base` when first opened, and kept as a draft until the
  * pull request is opened or the change discarded.
  */
-export function ConfigEditor({ factory, base, into, as, open, signIn, onOpen }: {
+export function ConfigEditor({ forge, factory, base, into, as, open, signIn, onOpen }: {
+  /** The forge's web origin, e.g. https://github.com. */
+  forge: string;
   factory: string;
   base: string;
   into: string;
@@ -204,7 +211,7 @@ export function ConfigEditor({ factory, base, into, as, open, signIn, onOpen }: 
   };
   const loading = held ? null : failed?.path === open ? failed : { path: open, because: null };
   return (
-    <ConfigEditorView base={base} into={into} as={as} drafts={drafts} shown={open} loading={loading} asked={asked} busy={busy}
+    <ConfigEditorView forge={forge} repo={factory} base={base} into={into} as={as} drafts={drafts} shown={open} loading={loading} asked={asked} busy={busy}
                       outcome={outcome} onOpen={onOpen} onSubmit={() => void submit()}
                       onText={(path, text) => {
                         setDrafts((now) => now.map((draft) => (draft.path === path ? { ...draft, text } : draft)));

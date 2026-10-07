@@ -1,10 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { NowDrawerView, nowAddress } from "../components/now/Now";
-import { type Progress, RunningRow } from "../components/now/rows";
+import { OtherRows, type Progress, RunningRow } from "../components/now/rows";
 import { NowView } from "../components/now/NowView";
 import { ViewerLogin } from "../components/viewer";
 import type { Facts } from "../convex/model/attention";
+import type { Other } from "../convex/inbox";
 import type { Row } from "../convex/model/inbox";
 import type { NowPage, Running } from "../convex/now";
 
@@ -149,6 +150,52 @@ describe("Needs attention", () => {
     // The gates waiting on the viewer are the Inbox's; they are not said twice.
     expect(read(section(html({ ...PAGE, attention: [{ factory: "acme/widgets", facts: { ...QUIET, gates: { mine: 2, total: 2 } } }] }),
                         "Needs attention"))).toContain("Nothing needs attention.");
+  });
+});
+
+describe("a work item, in every row", () => {
+  // Every row of Now names its issue or pull request as the forge does, with
+  // the kind's icon (#150). The row is itself a link, so the reference is not
+  // one: a link inside a link is no HTML a browser keeps.
+
+  /** Whether `markup` draws `text` with the icon of `kind` ("issue", "pull request") before it. */
+  const drawn = (markup: string, kind: string, text: string) =>
+    new RegExp(`aria-label="${kind}"(?:(?!aria-label=)[^])*?>${text}</span>`).test(markup);
+  const others = (row: Other) => renderToStaticMarkup(
+    <ViewerLogin.Provider value="alex"><OtherRows rows={[row]} now={NOW} open={link} /></ViewerLogin.Provider>,
+  );
+  const running = (row: Running) => renderToStaticMarkup(<RunningRow row={row} now={NOW} progress={PROGRESS} />);
+
+  it("draws the Inbox's issue with its icon", () => {
+    const inbox = section(html(), "Inbox");
+    expect(drawn(inbox, "issue", "#42")).toBe(true);
+    expect(inbox).not.toMatch(/<a [^>]*>(?:(?!<\/a>)[^])*<a /);
+  });
+
+  it("draws Waiting on others' issue with its icon", () => {
+    expect(drawn(others(PAGE.others[0]), "issue", "#51")).toBe(true);
+  });
+
+  it("draws a running session's pull request, or its issue, with its icon", () => {
+    expect(drawn(running({ ...RUNNING, prUrl: "https://github.com/acme/gadgets/pull/9" }), "pull request", "#9")).toBe(true);
+    expect(drawn(running(RUNNING), "issue", "#7")).toBe(true);
+  });
+
+  it("says a prompt session's row is a prompt, with no icon", () => {
+    const markup = running({ ...RUNNING, title: "add a health check", issueUrl: "" });
+    expect(read(markup)).toContain("acme/gadgets · prompt");
+    expect(markup).not.toMatch(/aria-label="(issue|pull request)"/);
+  });
+
+  it("draws a claim's work item and the unwatched issues in Needs attention with their icons", () => {
+    const claim = { id: "cl_1", station: "st_1", stationName: "alex@mbp:widgets", repo: "acme/widgets", kind: "pr" as const, number: 12,
+                    session: "c1", seenAt: NOW - 30 * 3600_000, heardAt: NOW - 30 * 3600_000, grantedAt: NOW - 31 * 3600_000,
+                    released: null, refused: null, consequence: "the pull request goes back to the queue" };
+    const markup = section(html({ ...PAGE, attention: [{ factory: "acme/widgets", facts: { ...QUIET, claims: [claim], queued: [44, 45] } }] }),
+                           "Needs attention");
+    expect(drawn(markup, "pull request", "#12")).toBe(true);
+    expect(drawn(markup, "issue", "#44")).toBe(true);
+    expect(drawn(markup, "issue", "#45")).toBe(true);
   });
 });
 

@@ -6,8 +6,8 @@ import { FACTORY_FILE } from "@/convex/forge/forge";
 import type { Budget, DescribedWorkflow, Settings } from "@/convex/model/description";
 import type { Drift } from "@/convex/model/drift";
 import type { Purged } from "@/convex/retention";
-import { formatAgoAt, formatDuration, plural } from "../format";
-import { StageIcon } from "../icons";
+import { branchHref, formatAgoAt, formatDuration, plural } from "../format";
+import { ForgeRef, StageIcon } from "../icons";
 import { Purge } from "../Purge";
 import { Button, Card, Facts, LinkButton, Loading, Notice, Pre, StatusPill, Tag } from "../ui";
 import { useWho } from "../viewer";
@@ -118,7 +118,7 @@ function Edit({ page, look, forge, now, onEdit }: {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <p className="min-w-0 grow text-sm">
           The factory&apos;s config is <code>asf/</code> on the default branch
-          {page.defaultBranch ? <>, <code>{page.defaultBranch}</code></> : null}{tip ? <> at <code>{short(tip)}</code></> : null}.
+          {page.defaultBranch ? <>, <ForgeRef kind="branch" href={branchHref(forge, page.repo, page.defaultBranch)}>{page.defaultBranch}</ForgeRef></> : null}{tip ? <> at <code>{short(tip)}</code></> : null}.
           A change to it is a pull request, checked in the repository&apos;s CI.
         </p>
         {onEdit ? (
@@ -137,7 +137,7 @@ function Edit({ page, look, forge, now, onEdit }: {
                 <ul className="grid gap-1 text-sm">
                   {look.proposals.map((proposal) => (
                     <li key={proposal.number}>
-                      <a href={proposal.url} target="_blank" rel="noreferrer">#{proposal.number} {proposal.title}</a>
+                      <ForgeRef kind="pr" href={proposal.url} newTab>#{proposal.number} {proposal.title}</ForgeRef>
                       <span className="text-muted"> · by {who(proposal.author)} {formatAgoAt(proposal.at, now)}</span>
                     </li>
                   ))}

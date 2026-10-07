@@ -56,7 +56,8 @@ describe("the Stations tab", () => {
     const said = text(render());
 
     expect(said).toMatch(/alex@mbp:widgets.*r1.*running.*f1.*fail/);
-    expect(said).toContain("issue #42 held by bob@desk:widgets , offline 2d");
+    expect(said).toContain("#42 held by bob@desk:widgets , offline 2d");
+    expect(render()).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/issues\/42"[^>]*><svg [^>]*aria-label="issue"/);
     expect(said).toMatch(/Release claim/);
   });
 

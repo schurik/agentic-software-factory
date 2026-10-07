@@ -9,10 +9,10 @@ import { stationWords, type Row as Wait } from "@/convex/model/inbox";
 import type { Other } from "@/convex/inbox";
 import type { Running } from "@/convex/now";
 import { tabHref } from "../factory/view";
-import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref } from "../format";
+import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref, type WorkItemKind } from "../format";
 import { asks, verbsOf } from "../gate/answer";
 import { MiniGraph } from "../graph/StageGraph";
-import { StageIcon, StatusIcon } from "../icons";
+import { ForgeRef, StageIcon, StatusIcon } from "../icons";
 import { keyOf, whyYours } from "../inbox/waits";
 import { phaseName } from "../session/words";
 import { Card, cx, followInPlace, type Go, Tag } from "../ui";
@@ -127,13 +127,37 @@ function question(wait: Wait): ReactNode {
     : <><span className="font-medium text-fg">{asked}</span> {asks(wait)} · round {wait.round}</>;
 }
 
-/** Where a row is: its factory, and its work item — `#42`, `PR #9` — or that it was a prompt, with none. */
-function whereOf(factory: string, ref: string): string {
-  return ref ? `${factory} ${ref}` : `${factory} · prompt`;
+/** An issue or a pull request, by number. */
+interface Item {
+  kind: WorkItemKind;
+  number: number;
+}
+
+/**
+ * A work item named in a row, with its kind's icon. The row is itself a link,
+ * and a link inside a link is no HTML a browser keeps, so it is not one.
+ */
+function WorkItem({ kind, number }: Item) {
+  return <ForgeRef kind={kind} href="">#{number}</ForgeRef>;
+}
+
+/** A label and the work item it is about: a long label is cut short, never the number. */
+function Labelled({ label, item }: { label: string; item: Item }) {
+  return (
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+      <span className="truncate">{label}</span><span className="shrink-0"><WorkItem {...item} /></span>
+    </span>
+  );
+}
+
+/** Where a row is: its factory, and its work item — an issue, a pull request — or that it was a prompt, with none. */
+function whereOf(factory: string, item: Item | null): ReactNode {
+  return item === null ? `${factory} · prompt` : <Labelled label={factory} item={item} />;
 }
 
 /** Where a wait is: its factory, and the work item it is asked on. */
-const waitsAt = ({ factory, issueNumber: number }: Pick<Wait, "factory" | "issueNumber">) => whereOf(factory, number ? `#${number}` : "");
+const waitsAt = ({ factory, issueNumber: number }: Pick<Wait, "factory" | "issueNumber">) =>
+  whereOf(factory, number ? { kind: "issue", number } : null);
 
 /** The gates waiting on the viewer, each opening in the drawer over Now; `selected` is the one the keys are on. */
 export function InboxRows({ rows, selected, now, open }: { rows: Wait[]; selected: string | null; now: number; open: (key: string) => Go }) {
@@ -212,7 +236,7 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
         return [{
           key: `${factory}/claim/${item.claim.id}`, failed: false, factory,
           title: <>Claim held by a station away for {formatSpan(item.away)}</>,
-          line: `${item.claim.stationName} · ${item.claim.kind === "pr" ? "pull request" : "issue"} #${item.claim.number}`,
+          line: <Labelled label={`${item.claim.stationName} ·`} item={item.claim} />,
           step: "Release", href: sessionHref(factory, item.claim.session),
         }];
       case "drift":
@@ -230,7 +254,8 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
         return [{
           key: `${factory}/unwatched`, failed: false, factory,
           title: <>{plural(item.issues.length, "queued issue")}, no online station watching</>,
-          line: item.issues.map((number) => `#${number}`).join(" "), step: "Stations", href: tabHref(factory, "stations"),
+          line: <span className="inline-flex items-center gap-2">{item.issues.map((number) => <WorkItem key={number} kind="issue" number={number} />)}</span>,
+          step: "Stations", href: tabHref(factory, "stations"),
         }];
     }
   }));
@@ -273,7 +298,7 @@ export function RunningRow({ row, progress, now }: { row: Running; progress: Pro
                ? <span className="font-medium text-wait">{formatDuration(secondsBetween(phase.since, now))} in {where}</span> : null}
            </span>,
          ]}
-         where={whereOf(row.factory, pr ? `PR #${pr}` : issue ? `#${issue}` : "")}
+         where={whereOf(row.factory, pr ? { kind: "pr", number: Number(pr) } : issue ? { kind: "issue", number: Number(issue) } : null)}
          when={<>
            {expensive(row.cost, row.ceiling)
              ? <span className={cx("font-medium", row.cost >= row.ceiling ? "text-bad" : "text-wait")}>{formatDollars(row.cost)} of {formatDollars(row.ceiling)}</span>

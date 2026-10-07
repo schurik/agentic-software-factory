@@ -8,7 +8,7 @@ import type { Answer } from "@/convex/model/answer";
 import { type Question, stationWords } from "@/convex/model/inbox";
 import { DiffRead, DiffView } from "../diff/DiffView";
 import { DrawerFrame } from "../Drawer";
-import { formatAgo, formatDuration, plural, sessionHref } from "../format";
+import { formatAgo, formatDuration, plural, sessionHref, workItemHref } from "../format";
 import { ForgeRef, StageIcon, StatusIcon } from "../icons";
 import { workItem } from "../inbox/waits";
 import { keyed } from "../inbox/keys";
@@ -59,7 +59,7 @@ export function lands(gate: Gate, now: number, who: (login: string) => string = 
     return { text: `Sends a command to ${row.station} as ${as}`, url: "",
              then: `${stationWords(row, now)}, and records it as your decision` };
   }
-  const url = row.issueUrl || (forge && row.issueNumber ? `${forge}/${row.factory}/issues/${row.issueNumber}` : "");
+  const url = row.issueUrl || (row.issueNumber ? workItemHref(forge, row.factory, "issue", row.issueNumber) : "");
   return { text: `Posts a comment on issue #${row.issueNumber} as ${as}`, url,
            then: "the factory's answers watcher picks it up" };
 }

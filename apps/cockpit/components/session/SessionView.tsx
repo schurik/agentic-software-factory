@@ -12,7 +12,7 @@ import { isLive, type SessionView as View, until } from "@/convex/model/session"
 import { markOfStatus, miniOf } from "@/convex/model/graph";
 import type { Chapter } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
-import { formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
+import { branchHref, formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
@@ -163,7 +163,7 @@ function Header({ page, action, onCommand, onPurge }: {
             {pr ? <ForgeRef kind="pr" href={summary.prUrl}>#{pr}</ForgeRef> : null}
             {summary.branch ? (
               <span className="flex min-w-0 items-center gap-1">
-                <ForgeRef kind="branch" href={forge ? `${forge}/${factory}/tree/${summary.branch}` : ""}>{summary.branch}</ForgeRef>
+                <ForgeRef kind="branch" href={branchHref(forge, factory, summary.branch)}>{summary.branch}</ForgeRef>
                 {summary.baseRef ? <span className="text-faint">→ {summary.baseRef}</span> : null}
               </span>
             ) : null}
