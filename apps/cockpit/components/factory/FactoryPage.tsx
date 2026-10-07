@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
+import { FACTORY_FILE } from "@/convex/forge/forge";
 import type { ClaimView } from "@/convex/model/claim";
 import { dayOf, daysOf, lastDays } from "@/convex/model/period";
 import { useClock, viewersTimeZone } from "../clock";
@@ -62,8 +63,10 @@ export function FactoryPage({ factory }: { factory: string }) {
   const [problem, setProblem] = useState("");
   const [triggering, setTriggering] = useState(false);
   const run = useRunPrompt();
-  // The file open in the config editor, and the commit the editor reads every file at — fixed when it first opens.
-  const [editing, setEditing] = useState<{ path: string; base: string } | null>(null);
+  // The file open in the config editor, and the commit the editor reads every file at — fixed when it first opens,
+  // and kept when its dialog closes, so that its drafts outlive closing it.
+  const [editing, setEditing] = useState<{ path: string; base: string; files: string[] } | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const path = usePathname();
   const search = useSearchParams();
   const router = useRouter();
@@ -133,13 +136,17 @@ export function FactoryPage({ factory }: { factory: string }) {
                    config: (
                      <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges} onTab={onTab}
                                 onPurge={(reason) => purge({ factory, reason, signIn })}
-                                onEdit={(path) => {
-                                  const base = editing?.base ?? (look?.ok ? look.tip : null);
-                                  if (base) setEditing({ path, base });
+                                onEdit={() => {
+                                  const files = look?.ok ? look.files : null;
+                                  if (editing === null && look?.ok && look.tip && files?.length) {
+                                    setEditing({ path: files.includes(FACTORY_FILE) ? FACTORY_FILE : files[0], base: look.tip, files });
+                                  }
+                                  setEditorOpen(true);
                                 }}
                                 editor={editing && page.defaultBranch ? (
                                   <ConfigEditor forge={web} factory={page.repo} base={editing.base} into={page.defaultBranch} as={viewer?.login ?? ""}
-                                                open={editing.path} signIn={signIn} onOpen={(path) => setEditing({ ...editing, path })} />
+                                                files={editing.files} file={editing.path} signIn={signIn} open={editorOpen}
+                                                onFile={(path) => setEditing({ ...editing, path })} onClose={() => setEditorOpen(false)} />
                                 ) : null} />
                    ),
                  }} />

@@ -217,7 +217,7 @@ describe("the Config tab", () => {
     .replace(/&#x27;/g, "'").replace(/\s+/g, " ").replace(/ ([,.:;])(?= )/g, "$1");
   const described = page({ check: { ...page().check!, description: SETTINGS } });
 
-  it("leads with Edit config, the files it edits, and the proposals still open", () => {
+  it("leads with Edit config and the proposals still open", () => {
     const opened: Look = { ...LOOK, proposals: [{
       number: 12, title: "Raise the budget", url: `${FORGE}/acme/widgets/pull/12`, head: "cockpit/alex/raise-the-budget",
       author: "alex", at: NOW - 3_600_000,
@@ -225,7 +225,7 @@ describe("the Config tab", () => {
     const html = config(described, { look: opened });
 
     expect(html).toMatch(/<button[^>]*>Edit config<\/button>/);
-    expect(html).toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);
+    expect(html).not.toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);   // the editor lists the files
     expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/pull/12"[^>]*><svg [^>]*aria-label="pull request"`));
     // The default branch, as the forge has it.
     expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a>`));
