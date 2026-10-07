@@ -34,7 +34,7 @@ function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorVi
   return renderToStaticMarkup(
     <ViewerLogin.Provider value="alex">
       <ConfigEditorView forge="https://github.com" repo="acme/widgets" base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
-                        files={drafts.map((draft) => draft.path)} asking={null} onAnswer={() => undefined}
+                        files={drafts.map((draft) => draft.path)} switchingTo={null} onAnswer={() => undefined}
                         asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
                         onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
                         onChange={() => undefined} onSubmit={() => undefined} {...given} />
@@ -93,7 +93,7 @@ describe("the editor's files", () => {
   });
 
   it("ask before switching discards a file's changes", () => {
-    const html = editor([changed], { files: FILES, asking: "asf/agents/planner/agent.md" });
+    const html = editor([changed], { files: FILES, switchingTo: "asf/agents/planner/agent.md" });
 
     expect(html).toMatch(/role="alertdialog"/);
     expect(html).toMatch(/<code>asf\/factory\.yaml<\/code> has changes that are not proposed\. Discard them and open <code>asf\/agents\/planner\/agent\.md<\/code>\?/);

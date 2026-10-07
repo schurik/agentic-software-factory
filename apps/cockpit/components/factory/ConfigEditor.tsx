@@ -75,7 +75,7 @@ const named = (path: string) => path.replace(/^asf\//, "");
  * test renders it.
  */
 export function ConfigEditorView({
-  forge, repo, base, into, as, files, drafts, shown, loading, asking, asked, busy, outcome,
+  forge, repo, base, into, as, files, drafts, shown, loading, switchingTo, asked, busy, outcome,
   onText, onOpen, onAnswer, onDiscard, onChange, onSubmit,
 }: {
   /** The forge's web origin and the factory's repository on it, which the branches are linked on. */
@@ -95,14 +95,14 @@ export function ConfigEditorView({
   /** A file being read from the forge, or one that could not be, and why. */
   loading: { path: string; because: string | null } | null;
   /** The file asked to be opened while the one shown has changes: whether to discard them is being asked. */
-  asking: string | null;
+  switchingTo: string | null;
   asked: Asked;
   busy: boolean;
   outcome: Proposed | null;
   onText: (path: string, text: string) => void;
   /** Open `path`: the caller asks first when that would discard changes (`unsaved`). */
   onOpen: (path: string) => void;
-  /** The answer to `asking`: discard the changes and open it, or keep editing. */
+  /** The answer to `switchingTo`: discard the changes and open it, or keep editing. */
   onAnswer: (discard: boolean) => void;
   onDiscard: (path: string) => void;
   onChange: (asked: Asked) => void;
@@ -141,14 +141,15 @@ export function ConfigEditorView({
           and all — as {by}, on <code className="break-all">{branchFor(as || "you", asked.title)}</code>, and proposed to <code>{into}</code> as a
           pull request. The cockpit checks only that the YAML parses: the repository&apos;s CI and its branch protection decide the rest.
         </p>
-        {asking !== null && current !== null ? (
+        {switchingTo !== null && current !== null ? (
           <Notice role="alertdialog" aria-label="Discard the changes?" className="text-sm">
             <p className="break-words">
-              <code>{current.path}</code> has changes that are not proposed. Discard them and open <code>{asking}</code>?
+              <code>{current.path}</code> has changes that are not proposed. Discard them and open <code>{switchingTo}</code>?
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Button variant="danger" size="sm" onClick={() => onAnswer(true)}>Discard and open</Button>
-              <Button size="sm" onClick={() => onAnswer(false)}>Keep editing</Button>
+              {/* Focused as it appears, which scrolls it into view: the nav may be clicked with the pane scrolled to the form. */}
+              <Button size="sm" autoFocus onClick={() => onAnswer(false)}>Keep editing</Button>
             </div>
           </Notice>
         ) : null}
@@ -229,7 +230,7 @@ export function ConfigEditor({ forge, factory, base, into, as, files, file, sign
   const propose = useAction(api.config.propose);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [failed, setFailed] = useState<{ path: string; because: string } | null>(null);
-  const [asking, setAsking] = useState<string | null>(null);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [asked, setAsked] = useState<Asked>({ title: "", description: "" });
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Proposed | null>(null);
@@ -247,7 +248,9 @@ export function ConfigEditor({ forge, factory, base, into, as, files, file, sign
     return () => { current = false; };
   }, [read, factory, file, base, signIn, held]);
 
-  const discard = (path: string) => setDrafts((now) => now.map((draft) => (draft.path === path ? { ...draft, text: draft.original } : draft)));
+  const retype = (path: string, text: (draft: Draft) => string) =>
+    setDrafts((now) => now.map((draft) => (draft.path === path ? { ...draft, text: text(draft) } : draft)));
+  const discard = (path: string) => retype(path, (draft) => draft.original);
   const submit = async () => {
     setBusy(true);
     setOutcome(null);
@@ -271,7 +274,7 @@ export function ConfigEditor({ forge, factory, base, into, as, files, file, sign
   };
   const loading = held ? null : failed?.path === file ? failed : { path: file, because: null };
   return (
-    <Dialog.Root open={open} onOpenChange={(opened) => { if (!opened) onClose(); }}>
+    <Dialog.Root open={open} onOpenChange={(opened) => { if (!opened) { setSwitchingTo(null); onClose(); } }}>
       <Dialog.Portal>
         <Dialog.Backdrop className={cx(
           "fixed inset-0 z-40 bg-black/25 transition-opacity dark:bg-black/60",
@@ -291,18 +294,18 @@ export function ConfigEditor({ forge, factory, base, into, as, files, file, sign
             </Dialog.Close>
           </div>
           <ConfigEditorView forge={forge} repo={factory} base={base} into={into} as={as} files={files} drafts={drafts} shown={file}
-                            loading={loading} asking={asking} asked={asked} busy={busy} outcome={outcome} onSubmit={() => void submit()}
+                            loading={loading} switchingTo={switchingTo} asked={asked} busy={busy} outcome={outcome} onSubmit={() => void submit()}
                             onOpen={(path) => {
                               if (path === file) return;
-                              if (unsaved(drafts, file)) setAsking(path);
-                              else { setAsking(null); onFile(path); }
+                              if (unsaved(drafts, file)) setSwitchingTo(path);
+                              else { setSwitchingTo(null); onFile(path); }
                             }}
                             onAnswer={(discarding) => {
-                              if (discarding && asking !== null) { discard(file); onFile(asking); }
-                              setAsking(null);
+                              if (discarding && switchingTo !== null) { discard(file); onFile(switchingTo); }
+                              setSwitchingTo(null);
                             }}
                             onText={(path, text) => {
-                              setDrafts((now) => now.map((draft) => (draft.path === path ? { ...draft, text } : draft)));
+                              retype(path, () => text);
                               setOutcome(null);
                             }}
                             onDiscard={discard}
