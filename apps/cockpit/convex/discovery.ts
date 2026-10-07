@@ -9,13 +9,14 @@
  * catches a webhook delivery that never arrived, because GitHub does not
  * retry one. It lists the repositories and marks as `stale` each one that
  * moved since it was last looked at. `check` then asks the forge about the
- * stale ones, a batch at a time, and `queues` asks each factory which of
- * its issues are queued for a route — what "nobody watching" is read against.
+ * stale ones, a batch at a time, `queues` asks each factory which of its
+ * issues are queued for a route — what "nobody watching" is read against —
+ * and `items` where each factory's issues and pull requests stand.
  */
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { type ActionCtx, internalAction, internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
-import { type Forge, repoKey, repositoryValidator } from "./forge/forge";
+import { type Forge, itemStateValidator, type Touched, repoKey, repositoryValidator } from "./forge/forge";
 import { ForgeError, RateLimited } from "./forge/github";
 import { credentialed } from "./forge/memory";
 import { open } from "./forge/open";
@@ -23,6 +24,7 @@ import { mode } from "./model/mode";
 import { PENDING_SHOWN, type Progress } from "./model/progress";
 import { ranges } from "./model/ranges";
 import { queuedFor, routesOf } from "./model/trigger";
+import { spellingsOf } from "./spelling";
 import { rememberReach } from "./viewer";
 
 /** How many repositories one `check` asks about before it hands over to the next. */
@@ -34,6 +36,12 @@ const BATCH = 100;
  * leave them with nothing.
  */
 const RESERVE = 0.25;
+/**
+ * How long before a factory's first session the poll first looks for its
+ * issues and pull requests: an issue is labelled, and so changed, a while
+ * before the run it starts, and a day is more than that while.
+ */
+const ITEMS_BEFORE = 24 * 3600_000;
 /** How long a stretch may hold its turn: an action that died with it (the backend went down) holds it no longer. */
 const STRETCH_TAKES = 3 * 60_000;
 
@@ -116,6 +124,89 @@ export const queues = internalAction({
       }
       return {};
     });
+    await ctx.scheduler.runAfter(0, internal.discovery.items, {});
+    return null;
+  },
+});
+
+/**
+ * Where each factory's issues and pull requests stand on the forge — what an
+ * icon of one is drawn in. No event says it: a pull request is merged long
+ * after the session that opened it ended. So every round asks, per factory,
+ * for what changed since the last look (`Forge.touched`), which in a round
+ * where nothing did is one `304`, and keeps it (`forgeItems`). A factory is
+ * first looked at back to a day before its oldest session — what its
+ * sessions name changed after that — and one with no session yet names
+ * nothing, so it is not asked.
+ */
+export const items = internalAction({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const factories = await ctx.runQuery(internal.discovery.following, {});
+    if (factories.length === 0) return null;
+    await polling(ctx, "tracking", async (forge) => {
+      const found: { key: string; since: string; touched: Touched[] }[] = [];
+      try {
+        for (const { key, name, since } of factories) {
+          const touched = await forge.touched(name, since);
+          if (touched !== null) found.push({ key, since, touched });
+        }
+      } finally {
+        await ctx.runMutation(internal.discovery.track, { found });
+      }
+      return {};
+    });
+    return null;
+  },
+});
+
+/** Every factory with a session, and since when the poll is to ask what changed of its items. */
+export const following = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("repos").withIndex("by_factory", (q) => q.eq("factory", true)).collect();
+    const following: { key: string; name: string; since: string }[] = [];
+    for (const { key, name, itemsSince } of rows) {
+      const since = itemsSince ?? (await firstLook(ctx, name));
+      if (since !== null) following.push({ key, name, since });
+    }
+    return following;
+  },
+});
+
+/** A day before `factory`'s oldest session was first stored, or null while it has none. */
+async function firstLook(ctx: QueryCtx, factory: string): Promise<string | null> {
+  let oldest: number | null = null;
+  for (const spelling of await spellingsOf(ctx, factory)) {
+    const first = await ctx.db.query("sessions").withIndex("by_factory", (q) => q.eq("factory", spelling)).first();
+    if (first !== null && (oldest === null || first._creationTime < oldest)) oldest = first._creationTime;
+  }
+  return oldest === null ? null : new Date(oldest - ITEMS_BEFORE).toISOString();
+}
+
+const touchedValidator = v.object({ number: v.number(), pull: v.boolean(), state: itemStateValidator, updatedAt: v.string() });
+
+/** Keep where each item that changed stands, and that the factory is known up to the latest change read. */
+export const track = internalMutation({
+  args: { found: v.array(v.object({ key: v.string(), since: v.string(), touched: v.array(touchedValidator) })) },
+  returns: v.null(),
+  handler: async (ctx, { found }) => {
+    for (const { key, since, touched } of found) {
+      const row = await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", key)).unique();
+      if (row === null) continue;
+      let latest = since;
+      for (const item of touched) {
+        if (Date.parse(item.updatedAt) > Date.parse(latest)) latest = item.updatedAt;
+        const known = await ctx.db.query("forgeItems")
+          .withIndex("by_item", (q) => q.eq("repo", key).eq("number", item.number)).unique();
+        if (known === null) await ctx.db.insert("forgeItems", { repo: key, ...item });
+        else if (known.state !== item.state || known.pull !== item.pull || known.updatedAt !== item.updatedAt) {
+          await ctx.db.patch(known._id, item);
+        }
+      }
+      if (row.itemsSince !== latest) await ctx.db.patch(row._id, { itemsSince: latest });
+    }
     return null;
   },
 });
@@ -150,8 +241,8 @@ export const queued = internalMutation({
 });
 
 /** The kinds of work the poll does, each of which one action at a time is at. */
-const stretchValidator = v.union(v.literal("listing"), v.literal("checking"), v.literal("queueing"));
-type Stretch = "listing" | "checking" | "queueing";
+const stretchValidator = v.union(v.literal("listing"), v.literal("checking"), v.literal("queueing"), v.literal("tracking"));
+type Stretch = "listing" | "checking" | "queueing" | "tracking";
 
 /** What a stretch leaves in the record of how the poll is doing. */
 interface Noted {
@@ -248,6 +339,7 @@ export const note = internalMutation({
     listing: v.optional(v.null()),
     checking: v.optional(v.null()),
     queueing: v.optional(v.null()),
+    tracking: v.optional(v.null()),
   },
   returns: v.null(),
   handler: async (ctx, noted) => {
@@ -290,7 +382,12 @@ export const reconcile = internalMutation({
         await ctx.db.patch(row._id, facts);
       }
     }
-    for (const gone of rows.values()) await ctx.db.delete(gone._id);
+    for (const gone of rows.values()) {
+      for (const item of await ctx.db.query("forgeItems").withIndex("by_item", (q) => q.eq("repo", gone.key)).collect()) {
+        await ctx.db.delete(item._id);
+      }
+      await ctx.db.delete(gone._id);
+    }
     return null;
   },
 });

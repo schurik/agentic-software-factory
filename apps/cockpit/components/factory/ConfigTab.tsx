@@ -137,7 +137,9 @@ function Edit({ page, look, forge, now, onEdit }: {
                 <ul className="grid gap-1 text-sm">
                   {look.proposals.map((proposal) => (
                     <li key={proposal.number}>
-                      <ForgeRef kind="pr" href={proposal.url} newTab>#{proposal.number} {proposal.title}</ForgeRef>
+                      <ForgeRef kind="pr" href={proposal.url} state={proposal.draft ? "draft" : "open"} newTab>
+                        #{proposal.number} {proposal.title}
+                      </ForgeRef>
                       <span className="text-muted"> · by {who(proposal.author)} {formatAgoAt(proposal.at, now)}</span>
                     </li>
                   ))}

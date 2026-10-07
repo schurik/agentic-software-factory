@@ -19,6 +19,7 @@ import { query } from "./_generated/server";
 import { attentionOf, recentOf } from "./activity";
 import { defaultCheck, repoOf } from "./factory";
 import { readableFactories } from "./factories";
+import { type ItemStates, statesOf } from "./items";
 import { type Other, waitsFor } from "./inbox";
 import type { Facts } from "./model/attention";
 import { readDescription } from "./model/description";
@@ -35,6 +36,8 @@ export interface Running {
   workflow: string;
   issueUrl: string;
   prUrl: string;
+  /** Where its issue and pull request stand on the forge. */
+  states: ItemStates;
   startedAt: string;
   /** What it spent so far, list-price equivalent. */
   cost: number;
@@ -67,7 +70,8 @@ export const page = query({
       for (const { session, summary } of live) {
         running.push({
           factory, session, title: summary.request, workflow: workflowOf(summary),
-          issueUrl: summary.issueUrl, prUrl: summary.prUrl, startedAt: summary.startedAt, cost: summary.totalCost, ceiling,
+          issueUrl: summary.issueUrl, prUrl: summary.prUrl, states: await statesOf(ctx, factory, summary),
+          startedAt: summary.startedAt, cost: summary.totalCost, ceiling,
         });
       }
     }

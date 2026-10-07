@@ -18,6 +18,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, type MutationCtx, query, type QueryCtx } from "./_generated/server";
 import { ForgeError, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
+import { stateOf } from "./items";
 import { askedValidator, type Asked, type ClaimView, consequence, type Released, sameHolder, settles } from "./model/claim";
 import { writes } from "./model/command";
 import type { StoredEvent } from "./model/wire";
@@ -125,7 +126,8 @@ async function viewsOf(ctx: QueryCtx, who: Viewing, factory: string, rows: Doc<"
   return await Promise.all(rows.map(async (row) => {
     const seenAt = (await stationOf(ctx, factory, row.station))?.seenAt ?? 0;
     return {
-      id: row._id, kind: row.kind, number: row.number, repo: row.repo, session: row.session, station: row.station,
+      id: row._id, kind: row.kind, number: row.number, repo: row.repo,
+      state: await stateOf(ctx, row.repo, row.kind === "pr", row.number), session: row.session, station: row.station,
       stationName: row.stationName, seenAt,
       heardAt: Math.max(seenAt, (await attendedAt(ctx, factory, row.session)) ?? 0, row.grantedAt),
       grantedAt: row.grantedAt, released: row.released, consequence: consequence(row), refused: row.held ? refused : null,

@@ -25,6 +25,7 @@ import { type Located, onlyFiles, type Read as Diff, readDiff } from "./diffs";
 import { ForgeError, RateLimited } from "./forge/github";
 import { credentialed, forgeWeb } from "./forge/memory";
 import { open } from "./forge/open";
+import { stateOf } from "./items";
 import { anonymous, answerFor, attendedAt, holderOf, roleOf } from "./commands";
 import { pending } from "./model/command";
 import { refusal, render, spoken, type Asked as Answering } from "./model/answer";
@@ -140,7 +141,8 @@ async function rowOf(ctx: QueryCtx, who: Viewing, record: Doc<"sessions">,
       blocked: blocked(summary, await sentFor(ctx, record.factory, record.session, summary), ready),
       commanding: null, stationSeenAt: 0, attendedAt: null,
     };
-  return { row: row(record, summary, login, judged), mine, waitsOn: summary.waitingFor.trusted ?? [] };
+  const issueState = await stateOf(ctx, record.factory, false, summary.waitingFor.issueNumber);
+  return { row: { ...row(record, summary, login, judged), issueState }, mine, waitsOn: summary.waitingFor.trusted ?? [] };
 }
 
 /** A wait the viewer can read but not answer, and whom it is on. */

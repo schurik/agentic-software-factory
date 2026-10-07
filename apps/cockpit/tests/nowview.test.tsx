@@ -22,7 +22,7 @@ const ago = (ms: number) => new Date(NOW - ms).toISOString();
 const ROW: Row = {
   factory: "acme/widgets", session: "a9f259f0", gate: "plan", round: 2, kind: "gate", questions: 0,
   since: ago(12 * MINUTE), summary: "the plan now names the module", channel: "issue", issueNumber: 42,
-  issueUrl: "https://github.com/acme/widgets/issues/42", workItem: "#42 Resolve relative due dates",
+  issueUrl: "https://github.com/acme/widgets/issues/42", issueState: null, workItem: "#42 Resolve relative due dates",
   workflow: "issue", station: "schurik@mbp:widgets", forYou: [], blocked: null,
   via: "comment", refused: null, queued: null, stationSeenAt: 0, attendedAt: null, note: "",
 };
@@ -31,7 +31,7 @@ const QUIET: Facts = { gates: { mine: 0, total: 0 }, failed: [], claims: [], che
 
 const RUNNING: Running = {
   factory: "acme/gadgets", session: "7d2f90aa", title: "#7 Add a health check", workflow: "issue",
-  issueUrl: "https://github.com/acme/gadgets/issues/7", prUrl: "", startedAt: ago(42 * MINUTE), cost: 0.12, ceiling: 0.25,
+  issueUrl: "https://github.com/acme/gadgets/issues/7", prUrl: "", states: { issue: null, pr: null }, startedAt: ago(42 * MINUTE), cost: 0.12, ceiling: 0.25,
 };
 
 const PROGRESS: Progress = {
@@ -133,7 +133,7 @@ describe("Needs attention", () => {
       check: "failing",
       claims: [{ id: "cl_1", station: "st_1", stationName: "alex@mbp:widgets", repo: "acme/widgets", kind: "issue", number: 42,
                  session: "c1", seenAt: NOW - 30 * 3600_000, heardAt: NOW - 30 * 3600_000, grantedAt: NOW - 31 * 3600_000,
-                 released: null, refused: null, consequence: "the issue goes back to the queue" }],
+                 released: null, refused: null, state: null, consequence: "the issue goes back to the queue" }],
       queued: [44, 45], watchers: [],
       drifted: [{ station: "st_2", name: "sam@box:widgets", badges: ["config differs"] }],
     } }] };
@@ -190,12 +190,13 @@ describe("a work item, in every row", () => {
   it("draws a claim's work item and the unwatched issues in Needs attention with their icons", () => {
     const claim = { id: "cl_1", station: "st_1", stationName: "alex@mbp:widgets", repo: "acme/widgets", kind: "pr" as const, number: 12,
                     session: "c1", seenAt: NOW - 30 * 3600_000, heardAt: NOW - 30 * 3600_000, grantedAt: NOW - 31 * 3600_000,
-                    released: null, refused: null, consequence: "the pull request goes back to the queue" };
+                    released: null, refused: null, state: null, consequence: "the pull request goes back to the queue" };
     const markup = section(html({ ...PAGE, attention: [{ factory: "acme/widgets", facts: { ...QUIET, claims: [claim], queued: [44, 45] } }] }),
                            "Needs attention");
     expect(drawn(markup, "pull request", "#12")).toBe(true);
-    expect(drawn(markup, "issue", "#44")).toBe(true);
-    expect(drawn(markup, "issue", "#45")).toBe(true);
+    // A queued issue is an open one: that is what the poll found it by.
+    expect(drawn(markup, "issue open", "#44")).toBe(true);
+    expect(drawn(markup, "issue open", "#45")).toBe(true);
   });
 });
 

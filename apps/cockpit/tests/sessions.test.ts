@@ -108,6 +108,8 @@ describe("a session told by its events", () => {
         factory: "acme/widgets",
         session: "5c0075aa",
         acked: 8,
+        // The poll has not read the forge: where its issue and pull request stand is not known.
+        states: { issue: null, pr: null },
         summary: {
           status: "waiting",
           workflows: ["ship"],

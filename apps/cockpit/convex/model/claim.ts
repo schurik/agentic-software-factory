@@ -19,6 +19,7 @@
  * The other end of this wire is `engine/claims.py` in the factory.
  */
 import { type Infer, v } from "convex/values";
+import type { ItemState } from "../forge/forge";
 import { type Refusal } from "./command";
 import { type StoredEvent, isRecord } from "./wire";
 import { Payload } from "./payload";
@@ -135,6 +136,8 @@ export interface ClaimView {
   kind: ClaimKind;
   number: number;
   repo: string;
+  /** Where the item stands on the forge; null when not known. */
+  state: ItemState | null;
   /** The session it is for, and the station holding it: its id and name, and when its loop last polled — 0 for never. */
   session: string;
   station: string;
