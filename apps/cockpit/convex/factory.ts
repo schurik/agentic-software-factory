@@ -17,7 +17,7 @@ import { action, internalQuery, query, type QueryCtx } from "./_generated/server
 import { repoKey, type Distance, type OpenPull } from "./forge/forge";
 import { ForgeError, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
-import { proposalsOf } from "./model/config";
+import { CONFIG_DIR, editable, proposalsOf } from "./model/config";
 import { readDescription } from "./model/description";
 import { roleOf } from "./commands";
 import { editing } from "./config";
@@ -118,8 +118,10 @@ export const looking = internalQuery({
 
 /**
  * Ask the forge what the page cannot be told: the default branch's commit,
- * the files under `asf/` there, each reporting station's distance from it,
- * and the config edits proposed from the Config tab that are still open.
+ * the config files under `asf/` there that the cockpit edits (`editable`:
+ * filtered here, so the page is never handed the factory's Python), each
+ * reporting station's distance from it, and the config edits proposed from
+ * the Config tab that are still open.
  * Read on the cockpit's own credential, for a viewer the mirror lets read
  * the repository; nothing read here is stored.
  */
@@ -139,7 +141,8 @@ export const look = action({
       for (const head of asked.heads) {
         if (head !== tip) distances[head] = await opened.forge.distance(args.factory, tip, head);
       }
-      return { ok: true, tip, files: await opened.forge.paths(args.factory, tip, "asf"), distances, proposals };
+      const files = await opened.forge.paths(args.factory, tip, CONFIG_DIR);
+      return { ok: true, tip, files: files === null ? null : files.filter(editable), distances, proposals };
     } catch (error) {
       if (!(error instanceof ForgeError || error instanceof RateLimited)) throw error;
       return { ok: false, because: error.message };

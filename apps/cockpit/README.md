@@ -532,11 +532,17 @@ resolved by its code; the cockpit never parses `factory.yaml`. A description fro
 still shows its check, and says the settings are not described; a factory no CI workflow ever
 described is **unchecked**, never broken.
 
-**Edit config** leads the tab, over the files under `asf/` on the default branch and the pull
-requests proposed from here that are still open — those from a `cockpit/` branch, which the page's
-`look` reads with the forge's `pulls`. A writer edits those files there, and the edit becomes a pull request opened **as them**
+**Edit config** leads the tab, over the pull requests proposed from here that are still open —
+those from a `cockpit/` branch, which the page's `look` reads with the forge's `pulls`. It opens
+the editor, a dialog — large on a desktop, the whole screen on a phone — whose files are a nav down
+the left (a picker on a phone): the text config under `asf/` on the default branch, which the
+`look` alone lists (`editable` in `convex/model/config.ts`: YAML, Markdown, plain text, JSON, TOML
+and samples such as `env.sample` — never the factory's Python, never a binary — and the actions
+refuse any other file too). The editor holds one file's changes at a time, so opening another file
+then asks before discarding them; closing the dialog loses nothing. A writer edits a file there,
+and the edit becomes a pull request opened **as them**
 (`convex/config.ts`). The repository stays the source of truth: the editor is the files' raw text,
-read from the forge at the commit the tab listed them at, and what is typed is committed byte for
+read from the forge at the commit the dialog listed them at, and what is typed is committed byte for
 byte — never parsed and written back, so a comment survives. A textarea keeps only LF, so a CRLF
 file is edited as LF and committed with its CRLF back, and one that mixes the two is not edited
 here. The cockpit checks YAML syntax only (`convex/model/config.ts`: a `.yaml` file as one

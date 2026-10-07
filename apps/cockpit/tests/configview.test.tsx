@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConfigEditorView, type Draft, proposedFile } from "../components/factory/ConfigEditor";
+import { ConfigEditorView, type Draft, proposedFile, unsaved } from "../components/factory/ConfigEditor";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { unified } from "../components/factory/diff";
 import type { Page } from "../components/factory/view";
@@ -34,29 +34,79 @@ function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorVi
   return renderToStaticMarkup(
     <ViewerLogin.Provider value="alex">
       <ConfigEditorView forge="https://github.com" repo="acme/widgets" base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
+                        files={drafts.map((draft) => draft.path)} switchingTo={null} onAnswer={() => undefined}
                         asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
                         onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
                         onChange={() => undefined} onSubmit={() => undefined} {...given} />
     </ViewerLogin.Provider>);
 }
 
-describe("the Config tab's files", () => {
-  it("can each be edited by a writer", () => {
+describe("the Config tab's Edit config", () => {
+  it("is one action, not a list of the files it edits", () => {
     const html = renderToStaticMarkup(
       <ConfigTab page={page()} look={LOOK} drifts={new Map()} forge={FORGE} now={NOW} onEdit={() => undefined} />);
 
-    expect(html.match(/<button[^>]*>Edit<\/button>/g)?.length).toBe(2);
+    expect(html.match(/<button[^>]*>Edit config<\/button>/g)?.length).toBe(1);
+    expect(html).not.toMatch(/<button[^>]*>Edit<\/button>/);
+    expect(html).not.toContain("asf/agents/planner/agent.md");
     expect(html).not.toContain(' disabled=""');
   });
 
-  it("cannot be edited without write access, and say why", () => {
+  it("cannot be used without write access, and says why", () => {
     const because = editRefusal("triage")!;
     const html = renderToStaticMarkup(
       <ConfigTab page={page({ edit: because })} look={LOOK} drifts={new Map()} forge={FORGE} now={NOW}
                  onEdit={() => undefined} />);
 
-    expect(html.match(/<button[^>]*disabled=""[^>]*>Edit<\/button>/g)?.length).toBe(2);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Edit config<\/button>/);
     expect(html).toContain(because);
+  });
+
+  it("cannot be used while the forge shows no file to edit", () => {
+    const html = renderToStaticMarkup(
+      <ConfigTab page={page()} look={{ ...LOOK, files: [] }} drifts={new Map()} forge={FORGE} now={NOW} onEdit={() => undefined} />);
+
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Edit config<\/button>/);
+  });
+});
+
+describe("the editor's files", () => {
+  const FILES = ["asf/agents/planner/agent.md", "asf/factory.yaml"];
+  const changed: Draft = { path: "asf/factory.yaml", original: YAML, crlf: false, text: YAML.replace("2.5", "5") };
+
+  it("are a nav down the side, and a picker on a phone, the one open marked", () => {
+    const html = editor([changed], { files: FILES });
+
+    const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
+    expect(nav).toContain('aria-label="Files"');
+    expect(nav.match(/<button/g)?.length).toBe(2);
+    expect(nav).toMatch(/<button[^>]*aria-current="true"[^>]*>.*?factory\.yaml/);
+    expect(nav).not.toMatch(/<button[^>]*aria-current="true"[^>]*>.*?agent\.md/);
+    expect(html).toMatch(/<select[^>]*>.*<option value="asf\/agents\/planner\/agent.md">.*<option value="asf\/factory.yaml" selected="">/s);
+  });
+
+  it("mark the one with changes not yet proposed", () => {
+    const html = editor([changed, { path: "asf/agents/planner/agent.md", original: "x\n", crlf: false, text: "x\n" }], { files: FILES });
+
+    expect(html).toMatch(/factory\.yaml<\/code><span aria-hidden="true"[^>]*>•<\/span><span class="sr-only">changed<\/span>/);
+    expect(html).not.toMatch(/agent\.md<\/code><span aria-hidden="true"/);
+  });
+
+  it("ask before switching discards a file's changes", () => {
+    const html = editor([changed], { files: FILES, switchingTo: "asf/agents/planner/agent.md" });
+
+    expect(html).toMatch(/role="alertdialog"/);
+    expect(html).toMatch(/<code>asf\/factory\.yaml<\/code> has changes that are not proposed\. Discard them and open <code>asf\/agents\/planner\/agent\.md<\/code>\?/);
+    expect(html).toMatch(/<button[^>]*>Discard and open<\/button>/);
+    expect(html).toMatch(/<button[^>]*>Keep editing<\/button>/);
+    expect(editor([changed], { files: FILES })).not.toContain("alertdialog");
+  });
+
+  it("switch at once when nothing would be lost, and ask when something would", () => {
+    expect(unsaved([changed], "asf/factory.yaml")).toBe(true);
+    expect(unsaved([{ ...changed, text: changed.original }], "asf/factory.yaml")).toBe(false);
+    expect(unsaved([changed], "asf/agents/planner/agent.md")).toBe(false);
+    expect(unsaved([], null)).toBe(false);
   });
 });
 
