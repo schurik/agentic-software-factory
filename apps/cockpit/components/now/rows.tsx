@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
+import type { ItemState } from "@/convex/forge/forge";
 import { type Attention, expensive, type Facts, needsAttention, stuck, waitedLong } from "@/convex/model/attention";
 import { stationWords, type Row as Wait } from "@/convex/model/inbox";
 import type { Other } from "@/convex/inbox";
@@ -127,18 +128,20 @@ function question(wait: Wait): ReactNode {
     : <><span className="font-medium text-fg">{asked}</span> {asks(wait)} · round {wait.round}</>;
 }
 
-/** An issue or a pull request, by number. */
+/** An issue or a pull request, by number, and where it stands on the forge when that is known. */
 interface Item {
   kind: WorkItemKind;
   number: number;
+  state: ItemState | null;
 }
 
 /**
- * A work item named in a row, with its kind's icon. The row is itself a link,
- * and a link inside a link is no HTML a browser keeps, so it is not one.
+ * A work item named in a row, with its kind's icon in its state. The row is
+ * itself a link, and a link inside a link is no HTML a browser keeps, so it
+ * is not one.
  */
-function WorkItem({ kind, number }: Item) {
-  return <ForgeRef kind={kind} href="">#{number}</ForgeRef>;
+function WorkItem({ kind, number, state }: Item) {
+  return <ForgeRef kind={kind} href="" state={state}>#{number}</ForgeRef>;
 }
 
 /** A label and the work item it is about: a long label is cut short, never the number. */
@@ -156,8 +159,8 @@ function whereOf(factory: string, item: Item | null): ReactNode {
 }
 
 /** Where a wait is: its factory, and the work item it is asked on. */
-const waitsAt = ({ factory, issueNumber: number }: Pick<Wait, "factory" | "issueNumber">) =>
-  whereOf(factory, number ? { kind: "issue", number } : null);
+const waitsAt = ({ factory, issueNumber: number, issueState: state }: Pick<Wait, "factory" | "issueNumber" | "issueState">) =>
+  whereOf(factory, number ? { kind: "issue", number, state } : null);
 
 /** The gates waiting on the viewer, each opening in the drawer over Now; `selected` is the one the keys are on. */
 export function InboxRows({ rows, selected, now, open }: { rows: Wait[]; selected: string | null; now: number; open: (key: string) => Go }) {
@@ -254,7 +257,7 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
         return [{
           key: `${factory}/unwatched`, failed: false, factory,
           title: <>{plural(item.issues.length, "queued issue")}, no online station watching</>,
-          line: <span className="inline-flex items-center gap-2">{item.issues.map((number) => <WorkItem key={number} kind="issue" number={number} />)}</span>,
+          line: <span className="inline-flex items-center gap-2">{item.issues.map((number) => <WorkItem key={number} kind="issue" number={number} state="open" />)}</span>,
           step: "Stations", href: tabHref(factory, "stations"),
         }];
     }
@@ -298,7 +301,8 @@ export function RunningRow({ row, progress, now }: { row: Running; progress: Pro
                ? <span className="font-medium text-wait">{formatDuration(secondsBetween(phase.since, now))} in {where}</span> : null}
            </span>,
          ]}
-         where={whereOf(row.factory, pr ? { kind: "pr", number: Number(pr) } : issue ? { kind: "issue", number: Number(issue) } : null)}
+         where={whereOf(row.factory, pr ? { kind: "pr", number: Number(pr), state: row.states.pr }
+           : issue ? { kind: "issue", number: Number(issue), state: row.states.issue } : null)}
          when={<>
            {expensive(row.cost, row.ceiling)
              ? <span className={cx("font-medium", row.cost >= row.ceiling ? "text-bad" : "text-wait")}>{formatDollars(row.cost)} of {formatDollars(row.ceiling)}</span>

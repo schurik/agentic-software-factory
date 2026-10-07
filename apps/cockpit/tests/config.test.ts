@@ -413,7 +413,7 @@ describe("the Config tab's open proposals", () => {
 
     expect(looked.ok && looked.proposals).toEqual([{
       number: opened.number, title: "Raise the budget", url: opened.url, head: "cockpit/alex/raise-the-budget",
-      author: "alex", at: expect.any(Number),
+      author: "alex", at: expect.any(Number), draft: false,
     }]);
   });
 

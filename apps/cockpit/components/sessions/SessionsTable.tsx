@@ -125,8 +125,8 @@ function SessionRow({ row, now, live }: { row: Listed; now: number; live: (row: 
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2.5 text-xs text-muted">
           <span>{factory}</span>
           {/* A session that answers a pull request alone was started from it, not from a prompt. */}
-          {issue ? <ForgeRef kind="issue" href={summary.issueUrl}>#{issue}</ForgeRef> : pr ? null : <span>prompt</span>}
-          {pr ? <ForgeRef kind="pr" href={summary.prUrl}>#{pr}</ForgeRef> : null}
+          {issue ? <ForgeRef kind="issue" href={summary.issueUrl} state={row.states.issue}>#{issue}</ForgeRef> : pr ? null : <span>prompt</span>}
+          {pr ? <ForgeRef kind="pr" href={summary.prUrl} state={row.states.pr}>#{pr}</ForgeRef> : null}
           <span className="font-mono text-faint">{session}</span>
         </span>
       </td>

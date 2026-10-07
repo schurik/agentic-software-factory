@@ -220,13 +220,13 @@ describe("the Config tab", () => {
   it("leads with Edit config and the proposals still open", () => {
     const opened: Look = { ...LOOK, proposals: [{
       number: 12, title: "Raise the budget", url: `${FORGE}/acme/widgets/pull/12`, head: "cockpit/alex/raise-the-budget",
-      author: "alex", at: NOW - 3_600_000,
+      author: "alex", at: NOW - 3_600_000, draft: false,
     }] };
     const html = config(described, { look: opened });
 
     expect(html).toMatch(/<button[^>]*>Edit config<\/button>/);
     expect(html).not.toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);   // the editor lists the files
-    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/pull/12"[^>]*><svg [^>]*aria-label="pull request"`));
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/pull/12"[^>]*><svg [^>]*aria-label="pull request open"`));
     // The default branch, as the forge has it.
     expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a>`));
     expect(text(html)).toContain("#12 Raise the budget · by you 1h ago");

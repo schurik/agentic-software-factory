@@ -193,7 +193,7 @@ export function ConfigEditorView({
         </form>
         {outcome?.ok ? (
           <Notice tone="ok" className="text-sm">
-            Opened <ForgeRef kind="pr" href={outcome.url} newTab>#{outcome.number}</ForgeRef> from <ForgeRef kind="branch" href={branchHref(forge, repo, outcome.branch)}>{outcome.branch}</ForgeRef>: the
+            Opened <ForgeRef kind="pr" href={outcome.url} state="open" newTab>#{outcome.number}</ForgeRef> from <ForgeRef kind="branch" href={branchHref(forge, repo, outcome.branch)}>{outcome.branch}</ForgeRef>: the
             repository&apos;s CI checks it, and its branch protection governs the merge.
           </Notice>
         ) : outcome ? <Notice tone="bad" className="text-sm">Not opened: {outcome.because}.</Notice> : null}

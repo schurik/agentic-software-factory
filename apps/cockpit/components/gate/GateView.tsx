@@ -241,7 +241,7 @@ export function GateView({ gate, read, since, now, posting, problem, onAnswer, t
         <div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             <span>{row.factory}</span>
-            {row.issueNumber ? <ForgeRef kind="issue" href={landing.url}>#{row.issueNumber}</ForgeRef> : null}
+            {row.issueNumber ? <ForgeRef kind="issue" href={landing.url} state={row.issueState}>#{row.issueNumber}</ForgeRef> : null}
             <a className="text-muted hover:text-fg" href={sessionHref(row.factory, row.session)}>session <code>{row.session}</code> →</a>
           </div>
           <h3 className="mt-2 text-xl font-semibold tracking-tight">{verbs.question}</h3>
