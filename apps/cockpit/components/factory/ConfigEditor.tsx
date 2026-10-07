@@ -15,7 +15,8 @@ import { branchHref } from "../format";
 import { ForgeRef } from "../icons";
 import { said } from "../said";
 import { unified } from "./diff";
-import { Button, control, cx, DiffBlock, menuPopup, Notice, Select } from "../ui";
+import { DiffView } from "../diff/DiffView";
+import { Button, control, cx, menuPopup, Notice, Select } from "../ui";
 import { useWho } from "../viewer";
 import { short } from "./view";
 
@@ -105,7 +106,8 @@ export function ConfigAbout({ forge, repo, base, into, as, title }: {
  * The Config tab's editor (spec #40, #58, #157), the body of its dialog: the
  * factory's config files as a nav down the left — a picker on a phone — a
  * blue dot on each with changes; beside it, Changes, the diff of every
- * changed file the pull request will carry, then a tab for each file edited,
+ * changed file the pull request will carry — drawn as the cockpit draws
+ * every diff (`DiffView`), each file collapsible, unified or split — then a tab for each file edited,
  * the one open as plain text filling the rest, with the YAML check; and
  * under it, always in view, the pull request's title, description and
  * submit. Pure, so a test renders it.
@@ -193,26 +195,31 @@ export function ConfigEditorView({
           </div>
 
           <Tabs.Panel value="changes" keepMounted className="min-h-0 grow overflow-y-auto p-4 data-hidden:hidden sm:px-5">
-            {changed.length === 0 ? <p className="text-sm text-muted">Nothing changed yet.</p> : (
-              <div className="grid gap-2">
-                {changed.map((draft) => <DiffBlock key={draft.path} text={unified(draft.path, draft.original, draft.text)} />)}
-              </div>
-            )}
+            {changed.length === 0 ? <p className="text-sm text-muted">Nothing changed yet.</p>
+              : <DiffView text={changed.map((draft) => unified(draft.path, draft.original, draft.text)).join("")} />}
           </Tabs.Panel>
           {shown !== null ? (
-            <Tabs.Panel value={shown} className="flex min-h-0 grow flex-col p-4 data-hidden:hidden sm:px-5">
+            <Tabs.Panel value={shown} className="flex min-h-0 grow flex-col data-hidden:hidden">
               {loading !== null ? (
-                loading.because === null ? <p className="text-sm text-muted">Reading <code>{loading.path}</code> from the forge…</p>
-                  : <Notice className="my-0 text-sm">Cannot edit <code>{loading.path}</code>: {loading.because}.</Notice>
+                <div className="p-4 sm:px-5">
+                  {loading.because === null ? <p className="text-sm text-muted">Reading <code>{loading.path}</code> from the forge…</p>
+                    : <Notice className="my-0 text-sm">Cannot edit <code>{loading.path}</code>: {loading.because}.</Notice>}
+                </div>
               ) : null}
               {current !== null ? (
-                <Field.Root name="text" invalid={problem !== null} className="flex min-h-0 grow flex-col gap-2">
+                <Field.Root name="text" invalid={problem !== null} className="flex min-h-0 grow flex-col">
                   <Field.Label className="sr-only">{current.path}</Field.Label>
+                  {/* The page itself, edge to edge: no box around it, so the file has every pixel the dialog can give. */}
                   <Field.Control value={current.text} onValueChange={(text) => onText(current.path, text)}
                                  render={<textarea spellCheck={false} />}
-                                 className={cx(control, "min-h-48 w-full min-w-0 grow resize-none overflow-auto font-mono text-sm [overflow-wrap:normal] [tab-size:2] whitespace-pre data-invalid:border-bad")} />
+                                 className={cx(
+                                   "min-h-48 w-full min-w-0 grow resize-none overflow-auto bg-surface px-4 py-3 font-mono text-sm text-fg outline-none sm:px-5",
+                                   "[overflow-wrap:normal] [tab-size:2] whitespace-pre",
+                                 )} />
                   {problem ? (
-                    <Field.Error match role="alert" className="shrink-0 text-sm text-bad">The YAML does not parse — {problem}</Field.Error>
+                    <Field.Error match role="alert" className="shrink-0 border-t border-line bg-bad-soft px-4 py-2 text-sm text-bad sm:px-5">
+                      The YAML does not parse — {problem}
+                    </Field.Error>
                   ) : null}
                 </Field.Root>
               ) : null}

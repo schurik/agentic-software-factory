@@ -114,9 +114,11 @@ describe("the editor's files", () => {
     const html = editor([changed, agent, workflow], { files: FILES, showing: "changes" });
 
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Changes \(2\)/);
-    expect(html).toContain("+++ b/asf/factory.yaml");
-    expect(html).toContain("+++ b/asf/workflows/sdlc/workflow.yaml");
-    expect(html).not.toContain("+++ b/asf/agents/planner/agent.md");
+    // Drawn as every diff in the cockpit is: a summary with Unified and Split, each file collapsible.
+    expect(html).toMatch(/2 files changed.*?<button[^>]*aria-pressed="true"[^>]*>.*?Unified<\/button>.*?Split<\/button>/s);
+    expect([...html.matchAll(/<section data-file="([^"]+)"/g)].map(([, path]) => path))
+      .toEqual(["asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml"]);
+    expect(html).toMatch(/<section data-file="asf\/factory.yaml"[^>]*>.*?aria-expanded="true"/s);
     expect(html).not.toMatch(/spellcheck="false"/i);                              // the file's own editor is not in front
     expect(editor([changed], { files: FILES })).toMatch(/spellcheck="false"/i);
     expect(html).not.toContain("Discard these changes");
@@ -147,9 +149,11 @@ describe("the editor", () => {
     const html = editor([{ path: "asf/factory.yaml", original: YAML, crlf: false, text: YAML.replace("2.5", "5") }]);
 
     expect(html).toContain("<textarea");
-    expect(html).toMatch(/<span data-line="del"[^>]*>-  max_cost_usd: 2.5   # per session\n<\/span>/);
-    expect(html).toMatch(/<span data-line="add"[^>]*>\+  max_cost_usd: 5   # per session\n<\/span>/);
-    expect(html).not.toMatch(/<span data-line="(add|del)"[^>]*>(\+\+\+|---) /);       // the file's own header lines are no change
+    const text = (line: string) => line.replace(/<[^>]+>/g, "");
+    const lines = (sign: "add" | "del") => [...html.matchAll(new RegExp(`<div data-line="${sign}"[^>]*>(.*?)</div>`, "g"))].map(([, line]) => text(line));
+    // Old and new line numbers, the sign, and the line.
+    expect(lines("del")).toEqual(["3-  max_cost_usd: 2.5   # per session"]);
+    expect(lines("add")).toEqual(["3+  max_cost_usd: 5   # per session"]);
     expect(html).toMatch(/On <code[^>]*>cockpit\/alex\/raise-the-budget<\/code> into <code>main<\/code>/);
     expect(html).toMatch(/<button type="submit"[^>]*>Open pull request as you<\/button>/);
     expect(html).not.toMatch(/<button type="submit"[^>]* disabled=""/);
