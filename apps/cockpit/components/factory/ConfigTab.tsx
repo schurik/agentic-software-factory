@@ -22,9 +22,10 @@ export type PurgeLine = NonNullable<FunctionReturnType<typeof api.retention.purg
  * how work lands, and limits and data — as its own `asf check --json`
  * described them on the default branch, every default resolved by the
  * factory's code: the cockpit never parses factory.yaml. Above them, "Edit
- * config": the files under `asf/` there, each edited as text into a pull
- * request in the writer's name, and the proposals still open. Pure: the
- * page's query, the forge look, the drifts and the editor come in as props.
+ * config", which opens the editor's dialog on the files under `asf/` there,
+ * edited as text into a pull request in the writer's name, and the proposals
+ * still open. Pure: the page's query, the forge look, the drifts and the
+ * editor come in as props.
  */
 export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purges, onPurge, onTab }: {
   page: Page;
@@ -33,9 +34,9 @@ export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purg
   /** The forge's web origin, e.g. https://github.com. */
   forge: string;
   now: number;
-  /** Open `path` in the editor. Without it the files are listed only. */
-  onEdit?: (path: string) => void;
-  /** The editor, when a file is open in it. */
+  /** Open the editor. Without it there is no Edit config. */
+  onEdit?: () => void;
+  /** The editor's dialog, once it has been opened. */
   editor?: ReactNode;
   /** Every purge of the factory's bodies, newest first. */
   purges?: PurgeLine[] | null;
@@ -98,21 +99,20 @@ function names(logins: string[], who: (login: string) => string, none: string): 
 }
 
 /**
- * Edit config: where the config is and what changing it means, the files
- * under `asf/` linked to the forge — "Edit config" opens factory.yaml, and
- * each file has its own Edit — and the pull requests proposed here still open.
+ * Edit config: where the config is and what changing it means, the one
+ * action that opens the editor — whose dialog lists the files — and the pull
+ * requests proposed here still open.
  */
 function Edit({ page, look, forge, now, onEdit }: {
   page: Page;
   look: Look | null;
   forge: string;
   now: number;
-  onEdit?: (path: string) => void;
+  onEdit?: () => void;
 }) {
   const who = useWho();
   const tip = look?.ok ? look.tip : null;
   const files = look?.ok ? look.files : null;
-  const first = files?.includes(FACTORY_FILE) ? FACTORY_FILE : files?.[0];
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
@@ -122,8 +122,8 @@ function Edit({ page, look, forge, now, onEdit }: {
           A change to it is a pull request, checked in the repository&apos;s CI.
         </p>
         {onEdit ? (
-          <Button variant="primary" size="sm" className="self-start" disabled={page.edit !== null || first === undefined}
-                  title={page.edit ?? undefined} onClick={() => first && onEdit(first)}>Edit config</Button>
+          <Button variant="primary" size="sm" className="self-start" disabled={page.edit !== null || !files?.length}
+                  title={page.edit ?? undefined} onClick={onEdit}>Edit config</Button>
         ) : null}
       </div>
       {onEdit && page.edit !== null ? <p className="mt-2 text-sm text-muted">Editing is disabled: {page.edit}.</p> : null}
@@ -143,19 +143,7 @@ function Edit({ page, look, forge, now, onEdit }: {
                   ))}
                 </ul>
               )}
-              <h3 className="mt-4 mb-1.5 text-sm font-medium text-muted">Files</h3>
-              {files === null ? <p className="text-sm text-muted">The forge does not show this factory&apos;s files.</p> : (
-                <ul className="overflow-hidden rounded-lg border border-line text-sm">
-                  {files.map((path) => (
-                    <li key={path} className="flex items-center gap-3 border-b border-line px-3.5 py-2 last:border-b-0">
-                      <a href={`${forge}/${page.repo}/blob/${tip}/${path}`} className="min-w-0 grow break-all"><code>{path}</code></a>
-                      {onEdit ? (
-                        <Button size="sm" disabled={page.edit !== null} title={page.edit ?? undefined} onClick={() => onEdit(path)}>Edit</Button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {!files?.length ? <p className="mt-3 text-sm text-muted">The forge shows no config file of this factory&apos;s to edit.</p> : null}
             </>
           )}
     </Card>
