@@ -42,7 +42,7 @@ export type Page = View & {
 };
 
 /** A session's work items, where nothing is known of where they stand. */
-export const UNKNOWN: ItemStates = { issue: null, pr: null };
+const UNKNOWN: ItemStates = { issue: null, pr: null };
 
 /** What the ⋯ menu holds for this viewer: copying the id always, purging for an admin of the repository. */
 export function sessionMenu(page: Page): ("copy" | "purge")[] {

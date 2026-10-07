@@ -123,6 +123,46 @@ describe("the state of a session's issue and pull request", () => {
     expect(await statesListed()).toEqual({ s1: { issue: "closed", pr: null } });
   });
 
+  it("goes back as far as the sessions ran, not to when a backlog of them reached the cockpit", async () => {
+    // A station that shipped to no cockpit before ships its old sessions the day one is set up.
+    const DAY = 86_400_000;
+    vi.setSystemTime(NOW - 20 * DAY);
+    forge.issue(REPO, 42, { title: "broken" });
+    vi.setSystemTime(NOW);
+    const started = fixture("session_started", 1, 2);
+    Object.assign(started.payload, {
+      adw_id: "s1", issue_url: `https://github.com/${REPO}/issues/42`, started_at: new Date(NOW - 21 * DAY).toISOString(),
+    });
+    const phase = { ...fixture("phase_started", 2), ts: new Date(NOW - 21 * DAY).toISOString() };
+    expect((await ingest(t, station, { session: "s1", events: [started, phase] })).status).toBe(200);
+
+    await catchUp(t);
+
+    expect(await statesListed()).toEqual({ s1: { issue: "open", pr: null } });
+  });
+
+  it("keeps a first look at a busy repository whole, however many it lists", async () => {
+    for (let number = 1; number <= 1200; number++) forge.issue(REPO, number, { title: `issue ${number}`, state: "closed" });
+    await ship("s1", 1);
+    await ship("s2", 1200);
+
+    await catchUp(t);
+
+    expect(await statesListed()).toEqual({ s1: { issue: "closed", pr: null }, s2: { issue: "closed", pr: null } });
+  });
+
+  it("forgets a repository's items with the repository", async () => {
+    forge.issue(REPO, 42, { title: "broken" });
+    await ship("s1", 42);
+    await catchUp(t);
+    expect(await statesListed()).toEqual({ s1: { issue: "open", pr: null } });
+
+    forge.remove(REPO);
+    await catchUp(t);
+
+    expect(await statesListed()).toEqual({ s1: { issue: null, pr: null } });
+  });
+
   it("is not asked of a factory none of whose sessions reached the cockpit", async () => {
     forge.issue(REPO, 42, { title: "broken" });
     const mark = forge.requests.length;

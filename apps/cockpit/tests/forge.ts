@@ -548,17 +548,14 @@ export class FakeForge {
     if (issues && method === "GET" && !as("app")) {
       const repo = this.repos.get(issues[1].toLowerCase());
       if (!repo || !this.reads(bearer, repo)) return this.reply(request, token, 404, { message: "Not Found" });
-      // As GitHub filters them: by state (open unless asked), by every label named, comma-separated, and
-      // by `since` — updated at or after it. Sorted by when they were updated when asked to be.
+      // As GitHub filters them: by state (open unless asked), and by every label named, comma-separated.
+      // Sorted by when each was last updated, the latest first, when asked to be.
       const state = url.searchParams.get("state") ?? "open";
       const wanted = (url.searchParams.get("labels") ?? "").split(",").filter(Boolean);
-      const since = url.searchParams.get("since") ?? "";
       const updated = url.searchParams.get("sort") === "updated";
-      const ascending = url.searchParams.get("direction") === "asc";
       const found = [...repo.issues]
         .filter(([, issue]) => (state === "all" || issue.state === state) && wanted.every((name) => issue.labels.includes(name)))
-        .filter(([, issue]) => issue.updatedAt >= since)
-        .sort(([a, x], [b, y]) => (updated ? (x.updatedAt.localeCompare(y.updatedAt) || a - b) * (ascending ? 1 : -1) : 0))
+        .sort(([a, x], [b, y]) => (updated ? y.updatedAt.localeCompare(x.updatedAt) || b - a : 0))
         .map(([number, issue]) => this.wireIssue(repo, number, issue));
       return this.page(request, token, url, found, (items) => items);
     }

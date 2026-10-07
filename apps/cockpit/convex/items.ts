@@ -14,19 +14,19 @@ export interface ItemStates {
   pr: ItemState | null;
 }
 
-/** Where issue (or, `pull`, pull request) `number` of `repo` stands, or null when that is not known. */
-export async function stateOf(ctx: QueryCtx, repo: string, pull: boolean, number: number): Promise<ItemState | null> {
+/** Where issue (or pull request) `number` of `repo` stands, or null when that is not known. */
+export async function stateOf(ctx: QueryCtx, repo: string, kind: "issue" | "pr", number: number): Promise<ItemState | null> {
   if (!number) return null;
   const known = await ctx.db.query("forgeItems")
     .withIndex("by_item", (q) => q.eq("repo", repoKey(repo)).eq("number", number)).unique();
   // A number the forge says is the other kind is not the item the page means.
-  return known !== null && known.pull === pull ? known.state : null;
+  return known !== null && known.pull === (kind === "pr") ? known.state : null;
 }
 
 /** Where the issue and the pull request a session of `factory` names stand. */
 export async function statesOf(ctx: QueryCtx, factory: string, named: { issueUrl: string; prUrl: string }): Promise<ItemStates> {
   return {
-    issue: await stateOf(ctx, factory, false, Number(issueNumber(named.issueUrl))),
-    pr: await stateOf(ctx, factory, true, Number(prNumber(named.prUrl))),
+    issue: await stateOf(ctx, factory, "issue", Number(issueNumber(named.issueUrl))),
+    pr: await stateOf(ctx, factory, "pr", Number(prNumber(named.prUrl))),
   };
 }

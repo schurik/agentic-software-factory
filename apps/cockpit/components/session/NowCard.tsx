@@ -4,7 +4,7 @@ import { EXPENSIVE } from "@/convex/model/attention";
 import type { Budget } from "@/convex/model/description";
 import { isLive, type Summary, until } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
-import { formatDollars, formatDuration, prNumber, secondsBetween } from "../format";
+import { formatDollars, formatDuration, issueNumber as issueOf, prNumber, secondsBetween } from "../format";
 import { verbsOf } from "../gate/answer";
 import { ForgeRef } from "../icons";
 import { buttonClass, Card, cx, followInPlace, type Go } from "../ui";
@@ -103,7 +103,7 @@ export function NowCard({ summary, states, story, budget, now, viewer, openPhase
 function askedOn({ channel, issueNumber }: { channel: string; issueNumber: number }, summary: Summary, states: ItemStates): ReactNode {
   if (channel === "issue" && issueNumber) {
     // The issue the gate is asked on is the session's own when the numbers agree; another one's state is not known.
-    const state = summary.issueUrl.endsWith(`/issues/${issueNumber}`) ? states.issue : null;
+    const state = issueNumber === Number(issueOf(summary.issueUrl)) ? states.issue : null;
     return <ForgeRef kind="issue" href={summary.issueUrl} state={state}>#{issueNumber}</ForgeRef>;
   }
   const pr = channel === "pr" ? prNumber(summary.prUrl) : "";

@@ -141,7 +141,7 @@ async function rowOf(ctx: QueryCtx, who: Viewing, record: Doc<"sessions">,
       blocked: blocked(summary, await sentFor(ctx, record.factory, record.session, summary), ready),
       commanding: null, stationSeenAt: 0, attendedAt: null,
     };
-  const issueState = await stateOf(ctx, record.factory, false, summary.waitingFor.issueNumber);
+  const issueState = await stateOf(ctx, record.factory, "issue", summary.waitingFor.issueNumber);
   return { row: { ...row(record, summary, login, judged), issueState }, mine, waitsOn: summary.waitingFor.trusted ?? [] };
 }
 

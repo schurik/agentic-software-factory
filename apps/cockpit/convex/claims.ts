@@ -127,7 +127,7 @@ async function viewsOf(ctx: QueryCtx, who: Viewing, factory: string, rows: Doc<"
     const seenAt = (await stationOf(ctx, factory, row.station))?.seenAt ?? 0;
     return {
       id: row._id, kind: row.kind, number: row.number, repo: row.repo,
-      state: await stateOf(ctx, row.repo, row.kind === "pr", row.number), session: row.session, station: row.station,
+      state: await stateOf(ctx, row.repo, row.kind, row.number), session: row.session, station: row.station,
       stationName: row.stationName, seenAt,
       heardAt: Math.max(seenAt, (await attendedAt(ctx, factory, row.session)) ?? 0, row.grantedAt),
       grantedAt: row.grantedAt, released: row.released, consequence: consequence(row), refused: row.held ? refused : null,

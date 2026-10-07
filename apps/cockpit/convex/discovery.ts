@@ -16,7 +16,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { type ActionCtx, internalAction, internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
-import { type Forge, itemStateValidator, type Touched, repoKey, repositoryValidator } from "./forge/forge";
+import { type Forge, itemStateValidator, repoKey, repositoryValidator } from "./forge/forge";
 import { ForgeError, RateLimited } from "./forge/github";
 import { credentialed } from "./forge/memory";
 import { open } from "./forge/open";
@@ -42,6 +42,8 @@ const RESERVE = 0.25;
  * before the run it starts, and a day is more than that while.
  */
 const ITEMS_BEFORE = 24 * 3600_000;
+/** How many items one mutation keeps: well inside what a mutation's arguments and writes may hold. */
+const TRACK_BATCH = 500;
 /** How long a stretch may hold its turn: an action that died with it (the backend went down) holds it no longer. */
 const STRETCH_TAKES = 3 * 60_000;
 
@@ -146,14 +148,18 @@ export const items = internalAction({
     const factories = await ctx.runQuery(internal.discovery.following, {});
     if (factories.length === 0) return null;
     await polling(ctx, "tracking", async (forge) => {
-      const found: { key: string; since: string; touched: Touched[] }[] = [];
-      try {
-        for (const { key, name, since } of factories) {
-          const touched = await forge.touched(name, since);
-          if (touched !== null) found.push({ key, since, touched });
+      for (const { key, name, since } of factories) {
+        const touched = await forge.touched(name, since);
+        if (touched === null) continue;
+        // Kept a batch at a time — a first look at a busy repository is more than one
+        // mutation's arguments hold — and known up to the latest change only with the last.
+        const latest = touched.reduce((at, item) => (Date.parse(item.updatedAt) > Date.parse(at) ? item.updatedAt : at), since);
+        for (let from = 0; from === 0 || from < touched.length; from += TRACK_BATCH) {
+          const last = from + TRACK_BATCH >= touched.length;
+          await ctx.runMutation(internal.discovery.track, {
+            key, touched: touched.slice(from, from + TRACK_BATCH), through: last ? latest : null,
+          });
         }
-      } finally {
-        await ctx.runMutation(internal.discovery.track, { found });
       }
       return {};
     });
@@ -175,38 +181,42 @@ export const following = internalQuery({
   },
 });
 
-/** A day before `factory`'s oldest session was first stored, or null while it has none. */
+/**
+ * A day before `factory`'s oldest session, or null while it has none. Its
+ * earliest phase says when that ran, by its own events' clock, which a
+ * station shipping a backlog to a cockpit set up since does not move; a
+ * session that never reached a phase says only when it was stored.
+ */
 async function firstLook(ctx: QueryCtx, factory: string): Promise<string | null> {
   let oldest: number | null = null;
+  const older = (at: number | undefined) => {
+    if (at !== undefined && (oldest === null || at < oldest)) oldest = at;
+  };
   for (const spelling of await spellingsOf(ctx, factory)) {
-    const first = await ctx.db.query("sessions").withIndex("by_factory", (q) => q.eq("factory", spelling)).first();
-    if (first !== null && (oldest === null || first._creationTime < oldest)) oldest = first._creationTime;
+    older((await ctx.db.query("sessions").withIndex("by_factory", (q) => q.eq("factory", spelling)).first())?._creationTime);
+    older((await ctx.db.query("phases").withIndex("by_factory_at", (q) => q.eq("factory", spelling)).first())?.at);
   }
   return oldest === null ? null : new Date(oldest - ITEMS_BEFORE).toISOString();
 }
 
 const touchedValidator = v.object({ number: v.number(), pull: v.boolean(), state: itemStateValidator, updatedAt: v.string() });
 
-/** Keep where each item that changed stands, and that the factory is known up to the latest change read. */
+/** Keep where each of `touched` stands, and, `through`, that `key`'s items are known up to that change. */
 export const track = internalMutation({
-  args: { found: v.array(v.object({ key: v.string(), since: v.string(), touched: v.array(touchedValidator) })) },
+  args: { key: v.string(), touched: v.array(touchedValidator), through: v.union(v.null(), v.string()) },
   returns: v.null(),
-  handler: async (ctx, { found }) => {
-    for (const { key, since, touched } of found) {
-      const row = await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", key)).unique();
-      if (row === null) continue;
-      let latest = since;
-      for (const item of touched) {
-        if (Date.parse(item.updatedAt) > Date.parse(latest)) latest = item.updatedAt;
-        const known = await ctx.db.query("forgeItems")
-          .withIndex("by_item", (q) => q.eq("repo", key).eq("number", item.number)).unique();
-        if (known === null) await ctx.db.insert("forgeItems", { repo: key, ...item });
-        else if (known.state !== item.state || known.pull !== item.pull || known.updatedAt !== item.updatedAt) {
-          await ctx.db.patch(known._id, item);
-        }
+  handler: async (ctx, { key, touched, through }) => {
+    const row = await ctx.db.query("repos").withIndex("by_key", (q) => q.eq("key", key)).unique();
+    if (row === null) return null;
+    for (const item of touched) {
+      const known = await ctx.db.query("forgeItems")
+        .withIndex("by_item", (q) => q.eq("repo", key).eq("number", item.number)).unique();
+      if (known === null) await ctx.db.insert("forgeItems", { repo: key, ...item });
+      else if (known.state !== item.state || known.pull !== item.pull || known.updatedAt !== item.updatedAt) {
+        await ctx.db.patch(known._id, item);
       }
-      if (row.itemsSince !== latest) await ctx.db.patch(row._id, { itemsSince: latest });
     }
+    if (through !== null && row.itemsSince !== through) await ctx.db.patch(row._id, { itemsSince: through });
     return null;
   },
 });
