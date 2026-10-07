@@ -31,7 +31,7 @@ export function OverviewTab({ overview, days, midnights, now, timeZone, onDays }
   const day = dayIn(timeZone);
   const period = OVERVIEW_DAYS[days].toLowerCase();
   return (
-    <div className="flex max-w-[960px] flex-col gap-8">
+    <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-muted tabular-nums">{day(midnights[0])} – {day(midnights.at(-2) ?? midnights[0])}</span>
         <span className="grow" />
