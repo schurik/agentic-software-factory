@@ -218,16 +218,18 @@ export const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.
  * A labelled choice of one among `items`, drawn like a control and opened
  * as a menu. With nothing to choose it is disabled, and says `placeholder`.
  */
-export function Select({ label, items, value, placeholder, onChange, className }: {
+export function Select({ label, items, value, placeholder, onChange, className, labelOf = (item) => item }: {
   label: ReactNode;
   items: string[];
   value: string;
   placeholder?: string;
   onChange: (value: string) => void;
   className?: string;
+  /** How an item reads, when not as itself. */
+  labelOf?: (item: string) => string;
 }) {
   return (
-    <BaseSelect.Root items={items.map((item) => ({ label: item, value: item }))} value={value || null}
+    <BaseSelect.Root items={items.map((item) => ({ label: labelOf(item), value: item }))} value={value || null}
                      disabled={!items.length} onValueChange={(chosen) => { if (typeof chosen === "string") onChange(chosen); }}>
       <div className={cx("grid min-w-0 gap-1", className)}>
         <BaseSelect.Label className="text-sm font-medium">{label}</BaseSelect.Label>
@@ -242,7 +244,7 @@ export function Select({ label, items, value, placeholder, onChange, className }
             <BaseSelect.List>
               {items.map((item) => (
                 <BaseSelect.Item key={item} value={item} className={menuItem}>
-                  <BaseSelect.ItemText className="grow">{item}</BaseSelect.ItemText>
+                  <BaseSelect.ItemText className="grow">{labelOf(item)}</BaseSelect.ItemText>
                   <BaseSelect.ItemIndicator><Check size={14} className="text-accent" aria-hidden="true" /></BaseSelect.ItemIndicator>
                 </BaseSelect.Item>
               ))}

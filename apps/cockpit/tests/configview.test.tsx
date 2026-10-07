@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConfigEditorView, type Draft, proposedFile, unsaved } from "../components/factory/ConfigEditor";
+import { ConfigAbout, ConfigEditorView, DiscardQuestion, type Draft, opening, proposedFile, unsaved } from "../components/factory/ConfigEditor";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { unified } from "../components/factory/diff";
 import type { Page } from "../components/factory/view";
@@ -33,7 +33,7 @@ const LOOK: Look = {
 function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorView>[0]> = {}): string {
   return renderToStaticMarkup(
     <ViewerLogin.Provider value="alex">
-      <ConfigEditorView forge="https://github.com" repo="acme/widgets" base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
+      <ConfigEditorView forge="https://github.com" repo="acme/widgets" into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
                         files={drafts.map((draft) => draft.path)} switchingTo={null} onAnswer={() => undefined}
                         asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
                         onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
@@ -82,7 +82,8 @@ describe("the editor's files", () => {
     expect(nav.match(/<button/g)?.length).toBe(2);
     expect(nav).toMatch(/<button[^>]*aria-current="true"[^>]*>.*?factory\.yaml/);
     expect(nav).not.toMatch(/<button[^>]*aria-current="true"[^>]*>.*?agent\.md/);
-    expect(html).toMatch(/<select[^>]*>.*<option value="asf\/agents\/planner\/agent.md">.*<option value="asf\/factory.yaml" selected="">/s);
+    // The phone's picker: base-ui's Select, the open file on its trigger, with its dot.
+    expect(html).toMatch(/<button[^>]*role="combobox"[^>]*>.*?factory\.yaml •/s);
   });
 
   it("mark the one with changes not yet proposed", () => {
@@ -92,21 +93,31 @@ describe("the editor's files", () => {
     expect(html).not.toMatch(/agent\.md<\/code><span aria-hidden="true"/);
   });
 
-  it("ask before switching discards a file's changes", () => {
-    const html = editor([changed], { files: FILES, switchingTo: "asf/agents/planner/agent.md" });
-
-    expect(html).toMatch(/role="alertdialog"/);
-    expect(html).toMatch(/<code>asf\/factory\.yaml<\/code> has changes that are not proposed\. Discard them and open <code>asf\/agents\/planner\/agent\.md<\/code>\?/);
-    expect(html).toMatch(/<button[^>]*>Discard and open<\/button>/);
-    expect(html).toMatch(/<button[^>]*>Keep editing<\/button>/);
-    expect(editor([changed], { files: FILES })).not.toContain("alertdialog");
+  it("ask before switching discards a file's changes, and switch at once when nothing would be lost", () => {
+    expect(opening([changed], "asf/factory.yaml", "asf/agents/planner/agent.md")).toBe("ask");
+    expect(opening([{ ...changed, text: changed.original }], "asf/factory.yaml", "asf/agents/planner/agent.md")).toBe("open");
+    expect(opening([changed], "asf/factory.yaml", "asf/factory.yaml")).toBe("stay");
+    expect(opening([], null, "asf/factory.yaml")).toBe("open");
+    expect(unsaved([changed], "asf/agents/planner/agent.md")).toBe(false);
   });
 
-  it("switch at once when nothing would be lost, and ask when something would", () => {
-    expect(unsaved([changed], "asf/factory.yaml")).toBe(true);
-    expect(unsaved([{ ...changed, text: changed.original }], "asf/factory.yaml")).toBe(false);
-    expect(unsaved([changed], "asf/agents/planner/agent.md")).toBe(false);
-    expect(unsaved([], null)).toBe(false);
+  it("name both files when they ask", () => {
+    expect(renderToStaticMarkup(<DiscardQuestion from="asf/factory.yaml" to="asf/agents/planner/agent.md" />)).toBe(
+      "<code>asf/factory.yaml</code> has changes that are not proposed. Opening <code>asf/agents/planner/agent.md</code> discards them.");
+  });
+});
+
+describe("the editor's info", () => {
+  it("says where the files come from, and that what is typed is committed as the viewer", () => {
+    const html = renderToStaticMarkup(
+      <ViewerLogin.Provider value="alex">
+        <ConfigAbout forge={FORGE} repo="acme/widgets" base={BASE} into="main" as="alex" title="Raise the budget" />
+      </ViewerLogin.Provider>);
+
+    expect(html).toMatch(new RegExp(`href="https://github.com/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a> at <code>${BASE.slice(0, 7)}</code>`));
+    // The viewer's own login reads "you"; the branch keeps the login it is named by.
+    expect(html).toContain("comments and all — as you, on");
+    expect(html).toContain("cockpit/alex/raise-the-budget");
   });
 });
 
@@ -118,10 +129,7 @@ describe("the editor", () => {
     expect(html).toMatch(/<span data-line="del"[^>]*>-  max_cost_usd: 2.5   # per session\n<\/span>/);
     expect(html).toMatch(/<span data-line="add"[^>]*>\+  max_cost_usd: 5   # per session\n<\/span>/);
     expect(html).not.toMatch(/<span data-line="(add|del)"[^>]*>(\+\+\+|---) /);       // the file's own header lines are no change
-    expect(html).toContain("cockpit/alex/raise-the-budget");
-    expect(html).toMatch(new RegExp(`href="https://github.com/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a> at <code>${BASE.slice(0, 7)}</code>`));
-    // The viewer's own login reads "you"; the branch keeps the login it is named by.
-    expect(html).toContain("comments and all — as you, on");
+    expect(html).toMatch(/On <code[^>]*>cockpit\/alex\/raise-the-budget<\/code> into <code>main<\/code>/);
     expect(html).toMatch(/<button type="submit"[^>]*>Open pull request as you<\/button>/);
     expect(html).not.toMatch(/<button type="submit"[^>]* disabled=""/);
   });

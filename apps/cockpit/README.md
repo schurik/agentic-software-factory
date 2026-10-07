@@ -527,8 +527,10 @@ described is **unchecked**, never broken.
 
 **Edit config** leads the tab, over the pull requests proposed from here that are still open —
 those from a `cockpit/` branch, which the page's `look` reads with the forge's `pulls`. It opens
-the editor, a dialog — large on a desktop, the whole screen on a phone — whose files are a nav down
-the left (a picker on a phone): the text config under `asf/` on the default branch, which the
+the editor, a dialog that covers the screen: its files a nav down the left (a picker on a phone),
+the one open filling the rest — beside it a tab of the diff the pull request will carry — and the
+pull request's title, description and submit pinned along the bottom, with what proposing does
+behind an info button. The files are the text config under `asf/` on the default branch, which the
 `look` alone lists (`editable` in `convex/model/config.ts`: YAML, Markdown, plain text, JSON, TOML
 and samples such as `env.sample` — never the factory's Python, never a binary — and the actions
 refuse any other file too). The editor holds one file's changes at a time, so opening another file
