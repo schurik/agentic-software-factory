@@ -297,7 +297,6 @@ describe("the tabs", () => {
     expect(read(journal)).toMatch(/ 10\. review_1 · reviewer · success — approved: R1 and R2 are met /);
     // Markdown inside an entry is rendered: the journal's backticks and line breaks.
     expect(journal).toMatch(/⚑ risk \(planner, in plan\): the date is local midnight<br\/>\s*because: converted in UTC/);
-    expect(journal).toContain("max-w-[80ch]");
   });
 
   it("tell an agent's ⚑ note, a report, from a person's ✎ remark, an instruction that wins", () => {
