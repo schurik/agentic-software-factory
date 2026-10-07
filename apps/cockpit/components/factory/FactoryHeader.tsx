@@ -1,6 +1,7 @@
 import type { Look } from "@/convex/factory";
 import { liveness } from "@/convex/model/command";
-import { ExternalLink } from "../icons";
+import { branchHref } from "../format";
+import { ExternalLink, ForgeRef } from "../icons";
 import { TriggerButton } from "../trigger/Trigger";
 import { PageHeader, Tag } from "../ui";
 import { budgetWords, checkWords, type Page, short } from "./view";
@@ -45,7 +46,8 @@ export function FactoryHeader({ page, look, forge, now, triggering, onTrigger }:
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <Tag tone={check.tone}>{check.text}</Tag>
           <span>
-            {page.defaultBranch ? <><code>{page.defaultBranch}</code>{tip ? <> at <code>{short(tip)}</code></> : null}</>
+            {page.defaultBranch ? <><ForgeRef kind="branch" href={branchHref(forge, page.repo, page.defaultBranch)}>{page.defaultBranch}</ForgeRef>
+              {tip ? <> at <code>{short(tip)}</code></> : null}</>
               : "no default branch the forge shows"}
           </span>
           <span>{online}/{page.stations.length} stations online</span>

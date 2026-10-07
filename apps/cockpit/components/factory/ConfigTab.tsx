@@ -6,7 +6,7 @@ import { FACTORY_FILE } from "@/convex/forge/forge";
 import type { Budget, DescribedWorkflow, Settings } from "@/convex/model/description";
 import type { Drift } from "@/convex/model/drift";
 import type { Purged } from "@/convex/retention";
-import { formatAgoAt, formatDuration, plural } from "../format";
+import { branchHref, formatAgoAt, formatDuration, plural } from "../format";
 import { ForgeRef, StageIcon } from "../icons";
 import { Purge } from "../Purge";
 import { Button, Card, Facts, LinkButton, Loading, Notice, Pre, StatusPill, Tag } from "../ui";
@@ -118,7 +118,7 @@ function Edit({ page, look, forge, now, onEdit }: {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <p className="min-w-0 grow text-sm">
           The factory&apos;s config is <code>asf/</code> on the default branch
-          {page.defaultBranch ? <>, <ForgeRef kind="branch" href={forge ? `${forge}/${page.repo}/tree/${page.defaultBranch}` : ""}>{page.defaultBranch}</ForgeRef></> : null}{tip ? <> at <code>{short(tip)}</code></> : null}.
+          {page.defaultBranch ? <>, <ForgeRef kind="branch" href={branchHref(forge, page.repo, page.defaultBranch)}>{page.defaultBranch}</ForgeRef></> : null}{tip ? <> at <code>{short(tip)}</code></> : null}.
           A change to it is a pull request, checked in the repository&apos;s CI.
         </p>
         {onEdit ? (

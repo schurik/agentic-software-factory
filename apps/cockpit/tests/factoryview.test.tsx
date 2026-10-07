@@ -367,7 +367,7 @@ describe("the factory page", () => {
 
     expect(html).toContain(`href="${FORGE}/acme/widgets"`);
     expect(html).toContain("check failing");
-    expect(html).toContain(`<code>main</code> at <code>${TIP.slice(0, 7)}</code>`);
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a> at <code>${TIP.slice(0, 7)}</code>`));
     expect(html).toContain("1/2 stations online");                 // st_a polled 5s ago, st_b an hour ago
     expect(html).toContain("$2.50 · 2M tokens per session");
   });

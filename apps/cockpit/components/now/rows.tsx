@@ -9,7 +9,7 @@ import { stationWords, type Row as Wait } from "@/convex/model/inbox";
 import type { Other } from "@/convex/inbox";
 import type { Running } from "@/convex/now";
 import { tabHref } from "../factory/view";
-import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref } from "../format";
+import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref, type WorkItemKind } from "../format";
 import { asks, verbsOf } from "../gate/answer";
 import { MiniGraph } from "../graph/StageGraph";
 import { ForgeRef, StageIcon, StatusIcon } from "../icons";
@@ -129,7 +129,7 @@ function question(wait: Wait): ReactNode {
 
 /** An issue or a pull request, by number. */
 interface Item {
-  kind: "issue" | "pr";
+  kind: WorkItemKind;
   number: number;
 }
 
@@ -141,14 +141,18 @@ function WorkItem({ kind, number }: Item) {
   return <ForgeRef kind={kind} href="">#{number}</ForgeRef>;
 }
 
-/**
- * Where a row is: its factory, and its work item — an issue, a pull request —
- * or that it was a prompt, with none. A long factory is cut short, never the
- * number.
- */
+/** A label and the work item it is about: a long label is cut short, never the number. */
+function Labelled({ label, item }: { label: string; item: Item }) {
+  return (
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+      <span className="truncate">{label}</span><span className="shrink-0"><WorkItem {...item} /></span>
+    </span>
+  );
+}
+
+/** Where a row is: its factory, and its work item — an issue, a pull request — or that it was a prompt, with none. */
 function whereOf(factory: string, item: Item | null): ReactNode {
-  if (item === null) return `${factory} · prompt`;
-  return <span className="inline-flex max-w-full min-w-0 items-center gap-1.5"><span className="truncate">{factory}</span><span className="shrink-0"><WorkItem {...item} /></span></span>;
+  return item === null ? `${factory} · prompt` : <Labelled label={factory} item={item} />;
 }
 
 /** Where a wait is: its factory, and the work item it is asked on. */
@@ -232,7 +236,7 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
         return [{
           key: `${factory}/claim/${item.claim.id}`, failed: false, factory,
           title: <>Claim held by a station away for {formatSpan(item.away)}</>,
-          line: <span className="inline-flex items-center gap-1.5">{item.claim.stationName} · <WorkItem kind={item.claim.kind} number={item.claim.number} /></span>,
+          line: <Labelled label={`${item.claim.stationName} ·`} item={item.claim} />,
           step: "Release", href: sessionHref(factory, item.claim.session),
         }];
       case "drift":

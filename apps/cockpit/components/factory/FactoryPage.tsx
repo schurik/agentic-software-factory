@@ -138,7 +138,7 @@ export function FactoryPage({ factory }: { factory: string }) {
                                   if (base) setEditing({ path, base });
                                 }}
                                 editor={editing && page.defaultBranch ? (
-                                  <ConfigEditor factory={page.repo} base={editing.base} into={page.defaultBranch} as={viewer?.login ?? ""}
+                                  <ConfigEditor forge={web} factory={page.repo} base={editing.base} into={page.defaultBranch} as={viewer?.login ?? ""}
                                                 open={editing.path} signIn={signIn} onOpen={(path) => setEditing({ ...editing, path })} />
                                 ) : null} />
                    ),

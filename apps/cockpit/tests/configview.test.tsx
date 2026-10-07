@@ -33,7 +33,7 @@ const LOOK: Look = {
 function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorView>[0]> = {}): string {
   return renderToStaticMarkup(
     <ViewerLogin.Provider value="alex">
-      <ConfigEditorView base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
+      <ConfigEditorView forge="https://github.com" repo="acme/widgets" base={BASE} into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
                         asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
                         onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
                         onChange={() => undefined} onSubmit={() => undefined} {...given} />
@@ -69,7 +69,7 @@ describe("the editor", () => {
     expect(html).toMatch(/<span data-line="add"[^>]*>\+  max_cost_usd: 5   # per session\n<\/span>/);
     expect(html).not.toMatch(/<span data-line="(add|del)"[^>]*>(\+\+\+|---) /);       // the file's own header lines are no change
     expect(html).toContain("cockpit/alex/raise-the-budget");
-    expect(html).toMatch(new RegExp(`aria-label="branch".*?main</span></span> at <code>${BASE.slice(0, 7)}</code>`));
+    expect(html).toMatch(new RegExp(`href="https://github.com/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a> at <code>${BASE.slice(0, 7)}</code>`));
     // The viewer's own login reads "you"; the branch keeps the login it is named by.
     expect(html).toContain("comments and all — as you, on");
     expect(html).toMatch(/<button type="submit"[^>]*>Open pull request as you<\/button>/);
@@ -103,7 +103,7 @@ describe("the editor", () => {
     expect(editor([], {
       outcome: { ok: true, number: 7, url: "https://github.com/acme/widgets/pull/7", branch: "cockpit/alex/raise-the-budget",
                  paths: ["asf/factory.yaml"] },
-    })).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/pull\/7" target="_blank" rel="noreferrer"><svg [^>]*aria-label="pull request".*?#7<\/span><\/a>/);
+    })).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/pull\/7" target="_blank" rel="noreferrer"><svg [^>]*aria-label="pull request".*?#7<\/span><\/a> from <a [^>]*href="https:\/\/github.com\/acme\/widgets\/tree\/cockpit\/alex\/raise-the-budget"/);
     expect(editor([], { outcome: { ok: false, because: "the forge answered 403" } }))
       .toContain("Not opened: the forge answered 403.");
   });
