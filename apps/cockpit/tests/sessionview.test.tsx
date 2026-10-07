@@ -415,7 +415,7 @@ describe("a claim the session holds", () => {
   const held: ClaimView = {
     id: "k1", kind: "issue", number: 42, repo: "acme/widgets", session: "a9f259f0", station: "st_7f3a9c",
     stationName: "alex@mbp:widgets", seenAt: NOW - 2 * 86_400_000, heardAt: NOW - 2 * 86_400_000,
-    grantedAt: NOW - 3 * 86_400_000, released: null, refused: null,
+    grantedAt: NOW - 3 * 86_400_000, released: null, refused: null, state: null,
     consequence: "relabels #42 `asf:queued` and abandons session a9f259f0",
   };
 

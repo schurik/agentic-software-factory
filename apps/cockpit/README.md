@@ -111,7 +111,14 @@ wrong account.
   will not show the cockpit (gone, blocked, behind an organization's SSO) is not a factory here.
   Then it asks every factory which of its open issues carry the queued label and a route label —
   the work an issues watcher would start (`discovery:queues`) — every round, since a label changes
-  no push, and with ETags, so a round where nothing was labelled is all `304`s.
+  no push, and with ETags, so a round where nothing was labelled is all `304`s. Last, it asks each
+  factory with a session where its issues and pull requests stand — open, closed, a draft, merged —
+  which no event says, since a pull request is merged long after the session that opened it ended
+  (`discovery:items`). That is one listing of what changed most recently, again with an ETag, so a
+  quiet round is one `304` a factory; it pages back only when more changed since the last look than
+  a page holds, and the first look goes back to a day before the factory's oldest session. What it
+  finds is kept in `forgeItems`, and every icon of an issue or a pull request is drawn in it: one it
+  has not read is drawn in no state, as before.
 - **Rate limits** are read from the response headers, never assumed: an Enterprise Server has them
   off unless its admin turned them on. The poll leaves a quarter of a budget untouched, stops when
   it gets there, and carries on when the limit resets; the Factories page says so meanwhile.

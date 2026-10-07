@@ -31,7 +31,8 @@ export function ClaimRow({ claim, now, forge, onRelease }: {
 }) {
   const [asking, setAsking] = useState(false);
   const who = useWho();
-  const item = <ForgeRef kind={claim.kind} href={workItemHref(forge, claim.repo, claim.kind, claim.number)}>#{claim.number}</ForgeRef>;
+  const href = workItemHref(forge, claim.repo, claim.kind, claim.number);
+  const item = <ForgeRef kind={claim.kind} href={href} state={claim.state}>#{claim.number}</ForgeRef>;
   const consequence = claim.consequence.charAt(0).toUpperCase() + claim.consequence.slice(1);
   if (claim.released !== null) {
     const { by, why } = claim.released;

@@ -186,7 +186,7 @@ describe("the editor", () => {
     expect(editor([], {
       outcome: { ok: true, number: 7, url: "https://github.com/acme/widgets/pull/7", branch: "cockpit/alex/raise-the-budget",
                  paths: ["asf/factory.yaml"] },
-    })).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/pull\/7" target="_blank" rel="noreferrer"><svg [^>]*aria-label="pull request".*?#7<\/span><\/a> from <a [^>]*href="https:\/\/github.com\/acme\/widgets\/tree\/cockpit\/alex\/raise-the-budget"/);
+    })).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/pull\/7" target="_blank" rel="noreferrer"><svg [^>]*aria-label="pull request open".*?#7<\/span><\/a> from <a [^>]*href="https:\/\/github.com\/acme\/widgets\/tree\/cockpit\/alex\/raise-the-budget"/);
     expect(editor([], { outcome: { ok: false, because: "the forge answered 403" } }))
       .toContain("Not opened: the forge answered 403.");
   });

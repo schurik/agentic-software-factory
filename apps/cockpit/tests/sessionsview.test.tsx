@@ -16,7 +16,7 @@ function text(html: string): string {
 
 function listed(session: string, fields: Partial<Summary> = {}, factory = "acme/widgets"): Listed {
   return {
-    factory, session, acked: 4,
+    factory, session, acked: 4, states: { issue: null, pr: null },
     summary: {
       ...EMPTY_SUMMARY, status: "success", workflows: ["issue", "pr-review"], workflow: "pr-review", triggeredBy: "sam",
       request: "#42 Resolve relative due dates via the meeting date", issueUrl: "https://github.com/acme/widgets/issues/42",

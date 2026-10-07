@@ -79,7 +79,7 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
       </Button>
       {outcome?.ok ? (
         <Notice tone="ok" className="text-sm">
-          Labelled <ForgeRef kind="issue" href={outcome.url} newTab>#{asked.issue} {outcome.title}</ForgeRef>: {outcome.workflow} starts
+          Labelled <ForgeRef kind="issue" href={outcome.url} state="open" newTab>#{asked.issue} {outcome.title}</ForgeRef>: {outcome.workflow} starts
           when the factory&apos;s issues watcher next polls.
         </Notice>
       ) : outcome ? <Notice tone="bad" className="text-sm">Not triggered: {outcome.because}.</Notice> : null}

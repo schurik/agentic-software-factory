@@ -55,6 +55,22 @@ export interface Issue {
   labels: string[];
 }
 
+/**
+ * Where an issue or a pull request stands on the forge: an issue is open or
+ * closed; a pull request is open, a draft, merged, or closed unmerged.
+ */
+export const itemStateValidator = v.union(v.literal("open"), v.literal("closed"), v.literal("draft"), v.literal("merged"));
+
+/** An issue or pull request as a listing of what changed found it: which, where it stands, and since when. */
+export interface Touched {
+  number: number;
+  /** A pull request, which the forge also serves as an issue. */
+  pull: boolean;
+  state: ItemState;
+  /** When anything about it last changed, as the forge stamps it (ISO 8601). */
+  updatedAt: string;
+}
+
 /** Two commits' distance, as the forge counts it. */
 export interface Distance {
   ahead: number;
@@ -91,12 +107,15 @@ export interface OpenPull {
   author: string;
   /** When it was opened, in ms. */
   at: number;
+  /** Opened, or put back, as a draft: not yet asking for review. */
+  draft: boolean;
 }
 
 export type Role = Infer<typeof roleValidator>;
 export type Repository = Infer<typeof repositoryValidator>;
 export type Reach = Infer<typeof reachValidator>;
 export type Person = Infer<typeof personValidator>;
+export type ItemState = Infer<typeof itemStateValidator>;
 
 export interface Forge {
   /** Every repository the cockpit's own credential reaches. */
@@ -159,6 +178,12 @@ export interface Forge {
   labelled(repo: string, label: string): Promise<Issue[] | null>;
   /** Every open pull request of `repo`, or null when the forge will not show them. */
   pulls(repo: string): Promise<OpenPull[] | null>;
+  /**
+   * Every issue and pull request of `repo` that changed at or after `since`
+   * (ISO 8601), the latest change first — or null when the forge will not
+   * show them. What the cockpit reads to know where each stands.
+   */
+  touched(repo: string, since: string): Promise<Touched[] | null>;
   /** Issue (or pull request) `number` of `repo`, or null when the forge shows none. */
   issue(repo: string, number: number): Promise<Issue | null>;
   /**

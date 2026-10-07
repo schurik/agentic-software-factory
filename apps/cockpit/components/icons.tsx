@@ -1,8 +1,9 @@
 import {
-  BookOpen, CircleDot, Code, ExternalLink, Eye, FlaskConical, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequest,
-  ListChecks, type LucideIcon, Shapes, Telescope,
+  BookOpen, CircleCheck, CircleDot, Code, ExternalLink, Eye, FlaskConical, GitBranch, GitCommitHorizontal, GitMerge,
+  GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, ListChecks, type LucideIcon, Shapes, Telescope,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import type { ItemState } from "@/convex/forge/forge";
 import type { Mark, StageStatus } from "@/convex/model/graph";
 import { cx } from "./ui";
 
@@ -62,25 +63,42 @@ const REFS = { issue: CircleDot, pr: GitPullRequest, branch: GitBranch } as cons
 const REF_WORDS: Record<keyof typeof REFS, string> = { issue: "issue", pr: "pull request", branch: "branch" };
 
 /**
+ * An issue or a pull request where it stands, as the forge draws it: open
+ * green, merged purple, closed unmerged red, a draft grey — and a closed
+ * issue purple, done as a merge is. An issue has no draft, nor a merge.
+ */
+const STATED: Record<"issue" | "pr", Partial<Record<ItemState, [LucideIcon, string]>>> = {
+  issue: { open: [CircleDot, "text-ok"], closed: [CircleCheck, "text-merged"] },
+  pr: {
+    open: [GitPullRequest, "text-ok"], draft: [GitPullRequestDraft, "text-faint"],
+    merged: [GitMerge, "text-merged"], closed: [GitPullRequestClosed, "text-bad"],
+  },
+};
+
+/**
  * A thing on the forge — an issue, a pull request, a branch — with its icon,
  * linked there when the cockpit knows where that is: `href` "" draws it
  * unlinked, as a row that is itself a link must. The icon is what tells an
  * issue's `#42` from a pull request's, so it says so to a screen reader too;
  * the text keeps the line's baseline, so one reads in a sentence as in a row.
- * Its state on the forge (open, merged…) is not something the events say, so
- * it is not coloured as one.
+ * An issue's or a pull request's `state` on the forge draws its icon and
+ * tone; one the cockpit does not know (null) is drawn in none.
  */
-export function ForgeRef({ kind, href, newTab = false, children }: {
+export function ForgeRef({ kind, href, state = null, newTab = false, children }: {
   kind: keyof typeof REFS;
   href: string;
+  /** Where an issue or a pull request stands on the forge, as the poll last read it; null when not known. */
+  state?: ItemState | null;
   /** Opened beside the cockpit, for a link away from work the page still holds. */
   newTab?: boolean;
   children: ReactNode;
 }) {
-  const Icon = REFS[kind];
+  const stated = kind === "branch" || state === null ? undefined : STATED[kind][state];
+  const [Icon, tone] = stated ?? [REFS[kind], "text-faint"];
+  const label = stated ? `${REF_WORDS[kind]} ${state}` : REF_WORDS[kind];
   const body = (
     <>
-      <Icon size={14} strokeWidth={2} role="img" aria-label={REF_WORDS[kind]} className="shrink-0 self-center text-faint" />
+      <Icon size={14} strokeWidth={2} role="img" aria-label={label} className={cx("shrink-0 self-center", tone)} />
       <span className={cx("truncate", kind === "branch" && "font-mono")}>{children}</span>
     </>
   );
