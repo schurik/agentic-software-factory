@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConfigAbout, ConfigEditorView, DiscardQuestion, type Draft, opening, proposedFile, unsaved } from "../components/factory/ConfigEditor";
+import { ConfigAbout, ConfigEditorView, type Draft, proposedFile, tabbed } from "../components/factory/ConfigEditor";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { unified } from "../components/factory/diff";
 import type { Page } from "../components/factory/view";
@@ -34,7 +34,7 @@ function editor(drafts: Draft[], given: Partial<Parameters<typeof ConfigEditorVi
   return renderToStaticMarkup(
     <ViewerLogin.Provider value="alex">
       <ConfigEditorView forge="https://github.com" repo="acme/widgets" into="main" as="alex" drafts={drafts} shown={drafts[0]?.path ?? null} loading={null}
-                        files={drafts.map((draft) => draft.path)} switchingTo={null} onAnswer={() => undefined}
+                        files={drafts.map((draft) => draft.path)} showing="file" onShow={() => undefined}
                         asked={{ title: "Raise the budget", description: "" }} busy={false} outcome={null}
                         onText={() => undefined} onOpen={() => undefined} onDiscard={() => undefined}
                         onChange={() => undefined} onSubmit={() => undefined} {...given} />
@@ -71,39 +71,60 @@ describe("the Config tab's Edit config", () => {
 });
 
 describe("the editor's files", () => {
-  const FILES = ["asf/agents/planner/agent.md", "asf/factory.yaml"];
+  const FILES = ["asf/agents/planner/agent.md", "asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml"];
   const changed: Draft = { path: "asf/factory.yaml", original: YAML, crlf: false, text: YAML.replace("2.5", "5") };
+  const agent: Draft = { path: "asf/agents/planner/agent.md", original: "x\n", crlf: false, text: "x\n" };
+  const workflow: Draft = { path: "asf/workflows/sdlc/workflow.yaml", original: "a: 1\n", crlf: false, text: "a: 2\n" };
+  /** The tabs' labels, in order. */
+  const tabs = (html: string) => [...html.matchAll(/<button[^>]*role="tab"[^>]*>(.*?)<\/button>/g)].map(([, label]) => label.replace(/<[^>]+>/g, ""));
 
   it("are a nav down the side, and a picker on a phone, the one open marked", () => {
     const html = editor([changed], { files: FILES });
 
     const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
     expect(nav).toContain('aria-label="Files"');
-    expect(nav.match(/<button/g)?.length).toBe(2);
+    expect(nav.match(/<button/g)?.length).toBe(3);
     expect(nav).toMatch(/<button[^>]*aria-current="true"[^>]*>.*?factory\.yaml/);
     expect(nav).not.toMatch(/<button[^>]*aria-current="true"[^>]*>.*?agent\.md/);
     // The phone's picker: base-ui's Select, the open file on its trigger, with its dot.
     expect(html).toMatch(/<button[^>]*role="combobox"[^>]*>.*?factory\.yaml •/s);
   });
 
-  it("mark the one with changes not yet proposed", () => {
-    const html = editor([changed, { path: "asf/agents/planner/agent.md", original: "x\n", crlf: false, text: "x\n" }], { files: FILES });
+  it("each carry a small blue dot in the list while they have changes", () => {
+    const html = editor([changed, agent, workflow], { files: FILES });
 
-    expect(html).toMatch(/factory\.yaml<\/code><span aria-hidden="true"[^>]*>•<\/span><span class="sr-only">changed<\/span>/);
-    expect(html).not.toMatch(/agent\.md<\/code><span aria-hidden="true"/);
+    const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
+    const dot = '<span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-accent"></span><span class="sr-only">changed</span>';
+    expect(nav).toContain(`factory.yaml</code>${dot}`);
+    expect(nav).toContain(`workflows/sdlc/workflow.yaml</code>${dot}`);
+    expect(nav).not.toContain(`agent.md</code>${dot}`);
   });
 
-  it("ask before switching discards a file's changes, and switch at once when nothing would be lost", () => {
-    expect(opening([changed], "asf/factory.yaml", "asf/agents/planner/agent.md")).toBe("ask");
-    expect(opening([{ ...changed, text: changed.original }], "asf/factory.yaml", "asf/agents/planner/agent.md")).toBe("open");
-    expect(opening([changed], "asf/factory.yaml", "asf/factory.yaml")).toBe("stay");
-    expect(opening([], null, "asf/factory.yaml")).toBe("open");
-    expect(unsaved([changed], "asf/agents/planner/agent.md")).toBe(false);
+  it("are tabs after Changes: each one edited, and the one open", () => {
+    expect(tabs(editor([changed, agent, workflow], { files: FILES, shown: "asf/agents/planner/agent.md" })))
+      .toEqual(["Changes (2)", "factory.yamlchanged", "agents/planner/agent.md", "workflows/sdlc/workflow.yamlchanged"]);
+    // Opened and left unchanged, a file gives its tab up to the next one opened.
+    expect(tabbed([changed, agent, workflow], "asf/factory.yaml")).toEqual(["asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml"]);
+    // A file still being read has its tab already.
+    expect(tabbed([changed], "asf/agents/planner/agent.md")).toEqual(["asf/factory.yaml", "asf/agents/planner/agent.md"]);
+    expect(tabs(editor([], { files: FILES, shown: null }))).toEqual(["Changes"]);
   });
 
-  it("name both files when they ask", () => {
-    expect(renderToStaticMarkup(<DiscardQuestion from="asf/factory.yaml" to="asf/agents/planner/agent.md" />)).toBe(
-      "<code>asf/factory.yaml</code> has changes that are not proposed. Opening <code>asf/agents/planner/agent.md</code> discards them.");
+  it("are all in Changes, each as the diff the pull request will carry", () => {
+    const html = editor([changed, agent, workflow], { files: FILES, showing: "changes" });
+
+    expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Changes \(2\)/);
+    expect(html).toContain("+++ b/asf/factory.yaml");
+    expect(html).toContain("+++ b/asf/workflows/sdlc/workflow.yaml");
+    expect(html).not.toContain("+++ b/asf/agents/planner/agent.md");
+    expect(html).not.toMatch(/spellcheck="false"/i);                              // the file's own editor is not in front
+    expect(editor([changed], { files: FILES })).toMatch(/spellcheck="false"/i);
+    expect(html).not.toContain("Discard these changes");
+  });
+
+  it("go into one pull request together", () => {
+    const html = editor([changed, workflow], { files: FILES });
+    expect(html).not.toMatch(/<button type="submit"[^>]* disabled=""/);
   });
 });
 

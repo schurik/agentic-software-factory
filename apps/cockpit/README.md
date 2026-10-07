@@ -528,14 +528,14 @@ described is **unchecked**, never broken.
 **Edit config** leads the tab, over the pull requests proposed from here that are still open —
 those from a `cockpit/` branch, which the page's `look` reads with the forge's `pulls`. It opens
 the editor, a dialog that covers the screen: its files a nav down the left (a picker on a phone),
-the one open filling the rest — beside it a tab of the diff the pull request will carry — and the
-pull request's title, description and submit pinned along the bottom, with what proposing does
-behind an info button. The files are the text config under `asf/` on the default branch, which the
+a blue dot on each with changes; beside it, a Changes tab with the diff of every changed file the
+pull request will carry, then a tab for each file edited, the one open filling the rest; under it,
+the pull request's title, description and submit, always in view, with what proposing does behind
+an info button. The files are the text config under `asf/` on the default branch, which the
 `look` alone lists (`editable` in `convex/model/config.ts`: YAML, Markdown, plain text, JSON, TOML
 and samples such as `env.sample` — never the factory's Python, never a binary — and the actions
-refuse any other file too). The editor holds one file's changes at a time, so opening another file
-then asks before discarding them; closing the dialog loses nothing. A writer edits a file there,
-and the edit becomes a pull request opened **as them**
+refuse any other file too). Closing the dialog loses nothing. A writer edits files there, and the
+edit becomes a pull request opened **as them**
 (`convex/config.ts`). The repository stays the source of truth: the editor is the files' raw text,
 read from the forge at the commit the dialog listed them at, and what is typed is committed byte for
 byte — never parsed and written back, so a comment survives. A textarea keeps only LF, so a CRLF
