@@ -99,11 +99,11 @@ export function ApprovalView({ code, asked, outcome, onCode, onApprove }: Approv
               Approving makes this station yours: it takes commands from this cockpit for you, as far as its own{" "}
               <code>asf/factory.yaml</code> opts them in. Approve only a station you started.
             </p>
-            {asked.because ? <Notice className="text-sm">{asked.because}</Notice> : null}
+            {asked.because ? <Notice className="mt-3 text-sm">{asked.because}</Notice> : null}
             <Button variant="primary" className="mt-3" disabled={asked.because !== null || asked.approved} onClick={onApprove}>
               {asked.approved ? "Approved" : "Approve"}
             </Button>
-            {outcome ? <Notice tone="bad" role="alert" className="text-sm">{outcome.text}</Notice> : null}
+            {outcome ? <Notice tone="bad" role="alert" className="mt-3 text-sm">{outcome.text}</Notice> : null}
           </div>
         )}
     </Standalone>

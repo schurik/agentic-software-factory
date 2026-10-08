@@ -110,10 +110,18 @@ const EDGE: Record<"wait" | "bad" | "ok" | "none", string> = {
   wait: "border-l-wait", bad: "border-l-bad", ok: "border-l-ok", none: "border-l-line-strong",
 };
 
+/*
+ * One vertical rhythm (#154): a block — a Notice, a PageHeader, a Section —
+ * carries no outer margin; where it is put decides the space around it. On a
+ * page that is the column's gap, and in a card's running text the margin its
+ * siblings take there too. A block's own margin would add to a gap rather
+ * than replace it.
+ */
+
 /** Something the page says about itself — a refusal, an outcome, a missing piece — set apart from what it shows. */
 export function Notice({ tone = "wait", className, children, ...rest }: ComponentProps<"div"> & { tone?: keyof typeof EDGE }) {
   return (
-    <div {...rest} className={cx("my-3 rounded-lg border border-l-[3px] border-line bg-surface px-3.5 py-2.5", EDGE[tone], className)}>
+    <div {...rest} className={cx("rounded-lg border border-l-[3px] border-line bg-surface px-3.5 py-2.5", EDGE[tone], className)}>
       {children}
     </div>
   );
@@ -155,7 +163,7 @@ export function Crumbs({ trail, here }: { trail: Crumb[]; here: ReactNode }) {
  */
 export function PageHeader({ crumbs, title, sub, children }: { crumbs?: ReactNode; title: ReactNode; sub?: ReactNode; children?: ReactNode }) {
   return (
-    <header className="mb-6 flex flex-wrap items-start gap-x-4 gap-y-3">
+    <header className="flex flex-wrap items-start gap-x-4 gap-y-3">
       <div className="min-w-0 grow">
         {crumbs ? <div className="mb-1.5">{crumbs}</div> : null}
         <h1>{title}</h1>
@@ -183,7 +191,7 @@ export function Standalone({ title, children }: { title: ReactNode; children: Re
 /** A titled part of a page. */
 export function Section({ title, right, className, children }: { title: ReactNode; right?: ReactNode; className?: string; children: ReactNode }) {
   return (
-    <section className={cx("mt-8 first:mt-0", className)}>
+    <section className={className}>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2>{title}</h2>
         {right ? <div className="ml-auto">{right}</div> : null}

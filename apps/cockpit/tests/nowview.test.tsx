@@ -8,6 +8,7 @@ import type { Facts } from "../convex/model/attention";
 import type { Other } from "../convex/inbox";
 import type { Row } from "../convex/model/inbox";
 import type { NowPage, Running } from "../convex/now";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // Now (#115), rendered to static markup from a page model and a clock, the
 // way a browser first paints it: the Inbox, Needs attention and Running open,
@@ -304,5 +305,16 @@ describe("the gate's drawer over Now", () => {
 
   it("holds nothing when the address names no gate", () => {
     expect(read(at(nowAddress({})))).not.toContain("the gate drawer of");
+  });
+});
+
+describe("Now, spaced (#154)", () => {
+  it("leaves 32px under its title and between its sections, by its gap alone", () => {
+    const markup = html();
+
+    expect(rootClasses(markup)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-8"]));
+    expect(verticalMargins(classesOf(markup, "header")[0])).toEqual([]);
+    expect(classesOf(markup, "section")).toHaveLength(4);
+    for (const section of classesOf(markup, "section")) expect(verticalMargins(section)).toEqual([]);
   });
 });

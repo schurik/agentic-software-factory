@@ -40,47 +40,49 @@ export function FactoriesList() {
   const { factories, discovery } = list;
 
   return (
-    <>
+    <div className="flex flex-col gap-8">
       <PageHeader title="Factories" sub={mode === "local"
         ? <>Every repository your token reaches on {forge.host} whose default branch holds <code>asf/factory.yaml</code>, and every one a station here ships from.</>
         : <>Every repository you can read on {forge.host} whose default branch holds <code>asf/factory.yaml</code>. Nothing is registered here: the forge is asked.</>} />
 
-      {mode === "local" && !forge.ready ? (
-        <Notice>
-          This cockpit has no token to ask {forge.host} with, so it shows only what its stations ship. Run{" "}
-          <code>gh auth login</code>, then start <code>asf up</code> again: it hands the cockpit your{" "}
-          <code>gh auth token</code>.
-        </Notice>
-      ) : null}
-      {discovery.problem ? <Notice tone="bad">The forge was last asked in vain: {discovery.problem}</Notice> : null}
-      {discovery.pausedUntil !== null ? (
-        <Notice>
-          The forge&apos;s rate limit holds the poll until {formatTime(new Date(discovery.pausedUntil).toISOString(), now)}
-          {discovery.pending > 0 ? <>, with {pending(discovery.pending)} still to look at</> : null}.
-        </Notice>
-      ) : discovery.pending > 0 ? (
-        <p className="text-muted">Looking at {pending(discovery.pending)} for a factory…</p>
-      ) : null}
+      <div className="flex flex-col gap-4">
+        {mode === "local" && !forge.ready ? (
+          <Notice>
+            This cockpit has no token to ask {forge.host} with, so it shows only what its stations ship. Run{" "}
+            <code>gh auth login</code>, then start <code>asf up</code> again: it hands the cockpit your{" "}
+            <code>gh auth token</code>.
+          </Notice>
+        ) : null}
+        {discovery.problem ? <Notice tone="bad">The forge was last asked in vain: {discovery.problem}</Notice> : null}
+        {discovery.pausedUntil !== null ? (
+          <Notice>
+            The forge&apos;s rate limit holds the poll until {formatTime(new Date(discovery.pausedUntil).toISOString(), now)}
+            {discovery.pending > 0 ? <>, with {pending(discovery.pending)} still to look at</> : null}.
+          </Notice>
+        ) : discovery.pending > 0 ? (
+          <p className="text-muted">Looking at {pending(discovery.pending)} for a factory…</p>
+        ) : null}
 
-      {factories.length === 0 ? (
-        <Notice tone="none">
-          {discovery.listedAt === null && forge.ready
-            ? "The forge has not been asked yet; the first poll runs within a minute."
-            : mode === "team"
-              ? "No repository you can read holds a factory."
-              : "No factory yet."}
-          {mode === "team" && forge.app ? (
-            <> If one is missing, the App may not be installed on it: <a href={forge.app.installUrl}>install {forge.app.slug}</a>.</>
-          ) : null}
-        </Notice>
-      ) : (
-        <FactoryRows rows={ranked} now={now} />
-      )}
+        {factories.length === 0 ? (
+          <Notice tone="none">
+            {discovery.listedAt === null && forge.ready
+              ? "The forge has not been asked yet; the first poll runs within a minute."
+              : mode === "team"
+                ? "No repository you can read holds a factory."
+                : "No factory yet."}
+            {mode === "team" && forge.app ? (
+              <> If one is missing, the App may not be installed on it: <a href={forge.app.installUrl}>install {forge.app.slug}</a>.</>
+            ) : null}
+          </Notice>
+        ) : (
+          <FactoryRows rows={ranked} now={now} />
+        )}
 
-      {discovery.listedAt !== null ? (
-        <p className="mt-4 text-sm text-muted">Repositories last listed {formatTime(new Date(discovery.listedAt).toISOString(), now)}.</p>
-      ) : null}
-    </>
+        {discovery.listedAt !== null ? (
+          <p className="text-sm text-muted">Repositories last listed {formatTime(new Date(discovery.listedAt).toISOString(), now)}.</p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

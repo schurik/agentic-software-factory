@@ -4,6 +4,7 @@ import { OverviewTab } from "../components/factory/OverviewTab";
 import { ViewerLogin } from "../components/viewer";
 import type { Overview } from "../convex/overview";
 import { lastDays } from "../convex/model/period";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // A factory's Overview (#119), rendered from the query's answer with no
 // backend: one filter row over everything it filters, then Spend, Outcomes
@@ -122,5 +123,15 @@ describe("a factory's Overview, when there is little to show", () => {
 
   it("says when the factory is not one the viewer can read", () => {
     expect(text(render(null))).toContain("not a factory you can read");
+  });
+});
+
+describe("a factory's Overview, spaced (#154)", () => {
+  it("sets the date row, Spend, Outcomes and By workflow 32px apart, by its gap alone", () => {
+    const html = render();
+
+    expect(rootClasses(html)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-8"]));
+    expect(classesOf(html, "section")).toHaveLength(3);
+    for (const section of classesOf(html, "section")) expect(verticalMargins(section)).toEqual([]);
   });
 });

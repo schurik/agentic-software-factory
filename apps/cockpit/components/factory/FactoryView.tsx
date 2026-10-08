@@ -43,20 +43,22 @@ export function FactoryView({ page, look, drifts, forge, now, tab, onTab, trigge
     };
   });
   return (
-    <div>
+    <div className="flex flex-col gap-5">
       <FactoryHeader page={page} look={look} forge={forge} now={now} triggering={triggering} onTrigger={onTrigger} />
       {trigger}
-      <Tabs label="Factory" selected={tab} onSelect={onTab} tabs={tabs} end={
-        <Link href={`/sessions?factory=${encodeURIComponent(page.repo)}`}
-              className="text-sm whitespace-nowrap text-muted no-underline hover:text-fg">
-          All sessions →
-        </Link>
-      } />
-      {(Object.keys(FACTORY_TABS) as FactoryTab[]).map((id) => (
-        <div key={id} id={`factory-${id}`} role="tabpanel" aria-label={FACTORY_TABS[id]} className="pt-6" hidden={id !== tab}>
-          {panels[id]}
-        </div>
-      ))}
+      <div className="flex flex-col gap-6">
+        <Tabs label="Factory" selected={tab} onSelect={onTab} tabs={tabs} end={
+          <Link href={`/sessions?factory=${encodeURIComponent(page.repo)}`}
+                className="text-sm whitespace-nowrap text-muted no-underline hover:text-fg">
+            All sessions →
+          </Link>
+        } />
+        {(Object.keys(FACTORY_TABS) as FactoryTab[]).map((id) => (
+          <div key={id} id={`factory-${id}`} role="tabpanel" aria-label={FACTORY_TABS[id]} hidden={id !== tab}>
+            {panels[id]}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

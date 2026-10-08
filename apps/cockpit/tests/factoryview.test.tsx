@@ -18,6 +18,7 @@ import { stagesOf } from "../convex/model/workflows";
 import { Crumbs } from "../components/ui";
 import { ViewerLogin } from "../components/viewer";
 import { recorded } from "./helpers";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // The Factory page's header and tabs, rendered to static markup with no
 // backend (spec #40): workflows from the factory's own self-description, a
@@ -531,5 +532,14 @@ describe("the Stations tab", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
     expect(html).toContain("the forge says you have read");
     expect(html).toContain("Approved: it picks up its token on its next poll.");
+  });
+});
+
+describe("the Factory page, spaced (#154)", () => {
+  it("leaves 20px under its header, by its gap alone", () => {
+    const html = factoryView(page(), "overview");
+
+    expect(rootClasses(html)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-5"]));
+    expect(verticalMargins(classesOf(html, "header")[0])).toEqual([]);
   });
 });
