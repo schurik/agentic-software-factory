@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { type Asked, notAnIssue, TriggerButton, TriggerFormView } from "../components/trigger/Trigger";
+import { type Asked, TriggerButton, TriggerFormView } from "../components/trigger/Trigger";
+import { notAnIssue } from "../convex/model/trigger";
 import { buttonClass } from "../components/ui";
 
 // The trigger on a factory's page, rendered to static markup with no

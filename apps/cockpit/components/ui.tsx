@@ -239,7 +239,7 @@ export const control = cx(
 /**
  * A form field, base-ui's Field drawn once: its label over its control, what
  * it means under it, and — once a `Form` is submitted with what `validate`
- * refuses — why, in its place. The control is a `Control`, which the label
+ * refuses — why, under that. The control is a `Control`, which the label
  * names; `name` is what the form calls its value.
  */
 export function Field({ label, hint, name, validate, className, children }: {
@@ -274,7 +274,7 @@ export const menuPopup = cx(
 export const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 outline-none select-none data-highlighted:bg-surface-2";
 
 /** One choice in a `Select`: what it is, and how it reads. */
-export interface Option {
+export interface Choice {
   value: string;
   label: string;
 }
@@ -282,12 +282,12 @@ export interface Option {
 /**
  * A labelled choice of one among `items`, drawn like a control and opened
  * as a menu: a field of its own, which a `Form` knows by `name`. An item that
- * reads other than as itself is an `Option`. With nothing to choose it is
+ * reads other than as itself is a `Choice`. With nothing to choose it is
  * disabled, and says `placeholder`.
  */
 export function Select({ label, items, value, name, placeholder, onChange, className }: {
   label: ReactNode;
-  items: (string | Option)[];
+  items: (string | Choice)[];
   value: string;
   name?: string;
   placeholder?: string;

@@ -5,7 +5,7 @@ import { useAction } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Role } from "@/convex/forge/forge";
-import { refusal } from "@/convex/model/trigger";
+import { notAnIssue, refusal } from "@/convex/model/trigger";
 import type { Offered, Triggered } from "@/convex/trigger";
 import { ForgeRef } from "../icons";
 import { said } from "../said";
@@ -33,11 +33,6 @@ export function TriggerButton({ role, open, onToggle }: { role: Role | null; ope
 export interface Asked {
   issue: string;
   label: string;
-}
-
-/** Why `typed` names no issue, or null when it does: a positive whole number. */
-export function notAnIssue(typed: string): string | null {
-  return /^\d+$/.test(typed) && Number(typed) > 0 ? null : "An issue is a positive whole number, like 42";
 }
 
 /**
