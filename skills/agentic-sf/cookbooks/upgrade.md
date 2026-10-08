@@ -192,16 +192,17 @@ the next `--force` writes over the one they read.
 ## Outside the config
 
 - **`.env`** is never rewritten: compare it with the re-stamped `.env.sample`.
-  A shared cockpit needs `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` (the
-  factory's ingest token) added by hand; a local cockpit needs neither.
+  A shared cockpit needs `ASF_COCKPIT_URL` added by hand, and the station
+  registered ([connect_cockpit.md](connect_cockpit.md)); a local cockpit needs
+  neither.
 - **A local cockpit** (no `ASF_COCKPIT_URL`) needs Docker with compose; `just
   up` starts it and warns without it. It asks the forge with the engineer's
   `gh auth token`, which `up` hands to the container — say so before the first
   `up`.
 - **Station registration** — only against a **shared** cockpit, once per
-  checkout: `just station-register` prints a code and a link, and a person
-  approves it there, signed in. It is theirs to approve, never yours. A local
-  cockpit's station is its owner's already; a CI station takes no commands.
+  checkout: `just station-register`, as [connect_cockpit.md](connect_cockpit.md)
+  walks it. It is theirs to approve, never yours. A local cockpit's station is its owner's already; a CI station
+  takes no commands.
 - **Labels** — `just labels`, then `just labels --create` for any a release
   added. It creates only missing labels; a route or queued label made by hand
   needs its description set on the forge for the cockpit's Trigger button to

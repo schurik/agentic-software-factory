@@ -35,7 +35,7 @@ Usage:
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
     uv run asf/asf.py station                    the station loop alone: ships, starts no watcher
     uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
-    uv run asf/asf.py station register           let a shared cockpit send this station commands
+    uv run asf/asf.py station register           connect this checkout to a shared cockpit
 
 `--config asf/factory.yaml` is accepted before or after the subcommand. Run
 from the repository root — every path in factory.yaml is relative to it.
@@ -343,7 +343,8 @@ def build_parser() -> argparse.ArgumentParser:
                                "session the cockpit has not acknowledged, once — a CI job's last "
                                "step; fails only when the cockpit refuses the token. register: "
                                "print a code to approve in the shared cockpit, and keep the "
-                               "command token it then issues")
+                               "command token it then issues — and, without ASF_COCKPIT_TOKEN, "
+                               "the ingest token it hands over with it")
     stations.set_defaults(func=cmd_station)
     return parser
 

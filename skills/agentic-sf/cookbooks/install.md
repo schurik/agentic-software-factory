@@ -78,7 +78,9 @@ it was broken — and it ships the factory's self-description to a cockpit as a
 CI station, which is how the cockpit's Factory page knows the workflows and
 measures each station's config drift. It needs `vars.ASF_COCKPIT_URL` and
 `secrets.ASF_COCKPIT_TOKEN` (the factory's ingest token, which can add and never
-receive) on the repository to ship; without them it checks and ships nothing.
+receive — a repository admin issues one on the factory's Stations tab, see
+[connect_cockpit.md](connect_cockpit.md#ci)) on the repository to ship; without
+them it checks and ships nothing.
 On a terminal the installer asks; `--no-ci` neither asks nor stamps. A
 repository's CI is its own, so ask the engineer rather than passing `--ci` for them.
 
@@ -167,9 +169,10 @@ without.
    token`, which `up` hands to it as it starts: `doctor`'s `cockpit forge`
    line says whether there is one. Without a `gh` login the cockpit still
    shows every session this checkout ships, and lists no factory beyond those.
-   With a **shared** cockpit instead, `just station-register` lets it send
-   this checkout commands (kill, resume, answering a prompt run's gate): it prints a code the
-   engineer approves there, signed in — theirs to approve, not yours.
+   With a **shared** cockpit instead, connecting this checkout is
+   [connect_cockpit.md](connect_cockpit.md): `ASF_COCKPIT_URL`, then `just
+   station-register`, whose code a person with write approves — theirs to
+   approve, not yours.
 6. **`just labels --create`** — only if either watcher is on. Every label in
    `issues.route`, `issues.states`, `issues.refined_label` and
    `pull_requests.states.failed` has to EXIST at the forge before anything can

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { FactoryHeader } from "../components/factory/FactoryHeader";
 import { FactoryView } from "../components/factory/FactoryView";
-import { type Registration, StationsTab } from "../components/factory/StationsTab";
+import { type IngestTokenList, IngestTokens, type Registration, StationsTab } from "../components/factory/StationsTab";
 import {
   behind, budgetWords, drifts, FACTORY_TABS, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
 } from "../components/factory/view";
@@ -502,22 +502,22 @@ describe("the Stations tab", () => {
                    panels={{ ...PANELS, stations: (
                      <StationsTab stations={[CARD]} ci={{ jobs: [], checks: [] }} drifts={drifts(shown, LOOK)} now={NOW} factory="acme/widgets"
                                   forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
-                                  registrations={[{ station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 60_000, approved: false, because: null }]} />
+                                  registrations={[{ station: "st_new", name: "alex@new:widgets", host: "new", tokenless: false, expiresAt: NOW + 60_000, approved: false, because: null }]} />
                    ) }} />);
     const stations = html.slice(opening(html, "stations").at, opening(html, "config").at);
 
     expect(panel(html, "stations")).not.toContain("hidden");
-    expect(stations).toContain("alex@new:widgets</code> asks to become a station");
+    expect(stations).toContain("alex@new:widgets</code> asks from <code>new</code> to become a station");
     expect(stations).toContain("alex@mbp:widgets");
     for (const tab of ["overview", "workflows", "config"] as const) expect(panel(html, tab)).toContain("hidden");
   });
 
   it("puts pending registrations on top, to approve with the code the station's terminal shows", () => {
     const html = stationsTab([CARD], [
-      { station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 8 * 60_000, approved: false, because: null },
-      { station: "st_sam", name: "sam@lab:widgets", expiresAt: NOW + 9 * 60_000, approved: false,
+      { station: "st_new", name: "alex@new:widgets", host: "new", tokenless: false, expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+      { station: "st_sam", name: "sam@lab:widgets", host: "lab", tokenless: false, expiresAt: NOW + 9 * 60_000, approved: false,
         because: "a station takes commands for its owner, which needs write on acme/widgets; the forge says you have read" },
-      { station: "st_ok", name: "dana@box:widgets", expiresAt: NOW + 9 * 60_000, approved: true, because: null },
+      { station: "st_ok", name: "dana@box:widgets", host: "box", tokenless: false, expiresAt: NOW + 9 * 60_000, approved: true, because: null },
     ]);
 
     expect(html.indexOf("alex@new:widgets")).toBeLessThan(html.indexOf("alex@mbp:widgets"));
@@ -528,6 +528,61 @@ describe("the Stations tab", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
     expect(html).toContain("the forge says you have read");
     expect(html).toContain("Approved: it picks up its token on its next poll.");
+  });
+
+  it("names the host a registration asked from, and says when approving it hands over an ingest token", () => {
+    const html = stationsTab([CARD], [
+      { station: "st_new", name: "alex@new:widgets", host: "new", tokenless: true, expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+    ]);
+    const shown = html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
+
+    expect(shown).toContain("alex@new:widgets asks from new to become a station of acme/widgets");
+    expect(shown).toContain("it holds no ingest token: approving hands it one, as yours");
+  });
+});
+
+/** A factory's ingest tokens, as tokens.listed answers. */
+const TOKENS: IngestTokenList = {
+  mayIssue: true,
+  tokens: [
+    { id: "t1" as IngestTokenList["tokens"][number]["id"], via: "station", label: "alex@mbp:widgets", station: "st_7f3a9c", by: "alex",
+      issuedAt: NOW - 3_600_000, revocable: true },
+    { id: "t2" as IngestTokenList["tokens"][number]["id"], via: "cockpit", label: "GitHub Actions", station: "", by: "ada",
+      issuedAt: NOW - 86_400_000, revocable: true },
+    { id: "t3" as IngestTokenList["tokens"][number]["id"], via: "deployment", label: "", station: "", by: "",
+      issuedAt: NOW - 7 * 86_400_000, revocable: false },
+  ],
+};
+
+function tokensCard(listed: IngestTokenList = TOKENS, issued: string | null = null) {
+  const html = renderToStaticMarkup(
+    <IngestTokens listed={listed} issued={issued} site="https://happy-otter-123.convex.site" factory="acme/widgets" now={NOW}
+                  onIssue={() => {}} onRevoke={() => {}} />);
+  return { html, shown: html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ") };
+}
+
+describe("the Stations tab's ingest tokens", () => {
+  it("lists every live token by how it was issued, to what, by whom and when, with Revoke where the viewer may", () => {
+    const { html, shown } = tokensCard();
+
+    expect(shown).toContain("alex@mbp:widgets");
+    expect(shown).toContain("a station's registration, approved by alex");
+    expect(shown).toContain("GitHub Actions");
+    expect(shown).toContain("issued here by ada");
+    expect(shown).toContain("issued on the deployment");
+    expect(html.match(/<button[^>]*>Revoke<\/button>/g)).toHaveLength(2);
+  });
+
+  it("offers an admin a token for CI, and shows the one just issued once, with where it goes", () => {
+    expect(tokensCard().html).toMatch(/<button[^>]*>Issue a token<\/button>/);
+    expect(tokensCard({ ...TOKENS, mayIssue: false }).html).not.toContain("Issue a token");
+
+    const { shown } = tokensCard(TOKENS, "asf_ingest_once");
+    expect(shown).toContain("asf_ingest_once");
+    expect(shown).toContain("shown this once");
+    expect(shown).toContain("secrets.ASF_COCKPIT_TOKEN");
+    expect(shown).toContain("vars.ASF_COCKPIT_URL");
+    expect(shown).toContain("https://happy-otter-123.convex.site");
   });
 });
 

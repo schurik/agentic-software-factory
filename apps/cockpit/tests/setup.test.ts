@@ -140,6 +140,23 @@ describe("setting up a team cockpit", () => {
     expect(await t.query(api.setup.webhook, {})).toEqual({ url: `${SITE_URL}/forge/webhook`, deliverable: true });
   });
 
+  it("says where its setup code is printed: a Convex Cloud deployment's dashboard, else the compose file's container", async () => {
+    fakeForge();
+    teamMode();
+    const t = cockpit();
+    expect(await t.query(api.setup.deployment, {})).toEqual({ site: SITE_URL, cloud: null });
+
+    vi.stubEnv("CONVEX_SITE_URL", "https://happy-otter-123.convex.site/");
+    expect(await t.query(api.setup.deployment, {})).toEqual({
+      site: "https://happy-otter-123.convex.site",
+      cloud: { name: "happy-otter-123", functions: "https://dashboard.convex.dev/d/happy-otter-123/functions" },
+    });
+    vi.stubEnv("CONVEX_SITE_URL", "https://quiet-fox-9.eu-west-1.convex.site");
+    expect((await t.query(api.setup.deployment, {})).cloud?.name).toBe("quiet-fox-9");
+    vi.stubEnv("CONVEX_SITE_URL", "https://cockpit.convex.site.example.com");
+    expect((await t.query(api.setup.deployment, {})).cloud).toBeNull();
+  });
+
   it("registers on an Enterprise Server under the admin's own account, naming no other host", async () => {
     const forge = fakeForge("ghe.acme.test");
     teamMode();

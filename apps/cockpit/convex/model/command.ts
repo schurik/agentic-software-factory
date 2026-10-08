@@ -73,6 +73,15 @@ export const REDELIVER_AFTER = 30_000;
 export const REGISTRATION_FOR = 10 * 60_000;
 /** How often a registering station asks whether it was approved, in seconds. */
 export const REGISTRATION_POLL = 2;
+/**
+ * How many registrations asked without an ingest token may wait at once: for
+ * one factory, from one source, and in all. Anyone who reaches the site can
+ * ask one naming any repository, so these are what keep the table from being
+ * flooded; a station holding the ingest token is never counted against them.
+ */
+export const TOKENLESS_PER_FACTORY = 5;
+export const TOKENLESS_PER_SOURCE = 5;
+export const TOKENLESS_PENDING = 200;
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";     // nothing a person misreads
 
@@ -105,6 +114,30 @@ export function parseRegistration(body: unknown): StationFields | Refusal {
   const kind = typeof station.kind === "string" ? station.kind : "local";
   if (kind === "ci") return { status: 400, error: "a CI station takes no commands, so it is never registered" };
   return { id: station.id as string, name: station.name || (station.id as string), kind };
+}
+
+/** What a registration request says besides its station: the factory it names, when it holds no token, and the host it runs on. */
+export interface Naming {
+  factory: string | null;
+  host: string;
+}
+
+const REPOSITORY = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+
+/**
+ * The factory a registration request names, as `owner/name` — its origin
+ * remote, from a station that holds no ingest token — and its host. A name
+ * that is not a repository's is refused; none at all is null, which only a
+ * request holding the ingest token may send.
+ */
+export function parseNaming(body: unknown): Naming | Refusal {
+  const record = isRecord(body) ? body : {};
+  const host = typeof record.host === "string" ? record.host.trim().slice(0, 100) : "";
+  if (record.factory === undefined || record.factory === null || record.factory === "") return { factory: null, host };
+  if (typeof record.factory !== "string" || !REPOSITORY.test(record.factory)) {
+    return { status: 400, error: "a registration names its factory as its repository, owner/name" };
+  }
+  return { factory: record.factory, host };
 }
 
 /** A station's word on what it did with a command: a `command_result` payload, as the cockpit keeps it. */

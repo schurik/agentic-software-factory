@@ -19,7 +19,7 @@ import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
 import { FactoryView } from "./FactoryView";
 import { OverviewTab, type OverviewDays } from "./OverviewTab";
-import { StationsTab } from "./StationsTab";
+import { IngestTokens, StationsTab } from "./StationsTab";
 import { drifts, type FactoryTab, tabOf } from "./view";
 import { WorkflowsTab } from "./WorkflowsTab";
 
@@ -55,6 +55,11 @@ export function FactoryPage({ factory }: { factory: string }) {
   const registrations = useQuery(api.stations.registrations, { factory, signIn });
   const approve = useMutation(api.stations.approve);
   const revoke = useMutation(api.stations.revoke);
+  const tokens = useQuery(api.tokens.listed, { factory, signIn });
+  const deployment = useQuery(api.setup.deployment, {});
+  const issueToken = useAction(api.tokens.issueFor);
+  const revokeToken = useMutation(api.tokens.revoke);
+  const [issued, setIssued] = useState<string | null>(null);
   const release = useAction(api.claims.release);
   const purges = useQuery(api.retention.purges, { factory, signIn });
   const purge = useAction(api.retention.purgeFactory);
@@ -127,6 +132,20 @@ export function FactoryPage({ factory }: { factory: string }) {
                                         void revoke({ factory, station: station.station, signIn }).then(settled("revoked")).catch(failed("revoked"));
                                       }} />
                        ) : <Loading />}
+                       {tokens ? (
+                         <IngestTokens listed={tokens} issued={issued} site={deployment?.site ?? ""} factory={factory} now={now}
+                                       onIssue={(label) => {
+                                         setProblem("");
+                                         setIssued(null);
+                                         void issueToken({ factory, label, signIn })
+                                           .then((done) => (done.ok ? setIssued(done.token) : setProblem(`Not issued: ${done.because}`)))
+                                           .catch(failed("issued"));
+                                       }}
+                                       onRevoke={(id) => {
+                                         setProblem("");
+                                         void revokeToken({ factory, id, signIn }).then(settled("revoked")).catch(failed("revoked"));
+                                       }} />
+                       ) : null}
                      </div>
                    ),
                    config: (
