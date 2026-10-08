@@ -53,6 +53,7 @@ function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
  * icon, or in a chapter drawn without stages the phase's — a gate, code, an
  * agent — and an empty square of the same size while its progress loads or
  * between phases. Never a spinner: the mini graph beside it says it runs.
+ * The phase is named by its name alone: progress knows no gate or round.
  */
 function RunningGlyph({ progress }: { progress: Progress | null | undefined }) {
   if (progress?.stage) return <StageGlyph name={progress.stage} tone="run" />;

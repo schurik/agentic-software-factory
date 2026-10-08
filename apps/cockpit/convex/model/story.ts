@@ -586,15 +586,19 @@ function duration(phase: PhaseState): number | null {
   return seconds;
 }
 
+/** What a phase is: a person at a gate, an agent, or code. */
+export type PhaseType = (GateItem | AgentItem | CodeItem)["type"];
+
 /** Whether a phase of `kind` is a person at a gate, an agent, or code: the type its item and its icon say. */
-export function phaseType(kind: string): "gate" | "agent" | "code" {
+export function phaseType(kind: string): PhaseType {
   return kind === "engineer" ? "gate" : kind === "agent" ? "agent" : "code";
 }
 
 function item(phase: PhaseState, journal: Entry[]): Item {
   const placed = { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name,
                    stageIndex: phase.stageIndex };
-  if (phase.kind === "engineer") {
+  const type = phaseType(phase.kind);
+  if (type === "gate") {
     const status = phase.decision ? VERDICTS[phase.decision.verdict] ?? phase.decision.verdict
       : phase.status === "waiting" ? "waiting"
       : phase.status === "success" ? "passed"
@@ -604,7 +608,7 @@ function item(phase: PhaseState, journal: Entry[]): Item {
              summary: phase.gateSummary, decision: phase.decision, at: phase.askedAt || phase.at };
   }
   const facts = factsOf(phase);
-  if (phase.kind === "agent") {
+  if (type === "agent") {
     const notes = journal
       .filter((entry) => entry.note !== null && entry.seq === phase.number && entry.phase === phase.name)
       .map((entry) => entry.note!);
