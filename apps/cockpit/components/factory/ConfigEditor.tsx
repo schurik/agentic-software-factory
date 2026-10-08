@@ -7,7 +7,7 @@ import { Popover } from "@base-ui/react/popover";
 import { Tabs } from "@base-ui/react/tabs";
 import { useAction } from "convex/react";
 import { Info, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Proposed } from "@/convex/config";
 import { asCommitted, branchFor, type Edited, proposalProblem, yamlProblem } from "@/convex/model/config";
@@ -15,6 +15,7 @@ import { branchHref } from "../format";
 import { ForgeRef } from "../icons";
 import { said } from "../said";
 import { unified } from "./diff";
+import { highlight, type Kind } from "./highlight";
 import { DiffView } from "../diff/DiffView";
 import { Button, control, cx, menuPopup, Notice, Select } from "../ui";
 import { useWho } from "../viewer";
@@ -102,13 +103,100 @@ export function ConfigAbout({ forge, repo, base, into, as, title }: {
   );
 }
 
+/** How wide the file list may be, in pixels, and how wide it starts. */
+const NAV = { start: 256, min: 160, max: 560 } as const;
+/** Where this browser remembers the width the person gave the file list. */
+const NAV_KEY = "asf.cockpit.configEditor.nav";
+
+/** The file list's width, as this browser last left it: storage may be blocked, so a read or write may fail, and then it is not remembered. */
+function useNavWidth(): [number, (width: number) => void] {
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const stored = Number(window.localStorage.getItem(NAV_KEY));
+      return stored >= NAV.min && stored <= NAV.max ? stored : NAV.start;
+    } catch {
+      return NAV.start;
+    }
+  });
+  const resize = (next: number) => {
+    const clamped = Math.round(Math.min(NAV.max, Math.max(NAV.min, next)));
+    setWidth(clamped);
+    try { window.localStorage.setItem(NAV_KEY, String(clamped)); } catch { /* not remembered */ }
+  };
+  return [width, resize];
+}
+
+/**
+ * The line between the file list and the editor, which widens the list: dragged, or with the arrow
+ * keys once focused; a double click puts it back.
+ */
+function Splitter({ width, onResize }: { width: number; onResize: (width: number) => void }) {
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  const keys: Record<string, number> = { ArrowLeft: -16, ArrowRight: 16, Home: NAV.min - width, End: NAV.max - width };
+  return (
+    <div role="separator" aria-orientation="vertical" aria-label="Resize the file list" aria-valuenow={width}
+         aria-valuemin={NAV.min} aria-valuemax={NAV.max} tabIndex={0}
+         className="relative z-10 hidden w-px shrink-0 cursor-col-resize touch-none bg-line outline-none select-none hover:bg-accent focus-visible:bg-accent md:block"
+         onPointerDown={(event: PointerEvent<HTMLDivElement>) => {
+           event.preventDefault();
+           event.currentTarget.setPointerCapture(event.pointerId);
+           drag.current = { x: event.clientX, width };
+         }}
+         onPointerMove={(event) => { if (drag.current) onResize(drag.current.width + event.clientX - drag.current.x); }}
+         onPointerUp={() => { drag.current = null; }}
+         onPointerCancel={() => { drag.current = null; }}
+         onDoubleClick={() => onResize(NAV.start)}
+         onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+           if (!(event.key in keys)) return;
+           event.preventDefault();
+           onResize(width + keys[event.key]);
+         }}>
+      {/* What the pointer can catch is wider than the line it draws. */}
+      <span aria-hidden="true" className="absolute inset-y-0 -right-1.5 -left-1.5" />
+    </div>
+  );
+}
+
+/** The colour each kind of span is drawn in: the cockpit's text tokens, each AA on a surface. */
+const INK: Record<Exclude<Kind, null>, string> = {
+  key: "text-accent", string: "text-ok", literal: "text-wait", comment: "text-muted", punct: "text-faint",
+  meta: "text-merged", heading: "text-accent", code: "text-merged",
+};
+
+/**
+ * The file being edited: a textarea, its text transparent and its caret not,
+ * over the same text highlighted (`highlight`) — the same font, the same
+ * padding, no wrapping, moved as the textarea scrolls — so what is typed is
+ * still a textarea's, byte for byte, and only what is drawn is coloured.
+ */
+function Editor({ path, text, onText }: { path: string; text: string; onText: (text: string) => void }) {
+  const under = useRef<HTMLElement>(null);
+  const spans = useMemo(() => highlight(path, text), [path, text]);
+  const page = "px-4 py-3 font-mono text-sm [overflow-wrap:normal] [tab-size:2] whitespace-pre sm:px-5";
+  return (
+    <div className="relative min-h-48 grow overflow-hidden bg-surface">
+      <pre aria-hidden="true" className="pointer-events-none absolute inset-0 m-0 overflow-hidden">
+        <code ref={under} className={cx("block text-fg", page)}>
+          {spans.map((span, at) => (span.kind ? <span key={at} className={INK[span.kind]}>{span.text}</span> : span.text))}
+        </code>
+      </pre>
+      <Field.Control value={text} onValueChange={onText} render={<textarea spellCheck={false} />}
+                     onScroll={(event) => {
+                       const { scrollLeft, scrollTop } = event.currentTarget;
+                       if (under.current) under.current.style.transform = `translate(${-scrollLeft}px, ${-scrollTop}px)`;
+                     }}
+                     className={cx("scrollbar-rest absolute inset-0 resize-none overflow-auto bg-transparent text-transparent caret-fg outline-none selection:bg-accent-soft", page)} />
+    </div>
+  );
+}
+
 /**
  * The Config tab's editor (spec #40, #58, #157), the body of its dialog: the
  * factory's config files as a nav down the left — a picker on a phone — a
  * blue dot on each with changes; beside it, Changes, the diff of every
  * changed file the pull request will carry — drawn as the cockpit draws
  * every diff (`DiffView`), each file collapsible, unified or split — then a tab for each file edited,
- * the one open as plain text filling the rest, with the YAML check; and
+ * the one open as highlighted text filling the rest, with the YAML check; and
  * under it, always in view, the pull request's title, description and
  * submit. Pure, so a test renders it.
  */
@@ -150,20 +238,21 @@ export function ConfigEditorView({
   const changed = drafts.filter((draft) => draft.text !== draft.original);
   const because = blocked(drafts, asked);
   const problem = current && problemOf(current);
+  const [navWidth, setNavWidth] = useNavWidth();
   const front = showing === "changes" || shown === null ? "changes" : shown;
   const tab = cx(
     "relative -mb-px flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-2.5 py-2 text-sm font-medium whitespace-nowrap",
-    "text-muted hover:text-fg data-active:border-accent data-active:text-fg",
+    "text-muted hover:text-fg data-active:border-accent data-active:bg-surface data-active:text-fg",
   );
   return (
     <div className="flex min-h-0 grow">
-      <nav aria-label="Files" className="hidden w-64 shrink-0 overflow-y-auto border-r border-line p-2 md:block">
+      <nav aria-label="Files" style={{ width: navWidth }} className="scrollbar-rest hidden shrink-0 overflow-y-auto bg-bg p-2 md:block">
         <ul className="grid gap-0.5">
           {files.map((path) => (
             <li key={path}>
               <button type="button" aria-current={path === shown ? "true" : undefined} onClick={() => onOpen(path)}
                       className={cx("flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm break-all",
-                                    path === shown ? "bg-surface-2 text-fg" : "text-muted hover:bg-surface-2 hover:text-fg")}>
+                                    path === shown ? "bg-surface text-fg shadow-card" : "text-muted hover:bg-surface-3 hover:text-fg")}>
                 <code className="min-w-0">{named(path)}</code>
                 {unsaved(drafts, path) ? <Dot /> : null}
               </button>
@@ -171,15 +260,16 @@ export function ConfigEditorView({
           ))}
         </ul>
       </nav>
+      <Splitter width={navWidth} onResize={setNavWidth} />
 
       <div className="flex min-w-0 grow flex-col">
         <Tabs.Root value={front} onValueChange={(value: string) => (value === "changes" ? onShow() : onOpen(value))}
                    className="flex min-h-0 grow flex-col">
-          <div className="shrink-0 px-4 pt-3 sm:px-5 md:hidden">
+          <div className="shrink-0 bg-bg px-4 pt-3 sm:px-5 md:hidden">
             <Select label="File" items={files} value={shown ?? ""} labelOf={(path) => `${named(path)}${unsaved(drafts, path) ? " •" : ""}`}
                     onChange={onOpen} />
           </div>
-          <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 sm:px-5">
+          <div className="flex shrink-0 items-center gap-2 border-b border-line bg-bg px-4 sm:px-5">
             <Tabs.List aria-label="What the pull request changes, and the files being edited"
                        className="flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none]">
               <Tabs.Tab value="changes" className={tab}>Changes{changed.length ? ` (${changed.length})` : ""}</Tabs.Tab>
@@ -194,12 +284,12 @@ export function ConfigEditorView({
             ) : null}
           </div>
 
-          <Tabs.Panel value="changes" keepMounted className="min-h-0 grow overflow-y-auto p-4 data-hidden:hidden sm:px-5">
+          <Tabs.Panel value="changes" keepMounted className="scrollbar-rest min-h-0 grow overflow-y-auto bg-surface p-4 data-hidden:hidden sm:px-5">
             {changed.length === 0 ? <p className="text-sm text-muted">Nothing changed yet.</p>
               : <DiffView text={changed.map((draft) => unified(draft.path, draft.original, draft.text)).join("")} />}
           </Tabs.Panel>
           {shown !== null ? (
-            <Tabs.Panel value={shown} className="flex min-h-0 grow flex-col data-hidden:hidden">
+            <Tabs.Panel value={shown} className="flex min-h-0 grow flex-col bg-surface data-hidden:hidden">
               {loading !== null ? (
                 <div className="p-4 sm:px-5">
                   {loading.because === null ? <p className="text-sm text-muted">Reading <code>{loading.path}</code> from the forge…</p>
@@ -210,12 +300,7 @@ export function ConfigEditorView({
                 <Field.Root name="text" invalid={problem !== null} className="flex min-h-0 grow flex-col">
                   <Field.Label className="sr-only">{current.path}</Field.Label>
                   {/* The page itself, edge to edge: no box around it, so the file has every pixel the dialog can give. */}
-                  <Field.Control value={current.text} onValueChange={(text) => onText(current.path, text)}
-                                 render={<textarea spellCheck={false} />}
-                                 className={cx(
-                                   "min-h-48 w-full min-w-0 grow resize-none overflow-auto bg-surface px-4 py-3 font-mono text-sm text-fg outline-none sm:px-5",
-                                   "[overflow-wrap:normal] [tab-size:2] whitespace-pre",
-                                 )} />
+                  <Editor key={current.path} path={current.path} text={current.text} onText={(text) => onText(current.path, text)} />
                   {problem ? (
                     <Field.Error match role="alert" className="shrink-0 border-t border-line bg-bad-soft px-4 py-2 text-sm text-bad sm:px-5">
                       The YAML does not parse — {problem}
@@ -227,7 +312,7 @@ export function ConfigEditorView({
           ) : null}
         </Tabs.Root>
 
-        <Form className="shrink-0 border-t border-line bg-surface px-4 py-3 sm:px-5"
+        <Form className="shrink-0 border-t border-line bg-bg px-4 py-3 sm:px-5"
               onFormSubmit={() => { if (because === null && !busy) onSubmit(); }}>
           {outcome?.ok ? (
             <Notice tone="ok" className="mt-0 text-sm">
@@ -339,7 +424,7 @@ export function ConfigEditor({ forge, factory, base, into, as, files, file, sign
     <Dialog.Root open={open} onOpenChange={(opened) => { if (!opened) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Popup className={cx(
-          "fixed inset-0 z-50 flex flex-col bg-surface transition-opacity duration-150",
+          "fixed inset-0 z-50 flex flex-col bg-bg transition-opacity duration-150",
           "data-ending-style:opacity-0 data-starting-style:opacity-0",
         )}>
           <div className="flex shrink-0 items-center gap-1 border-b border-line px-4 py-2.5 sm:px-5">
