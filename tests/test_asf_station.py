@@ -61,7 +61,7 @@ def test_a_station_s_name_is_login_at_host_colon_directory_unless_env_names_it(
     root = tmp_path / "widgets"
     root.mkdir()
     monkeypatch.setattr(station, "_login", lambda: "alex")
-    monkeypatch.setattr(station, "_host", lambda: "mbp")
+    monkeypatch.setattr(station, "host", lambda: "mbp")
 
     assert station.identify(root, DATA_DIR).name == "alex@mbp:widgets"
 

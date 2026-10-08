@@ -82,6 +82,26 @@ describe("which workflows can be triggered", () => {
       ok: false, because: "the forge defines no route label this factory made: run `asf labels --create` in the repository",
     });
   });
+
+  it("are none, saying why, for someone below triage — the header's dialog opens on any factory, so it says so there", async () => {
+    const forge = fakeForge();
+    const { t, alex } = await teamWith(forge, "read");
+
+    expect(await t.action(api.trigger.routes, { factory: "acme/widgets", signIn: alex })).toEqual({ ok: false, because: refusal("read") });
+  });
+});
+
+describe("the factories the trigger dialog offers", () => {
+  it("are the factories on the forge the viewer can read, and nothing for someone not signed in", async () => {
+    const forge = fakeForge();
+    forge.repo("acme/gadgets", { factory: true, roles: { alex: "write" } });
+    forge.repo("acme/secret", { factory: true, roles: {} });
+    forge.repo("acme/plain", { roles: { alex: "write" } });
+    const { t, alex } = await teamWith(forge, "triage");
+
+    expect(await t.query(api.trigger.factories, { signIn: alex })).toEqual(["acme/gadgets", "acme/widgets"]);
+    expect(await t.query(api.trigger.factories, {})).toBeNull();
+  });
 });
 
 describe("triggering", () => {

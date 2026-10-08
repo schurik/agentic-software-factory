@@ -15,7 +15,7 @@ import { cx } from "../ui";
 export function Journal({ entries }: { entries: Numbered[] }) {
   if (entries.length === 0) return <p className="text-sm text-muted">Nothing has closed yet: the next agent would be told nothing.</p>;
   return (
-    <div className="flex max-w-[80ch] flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-lg bg-surface-2 px-4 py-2.5 text-sm">
         <span><b>⚑</b> a note an agent filed — a report, judged like any claim</span>
         <span><b>✎</b> what a person typed at a gate — an instruction, and where it disagrees it wins</span>

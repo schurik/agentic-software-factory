@@ -1,7 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { appValidator } from "./forge/app";
-import { roleValidator } from "./forge/forge";
+import { itemStateValidator, roleValidator } from "./forge/forge";
 import { claimKindValidator, releasedValidator, requeueValidator } from "./model/claim";
 import { commandStateValidator, reportValidator, verbValidator } from "./model/command";
 import { storedEventFields } from "./model/wire";
@@ -26,11 +26,27 @@ export default defineSchema({
 
   // A factory-scoped, append-only credential: it can add events to its own
   // factory's sessions and nothing else — no read, no command. Only a digest is
-  // kept, so the table leaking is not every station's secret leaking.
+  // kept, so the table leaking is not every station's secret leaking. One row
+  // per token, so each is revoked on its own (tokens.ts); a revoked one is kept,
+  // `revokedAt` set, because a factory's spelling is read off every token it
+  // was ever issued (spelling.ts). The fields after `digest` are absent from a
+  // token issued before tokens were listed: issued on the deployment, then.
   ingestTokens: defineTable({
     factory: v.string(),
     digest: v.string(),
-  }).index("by_digest", ["digest"]),
+    // How it was issued: with the deployment's admin key (`tokens:issue`), to
+    // a station a person approved (`stations.handOver`), or by a repository's
+    // admin on the factory page, for CI (`tokens.issueFor`).
+    via: v.optional(v.union(v.literal("deployment"), v.literal("station"), v.literal("cockpit"))),
+    label: v.optional(v.string()),    // the station's name, or what the admin called it
+    station: v.optional(v.string()),  // via a station: its id
+    by: v.optional(v.string()),       // the forge login of who approved or issued it; "" on the deployment
+    issuedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_digest", ["digest"])
+    .index("by_factory", ["factory"])
+    .index("by_station", ["factory", "station"]),
 
   // One document per domain event, exactly as the station sent it. The payload
   // is kept as the JSON text it arrived as (model/wire.ts) and never validated
@@ -66,14 +82,21 @@ export default defineSchema({
     // (retention.ts) has looked at its events.
     transcripts: v.optional(v.boolean()),
     transcriptsDue: v.optional(v.number()),
+    // Whether its phases' rows (`phases`) were written from its first event.
+    // Unset on a session stored before they existed: the backfill, or its next
+    // batch, writes them from the start (phases.ts).
+    phased: v.optional(v.boolean()),
   })
     .index("by_session", ["factory", "session"])
+    .index("by_phased", ["phased"])
     .index("by_transcripts", ["transcripts"])
     .index("by_transcripts_due", ["transcriptsDue"])
     .index("by_activity", ["activity"])
     .index("by_factory_activity", ["factory", "activity"])
     .index("by_waiting", ["waiting", "activity"])
-    .index("by_factory_waiting", ["factory", "waiting"]),
+    .index("by_factory_waiting", ["factory", "waiting"])
+    // A factory's sessions in the order they were first stored: its oldest is first.
+    .index("by_factory", ["factory"]),
 
   // What a session's agent calls cost in one quarter hour, charged to one
   // workflow, station and person (model/spend.ts), added to by ingest as each
@@ -95,6 +118,38 @@ export default defineSchema({
     .index("by_session_at", ["factory", "session", "at"])
     .index("by_factory_at", ["factory", "at"])
     .index("by_at", ["at"]),
+
+  // What one phase of a session did (model/phases.ts): its chapter, workflow
+  // and stage, how it went, how long it worked, what it cost, and — a round a
+  // person was asked at a gate — what they answered and how long it waited.
+  // Written by ingest as the phase's events become contiguous, the way spend
+  // is, so a factory's Overview and Workflows count phases without reading
+  // events. `since` and `replay` are only what the next batch goes on from.
+  phases: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    phase: v.string(),                // the phase's id
+    chapter: v.number(),
+    workflow: v.string(),
+    stage: v.union(v.null(), v.string()),       // none for the work item, the report, or a factory before stages
+    stageIndex: v.union(v.null(), v.number()),
+    kind: v.string(),                 // agent | code | gate
+    name: v.string(),
+    status: v.string(),               // running | waiting | success | fail
+    at: v.number(),                   // when it first started, epoch ms
+    duration: v.number(),             // seconds its live runs worked
+    since: v.union(v.null(), v.number()),
+    replay: v.boolean(),
+    cost: v.number(),
+    tokens: v.number(),
+    gate: v.string(),
+    round: v.number(),
+    askedAt: v.union(v.null(), v.number()),
+    verdict: v.string(),              // "" until a person answered
+    wait: v.union(v.null(), v.number()),        // seconds from asked to answered
+  })
+    .index("by_session", ["factory", "session", "phase"])
+    .index("by_factory_at", ["factory", "at"]),
 
   // An answer a viewer posted from the inbox: the comment on the work item,
   // which is the answer itself — this only remembers that it was sent, so the
@@ -132,10 +187,28 @@ export default defineSchema({
     // as the poll last found them; null when the forge would not say, absent
     // until it was first asked. What "nobody watching" is read against.
     queued: v.optional(v.union(v.null(), v.array(v.number()))),
+    // A factory's issues and pull requests (`forgeItems`) are known as they
+    // stood at this time (ISO 8601): the latest change the poll has read.
+    // Absent until it first looked.
+    itemsSince: v.optional(v.string()),
   })
     .index("by_key", ["key"])
     .index("by_stale", ["stale"])
     .index("by_factory", ["factory", "key"]),
+
+  // Where a factory's issue or pull request stands on the forge — open,
+  // closed, a draft, merged — as the poll last read it (discovery.ts
+  // `items`). No event says it: a pull request is merged long after the
+  // session that opened it ended. Kept as long as its repository is, and
+  // only ever replaced by a later answer; an item with no row is drawn as
+  // one whose state is not known.
+  forgeItems: defineTable({
+    repo: v.string(),                 // a `repos.key`
+    number: v.number(),
+    pull: v.boolean(),
+    state: itemStateValidator,
+    updatedAt: v.string(),            // when it last changed, as the forge stamps it
+  }).index("by_item", ["repo", "number"]),
 
   // A person the cockpit knows by their forge login: whoever signed in with
   // the team's GitHub App, or — `local` — the one person whose token a local
@@ -248,7 +321,12 @@ export default defineSchema({
 
   // A station asking to be registered (`asf station register`): the digest of
   // the secret it polls with, and the code a person approves it by. Gone once
-  // the station has its token, or once it ran out.
+  // the station has its token, or once it ran out. `tokenless` is a request
+  // that named its factory itself, holding no ingest token: anyone who reaches
+  // the site can make one, so they are counted (`TOKENLESS_*`), by factory and
+  // by `source` — the address a proxy in front of the deployment said it came
+  // from, absent when none said — and approving one hands the station an
+  // ingest token too. Both absent from a request kept before they existed.
   registrations: defineTable({
     device: v.string(),
     code: v.string(),
@@ -258,11 +336,17 @@ export default defineSchema({
     kind: v.string(),
     expiresAt: v.number(),
     approvedBy: v.union(v.null(), v.id("viewers")),
+    host: v.optional(v.string()),
+    tokenless: v.optional(v.boolean()),
+    source: v.optional(v.string()),
   })
     .index("by_device", ["device"])
     .index("by_code", ["code"])
     .index("by_expiry", ["expiresAt"])
-    .index("by_factory", ["factory", "expiresAt"]),
+    .index("by_factory", ["factory", "expiresAt"])
+    .index("by_factory_tokenless", ["factory", "tokenless", "expiresAt"])
+    .index("by_tokenless", ["tokenless", "expiresAt"])
+    .index("by_source", ["source", "expiresAt"]),
 
   // When a run's own shipper last polled for its session's commands: a
   // session is attended while that is recent. Kept apart from `sessions`, so a
@@ -363,5 +447,6 @@ export default defineSchema({
     listing: v.optional(v.union(v.null(), v.number())),
     checking: v.optional(v.union(v.null(), v.number())),
     queueing: v.optional(v.union(v.null(), v.number())),
+    tracking: v.optional(v.union(v.null(), v.number())),
   }),
 });

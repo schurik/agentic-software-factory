@@ -121,18 +121,20 @@ export function Now({ open, factory, tab }: NowAddress) {
   };
   return (
     <>
-      {posted?.url ? (
-        <Notice tone="ok" className="mt-0 mb-6 text-sm">
-          Answered {posted.what}: <a href={posted.url} target="_blank" rel="noreferrer">the comment</a>. The station picks
-          it up from the comment on the issue.
-        </Notice>
-      ) : posted ? (
-        <Notice tone="ok" className="mt-0 mb-6 text-sm">
-          Answered {posted.what}: sent to {posted.to}. It goes on once the station records it as your decision.
-        </Notice>
-      ) : null}
-      <NowView page={page} now={now} factory={factory} selected={open ?? (rows[at] ? keyOf(rows[at]) : null)} openGate={link}
-               runningRow={(row) => <LiveRunning row={row} now={now} signIn={signIn} />} />
+      <div className="flex flex-col gap-6">
+        {posted?.url ? (
+          <Notice tone="ok" className="text-sm">
+            Answered {posted.what}: <a href={posted.url} target="_blank" rel="noreferrer">the comment</a>. The station picks
+            it up from the comment on the issue.
+          </Notice>
+        ) : posted ? (
+          <Notice tone="ok" className="text-sm">
+            Answered {posted.what}: sent to {posted.to}. It goes on once the station records it as your decision.
+          </Notice>
+        ) : null}
+        <NowView page={page} now={now} factory={factory} selected={open ?? (rows[at] ? keyOf(rows[at]) : null)} openGate={link}
+                 runningRow={(row) => <LiveRunning row={row} now={now} signIn={signIn} />} />
+      </div>
       <Drawer open={Boolean(open)} label={open ? gateLabel([...page.inbox, ...page.others], open) : ""} onClose={() => go({})}>
         <NowDrawerView open={open} tab={tab} gate={(target) => (
           <LiveGate key={open} signIn={signIn} now={now}

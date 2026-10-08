@@ -41,6 +41,10 @@ done
 # still held is dated again under COCKPIT_TRANSCRIPT_DAYS as it is now.
 ./convex.sh run retention:backfill > /dev/null 2>&1 || echo "start: the retention backfill did not run; transcripts stored before it may not age out"
 
+# Sessions an older cockpit stored have no rows for their phases, which a
+# factory's Overview counts gates by; this writes them from each one's events.
+./convex.sh run phases:backfill > /dev/null 2>&1 || echo "start: the phases' backfill did not run; older sessions' gates are missing from the Overview"
+
 # The forge catch-up poll, once as the deployment starts: a cockpit that was
 # down missed whatever GitHub delivered meanwhile, and GitHub does not send it
 # again. The cron (convex/crons.ts) takes it from here. Not worth failing a

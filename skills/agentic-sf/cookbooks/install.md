@@ -39,7 +39,7 @@ at, a missing flag is an error rather than a silent choice.
 | **Which harness?** (`claude_code`, `pi`) | none — it is asked | `claude_code` runs `claude -p`, takes model *aliases* (`opus`, `sonnet`, `haiku`) and brings its own auth: **no API key at all**, which is usually the shortest path to a first green run. `pi` runs `pi -p --mode json`, takes `provider/model-id`, and needs that provider's key in `.env`. |
 | **How does this repo run its tests, lint, typecheck and build?** | whatever the installer detects; **anything it cannot detect stays a placeholder, and a placeholder fails** | `install.py` reads `package.json` scripts, the lockfiles and `pyproject.toml`, and writes what it finds into `asf/engine/quality.py` marked `# detected at install`. Confirm those lines — a detected command is a guess from a filename. An unwired block exits 78 rather than passing, because a chain that reports a green suite it never ran is the most expensive default this factory could ship. |
 | **How should a run's branch land?** (`worktree.integration.mode`: `merge`, `pr`) | `pr`, opened with `gh pr create` (`open_pr: true`) | Repositories genuinely disagree about whether a machine may move the base branch. `pr` suits anywhere a human reviews first; `merge` suits a solo repo; a workflow with no `integrate` stage leaves its branch for a person (`none` said the same, and is refused from 1.2). Issue- and review-triggered runs can never merge regardless — `integration` downgrades them to a pull request, in code. |
-| **Which cockpit — local or team?** (`--cockpit local\|team`) | `local`; a re-run keeps `team` once `.env` names one | Where every session is shipped, and the installer asks it. **Local**: `just up` starts a cockpit on this machine (Docker, `http://localhost:3000`) and issues itself a token — nothing to set, and only the engineer sees it. **Team**: a shared cockpit, everyone's sessions in one place and claims so two stations never start one work item. It needs two values in `.env` that only the cockpit's operator can hand over: `ASF_COCKPIT_URL`, the backend's **site** origin (`CONVEX_SITE_ORIGIN`, `:3211` on docker compose; `https://<deployment>.convex.site` on Convex Cloud — never the page's `:3000` or the API's `:3210`), and `ASF_COCKPIT_TOKEN`, an ingest token issued for this repository as `owner/name` (`docker compose exec app ./convex.sh run tokens:issue '{"factory": "acme/widgets"}'`, or `npx convex run tokens:issue …` against a Convex Cloud deployment). `--cockpit-url` passes the URL; the token is **never a flag** — the installer asks for it without echo, or the engineer writes it into `.env`. Never ask them to paste it into this chat. |
+| **Which cockpit — local or team?** (`--cockpit local\|team`) | `local`; a re-run keeps `team` once `.env` names one | Where every session is shipped, and the installer asks it. **Local**: `just up` starts a cockpit on this machine (Docker, `http://localhost:3000`) and issues itself a token — nothing to set, and only the engineer sees it. **Team**: a shared cockpit, everyone's sessions in one place and claims so two stations never start one work item. It needs one value from whoever runs it, `ASF_COCKPIT_URL`: the backend's **site** origin (`https://<name>.convex.site` on Convex Cloud, `CONVEX_SITE_ORIGIN` (`:3211`) on docker compose — never the pages' `:3000` or the API's `:3210`). The station's ingest token comes from `just station-register` after the install, which a person with write approves ([connect_cockpit.md](connect_cockpit.md)); no token is asked for. |
 | **May issues and reviews start runs?** (`issues.enabled`, `pull_requests.enabled`) | both on; `asf:ship` routes to the `issue` workflow | Neither starts anything by itself: an issue needs a human to apply `asf:queued` plus a routing label, and a review needs a pull request the factory opened. But this is the one path where the prompt is written by whoever can file an issue or leave a review rather than by the engineer at the keyboard — where that is anyone, narrow `trusted_authors` / `trusted_reviewers`, or turn it off. |
 
 Three more worth naming only if the answer is not the default: `worktree.enabled`
@@ -79,7 +79,9 @@ it was broken — and it ships the factory's self-description to a cockpit as a
 CI station, which is how the cockpit's Factory page knows the workflows and
 measures each station's config drift. It needs `vars.ASF_COCKPIT_URL` and
 `secrets.ASF_COCKPIT_TOKEN` (the factory's ingest token, which can add and never
-receive) on the repository to ship; without them it checks and ships nothing.
+receive — a repository admin issues one on the factory's Stations tab, see
+[connect_cockpit.md](connect_cockpit.md#ci)) on the repository to ship; without
+them it checks and ships nothing.
 On a terminal the installer asks; `--no-ci` neither asks nor stamps. A
 repository's CI is its own, so ask the engineer rather than passing `--ci` for them.
 
@@ -87,12 +89,13 @@ repository's CI is its own, so ask the engineer rather than passing `--ci` for t
 `--cockpit-url <site origin>` names a team one (and implies `team`). Without a
 terminal and without either, it is `local` — what an unset `ASF_COCKPIT_URL`
 already means — or `team` when `.env` names one. In team mode the installer
-writes the URL, and the token it asked for, into `.env` on the sample's own
-lines, never over a value already there, and prints what is still missing with
-the `tokens:issue` command for this repository's `owner/name`. With an agent
-driving the install there is no terminal: pass `--cockpit team --cockpit-url …`
-and leave the token to the engineer. Switching an installed checkout later is
-[cockpit.md](cockpit.md).
+writes the URL into `.env` on the sample's own line, never over a value already
+there, and names a URL on the pages' or the API's port. It asks for no token:
+it prints the next step instead, `just station-register`, with the
+`owner/name` it will name the factory by. With an agent driving the install
+there is no terminal: pass `--cockpit team --cockpit-url …`, then run the
+registration and let the person approve it. Switching an installed checkout
+later is [switch_cockpit.md](switch_cockpit.md).
 
 ## What gets stamped
 
@@ -179,11 +182,11 @@ without.
    token`, which `up` hands to it as it starts: `doctor`'s `cockpit forge`
    line says whether there is one. Without a `gh` login the cockpit still
    shows every session this checkout ships, and lists no factory beyond those.
-   With a **team** cockpit instead (`--cockpit team`), check the two values
-   with `just station-sync` — it ships what the checkout has and fails only when
-   the cockpit refuses the token — and `just station-register` lets it send
-   this checkout commands (kill, resume, answering a prompt run's gate): it prints a code the
-   engineer approves there, signed in — theirs to approve, not yours.
+   With a **team** cockpit instead (`--cockpit team`), connecting this checkout
+   is [connect_cockpit.md](connect_cockpit.md): `ASF_COCKPIT_URL`, then `just
+   station-register`, whose code a person with write approves — theirs to
+   approve, not yours. Switching later, either way, is
+   [switch_cockpit.md](switch_cockpit.md).
 6. **`just labels --create`** — only if either watcher is on. Every label in
    `issues.route`, `issues.states`, `issues.refined_label` and
    `pull_requests.states.failed` has to EXIST at the forge before anything can
@@ -205,6 +208,19 @@ Some repos keep the skill in-tree (`.agents/skills/agentic-sf/`) rather than
 pointing `ASF_SKILL` at a checkout elsewhere. That works: nothing the factory
 runs writes inside the skill's tree, so it never shows up in the host repo's
 `git status` — or in the `git add -A` a commit stage runs.
+
+The `skills` CLI puts it there, and the same command, from the repository
+root, is how it is updated:
+
+```bash
+npx skills add schurik/agentic-software-factory --skill agentic-sf --agent claude-code pi -y
+```
+
+It writes `.agents/skills/agentic-sf/` and links `.claude/skills/agentic-sf`
+to it. Name two agents, not `claude-code` alone — one agent means a copy, not a
+link — and do not update with `npx skills update` where the CLI sees an Eve
+agent: [upgrade.md](upgrade.md#update-the-skill-first) says why, and how to
+check the copy moved before stamping from it.
 
 ## Issue- and review-triggered runs
 

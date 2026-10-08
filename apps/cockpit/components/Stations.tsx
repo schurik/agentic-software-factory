@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { stationsAddress, tabHref } from "./factory/view";
+import { soleAddress, tabHref } from "./factory/view";
 import { said } from "./said";
 import { useSignIn } from "./signIn";
-import { Loading } from "./ui";
+import { Button, Control, Facts, Field, Loading, Notice, Standalone } from "./ui";
 
 /**
  * Where an old `/stations` link lands (#118): a factory's page holds its
@@ -19,11 +20,21 @@ export function StationsRedirect() {
   const signIn = useSignIn();
   const stations = useQuery(api.stations.mine, { signIn });
   const router = useRouter();
-  const to = stations === undefined ? null : stationsAddress(stations.map((row) => row.factory));
+  const to = stations === undefined ? null : soleAddress(stations.map((row) => row.factory), "stations");
   useEffect(() => {
     if (to !== null) router.replace(to);
   }, [to, router]);
   return <Loading />;
+}
+
+/** What `asf station register`'s code finds: the station asking, null when none is, undefined while that is asked. */
+export type Asked = FunctionReturnType<typeof api.stations.pending> | undefined;
+
+/** What approving came to: done, with the factory it was for, or refused, and why. */
+export interface Outcome {
+  ok: boolean;
+  text: string;
+  factory?: string;
 }
 
 /**
@@ -36,7 +47,7 @@ export function StationApproval({ code: given }: { code: string }) {
   const [code, setCode] = useState(given);
   const asked = useQuery(api.stations.pending, code.trim() ? { code: code.trim(), signIn } : "skip");
   const approve = useMutation(api.stations.approve);
-  const [outcome, setOutcome] = useState<{ ok: boolean; text: string; factory?: string } | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   const go = () => {
     setOutcome(null);
@@ -48,37 +59,61 @@ export function StationApproval({ code: given }: { code: string }) {
       .catch((error: unknown) => setOutcome({ ok: false, text: said(error) }));
   };
 
+  return <ApprovalView code={code} asked={asked} outcome={outcome} onCode={setCode} onApprove={go} />;
+}
+
+export interface Approval {
+  /** The code as typed, or as the link carried it. */
+  code: string;
+  asked: Asked;
+  outcome: Outcome | null;
+  onCode: (code: string) => void;
+  onApprove: () => void;
+}
+
+/** The approval page itself: the code, and what it finds — the station asking, nothing, or what approving it came to. */
+export function ApprovalView({ code, asked, outcome, onCode, onApprove }: Approval) {
   return (
-    <>
-      <h1>Approve a station</h1>
-      <form className="form" onSubmit={(event) => { event.preventDefault(); }}>
-        <label>
-          Code
-          <input value={code} placeholder="ABCD-EF23" onChange={(event) => setCode(event.target.value)} />
-        </label>
+    <Standalone title="Approve a station">
+      <form onSubmit={(event) => { event.preventDefault(); }}>
+        <Field label="Code">
+          <Control value={code} placeholder="ABCD-EF23" onValueChange={onCode}
+                   autoComplete="off" spellCheck={false} className="w-full font-mono sm:w-48" />
+        </Field>
       </form>
       {/* Once the station has its token the request is spent, and the code finds nothing: say what was done. */}
-      {outcome?.ok ? <p className="notice small">{outcome.text}{outcome.factory ? <> <Link href={tabHref(outcome.factory, "stations")}>Its factory&apos;s stations</Link></> : null}</p>
-        : !code.trim() ? <p className="muted">Enter the code <code>asf station register</code> printed.</p>
-        : asked === undefined ? <p className="muted">Looking…</p>
-        : asked === null ? <p className="notice">No station is waiting on that code: it may have expired. Run <code>asf station register</code> again.</p>
+      {outcome?.ok ? (
+        <Notice tone="ok">
+          {outcome.text}{outcome.factory ? <> <Link href={tabHref(outcome.factory, "stations")}>Its factory&apos;s stations</Link></> : null}
+        </Notice>
+      ) : !code.trim() ? <p className="text-muted">Enter the code <code>asf station register</code> printed.</p>
+        : asked === undefined ? <Loading what="Looking…" />
+        : asked === null ? <Notice>No station is waiting on that code: it may have expired. Run <code>asf station register</code> again.</Notice>
         : (
-          <div className="card">
-            <dl className="facts">
-              <dt>Station</dt><dd><code>{asked.name}</code> <span className="muted small">({asked.kind}, {asked.station})</span></dd>
-              <dt>Factory</dt><dd>{asked.factory}</dd>
-            </dl>
-            <p className="small">
+          <div className="rounded-lg border border-line bg-surface-2 px-4 py-3">
+            {/* What asked, in full, before the button: a code approved by mistake hands that station what follows. */}
+            <Facts>
+              <dt>Repository</dt><dd>{asked.factory}</dd>
+              <dt>Station</dt><dd><code>{asked.name}</code> <span className="text-sm text-muted">({asked.station})</span></dd>
+              <dt>Kind</dt><dd>{asked.kind}</dd>
+              <dt>Host</dt><dd>{asked.host ? <code>{asked.host}</code> : <span className="text-muted">not said</span>}</dd>
+            </Facts>
+            <p className="mt-3 text-sm">
               Approving makes this station yours: it takes commands from this cockpit for you, as far as its own{" "}
               <code>asf/factory.yaml</code> opts them in. Approve only a station you started.
             </p>
-            {asked.because ? <p className="notice small">{asked.because}</p> : null}
-            <button type="button" className="button" disabled={asked.because !== null || asked.approved} onClick={go}>
+            {asked.tokenless ? (
+              <p className="mt-2 text-sm">
+                It holds no ingest token: approving hands it one, so it can write sessions into {asked.factory} as you.
+              </p>
+            ) : null}
+            {asked.because ? <Notice className="mt-3 text-sm">{asked.because}</Notice> : null}
+            <Button variant="primary" className="mt-3" disabled={asked.because !== null || asked.approved} onClick={onApprove}>
               {asked.approved ? "Approved" : "Approve"}
-            </button>
-            {outcome ? <p className="notice small">{outcome.text}</p> : null}
+            </Button>
+            {outcome ? <Notice tone="bad" role="alert" className="mt-3 text-sm">{outcome.text}</Notice> : null}
           </div>
         )}
-    </>
+    </Standalone>
   );
 }

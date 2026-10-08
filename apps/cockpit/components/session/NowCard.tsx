@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
+import type { ItemStates } from "@/convex/items";
 import { EXPENSIVE } from "@/convex/model/attention";
 import type { Budget } from "@/convex/model/description";
 import { isLive, type Summary, until } from "@/convex/model/session";
 import type { Story } from "@/convex/model/story";
-import { formatDollars, formatDuration, prNumber, secondsBetween } from "../format";
+import { formatDollars, formatDuration, issueNumber as issueOf, prNumber, secondsBetween } from "../format";
 import { verbsOf } from "../gate/answer";
+import { ForgeRef } from "../icons";
 import { buttonClass, Card, cx, followInPlace, type Go } from "../ui";
 import { useWho } from "../viewer";
 import type { OpenPhase } from "../graph/StageGraph";
@@ -22,8 +24,8 @@ const EDGE: Record<string, string> = {
  * drawer, as the Inbox does; when the session failed, it links the latest
  * failure's phase.
  */
-export function NowCard({ summary, story, budget, now, viewer, openPhase, openGate, className }: {
-  summary: Summary; story: Story; budget: Budget | null; now: number;
+export function NowCard({ summary, states, story, budget, now, viewer, openPhase, openGate, className }: {
+  summary: Summary; states: ItemStates; story: Story; budget: Budget | null; now: number;
   viewer: string | null; openPhase: OpenPhase;
   /** The gate waiting, in the drawer; null when the session waits at none. */
   openGate: Go | null;
@@ -45,7 +47,7 @@ export function NowCard({ summary, story, budget, now, viewer, openPhase, openGa
     const whom = mine ? (viewer ? "you" : "a person") : on.map(who).join(", ") || "a person";
     sentence = (
       <>Waiting on {whom}: the <b className="font-semibold">{here.waiting.gate} {here.waiting.kind === "questions" ? "questions" : "gate"}</b>,
-        round {here.waiting.round}, asked on {channelWords(here.waiting.channel, here.waiting.issueNumber)}</>
+        round {here.waiting.round}, asked on {askedOn(here.waiting, summary, states)}</>
     );
     if (mine && openGate) {
       next = (
@@ -67,7 +69,9 @@ export function NowCard({ summary, story, budget, now, viewer, openPhase, openGa
       );
     }
   } else if (summary.status === "success") {
-    sentence = summary.prUrl ? <>All work landed in <a href={summary.prUrl}>pull request #{prNumber(summary.prUrl)}</a></> : <>Finished</>;
+    sentence = summary.prUrl
+      ? <>All work landed in <ForgeRef kind="pr" href={summary.prUrl} state={states.pr}>#{prNumber(summary.prUrl)}</ForgeRef></>
+      : <>Finished</>;
   } else {
     sentence = <>Nothing has started yet</>;
   }
@@ -93,6 +97,17 @@ export function NowCard({ summary, story, budget, now, viewer, openPhase, openGa
       </Card>
     </section>
   );
+}
+
+/** Where a gate was asked: its issue or pull request, with its icon and linked, or the channel in words. */
+function askedOn({ channel, issueNumber }: { channel: string; issueNumber: number }, summary: Summary, states: ItemStates): ReactNode {
+  if (channel === "issue" && issueNumber) {
+    // The issue the gate is asked on is the session's own when the numbers agree; another one's state is not known.
+    const state = issueNumber === Number(issueOf(summary.issueUrl)) ? states.issue : null;
+    return <ForgeRef kind="issue" href={summary.issueUrl} state={state}>#{issueNumber}</ForgeRef>;
+  }
+  const pr = channel === "pr" ? prNumber(summary.prUrl) : "";
+  return pr ? <ForgeRef kind="pr" href={summary.prUrl} state={states.pr}>#{pr}</ForgeRef> : channelWords(channel, issueNumber);
 }
 
 /**

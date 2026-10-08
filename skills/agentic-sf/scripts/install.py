@@ -14,8 +14,8 @@ workflows, the runner, and `.skill-version`, the release they came from — plus
 a factory.yaml assembled for the chosen harness, that harness's `.env.sample`,
 the justfile, and the .gitignore entries — and, when taken (`--ci`, or yes when
 asked), `.github/workflows/asf-check.yml`. Which cockpit sessions ship to is
-asked too: `local` writes nothing, `team` writes the shared cockpit's URL and
-ingest token into `.env` and says where to get them. Existing files are skipped unless
+asked too: `local` writes nothing, `team` writes the shared cockpit's URL into
+`.env` and says how the station is then registered. Existing files are skipped unless
 --force. ONE FILE IS NEVER OVERWRITTEN even then: factory.yaml is the
 operator's; under --force a changed render lands beside it as `.new`.
 
@@ -25,7 +25,6 @@ Stdlib only: this runs under `uv run` with no dependencies.
 from __future__ import annotations
 
 import argparse
-import getpass
 import re
 import shutil
 import subprocess
@@ -192,11 +191,10 @@ def wants_ci(root: Path, asked: bool | None) -> bool:
 #   local  `just up` starts a cockpit on this machine, on Docker, and issues
 #          itself a token. Nothing to write: it is what an unset URL means.
 #   team   a cockpit the team runs, which the station ships to and claims work
-#          items through. It needs two values only its operator can hand over.
-# The token is never a flag: it would outlive the install in a shell history.
-# It is asked for without echo on a terminal, or written into `.env` by hand.
+#          items through. It needs its site origin, and then a registration a
+#          person approves, which hands the station its own ingest token — so
+#          no token is asked for here. ASF_COCKPIT_TOKEN is CI's.
 COCKPIT_MODES = ("local", "team")
-COCKPIT_KEYS = ("ASF_COCKPIT_URL", "ASF_COCKPIT_TOKEN")
 # The backend's other two addresses, which are the mistake to catch: :3000 is
 # the app's page and :3210 its API. A station ships to the site (:3211).
 NOT_THE_SITE = re.compile(r":(3000|3210)/?$")
@@ -229,15 +227,15 @@ def write_env_value(env: Path, key: str, value: str) -> None:
 
 
 def factory_name(root: Path) -> str:
-    """`owner/name` from the origin remote: what a token is issued for, and
-    what a team cockpit looks a viewer's permission up by."""
+    """`owner/name` from the origin remote, or "": what a registration names
+    the factory by, and what a team cockpit looks a viewer's permission up by."""
     try:
         url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=root,
                              capture_output=True, text=True).stdout.strip()
     except OSError:
-        return "<owner>/<name>"
+        return ""
     match = REMOTE_REPO.search(url)
-    return match[1] if match else "<owner>/<name>"
+    return match[1] if match else ""
 
 
 def choose_cockpit(root: Path, requested: str | None, url: str | None) -> str:
@@ -256,7 +254,7 @@ def choose_cockpit(root: Path, requested: str | None, url: str | None) -> str:
           "            Nothing to set up; only you see it.\n"
           "  2. team   a shared cockpit your team runs: everyone's sessions in one place,\n"
           "            and claims so two stations never start one work item. It needs its\n"
-          "            URL and an ingest token for this repository.\n")
+          "            URL, and a person with write on this repository to approve the station.\n")
     while True:
         try:
             answer = input("cockpit [local/team] (local): ").strip().lower() or "local"
@@ -269,86 +267,68 @@ def choose_cockpit(root: Path, requested: str | None, url: str | None) -> str:
         print("  local or team — or Ctrl-C to abort")
 
 
-def ask(prompt: str, secret: bool = False) -> str:
-    if not sys.stdin.isatty():
-        return ""
-    try:
-        return (getpass.getpass(prompt) if secret else input(prompt)).strip()
-    except EOFError:
-        return ""
+def where_the_url_is() -> str:
+    return ("  ASF_COCKPIT_URL is the backend's SITE origin, where stations ship — ask "
+            "whoever runs the cockpit:\n"
+            "    Convex Cloud     https://<name>.convex.site   (not the .convex.cloud "
+            "address)\n"
+            "    docker compose   its CONVEX_SITE_ORIGIN, e.g. "
+            "https://cockpit.example.com:3211\n"
+            "  never the cockpit's pages (:3000) or its API (:3210).")
 
 
 def team_steps(root: Path) -> str:
-    """How to come by the two values, from whoever runs the team's cockpit."""
+    """What connects this checkout once the URL is in `.env`: the device flow."""
     name = factory_name(root)
-    issue = f"tokens:issue '{{\"factory\": \"{name}\"}}'"
+    names = (f"names the factory {name}, from the origin remote" if name else
+             "needs an origin remote to name the factory by (`git remote add origin …`)")
     return (
-        "a team cockpit needs two values in .env, both from whoever runs it:\n\n"
-        "  ASF_COCKPIT_URL    the backend's SITE origin, where stations ship — not the "
-        "cockpit's page\n"
-        "                     (:3000) and not its API (:3210):\n"
-        "                       docker compose   its CONVEX_SITE_ORIGIN, "
-        "e.g. https://cockpit.example.com:3211\n"
-        "                       Convex Cloud     https://<deployment>.convex.site\n"
-        f"  ASF_COCKPIT_TOKEN  an INGEST token for this repository, {name}: it can add "
-        "this\n"
-        "                     factory's events and read nothing back, and it is printed "
-        "once.\n"
-        "                     The cockpit's operator issues it with the deployment's "
-        "admin access:\n"
-        f"                       docker compose   docker compose exec app ./convex.sh run "
-        f"{issue}\n"
-        f"                       Convex Cloud     npx convex run {issue}   "
-        "(in apps/cockpit, --prod for production)\n"
-        "                     Name the factory exactly as its repository, owner/name: a "
-        "team cockpit\n"
-        "                     shows a session only to people the forge lets read that "
-        "repository.\n\n"
-        "  then  just station-sync       ships what this checkout has; fails only if the "
+        f"  just station-register   {names}, prints a code and a link,\n"
+        "                          and waits: a person with WRITE on the repository "
+        "approves it in the\n"
+        "                          cockpit, signed in, and the station keeps the ingest "
+        "token that hands it\n"
+        "  just station-sync       ships what this checkout has; fails only if the "
         "token is refused\n"
-        "        just station-register   lets the cockpit send this checkout commands — "
-        "a person with\n"
-        "                                write access approves the code it prints, "
-        "signed in")
+        "  CI ships with a token of its own: a repository admin issues it on the "
+        "factory page's Stations\n"
+        "  tab, for secrets.ASF_COCKPIT_TOKEN. The whole path: the skill's "
+        "cookbooks/connect_cockpit.md")
 
 
-def configure_cockpit(root: Path, mode: str, url: str | None, notes: list) -> list[str]:
-    """Write the team cockpit's URL and token into `.env`, from `--cockpit-url`
-    or the terminal, and return what is still missing. Never overwrites a value
-    already there: `.env` is the operator's, as ASF_SKILL's line is."""
+def configure_cockpit(root: Path, mode: str, url: str | None, notes: list) -> bool:
+    """Write the team cockpit's URL into `.env`, from `--cockpit-url` or the
+    terminal; whether `.env` names one now. Never overwrites a value already
+    there: `.env` is the operator's, as ASF_SKILL's line is."""
     env = root / ".env"
-    current = {key: env_value(env, key) for key in COCKPIT_KEYS}
+    current = env_value(env, "ASF_COCKPIT_URL")
     if mode == "local":
-        if current["ASF_COCKPIT_URL"]:
-            notes.append(f"ASF_COCKPIT_URL in .env names a shared cockpit "
-                         f"({current['ASF_COCKPIT_URL']}), and it beats a local one — left as "
-                         f"it is; comment it out for `just up` to start the local cockpit")
-        return []
-    if current["ASF_COCKPIT_URL"] and url and url != current["ASF_COCKPIT_URL"]:
-        notes.append(f"ASF_COCKPIT_URL in .env is {current['ASF_COCKPIT_URL']}, not {url} — "
-                     f"left as it is")
-    missing = [key for key in COCKPIT_KEYS if not current[key]]
-    if missing and sys.stdin.isatty():
-        print(f"\n{team_steps(root)}\n")
-    if not current["ASF_COCKPIT_URL"]:
-        given = url or ask("ASF_COCKPIT_URL (blank: write it into .env later): ")
-        if given and not given.startswith(("http://", "https://")):
-            notes.append(f"{given!r} is not an http(s) URL — not written; a station would "
+        if current:
+            notes.append(f"ASF_COCKPIT_URL in .env names a shared cockpit ({current}), and "
+                         f"it beats a local one — left as it is; comment it out for `just up` "
+                         f"to start the local cockpit")
+        return False
+    if current:
+        if url and url.rstrip("/") != current:
+            notes.append(f"ASF_COCKPIT_URL in .env is {current}, not {url} — left as it is")
+    else:
+        if not url and sys.stdin.isatty():
+            print(f"\n{where_the_url_is()}\n")
+            try:
+                url = input("ASF_COCKPIT_URL (blank: write it into .env later): ").strip()
+            except EOFError:
+                url = ""
+        if url and not url.startswith(("http://", "https://")):
+            notes.append(f"{url!r} is not an http(s) URL — not written; a station would "
                          f"ship nothing to it")
-        elif given:
-            write_env_value(env, "ASF_COCKPIT_URL", given.rstrip("/"))
-            notes.append(f"ASF_COCKPIT_URL={given.rstrip('/')}  (written into .env)")
-    if not current["ASF_COCKPIT_TOKEN"]:
-        token = ask("ASF_COCKPIT_TOKEN, not echoed (blank: write it into .env later): ",
-                    secret=True)
-        if token:
-            write_env_value(env, "ASF_COCKPIT_TOKEN", token)
-            notes.append("ASF_COCKPIT_TOKEN=…  (written into .env)")
+        elif url:
+            write_env_value(env, "ASF_COCKPIT_URL", url.rstrip("/"))
+            notes.append(f"ASF_COCKPIT_URL={url.rstrip('/')}  (written into .env)")
     shipped_to = env_value(env, "ASF_COCKPIT_URL")
     if NOT_THE_SITE.search(shipped_to):
         notes.append(f"ASF_COCKPIT_URL={shipped_to} ends in the cockpit's page or API port — "
                      f"a station ships to the backend's SITE origin (:3211 on docker compose)")
-    return [key for key in COCKPIT_KEYS if not env_value(env, key)]
+    return bool(shipped_to)
 
 
 def render_config(harness: str) -> str:
@@ -507,8 +487,8 @@ def main() -> int:
                              "`team` (a shared cockpit); asked interactively if omitted")
     parser.add_argument("--cockpit-url", metavar="URL",
                         help="the team cockpit's site origin, written into .env as "
-                             "ASF_COCKPIT_URL (implies --cockpit team). The token is never "
-                             "a flag: it is asked for, or written into .env by hand")
+                             "ASF_COCKPIT_URL (implies --cockpit team); `just "
+                             "station-register` then fetches the station's ingest token")
     args = parser.parse_args()
     if args.cockpit == "local" and args.cockpit_url:
         parser.error("--cockpit-url names a team cockpit; it cannot go with --cockpit local")
@@ -531,7 +511,7 @@ def main() -> int:
         stamp(CI_TEMPLATE, root / CI_WORKFLOW, args.force, stamped, skipped)
     ensure_gitignore(root, stamped)
     skill_in_env = ensure_env(root, root / ".env.sample", stamped, notes)
-    cockpit_missing = configure_cockpit(root, cockpit, args.cockpit_url, notes)
+    cockpit_url_set = configure_cockpit(root, cockpit, args.cockpit_url, notes)
 
     quality_py = root / "asf" / "engine" / "quality.py"
     detecting = not args.no_detect_quality and str(quality_py) in stamped
@@ -569,18 +549,18 @@ def main() -> int:
     if cockpit == "local":
         print("\ncockpit: local — `just up` starts it on this machine at http://localhost:3000 "
               "(Docker with compose)\n  a team one instead: re-run with --cockpit team, or set "
-              "ASF_COCKPIT_URL and ASF_COCKPIT_TOKEN in .env")
-    elif cockpit_missing:
-        meanwhile = ("until the URL is set a run ships nothing and `just up` starts a local "
-                     "cockpit instead" if "ASF_COCKPIT_URL" in cockpit_missing else
-                     "until the token is set the cockpit refuses what this checkout ships")
-        print(f"\ncockpit: team — STILL MISSING from .env: {', '.join(cockpit_missing)}\n"
-              f"  {meanwhile}.\n\n{team_steps(root)}")
+              "ASF_COCKPIT_URL in .env")
+    elif not cockpit_url_set:
+        print(f"\ncockpit: team — ASF_COCKPIT_URL IS NOT IN .env YET: until it is, a run ships "
+              f"nothing and `just up`\n  starts a local cockpit instead.\n\n"
+              f"{where_the_url_is()}\n\n  then:\n{team_steps(root)}")
+    elif env_value(root / ".env", "ASF_COCKPIT_TOKEN"):
+        print(f"\ncockpit: team — ships to {env_value(root / '.env', 'ASF_COCKPIT_URL')} with "
+              f"ASF_COCKPIT_TOKEN from .env\n  `just station-register` lets the cockpit send "
+              f"this checkout commands; a person with write approves its code")
     else:
-        print(f"\ncockpit: team — ships to {env_value(root / '.env', 'ASF_COCKPIT_URL')}"
-              f"\n  check it:  just station-sync       (fails only if the token is refused)"
-              f"\n  commands:  just station-register   (a person with write access approves "
-              f"its code, signed in)")
+        print(f"\ncockpit: team — ships to {env_value(root / '.env', 'ASF_COCKPIT_URL')} once "
+              f"the station is registered:\n{team_steps(root)}")
     _, steps = about(harness)
     if steps:
         print(f"\nbefore the first run ({harness}):\n\n{steps}")

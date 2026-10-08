@@ -6,33 +6,32 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Look } from "@/convex/factory";
+import { FACTORY_FILE } from "@/convex/forge/forge";
 import type { ClaimView } from "@/convex/model/claim";
-import { needsAttention } from "@/convex/model/attention";
-import { dayOf, daysOf } from "@/convex/model/period";
+import { dayOf, daysOf, lastDays } from "@/convex/model/period";
 import { useClock, viewersTimeZone } from "../clock";
-import { CostPanel } from "../cost/CostPanel";
 import { useRunPrompt } from "../run/RunDialog";
 import { said } from "../said";
 import { useCockpit } from "../Shell";
 import { useSignIn } from "../signIn";
-import { TriggerForm } from "../trigger/Trigger";
 import { Loading, Notice } from "../ui";
-import { ActivityTab } from "./ActivityTab";
 import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
 import { FactoryView } from "./FactoryView";
-import { StationsTab } from "./StationsTab";
+import { OverviewTab, type OverviewDays } from "./OverviewTab";
+import { IngestTokens, StationsTab } from "./StationsTab";
 import { drifts, type FactoryTab, tabOf } from "./view";
 import { WorkflowsTab } from "./WorkflowsTab";
 
 const DAY = 24 * 3600_000;
 
 /**
- * One factory (#118): its header, and its tabs — Overview, for now what needs
- * attention, what runs, what finished and what it spent; Workflows, from the
- * factory's own self-description; Stations, a card each with the
- * registrations waiting on top; and Config, whose files a writer edits into
- * a pull request. The tab open is the address's (`?tab=`), so a link — Now's
+ * One factory (#118): its header, and its tabs — Overview, what the factory
+ * spent and how its sessions and gates went over the last 7 or 30 days
+ * (#119); Workflows, from the factory's own self-description, each with its
+ * last 30 days (#120); Stations, a
+ * card each with the registrations waiting on top; and Config, whose files a
+ * writer edits into a pull request. The tab open is the address's (`?tab=`), so a link — Now's
  * "Stations →" — lands on the tab that answers it. Live: the queries keep
  * themselves current; the forge is looked at once when the page opens, and
  * again whenever a station reports a commit it has not measured.
@@ -43,25 +42,34 @@ export function FactoryPage({ factory }: { factory: string }) {
   const page = useQuery(api.factory.page, { factory, signIn });
   const ask = useAction(api.factory.look);
   const [look, setLook] = useState<Look | null>(null);
-  const facts = useQuery(api.activity.attention, { factory, signIn });
-  const happening = useQuery(api.activity.page, { factory, signIn });
   const now = useClock();
-  // The last 30 days by the viewer's own midnights: the query is asked again only when the day moves on.
+  // The last days by the viewer's own midnights: a query is asked again only when the day moves on.
   const timeZone = viewersTimeZone();
   const period = daysOf(dayOf(now - 29 * DAY, timeZone), dayOf(now, timeZone), timeZone)!;
+  const [days, setDays] = useState<OverviewDays>(30);
+  const midnights = lastDays(days, now, timeZone);
+  const overview = useQuery(api.overview.page, { factory, days: midnights, signIn });
+  // The Workflows tab's record is always the last 30 days: the Overview's own query, when it shows those too.
+  const record = useQuery(api.overview.page, { factory, days: lastDays(30, now, timeZone), signIn });
   const stations = useQuery(api.activity.stations, { factory, signIn, period });
   const registrations = useQuery(api.stations.registrations, { factory, signIn });
   const approve = useMutation(api.stations.approve);
   const revoke = useMutation(api.stations.revoke);
+  const tokens = useQuery(api.tokens.listed, { factory, signIn });
+  const deployment = useQuery(api.setup.deployment, {});
+  const issueToken = useAction(api.tokens.issueFor);
+  const revokeToken = useMutation(api.tokens.revoke);
+  const [issued, setIssued] = useState<string | null>(null);
   const release = useAction(api.claims.release);
   const purges = useQuery(api.retention.purges, { factory, signIn });
   const purge = useAction(api.retention.purgeFactory);
   const [released, setReleased] = useState("");
   const [problem, setProblem] = useState("");
-  const [triggering, setTriggering] = useState(false);
   const run = useRunPrompt();
-  // The file open in the config editor, and the commit the editor reads every file at — fixed when it first opens.
-  const [editing, setEditing] = useState<{ path: string; base: string } | null>(null);
+  // The file open in the config editor, and the commit the editor reads every file at — fixed when it first opens,
+  // and kept when its dialog closes, so that its drafts outlive closing it.
+  const [editing, setEditing] = useState<{ path: string; base: string; files: string[] } | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const path = usePathname();
   const search = useSearchParams();
   const router = useRouter();
@@ -86,12 +94,6 @@ export function FactoryPage({ factory }: { factory: string }) {
   }, [ask, factory, signIn, heads]);
 
   const measured = useMemo(() => (page ? drifts(page, look) : new Map()), [page, look]);
-  // Drift as the header measures it, against the forge's tip, once the look has measured anything.
-  const drifted = useMemo(() => (page && look?.ok ? page.stations.flatMap((row) => {
-    const each = measured.get(row.station);
-    return each?.drifted ? [{ station: row.station, name: row.name, badges: each.badges }] : [];
-  }) : undefined), [page, look, measured]);
-  const attention = useMemo(() => (facts ? needsAttention(facts, now, drifted) : undefined), [facts, now, drifted]);
   if (page === undefined) return <Loading />;
   if (page === null) return <Notice>{factory} is not a factory you can read. <Link href="/factories">All factories</Link></Notice>;
   const web = `https://${forge.host}`;
@@ -107,19 +109,14 @@ export function FactoryPage({ factory }: { factory: string }) {
 
   return (
     <FactoryView page={page} look={look} drifts={measured} forge={web} now={now} tab={tab} onTab={onTab}
-                 triggering={triggering} onTrigger={() => setTriggering(!triggering)}
-                 trigger={triggering ? <TriggerForm factory={page.repo} signIn={signIn} as={viewer?.login ?? ""} /> : null}
                  panels={{
-                   overview: (
-                     <>
-                       {released ? <Notice>{released}</Notice> : null}
-                       <ActivityTab factory={factory} forge={web} now={now} attention={attention} page={happening} onRelease={onRelease} />
-                       <section className="mt-8"><h2 className="mb-3">Spend</h2><CostPanel factory={factory} /></section>
-                     </>
+                   overview: <OverviewTab overview={overview} days={days} midnights={midnights} now={now} timeZone={timeZone} onDays={setDays} />,
+                   workflows: (
+                     <WorkflowsTab check={page.check} factory={page.repo} stations={page.stations} now={now} record={record ?? undefined}
+                                   onRun={(workflow) => run({ factory: page.repo, workflow })} />
                    ),
-                   workflows: <WorkflowsTab check={page.check} onRun={(workflow) => run({ factory: page.repo, workflow })} />,
                    stations: (
-                     <>
+                     <div className="grid gap-4">
                        {problem ? <Notice tone="bad">{problem}</Notice> : null}
                        {released ? <Notice>{released}</Notice> : null}
                        {stations && registrations ? (
@@ -135,18 +132,36 @@ export function FactoryPage({ factory }: { factory: string }) {
                                         void revoke({ factory, station: station.station, signIn }).then(settled("revoked")).catch(failed("revoked"));
                                       }} />
                        ) : <Loading />}
-                     </>
+                       {tokens ? (
+                         <IngestTokens listed={tokens} issued={issued} site={deployment?.site ?? ""} factory={factory} now={now}
+                                       onIssue={(label) => {
+                                         setProblem("");
+                                         setIssued(null);
+                                         void issueToken({ factory, label, signIn })
+                                           .then((done) => (done.ok ? setIssued(done.token) : setProblem(`Not issued: ${done.because}`)))
+                                           .catch(failed("issued"));
+                                       }}
+                                       onRevoke={(id) => {
+                                         setProblem("");
+                                         void revokeToken({ factory, id, signIn }).then(settled("revoked")).catch(failed("revoked"));
+                                       }} />
+                       ) : null}
+                     </div>
                    ),
                    config: (
-                     <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges}
+                     <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges} onTab={onTab}
                                 onPurge={(reason) => purge({ factory, reason, signIn })}
-                                onEdit={(path) => {
-                                  const base = editing?.base ?? (look?.ok ? look.tip : null);
-                                  if (base) setEditing({ path, base });
+                                onEdit={() => {
+                                  const files = look?.ok ? look.files : null;
+                                  if (editing === null && look?.ok && look.tip && files?.length) {
+                                    setEditing({ path: files.includes(FACTORY_FILE) ? FACTORY_FILE : files[0], base: look.tip, files });
+                                  }
+                                  setEditorOpen(true);
                                 }}
                                 editor={editing && page.defaultBranch ? (
-                                  <ConfigEditor factory={page.repo} base={editing.base} into={page.defaultBranch} as={viewer?.login ?? ""}
-                                                open={editing.path} signIn={signIn} onOpen={(path) => setEditing({ ...editing, path })} />
+                                  <ConfigEditor forge={web} factory={page.repo} base={editing.base} into={page.defaultBranch} as={viewer?.login ?? ""}
+                                                files={editing.files} file={editing.path} signIn={signIn} open={editorOpen}
+                                                onFile={(path) => setEditing({ ...editing, path })} onClose={() => setEditorOpen(false)} />
                                 ) : null} />
                    ),
                  }} />

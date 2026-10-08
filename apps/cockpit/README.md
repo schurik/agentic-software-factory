@@ -44,6 +44,11 @@ asked for in, and a page that names the factory in another case reads the same s
 docker compose exec app ./convex.sh run tokens:issue '{"factory": "acme/widgets"}'
 ```
 
+That is the operator's route, with the deployment's admin key. Nobody else needs it: a checkout
+registering with only the cockpit's URL is handed a token of its own once a person with write
+approves it, and a repository's admin issues CI's on its factory page ([Ingest
+tokens](#ingest-tokens-without-the-admin-key)).
+
 ## Set up a team cockpit
 
 A team's cockpit has to be reachable by the people who use it and, for webhooks, by GitHub. Tell
@@ -60,11 +65,19 @@ webhook**, and the setup page says so before you leave for GitHub. Everything el
 the cockpit learns of the forge by the catch-up poll alone, once a minute. Sign-in needs only your
 browser to reach the cockpit, so `http://localhost:3000` is fine for that.
 
-1. Print a setup code. It is what shows you run the deployment; it works once, for an hour.
+1. Print a setup code. It is what shows you run the deployment — before an App exists nobody can
+   sign in, so running a function with the deployment's admin key is the only admin check there
+   is. It works once, for an hour. Anything that runs `setup:code` on the deployment will do, and
+   `/setup` shows the route that fits where it runs:
 
    ```bash
-   docker compose exec app ./convex.sh run setup:code
+   docker compose exec app ./convex.sh run setup:code     # the compose file's
+   npx convex run setup:code                              # Convex Cloud, CLI pointed at it
    ```
+
+   On Convex Cloud (a `*.convex.site` `CONVEX_SITE_URL`) `/setup` links the deployment's
+   **Functions** page in the Convex dashboard instead: pick `setup:code` and **Run** it. Neither
+   route needs this source.
 
 2. Open `/setup` on the cockpit, enter the code, the GitHub host and the organization that will own
    the App, and continue. GitHub shows the App it is about to create; confirm it there.
@@ -111,7 +124,14 @@ wrong account.
   will not show the cockpit (gone, blocked, behind an organization's SSO) is not a factory here.
   Then it asks every factory which of its open issues carry the queued label and a route label —
   the work an issues watcher would start (`discovery:queues`) — every round, since a label changes
-  no push, and with ETags, so a round where nothing was labelled is all `304`s.
+  no push, and with ETags, so a round where nothing was labelled is all `304`s. Last, it asks each
+  factory with a session where its issues and pull requests stand — open, closed, a draft, merged —
+  which no event says, since a pull request is merged long after the session that opened it ended
+  (`discovery:items`). That is one listing of what changed most recently, again with an ETag, so a
+  quiet round is one `304` a factory; it pages back only when more changed since the last look than
+  a page holds, and the first look goes back to a day before the factory's oldest session. What it
+  finds is kept in `forgeItems`, and every icon of an issue or a pull request is drawn in it: one it
+  has not read is drawn in no state, as before.
 - **Rate limits** are read from the response headers, never assumed: an Enterprise Server has them
   off unless its admin turned them on. The poll leaves a quarter of a budget untouched, stops when
   it gets there, and carries on when the limit resets; the Factories page says so meanwhile.
@@ -136,7 +156,7 @@ itself goes on the installation token, like the cockpit's other reading.
 
 The home page, `/` (#115, `convex/now.ts`), is one query for the viewer across every factory the
 permission mirror lets them read, in four sections. The **Inbox**, which never folds, is the gates
-waiting on them (below). **Needs attention** is the Factory page's rule (`model/attention.ts`)
+waiting on them (below). **Needs attention** is the attention rule (`model/attention.ts`)
 gathered across factories, less the gates the Inbox already holds: each row names its next step and
 goes there — Open a failed session, Release a claim, Compare a drifted station, See config for a
 failing check, Stations when nobody watches; the steps that belong on a factory's tab go to that tab
@@ -149,7 +169,7 @@ its clock, as constants beside the attention rule: a phase running over 10 minut
 verify" in amber, a spend from 80% of the factory's per-session ceiling is "$0.21 of $0.25" in amber,
 and a wait over 30 minutes reads amber. The header's Now carries the count of gates waiting on the
 viewer from every page (`inbox:count`), and nothing at zero. `/?factory=<owner>/<repo>` narrows every
-section to that factory's, as its Factory page links here.
+section to that factory's.
 
 ### The inbox
 
@@ -179,13 +199,15 @@ the people its trust list names. The list and the open gate are live queries.
 
 ## Triggering a workflow
 
-A factory's page has a **Trigger** button in its header: pick a workflow and an issue, and the
+The app header has **Trigger a workflow** beside **Run a prompt**, on every page: it opens a
+dialog on the factory in view, where you pick a factory, one of its workflows and an issue, and the
 cockpit adds that workflow's route label and the factory's queued label to the issue **as the
 viewer** — on their user access token in a team cockpit, or the local cockpit's `gh auth token`.
 Nothing is started here: the factory's issues watcher dequeues the issue on its next poll, as it
 would one labelled on the forge, and records whoever the forge's `labeled` event names as the run's
-trigger. The button is enabled from **triage** up, which is what the forge asks of a labeller, and
-otherwise disabled with the reason; the forge is what enforces it. A closed issue, a pull request, a
+trigger. Only someone with **triage** or higher can trigger, which is what the forge asks of a
+labeller: below that, the dialog says why nothing can be triggered on that factory, and the forge
+is what enforces it. A closed issue, a pull request, a
 label that routes nothing, an issue already queued (no new `labeled` event would name the viewer) and
 one a run already has (a run parked at a gate keeps it on `running`; queueing it again would start a
 second) are refused before anything is labelled (`convex/trigger.ts`).
@@ -261,11 +283,13 @@ Content-Type: application/json
 
 ## Ship from a station
 
-A stamped factory ships on its own once its `.env` (or a CI job's environment) names the cockpit:
+A stamped factory ships on its own once its `.env` (or a CI job's environment) names the cockpit,
+and the station holds an ingest token: one its registration was handed (below), or
+`ASF_COCKPIT_TOKEN`, which wins when set:
 
 ```bash
-ASF_COCKPIT_URL=http://127.0.0.1:3211      # the site origin, not :3210
-ASF_COCKPIT_TOKEN=asf_ingest_…
+ASF_COCKPIT_URL=http://127.0.0.1:3211      # the site origin, not :3210 (Convex Cloud: https://<name>.convex.site)
+ASF_COCKPIT_TOKEN=asf_ingest_…             # optional on a machine that registered; CI's comes from the factory page
 ```
 
 Every `asf run` then ships its session from a background thread as it goes, and `asf station sync`
@@ -286,15 +310,26 @@ uv run asf/asf.py run quick "add a health check"   # appears on :3000 within sec
 ## Commands: register a station; kill, resume, answer and run
 
 A station takes commands — the steering the forge cannot carry — once a person approved it. In a
-stamped checkout, with `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` set:
+stamped checkout, with `ASF_COCKPIT_URL` set:
 
 ```bash
 uv run asf/asf.py station register       # prints a code, and /stations/approve?code=… to open
 ```
 
-The person opens that page signed in (write on the repository), approves, and the station's next
-poll of `POST /station/register/poll` is handed a command token: theirs, for that station alone,
-kept as a digest here (`convex/stations.ts`). The link is built from `COCKPIT_APP_URL`, which the
+The request carries the factory's ingest token when the checkout has one (`ASF_COCKPIT_TOKEN`),
+which says which factory the station is. Without one it names the factory itself — its origin
+remote, `owner/name` — and the host it runs on. The person opens that page signed in (write on the
+repository), approves, and the station's next poll of `POST /station/register/poll` is handed a
+command token: theirs, for that station alone, kept as a digest here (`convex/stations.ts`). A
+station that asked without an ingest token is handed one of its own too, the approver's, which it
+ships with from then on.
+
+Asking without a token needs nothing anyone holds, so anyone who reaches the site can ask, naming
+any repository, and the approval is the only gate. The page names the repository, the station, its
+kind and its host before its button, and refuses outright a viewer without write. The requests
+waiting are capped per factory, per source (the first hop of `X-Forwarded-For`, where a proxy in
+front of the deployment sets it) and in all (`TOKENLESS_*` in `convex/model/command.ts`), and run
+out after ten minutes as every request does. The link is built from `COCKPIT_APP_URL`, which the
 compose file passes to the backend; without it the station names the Stations page instead. A local
 cockpit issues its station that token itself (`stations:local`, through `docker compose exec`).
 
@@ -326,6 +361,19 @@ which settles only that station's own commands. Revoking a token under Stations 
 Each verb is the station's to obey: its `asf/factory.yaml` lists it under `cockpit.commands` (`run`
 is off unless listed), and the cockpit greys out what the station's report says it would refuse.
 
+### Ingest tokens without the admin key
+
+Every ingest token is a row of its own (`convex/tokens.ts`), listed on the factory's **Stations**
+tab by how it came to be — a station's registration and who approved it, an admin on that page, or
+the deployment's `tokens:issue` — and revocable there by a repository admin or by whoever it was
+issued by. A revoked token's ingest, claims and descriptions are `401`, and a station's **Revoke**
+takes the ingest token its registration was handed along with its command token. A registration
+of the same station again replaces its token.
+
+A CI job takes part in no device flow, so a repository **admin** issues it a token on the Stations
+tab: named for what it is for, shown once beside the site origin, and stored as the repository's
+`secrets.ASF_COCKPIT_TOKEN` with that origin as `vars.ASF_COCKPIT_URL`.
+
 ## Claims: which station starts a work item
 
 The forge label is not a lock: it has no conditional edit, so two stations' watchers that listed
@@ -353,7 +401,7 @@ A local cockpit is one person's and grants nothing: a factory claims only from a
 ## The Factories list: what needs attention first
 
 `/factories` ranks the factories the viewer can read, drawn with Now's rows: those that need
-attention first — the same facts as a Factory page's Needs attention, from the same `attentionOf` —
+attention first — the same facts as Now's Needs attention, from the same `attentionOf` —
 then the most recently active, then the rest by name (`convex/model/factories.ts`). Like the Factory
 page, the ranking is read against the page's clock, so a failure stops ranking its factory first a
 day after it ended. Each row says what needs the viewer — the **gates waiting on them**, a **failing
@@ -362,7 +410,7 @@ has been offline over a day, drift, nobody watching), which its page and Now nam
 moving: sessions **running** (not suspended), its **stations online** of all that registered, and
 the **workflows** its default branch's self-description loads. On the right are its **spend** this
 month, a calendar month in the viewer's own timezone (`convex/model/period.ts`), list-price
-equivalent, and when it was last active. A row opens its factory, whose header holds **Trigger…**.
+equivalent, and when it was last active. A row opens its factory, which the header's **Trigger a workflow** then opens on.
 Drift there is measured against the commit the default branch's last check ran on, since a query
 cannot ask the forge; the Factory page measures against the forge's tip.
 
@@ -374,17 +422,26 @@ so a session that went on into a pull request's review spends in both workflows.
 use is offset from UTC by a multiple of fifteen minutes, so a period starting at any viewer's
 midnight takes whole rows.
 
+Each phase is kept the same way, one row a phase (`phases`, `convex/model/phases.ts`), folded as its
+events become contiguous: its chapter, workflow and stage — by the stage index its `phase_started`
+v3 carries, none for the work item, the report or a factory before stages — its kind and status, the
+time its live runs worked (a replay works none), what its agent calls cost, and, for a round a person
+was asked at a gate, their verdict and how long it waited for it. A gate the policy passed asked
+nobody, and is no row. Sessions an older cockpit stored are written from their first event by
+`phases:backfill`, which `docker/start.sh` (and a Vercel production build) runs after each deploy, or by their next batch if it comes
+first.
+
 ## Cost: who spent, and who asked
 
-`/cost`, and the Factory page's Overview for one factory, roll that spend up
-(`convex/cost.ts`) by **session**, **workflow** (a factory's own: two factories' `ship` are two),
-**factory**, **station** — whose machine and key paid, so it names the station's owner, the person
-who registered it — and **person**, who triggered the run. The two differ whenever a teammate's
-label is picked up by your watcher: your station paid, they asked. The period is today, this week
-or this month in the viewer's own timezone, month-to-date by default, or a range of calendar days
-there (`daysOf` in `convex/model/period.ts`). Every amount is labelled **list-price equivalent** —
-what the tokens would cost at the provider's list price, subscription or not — with the tokens
-alongside.
+`convex/cost.ts` rolls one factory's spend up by **workflow**, **station** — whose machine and key
+paid, so it names the station's owner, the person who registered it — and **person**, who triggered
+the run. The two differ whenever
+a teammate's label is picked up by your watcher: your station paid, they asked. A factory's Overview
+reads it over the last 7 or 30 calendar days in the viewer's own timezone (`lastDays` in
+`convex/model/period.ts`); `/cost`, which once showed it across factories, goes on to the Overview of
+the viewer's one factory, or to the Factories list. Every amount is labelled **list-price
+equivalent** — what the tokens would cost at the provider's list price, subscription or not — with
+the tokens alongside.
 
 A factory is summed under every spelling its rows were stored under, as the Factories list sums
 it. One roll-up sums at most `SUMMED` rows (a quarter hour a session and charge): a range long
@@ -438,7 +495,7 @@ CLI. Each one writes an
 audit line to `purges` — who, what, when and why — which the Config tab lists.
 Core events are never purged, so a factory's cost history holds.
 
-## The Factory page: what needs attention, who runs what, and the factory's own self-description
+## The Factory page: what it spent, how it went, and the factory's own self-description
 
 The cockpit never reads a factory's workflow files. What it shows of them is the factory's own
 **self-description**: what `asf check --json` prints (`engine/describe.py`) — every workflow's
@@ -454,28 +511,37 @@ than it. The answer is `200 {}`: an ingest token can add, and read nothing back.
 kind is not `ci` is refused with a 403 — a checkout's own edits are what drift measures, never what
 it is measured against.
 
-`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header that says the factory's state
-in one line — its name with a link to it on the forge, the check's state, the default branch at its
+`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header, under a breadcrumb back to the
+Factories list, that says the factory's state in one line — its name with a link to it on the forge, the check's state, the default branch at its
 commit, how many of its stations are online and the per-session budget — and four tabs: Overview,
 Workflows, Stations and Config. The tab open is the address's (`?tab=stations`), so Now's Needs
 attention rows land on the tab that answers them (Compare and Stations on Stations, See config on
 Config), and a dot marks a tab that holds a problem: a broken workflow, a drifted station, a failing
 check. **All sessions →** beside the tabs is `/sessions?factory=<owner>/<repo>`.
 
-**Overview**, the default (`convex/activity.ts`), opens with **Needs attention**: the gates waiting
-that the viewer may answer (a link to Now narrowed to the factory, `/?factory=<owner>/<repo>`), the sessions that
-failed in the last day, each claim whose station has not been heard of for over a day — "held by
-`alex@mbp`, offline 2 d", never orphaned, with Release claim — the stations whose config drifted, a
-failing check, and **nobody watching**: issues queued for a route while no station online runs an
-issues watcher. `activity:attention` is the one query that reads those facts, for this page and for
-the Factories list to rank by; which of them are news is read against the page's clock
-(`convex/model/attention.ts`), so a failure stops being news without anything new arriving. Then
-**Running now** — the live and suspended sessions, by the workflow each is in, naming its station —
-and **Recent**, the last finished ones, and what the factory spent in a period, as `/cost` rolls it up
-(below).
+**Overview**, the default (`convex/overview.ts`), shows only what no other page does — what is
+happening now is Now's, any one session the Sessions page's — for the last 7 or 30 days, one filter
+row above everything it filters. **Spend**: the total with its tokens, per day and per session, a
+column a day, and by station ("whose key paid") and by person ("who started it"), from the spend
+rows. **Outcomes**: the period's sessions done, failed and open — a session is the period's when it
+ended in it, or, still going, was last heard from in it — the share that finished well, the median
+time to finish, and the median wait at gates with the rounds a person answered and how many they
+rejected, from the phase rows. **By workflow**: the same per workflow, a session counting toward
+each it passed through — done in one it went on from — with what was charged to it and when a phase
+of it last started (`convex/model/overview.ts`).
 
-**Workflows** renders the description from the default branch, with Run in place for a workflow
-that takes a prompt.
+**Workflows** renders the description from the default branch: the workflows `asf check` refused
+first, each with its error, then a card per workflow — its input, its trigger labels and how many
+stations online run the watcher that starts it (in amber when none do), what it does, its last 30
+days (sessions, done and failed, median time, spend) with a link to the factory's sessions, and its
+`asf check` warnings. Its shape is the session page's stage graph (`WorkflowGraph`), in neutral cards
+with neutral connectors, each stage annotated with the agents bound to it, the median time its
+phases worked in a chapter and what they cost, whether its gate asks a person and — when one was asked —
+the rounds they rejected and the median wait, and markers for the slowest stage and the chapters that
+failed there (`convex/model/workflows.ts`). The figures are the Overview's query over the last 30
+days, read off the phase rows; a figure goes on a stage only when that stage held its place when it
+ran. The agents fold into a table — where each runs, its model and thinking, its tools, and what it
+may write — and a prompt workflow's Run opens the header's dialog on that factory and workflow.
 
 **Stations** has the stations asking to join on top (`stations:registrations`), each approved by
 typing the code its `asf station register` printed — never shown here, because typing it is what
@@ -491,6 +557,9 @@ claim; its last 30 days by the viewer's midnights — sessions and failures amon
 recently active, and what its key paid; the
 commands waiting for it, each with when it expires; and Revoke, for its owner or an admin of the
 repository. Every CI job is one **CI** card: the sessions that ran in CI and the checks CI pushed.
+Each asking station names the host it asked from, and says when it holds no ingest token, so that
+approving it hands it one. Under the cards, **Ingest tokens** lists the factory's live tokens and
+issues one for CI to an admin ([above](#ingest-tokens-without-the-admin-key)).
 The old `/stations` goes on to the Stations tab of the one factory the viewer's stations are in, or
 to the Factories list; approving a station keeps its own page, `/stations/approve`.
 
@@ -498,12 +567,28 @@ The factory's whole history is the Sessions page narrowed to it (`/sessions?fact
 `sessions.list` (`convex/sessions.ts`), given a factory or not, searched by title, issue or pull
 request and id.
 
-**Config** lists the files under `asf/` on the default branch, what the check said, and each
-station's drift. A factory no CI workflow ever described is **unchecked**, never broken.
+**Config** shows what the factory decides, grouped as a person asks about it: the **Check** (each
+workflow loads, loads with warnings, or does not), the **forge and tracker**, **where work comes
+from**, **people at gates**, **how work lands**, and **limits and data** — with how many stations
+run another config, pointing to Stations, and every purge of the bodies. Every setting is the
+factory's own word on itself: the `settings` of its self-description (format 2), each default
+resolved by its code; the cockpit never parses `factory.yaml`. A description from before format 2
+still shows its check, and says the settings are not described; a factory no CI workflow ever
+described is **unchecked**, never broken.
 
-A writer edits those files there, and the edit becomes a pull request opened **as them**
+**Edit config** leads the tab, over the pull requests proposed from here that are still open —
+those from a `cockpit/` branch, which the page's `look` reads with the forge's `pulls`. It opens
+the editor, a dialog that covers the screen: its files a nav down the left (a picker on a phone),
+a blue dot on each with changes; beside it, a Changes tab with the diff of every changed file the
+pull request will carry, then a tab for each file edited, the one open filling the rest; under it,
+the pull request's title, description and submit, always in view, with what proposing does behind
+an info button. The files are the text config under `asf/` on the default branch, which the
+`look` alone lists (`editable` in `convex/model/config.ts`: YAML, Markdown, plain text, JSON, TOML
+and samples such as `env.sample` — never the factory's Python, never a binary — and the actions
+refuse any other file too). Closing the dialog loses nothing. A writer edits files there, and the
+edit becomes a pull request opened **as them**
 (`convex/config.ts`). The repository stays the source of truth: the editor is the files' raw text,
-read from the forge at the commit the tab listed them at, and what is typed is committed byte for
+read from the forge at the commit the dialog listed them at, and what is typed is committed byte for
 byte — never parsed and written back, so a comment survives. A textarea keeps only LF, so a CRLF
 file is edited as LF and committed with its CRLF back, and one that mixes the two is not edited
 here. The cockpit checks YAML syntax only (`convex/model/config.ts`: a `.yaml` file as one
@@ -587,7 +672,12 @@ Set up once:
    project's default environment variables for preview deployments.
 
 Stations ship to the deployment's site, its `https://<name>.convex.site` address
-(`ASF_COCKPIT_URL`), and a production build runs the same backfills `docker/start.sh` does.
+(`ASF_COCKPIT_URL`) — not the `.convex.cloud` address, and not the pages' — and a production build
+runs the same backfills `docker/start.sh` does. There is no container to print a setup code in:
+`/setup` links the deployment's **Functions** page in the Convex dashboard, where `setup:code` is
+run, and the CLI (`npx convex run setup:code`) does the same. A setup code the pages refuse as
+"not a setup code this deployment printed" was printed on another deployment than the one the
+pages use.
 
 ## How the pieces connect
 
@@ -609,7 +699,7 @@ its container, into the deployment's environment, which the diagram leaves out �
 its ingest token by running `tokens:issue` inside the app container. For each event the loop posts the new lines, the backend stores each `seq` once and
 answers with the highest `seq` it holds without a gap, and the loop records that in the session's
 `shipped.json`. Against a shared cockpit (`ASF_COCKPIT_URL`) the right-hand side is the team's
-deployment: there is no cockpit child and no token step (`ASF_COCKPIT_TOKEN` is the token), every
+deployment: there is no cockpit child and no token step (the token is `ASF_COCKPIT_TOKEN`, or the one the station's registration was handed), every
 `asf run` also ships its own session, and the ingest request is the same.
 
 ## Develop
@@ -659,7 +749,13 @@ or split, each file collapsible, the words that changed marked. `tests/inbox.tes
 against it — who is permitted, why a row is disabled, the comment posted as whom, the subject at
 the pinned commit — and `tests/answer.test.ts` renders the golden answers. `tests/trigger.test.ts`
 drives the trigger: the routes found by their golden descriptions, the labels added as whom, and
-every refusal, below triage first.
+every refusal, below triage first. Two tests need a DOM, and each
+names happy-dom as its environment for that file alone. `tests/triggerform.test.tsx` picks a factory
+and a route from the trigger dialog's Selects, types an issue and submits, and an issue that is not a
+positive whole number says so under its field instead of being sent. `tests/purgedialog.test.tsx`
+purges from the session page's ⋯ menu: a purge that went through closes the dialog, and a refusal
+or an error keeps it open with the reason. It renders the menu alone, not the whole page, because
+under happy-dom vite will not load the golden corpus from outside the app.
 
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
 cockpit calls it, in memory, installed as `fetch`. It stands in at the wire rather than behind the

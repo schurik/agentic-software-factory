@@ -11,7 +11,7 @@
  * page blocks and what the action refuses are the same thing.
  */
 import { parseDocument } from "yaml";
-import { atLeast, type Role } from "../forge/forge";
+import { atLeast, type OpenPull, type Role } from "../forge/forge";
 
 /** The directory a factory's config lives under: the only files the cockpit edits. */
 export const CONFIG_DIR = "asf";
@@ -20,13 +20,28 @@ export const CONFIG_DIR = "asf";
 const SLUG_LENGTH = 48;
 
 /**
- * Why `path` is not a config file the cockpit edits, or null when it is: a
- * file under `asf/`, spelled the way the forge's tree lists it.
+ * The kinds of file a config is written in, by extension: text a textarea
+ * gives back as it was read. A sample (`env.sample`) is the text an operator
+ * copies into a dotfile. Never Python — `asf/` holds the factory's code too,
+ * which a change to is a pull request of its own — and never a binary.
  */
+const TEXT_CONFIG = /\.(ya?ml|md|txt|json|toml|sample)$/i;
+
+/**
+ * Whether the cockpit edits `path`: a text config file under `asf/`, spelled
+ * the way the forge's tree lists it. The Config tab lists only these, and
+ * reading or proposing any other file is refused.
+ */
+export function editable(path: string): boolean {
+  return outsideConfig(path) === null;
+}
+
+/** Why `path` is not a config file the cockpit edits (`editable`), or null when it is. */
 export function outsideConfig(path: string): string | null {
   const parts = path.split("/");
   const plain = parts.length > 1 && parts[0] === CONFIG_DIR && parts.every((part) => part !== "" && part !== "." && part !== "..");
-  return plain ? null : `${path} is not a config file: the cockpit edits only the files under \`${CONFIG_DIR}/\``;
+  return plain && TEXT_CONFIG.test(path) ? null
+    : `${path} is not a config file: the cockpit edits only the text files under \`${CONFIG_DIR}/\` (YAML, Markdown, plain text, JSON, TOML and samples)`;
 }
 
 /**
@@ -101,11 +116,19 @@ export function asCommitted(text: string, crlf: boolean): string {
   return crlf ? text.replace(/\n/g, "\r\n") : text;
 }
 
+/** What every proposal's branch starts with: what tells a proposal from any other pull request. */
+const PROPOSAL_BRANCH_PREFIX = "cockpit/";
+
 /** The branch a proposal by `login` titled `title` goes on: `cockpit/<login>/<slug>`. */
 export function branchFor(login: string, title: string): string {
   const slug = title.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
     .replace(/[^a-z0-9]+/g, "-").slice(0, SLUG_LENGTH).replace(/^-+|-+$/g, "");
-  return `cockpit/${login}/${slug || "config-edit"}`;
+  return `${PROPOSAL_BRANCH_PREFIX}${login}/${slug || "config-edit"}`;
+}
+
+/** The open pull requests among `pulls` that the Config tab proposed — from a `cockpit/` branch — newest first. */
+export function proposalsOf(pulls: OpenPull[]): OpenPull[] {
+  return pulls.filter((pull) => pull.head.startsWith(PROPOSAL_BRANCH_PREFIX)).sort((a, b) => b.at - a.at);
 }
 
 /** The pull request's body: the person's own words, then where it came from and what was checked. */

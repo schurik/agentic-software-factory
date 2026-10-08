@@ -2,6 +2,7 @@ import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
 import { BEFORE_PAINT } from "@/components/theme";
+import { Notice } from "@/components/ui";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -33,9 +34,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Providers url={url}>{children}</Providers>
         ) : (
           <main className="mx-auto max-w-[1280px] px-4 pt-8 md:px-6">
-            <p className="notice">
+            <Notice>
               <code>CONVEX_URL</code> is not set: the cockpit does not know where its backend is.
-            </p>
+            </Notice>
           </main>
         )}
       </body>

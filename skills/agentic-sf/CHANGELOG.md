@@ -24,13 +24,12 @@ before — `None` when there are none, never omitted.
 - **The installer asks which cockpit: local or team.** `--cockpit local|team`, or a question on
   a terminal. Local is what an unset `ASF_COCKPIT_URL` already meant — `asf up` starts one on this
   machine — and is the answer without a terminal. Team writes the shared cockpit's site origin
-  (`--cockpit-url`, or asked) and its ingest token (asked without echo, never a flag) into `.env`
-  on the sample's own lines, never over a value already there, and prints what is still missing:
-  where the URL is (`CONVEX_SITE_ORIGIN`, or `<deployment>.convex.site`; not `:3000` or `:3210`,
-  which it names when given) and the `tokens:issue` command for this repository's `owner/name`.
-  A re-run keeps team once `.env` names one. The stamped `.env.sample` explains both modes.
-  `cookbooks/cockpit.md` is switching an installed checkout either way: what the old cockpit
-  still holds (claims, the command token), and which watchers are safe on local beside a team.
+  (`--cockpit-url`, or asked) into `.env` on the sample's own line, never over a value already
+  there, names a URL on the pages' or the API's port, and prints the next step: `just
+  station-register`, which hands the station its ingest token. A re-run keeps team once `.env`
+  names one. The stamped `.env.sample` explains both modes. `cookbooks/switch_cockpit.md` is
+  switching an installed checkout either way: what the old cockpit still holds (claims), and
+  which watchers are safe on local beside a team.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -49,16 +48,50 @@ before — `None` when there are none, never omitted.
   tracker's project and labels — so a cockpit shows them without parsing factory.yaml. The
   tracker's raw command arrays are left out. A 1.3.0 cockpit reads both formats; an older one
   reads format 2 as far as it can and says it is newer.
+- **A repository connects to a team cockpit without the cockpit's admin key.** `just
+  station-register` with only `ASF_COCKPIT_URL` set names the factory by the checkout's origin
+  remote; a person with write on that repository approves its code in the cockpit, and the
+  station is handed an ingest token of its own beside its command token — both the approver's,
+  kept in `asf/data/station-token.json`. Every run, `up` and `station-sync` ship with it while
+  `ASF_COCKPIT_TOKEN` is unset, and `ASF_COCKPIT_TOKEN` still wins when set: a checkout that has
+  one registers and ships exactly as before. A CI job's token is issued by a repository admin on
+  the factory's Stations tab, shown once and revocable there; `tokens:issue` stays the operator's
+  route. `/setup` shows the Convex dashboard route to `setup:code` on a Convex Cloud deployment.
+  `just doctor` and `just status` say what the station ships with. The whole path, and every way
+  it fails, is the new `cookbooks/connect_cockpit.md`, which `install.md`, `upgrade.md` and
+  `SKILL.md` now point to. `asf/cockpit/min-version` does not rise: a local cockpit registers
+  nothing.
+- **`/agentic-sf onboard`.** A new cookbook, `cookbooks/onboard.md`, finds where a repository
+  stands (not installed, behind, not ready, ready) and answers a new user's questions — install,
+  setup, the first run, the tracker, the cockpit and stations, updating, workflows and agents,
+  removing it — each pointing to the cookbook that holds the rest. It is the skill's first
+  argument hint, and the hints and description now name what the skill does today (upgrade,
+  doctor, issues, `up`, connecting a cockpit, registering a station, uninstall) instead of the
+  run trace it no longer has.
+- **The upgrade says how to update the skill itself, and `npx skills update` is not it.** In a
+  repository the `skills` CLI sees an Eve agent in, `update` installs for Eve alone and then calls
+  the skill current, and `--agent claude-code -y` alone copies the skill over the
+  `.claude/skills/` link — so a re-stamp from the copy left behind brought the old engine back,
+  and between releases the version could not tell. `cookbooks/upgrade.md` now updates each kind
+  of copy first and checks its files moved; the README and the install cookbook give the one
+  command that links: `npx skills add … --skill agentic-sf --agent claude-code pi -y`.
 
 ### Upgrade
 
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
    new factory, or a cockpit older than that shows each chapter's and phase's start as an event it
    cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
-2. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning and the
-   settings in the self-description; nothing else changes. A factory with the CI workflow ships
-   format 2 on its next default-branch push.
-3. Nothing for the cockpit question: an existing `.env` is kept, and a re-run reads team from
+2. Update the skill copy before stamping from it (`cookbooks/upgrade.md` § Update the skill
+   first) — a vendored one with `npx skills add schurik/agentic-software-factory --skill
+   agentic-sf --agent claude-code pi -y`, not `npx skills update`.
+3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
+   settings in the self-description and registering without a token; nothing else changes. A
+   factory with the CI workflow ships format 2 on its next default-branch push.
+4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
+   older one refuses a registration that holds none, and `just station-register` says so. Then
+   leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`
+   (`cookbooks/connect_cockpit.md`). A checkout that keeps its token needs nothing.
+5. Nothing for the cockpit question: an existing `.env` is kept, and a re-run reads team from
    its `ASF_COCKPIT_URL`. `--force` refreshes `.env.sample`, whose cockpit block now explains
    both modes.
 

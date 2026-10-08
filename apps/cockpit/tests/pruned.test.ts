@@ -67,8 +67,8 @@ async function views(t: Cockpit) {
     inbox: await t.query(api.inbox.list, {}),
     factories: await t.query(api.factories.list, {}),
     factory: await t.query(api.factory.page, { factory: FACTORY }),
-    activity: await t.query(api.activity.page, { factory: FACTORY }),
-    cost: await t.query(api.cost.rollup, { factory: FACTORY, period: { from: 0, to: Date.parse("2100-01-01") } }),
+    now: await t.query(api.now.page, {}),
+    overview: await t.query(api.overview.page, { factory: FACTORY, days: [0, Date.parse("2100-01-01")] }),
   };
 }
 

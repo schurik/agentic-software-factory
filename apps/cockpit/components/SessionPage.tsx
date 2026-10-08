@@ -70,7 +70,7 @@ export function SessionPage({ factory, session }: { factory: string; session: st
       .catch((error: unknown) => setProblem(`Not released: ${said(error)}`));
   };
   return (
-    <>
+    <div className="flex flex-col gap-5">
       {problem ? <Notice tone="bad">{problem}</Notice> : null}
       {released ? <Notice tone="ok">{released}</Notice> : null}
       {answered ? (
@@ -95,6 +95,6 @@ export function SessionPage({ factory, session }: { factory: string; session: st
                    phase={(item, tab, onTab) => (
                      <PhaseDetails item={item} where={{ factory, session, forge: page.forge }} tab={tab} onTab={onTab} />
                    )} />
-    </>
+    </div>
   );
 }

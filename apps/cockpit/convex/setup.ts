@@ -39,7 +39,44 @@ export const webhook = query({
   },
 });
 
-/** A setup code, printed once and good for one `begin` within the hour. */
+/** A Convex Cloud deployment, by name, and its functions in the Convex dashboard: where `setup:code` is run. */
+export interface CloudDeployment {
+  name: string;
+  functions: string;
+}
+
+/**
+ * The Convex Cloud deployment whose site is `siteUrl` — `https://<name>.convex.site`,
+ * or with a region, `https://<name>.<region>.convex.site` — or null for any other
+ * site: a self-hosted backend, the compose file's.
+ */
+export function convexCloud(siteUrl: string): CloudDeployment | null {
+  const name = /^https:\/\/([a-z0-9-]+)(?:\.[a-z0-9-]+)?\.convex\.site\/*$/.exec(siteUrl.trim())?.[1];
+  return name ? { name, functions: `https://dashboard.convex.dev/d/${name}/functions` } : null;
+}
+
+/**
+ * Where this deployment runs, as the setup page and the Stations tab say it:
+ * its site origin — what a station's ASF_COCKPIT_URL is — and, on Convex
+ * Cloud, the deployment, whose dashboard runs `setup:code` (there is no
+ * container to `docker compose exec` into).
+ */
+export const deployment = query({
+  args: {},
+  returns: v.object({ site: v.string(), cloud: v.union(v.null(), v.object({ name: v.string(), functions: v.string() })) }),
+  handler: async () => {
+    const site = (process.env.CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, "");
+    return { site, cloud: convexCloud(site) };
+  },
+});
+
+/**
+ * A setup code, printed once and good for one `begin` within the hour. Run
+ * with the deployment's admin key, which is what proves the person runs it:
+ *
+ *   docker compose exec app ./convex.sh run setup:code     # the compose file's
+ *   npx convex run setup:code                              # Convex Cloud, or its dashboard's Functions page
+ */
 export const code = internalAction({
   args: {},
   returns: v.string(),
@@ -66,7 +103,7 @@ export const begin = action({
 
     const taken = await ctx.runMutation(internal.handshakes.take, { digest: await digest(asked.code.trim()), purpose: "setup code" });
     if (taken === null) {
-      throw new ConvexError("that is not a setup code this deployment printed in the last hour: run `./convex.sh run setup:code` for a fresh one");
+      throw new ConvexError("that is not a setup code this deployment printed in the last hour: run `setup:code` again on the deployment these pages use, as this page shows, for a fresh one");
     }
     const state = secret("");
     await ctx.runMutation(internal.handshakes.offer, {

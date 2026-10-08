@@ -20,7 +20,7 @@ const QUIET: Facts = {
 
 const CLAIM: ClaimView = {
   id: "k1", kind: "issue", number: 42, repo: "acme/widgets", session: "b1", station: "st_bob", stationName: "bob@desk:widgets",
-  seenAt: 0, heardAt: NOW - 50 * HOUR, grantedAt: NOW - 50 * HOUR, released: null, refused: null,
+  seenAt: 0, heardAt: NOW - 50 * HOUR, grantedAt: NOW - 50 * HOUR, released: null, refused: null, state: null,
   consequence: "relabels #42 `asf:queued` and abandons session b1",
 };
 

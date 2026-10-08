@@ -7,9 +7,8 @@ import { liveness, pending } from "@/convex/model/command";
 import type { Drift } from "@/convex/model/drift";
 import { ClaimRow } from "../ClaimRow";
 import { useState } from "react";
-import { formatAgoAt, formatDollars, formatSpan, plural, sessionHref } from "../format";
-import { Sessions } from "./ActivityTab";
-import { Button, Card, control, cx, Facts, StatusDot, Table, Tag } from "../ui";
+import { formatAgoAt, formatCost, formatDollars, formatSpan, plural, sessionHref } from "../format";
+import { Button, Card, control, cx, Facts, num, Pre, StatusDot, StatusPill, Table, Tag } from "../ui";
 import { useWho } from "../viewer";
 import { behind, short } from "./view";
 
@@ -21,6 +20,9 @@ export interface Ci {
 
 /** A station asking to become one of the factory's (stations.registrations). */
 export type Registration = NonNullable<FunctionReturnType<typeof api.stations.registrations>>[number];
+
+/** The factory's live ingest tokens, and whether the viewer may issue one (tokens.listed). */
+export type IngestTokenList = NonNullable<FunctionReturnType<typeof api.tokens.listed>>;
 
 /** What each watcher a station loop runs does, in words. */
 const WATCHES: Record<string, string> = {
@@ -108,11 +110,15 @@ function Asking({ registration, factory, now, onApprove }: {
   return (
     <Card className="flex flex-col gap-3 border-l-[3px] border-l-wait px-4 py-3 sm:px-5 md:flex-row md:items-center">
       <div className="min-w-0 grow">
-        <div><code>{registration.name}</code> asks to become a station of {factory}</div>
+        <div>
+          <code>{registration.name}</code> asks{registration.host ? <> from <code>{registration.host}</code></> : null} to become a
+          station of {factory}
+        </div>
         <div className="mt-0.5 text-sm text-muted">
           {registration.approved ? "Approved: it picks up its token on its next poll."
             : <>Approve it with the code its terminal shows, only if that terminal is one you started · the code expires
                 in {formatSpan(registration.expiresAt - now)}</>}
+          {registration.tokenless && !registration.approved ? " · it holds no ingest token: approving hands it one, as yours" : null}
         </div>
         {refused && !registration.approved ? <div className="mt-1 text-sm text-muted">{registration.because}</div> : null}
       </div>
@@ -123,6 +129,81 @@ function Asking({ registration, factory, now, onApprove }: {
           <Button type="submit" variant="primary" size="sm" disabled={!code.trim()}>Approve</Button>
         </form>
       )}
+    </Card>
+  );
+}
+
+/** How an ingest token came to be, as its row says it. */
+function issuedHow(token: IngestTokenList["tokens"][number], who: (login: string) => string): string {
+  if (token.via === "station") return `a station's registration, approved by ${who(token.by) || "someone"}`;
+  if (token.via === "cockpit") return `issued here by ${who(token.by) || "someone"}`;
+  return "issued on the deployment";
+}
+
+/**
+ * The factory's ingest tokens (#175): what its stations ship with. Each is
+ * listed by how it came to be — a station's registration, an admin here, the
+ * deployment's admin key — and never shown again after it was issued. An
+ * admin issues one for CI, which takes part in no device flow: `issued` is
+ * that token, shown this once beside where it goes. Revoke refuses whatever
+ * ships with it from then on.
+ */
+export function IngestTokens({ listed, issued, site, factory, now, onIssue, onRevoke }: {
+  listed: IngestTokenList;
+  /** The token just issued here, shown once; null otherwise. */
+  issued: string | null;
+  /** The deployment's site origin: what a station's ASF_COCKPIT_URL is. */
+  site: string;
+  factory: string;
+  now: number;
+  onIssue: (label: string) => void;
+  onRevoke: (id: IngestTokenList["tokens"][number]["id"]) => void;
+}) {
+  const who = useWho();
+  const [label, setLabel] = useState("");
+  return (
+    <Card className="flex min-w-0 flex-col gap-3 px-4 py-4 sm:px-5">
+      <div>
+        <div className="font-medium">Ingest tokens</div>
+        <div className="text-sm text-muted">
+          What {factory}&apos;s stations ship sessions with. A machine gets one by <code>asf station register</code>; CI by a
+          token an admin issues here.
+        </div>
+      </div>
+      {listed.tokens.length ? (
+        <Table className="text-sm">
+          <thead><tr><th>for</th><th>how</th><th>when</th><th /></tr></thead>
+          <tbody>
+            {listed.tokens.map((token) => (
+              <tr key={token.id}>
+                <td>{token.label ? <code>{token.label}</code> : <span className="text-muted">—</span>}</td>
+                <td>{issuedHow(token, who)}</td>
+                <td className="whitespace-nowrap">{formatAgoAt(token.issuedAt, now)}</td>
+                <td className="text-right">
+                  {token.revocable ? <Button variant="danger" size="sm" onClick={() => onRevoke(token.id)}>Revoke</Button> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      ) : <p className="text-sm text-muted">No live ingest token: nothing ships to {factory} until one is issued.</p>}
+      {issued ? (
+        <div className="grid gap-1.5 rounded-lg bg-wait-soft px-3 py-2 text-sm">
+          <div>The token, shown this once — only its digest is kept:</div>
+          <Pre>{issued}</Pre>
+          <div>
+            Store it as the repository&apos;s <code>secrets.ASF_COCKPIT_TOKEN</code>, and <code>{site}</code> as its{" "}
+            <code>vars.ASF_COCKPIT_URL</code>.
+          </div>
+        </div>
+      ) : null}
+      {listed.mayIssue ? (
+        <form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); onIssue(label.trim() || "CI"); setLabel(""); }}>
+          <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="GitHub Actions"
+                 aria-label="What the token is for" className={cx(control, "h-7 w-48 text-sm")} />
+          <Button type="submit" size="sm">Issue a token</Button>
+        </form>
+      ) : null}
     </Card>
   );
 }
@@ -206,7 +287,7 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
         <div className="mt-4"><Sessions factory={factory} rows={station.sessions} now={now} workflow station={false} /></div>
       ) : null}
       {station.claims.length ? (
-        <div className="mt-3">{station.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} now={now} onRelease={onRelease} />)}</div>
+        <div className="mt-3">{station.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} now={now} forge={forge} onRelease={onRelease} />)}</div>
       ) : null}
       {waiting.length ? (
         <ul className="mt-3 grid gap-1 rounded-lg bg-wait-soft px-3 py-2 text-sm">
@@ -267,5 +348,33 @@ function CiCard({ ci, factory, now }: { ci: Ci; factory: string; now: number }) 
         </Table>
       ) : <p className="text-sm text-muted">No <code>asf check</code> pushed yet: the optional CI workflow does that.</p>}
     </Card>
+  );
+}
+
+/** Sessions as a table; `workflow` and `station` say whether those columns are worth a column where it is shown. */
+function Sessions({ factory, rows, now, workflow = false, station = true }: {
+  factory: string; rows: SessionRow[]; now: number; workflow?: boolean; station?: boolean;
+}) {
+  return (
+    <Table className="text-sm">
+      <thead>
+        <tr>
+          <th>session</th>{workflow ? <th>workflow</th> : null}<th>status</th>{station ? <th>station</th> : null}
+          <th className={num}>cost</th><th>last</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.session}>
+            <td><Link href={sessionHref(factory, row.session)}><code>{row.session}</code></Link></td>
+            {workflow ? <td>{row.workflow || "—"}</td> : null}
+            <td className="whitespace-nowrap"><StatusPill status={row.status} />{row.gate ? <span className="text-muted"> at {row.gate}</span> : null}</td>
+            {station ? <td>{row.station || "—"}</td> : null}
+            <td className={num}>{formatCost(row.cost)}</td>
+            <td className="whitespace-nowrap">{formatAgoAt(row.endedAt, now)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
   );
 }

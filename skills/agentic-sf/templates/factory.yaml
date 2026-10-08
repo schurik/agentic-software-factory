@@ -51,8 +51,8 @@ hitl:
 #            the person asking, and off unless listed here
 # Nothing is obeyed that is not listed here, and a station still holds every
 # command's author to issues.trusted_authors. A station takes commands once a
-# person approved it (`asf station register`; a local cockpit's station is its
-# owner's already).
+# person with write approved it (`asf station register` — the skill's
+# cookbooks/connect_cockpit.md; a local cockpit's station is its owner's already).
 cockpit:
   transcripts: false
   # transcript_retention_days: 7

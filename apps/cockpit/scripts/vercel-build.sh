@@ -30,4 +30,5 @@ bun x convex deploy --cmd 'bun run build' --cmd-url-env-var-name NEXT_PUBLIC_CON
 if [ "${VERCEL_ENV:-}" = "production" ]; then
   bun x convex run inbox:backfill > /dev/null 2>&1 || echo "vercel-build: the inbox's backfill did not run; older waiting sessions are missing from it"
   bun x convex run retention:backfill > /dev/null 2>&1 || echo "vercel-build: the retention backfill did not run; transcripts stored before it may not age out"
+  bun x convex run phases:backfill > /dev/null 2>&1 || echo "vercel-build: the phases' backfill did not run; older sessions' gates are missing from the Overview"
 fi

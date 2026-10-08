@@ -146,33 +146,35 @@ def test_without_a_terminal_the_cockpit_is_local_and_nothing_is_written(repo: Pa
 
 def test_a_team_cockpit_s_url_lands_where_the_sample_explains_it(repo: Path):
     git(repo, "remote", "add", "origin", "git@github.com:acme/widgets.git")
-    result = install(repo, "--harness", "pi", "--cockpit-url", "https://cockpit.example/")
+    result = install(repo, "--harness", "pi", "--cockpit-url", "https://c.convex.site/")
     assert result.returncode == 0, result.stdout + result.stderr
     env = (repo / ".env").read_text()
     assert uncommented(repo / ".env", "ASF_COCKPIT_URL") == \
-        ["ASF_COCKPIT_URL=https://cockpit.example"]
+        ["ASF_COCKPIT_URL=https://c.convex.site"]
     assert "# ASF_COCKPIT_URL=" not in env                    # replaced, not appended
-    # No terminal, so no token was asked for: it is named as missing, with how
-    # to get one issued for THIS repository.
-    assert "STILL MISSING from .env: ASF_COCKPIT_TOKEN" in result.stdout
-    assert "the cockpit refuses what this checkout ships" in result.stdout
-    assert """tokens:issue '{"factory": "acme/widgets"}'""" in result.stdout
-    assert "CONVEX_SITE_ORIGIN" in result.stdout and ".convex.site" in result.stdout
+    # No token is asked for or written: registering hands the station its own.
+    assert not uncommented(repo / ".env", "ASF_COCKPIT_TOKEN")
+    assert "once the station is registered" in result.stdout
+    assert "just station-register" in result.stdout
+    assert "names the factory acme/widgets" in result.stdout
+    assert "Stations" in result.stdout and "connect_cockpit.md" in result.stdout
 
 
 def test_a_re_run_keeps_the_team_cockpit_and_never_rewrites_its_values(repo: Path):
     install(repo, "--harness", "claude_code", "--cockpit-url", "https://one.example")
     env = repo / ".env"
-    env.write_text(env.read_text().replace("# ASF_COCKPIT_TOKEN=asf_ingest_…",
-                                           "ASF_COCKPIT_TOKEN=asf_ingest_mine"))
 
     again = install(repo, "--harness", "claude_code")          # no flag: .env decides
     assert "cockpit: team — ships to https://one.example" in again.stdout
-    assert "station-register" in again.stdout
 
     other = install(repo, "--harness", "claude_code", "--cockpit-url", "https://two.example")
     assert "is https://one.example, not https://two.example — left as it is" in other.stdout
     assert uncommented(env, "ASF_COCKPIT_URL") == ["ASF_COCKPIT_URL=https://one.example"]
+
+    env.write_text(env.read_text().replace("# ASF_COCKPIT_TOKEN=asf_ingest_…",
+                                           "ASF_COCKPIT_TOKEN=asf_ingest_mine"))
+    with_token = install(repo, "--harness", "claude_code")
+    assert "with ASF_COCKPIT_TOKEN from .env" in with_token.stdout
     assert uncommented(env, "ASF_COCKPIT_TOKEN") == ["ASF_COCKPIT_TOKEN=asf_ingest_mine"]
 
     local = install(repo, "--harness", "claude_code", "--cockpit", "local")
@@ -180,11 +182,12 @@ def test_a_re_run_keeps_the_team_cockpit_and_never_rewrites_its_values(repo: Pat
     assert uncommented(env, "ASF_COCKPIT_URL") == ["ASF_COCKPIT_URL=https://one.example"]
 
 
-def test_team_mode_without_values_says_how_to_get_both(repo: Path):
+def test_team_mode_without_a_url_says_where_it_is(repo: Path):
     result = install(repo, "--harness", "claude_code", "--cockpit", "team")
-    assert "STILL MISSING from .env: ASF_COCKPIT_URL, ASF_COCKPIT_TOKEN" in result.stdout
-    assert "`just up` starts a local cockpit instead" in result.stdout
-    assert "<owner>/<name>" in result.stdout                   # no origin to name it from
+    assert "ASF_COCKPIT_URL IS NOT IN .env YET" in result.stdout
+    assert "`just up`\n  starts a local cockpit instead" in result.stdout
+    assert ".convex.site" in result.stdout and "CONVEX_SITE_ORIGIN" in result.stdout
+    assert "needs an origin remote" in result.stdout          # nothing to name the factory by
 
 
 def test_a_cockpit_url_that_is_not_where_stations_ship_is_named(repo: Path):

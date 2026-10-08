@@ -8,13 +8,13 @@ import type { Answer } from "@/convex/model/answer";
 import { type Question, stationWords } from "@/convex/model/inbox";
 import { DiffRead, DiffView } from "../diff/DiffView";
 import { DrawerFrame } from "../Drawer";
-import { formatAgo, formatDuration, plural, sessionHref } from "../format";
+import { formatAgo, formatDuration, plural, sessionHref, workItemHref } from "../format";
 import { ForgeRef, StageIcon, StatusIcon } from "../icons";
 import { workItem } from "../inbox/waits";
 import { keyed } from "../inbox/keys";
 import { isMarkdown, Markdown } from "../Markdown";
 import { channelWords } from "../session/words";
-import { Button, buttonClass, control, cx, followInPlace, type Go, Kbd, Pre, Tabs } from "../ui";
+import { Button, buttonClass, control, cx, followInPlace, type Go, Kbd, Pre, TabPanel, Tabs } from "../ui";
 import { useWho } from "../viewer";
 import { decide, verbsOf } from "./answer";
 
@@ -59,7 +59,7 @@ export function lands(gate: Gate, now: number, who: (login: string) => string = 
     return { text: `Sends a command to ${row.station} as ${as}`, url: "",
              then: `${stationWords(row, now)}, and records it as your decision` };
   }
-  const url = row.issueUrl || (forge && row.issueNumber ? `${forge}/${row.factory}/issues/${row.issueNumber}` : "");
+  const url = row.issueUrl || (row.issueNumber ? workItemHref(forge, row.factory, "issue", row.issueNumber) : "");
   return { text: `Posts a comment on issue #${row.issueNumber} as ${as}`, url,
            then: "the factory's answers watcher picks it up" };
 }
@@ -241,7 +241,7 @@ export function GateView({ gate, read, since, now, posting, problem, onAnswer, t
         <div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             <span>{row.factory}</span>
-            {row.issueNumber ? <ForgeRef kind="issue" href={landing.url}>#{row.issueNumber}</ForgeRef> : null}
+            {row.issueNumber ? <ForgeRef kind="issue" href={landing.url} state={row.issueState}>#{row.issueNumber}</ForgeRef> : null}
             <a className="text-muted hover:text-fg" href={sessionHref(row.factory, row.session)}>session <code>{row.session}</code> →</a>
           </div>
           <h3 className="mt-2 text-xl font-semibold tracking-tight">{verbs.question}</h3>
@@ -280,28 +280,29 @@ export function GateView({ gate, read, since, now, posting, problem, onAnswer, t
           {noSince ? (
             <p className="mb-3 text-sm text-muted">No “Changes since round {noSince.round}”: {noSince.because}.</p>
           ) : null}
-          <Tabs label="Gate" selected={shown} onSelect={onTab} tabs={tabs} />
-          <div role="tabpanel" className="pt-4">
-            {shown === "questions" ? (
-              <div className="grid gap-3">
-                {gate.questions.map((question, at) => (
-                  <QuestionCard key={at} question={question} answer={answers[at] ?? ""} disabled={off || !answering}
-                                onChange={(text) => setAnswers((all) => all.map((each, i) => (i === at ? text : each)))} />
-                ))}
-              </div>
-            ) : shown === "since" ? (
-              <DiffRead got={since} title={`${gate.subject.files.map(({ path }) => path).join(", ") || "the plan"}, ` +
-                                           `round ${row.round - 1} → ${row.round}`} />
-            ) : shown === "issue" ? <Doc doc={material.issue} />
-              : shown === "findings" ? <Doc doc={material.findings} />
-              : shown === "review" ? (
-                <div className="flex flex-col gap-3">
-                  {material.review?.summary ? <p className="text-sm text-muted">{material.review.summary}</p> : null}
-                  <Doc doc={material.review?.doc ?? null} />
+          <Tabs label="Gate" selected={shown} onSelect={onTab} tabs={tabs}>
+            <TabPanel key={shown} value={shown} className="pt-4">
+              {shown === "questions" ? (
+                <div className="grid gap-3">
+                  {gate.questions.map((question, at) => (
+                    <QuestionCard key={at} question={question} answer={answers[at] ?? ""} disabled={off || !answering}
+                                  onChange={(text) => setAnswers((all) => all.map((each, i) => (i === at ? text : each)))} />
+                  ))}
                 </div>
-              ) : shown === "checks" ? <Checks checks={material.checks} />
-              : <Subject gate={gate} read={read} what={shown === "plan" ? "the plan" : shown === "changes" ? "the changes" : "the subject"} />}
-          </div>
+              ) : shown === "since" ? (
+                <DiffRead got={since} title={`${gate.subject.files.map(({ path }) => path).join(", ") || "the plan"}, ` +
+                                             `round ${row.round - 1} → ${row.round}`} />
+              ) : shown === "issue" ? <Doc doc={material.issue} />
+                : shown === "findings" ? <Doc doc={material.findings} />
+                : shown === "review" ? (
+                  <div className="flex flex-col gap-3">
+                    {material.review?.summary ? <p className="text-sm text-muted">{material.review.summary}</p> : null}
+                    <Doc doc={material.review?.doc ?? null} />
+                  </div>
+                ) : shown === "checks" ? <Checks checks={material.checks} />
+                : <Subject gate={gate} read={read} what={shown === "plan" ? "the plan" : shown === "changes" ? "the changes" : "the subject"} />}
+            </TabPanel>
+          </Tabs>
         </div>
       </div>
     </DrawerFrame>

@@ -3,14 +3,22 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ConfigTab } from "../components/factory/ConfigTab";
 import { FactoryHeader } from "../components/factory/FactoryHeader";
 import { FactoryView } from "../components/factory/FactoryView";
-import { type Registration, StationsTab } from "../components/factory/StationsTab";
+import { type IngestTokenList, IngestTokens, type Registration, StationsTab } from "../components/factory/StationsTab";
 import {
-  behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, stationsAddress, tabHref, tabOf,
+  behind, budgetWords, drifts, FACTORY_TABS, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
 } from "../components/factory/view";
-import { WorkflowsTab } from "../components/factory/WorkflowsTab";
+import { type WorkflowsRecord, WorkflowsTab } from "../components/factory/WorkflowsTab";
 import type { StationDetail } from "../convex/activity";
 import type { Look } from "../convex/factory";
+import { editRefusal } from "../convex/model/config";
 import { readDescription } from "../convex/model/description";
+import { phasedIn } from "../convex/model/phases";
+import { EMPTY_SUMMARY } from "../convex/model/session";
+import { stagesOf } from "../convex/model/workflows";
+import { Crumbs } from "../components/ui";
+import { ViewerLogin } from "../components/viewer";
+import { recorded } from "./helpers";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // The Factory page's header and tabs, rendered to static markup with no
 // backend (spec #40): workflows from the factory's own self-description, a
@@ -20,6 +28,9 @@ import { readDescription } from "../convex/model/description";
 const golden = import.meta.glob("../../../tests/golden/self-description/v1.json",
                                 { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
 const DESCRIPTION = readDescription(Object.values(golden)[0]);
+const current = import.meta.glob("../../../tests/golden/self-description/v2.json",
+                                 { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+const SETTINGS = readDescription(Object.values(current)[0]);
 const TIP = DESCRIPTION.checked.head;
 const NOW = Date.parse("2026-10-01T12:00:00.000Z");
 const FORGE = "https://github.com";
@@ -32,8 +43,10 @@ function page(fields: Partial<Page> = {}): Page {
       station: "runner@fv-az1:widgets", description: DESCRIPTION,
     },
     stations: [
-      { station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW - 5_000, head: TIP, configHash: "beef" },
-      { station: "st_b", name: "sam@old:widgets", kind: "local", owner: "sam", seenAt: NOW - 3_600_000, head: "1".repeat(40), configHash: "0ld" },
+      { station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW - 5_000, head: TIP, configHash: "beef",
+        watchers: ["issues", "answers"] },
+      { station: "st_b", name: "sam@old:widgets", kind: "local", owner: "sam", seenAt: NOW - 3_600_000, head: "1".repeat(40), configHash: "0ld",
+        watchers: ["issues", "prs"] },
     ],
     ...fields,
   };
@@ -41,27 +54,118 @@ function page(fields: Partial<Page> = {}): Page {
 
 const LOOK: Look = {
   ok: true, tip: TIP, files: ["asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml"],
-  distances: { ["1".repeat(40)]: { ahead: 0, behind: 3 } },
+  distances: { ["1".repeat(40)]: { ahead: 0, behind: 3 } }, proposals: [],
 };
 
-describe("the Workflows tab", () => {
-  it("shows each workflow's purpose, trigger, chain, gates and agents from the description", () => {
-    const html = renderToStaticMarkup(<WorkflowsTab check={page().check} onRun={() => {}} />);
+// The Workflows tab (#120) reads the newer description, whose workflows are the
+// ones the staged recording ran, with a record drawn from that recording's rows.
+const goldenV2 = import.meta.glob("../../../tests/golden/self-description/v2.json",
+                                  { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+const DESCRIBED = readDescription(Object.values(goldenV2)[0]);
+const ROWS = phasedIn([], recorded["issue-then-two-reviews-in-stages"].events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) })),
+                      EMPTY_SUMMARY, 0).map((row) => ({ ...row, session: "a9f259f0" }));
+// Another issue session ended in verify.
+const FAILED = { ...ROWS.find((row) => row.workflow === "issue" && row.stage === "verify")!, session: "b0b0b0b0", status: "fail" };
+const RECORD: WorkflowsRecord = {
+  cut: false,
+  workflows: [{ workflow: "issue", sessions: 2, done: 1, failed: 1, open: 0, finish: 14.96, cost: 0.383, tokens: 23_100, last: NOW }],
+  stages: stagesOf([...ROWS, FAILED]),
+};
 
-    expect(html).toContain("a tracked work item, scouted, planned");
-    expect(html).toContain("an issue labelled `asf:queued` + `asf:ship`");
-    expect(html).toContain("gate: plan · on");
-    expect(html).toContain("gate: integrate · off");
-    expect(html).toContain("asks: requirements");
-    expect(html).toContain("docs/asf/spec/");                       // the planner's write boundary
-    expect(html).toContain("$2.50 · 2M tokens per session");
-    expect(html).toContain("nightly");                               // a workflow that does not load, said
-    // Run, for a prompt workflow only: it opens the header's dialog on that workflow (#108).
-    expect(html.match(/>Run<\/button>/g)?.length).toBe(DESCRIPTION.workflows.filter((w) => w.input === "prompt").length);
+function workflowsTab(record?: WorkflowsRecord): string {
+  const shown = page({ check: { ...page().check!, description: DESCRIBED } });
+  return renderToStaticMarkup(
+    <WorkflowsTab check={shown.check} factory="acme/widgets" stations={shown.stations} now={NOW} record={record} onRun={() => {}} />);
+}
+
+/** One workflow's card, by its name. */
+function card(html: string, name: string): string {
+  const from = html.indexOf(`<section aria-label="${name}"`);
+  return html.slice(from, html.indexOf("</section>", from));
+}
+
+/** One stage's card in a workflow's graph, by its place. */
+function stage(html: string, index: number): string {
+  const from = html.indexOf(`data-stage="${index}"`);
+  const next = html.indexOf(`data-stage="${index + 1}"`, from);
+  return html.slice(from, next === -1 ? undefined : next);
+}
+
+describe("the Workflows tab", () => {
+  it("lists a workflow that does not load first, with asf check's error", () => {
+    const html = workflowsTab(RECORD);
+
+    expect(html.indexOf('aria-label="nightly"')).toBeLessThan(html.indexOf('aria-label="issue"'));
+    expect(card(html, "nightly")).toContain("does not load, so a run of it is refused");
+    expect(card(html, "nightly")).toContain("agent &#x27;nobody&#x27; is neither in the roster");
+    expect(html).toContain(`Budget: ${budgetWords(DESCRIBED.budget)}`);
+  });
+
+  it("heads each workflow with its input, its trigger labels and how many online stations watch for it — in amber when none", () => {
+    const html = workflowsTab(RECORD);
+
+    expect(card(html, "issue")).toContain("asf:ship");
+    expect(card(html, "issue")).toContain("watched by 1 online station");           // alex's; sam's is away
+    expect(card(html, "pr-review")).toMatch(/text-wait">no online station watches for it/);
+    expect(card(html, "quick")).not.toContain("watch");                             // a prompt's: nothing watches for it
+    expect(card(html, "issue")).toContain("a tracked work item, scouted, planned");
+    expect(card(html, "issue")).toContain("an issue labelled `asf:queued` + `asf:ship`");
+  });
+
+  it("says each workflow's last 30 days, one link from its sessions", () => {
+    const html = workflowsTab(RECORD);
+
+    expect(card(html, "issue")).toMatch(/2 sessions · 1 done<span class="text-bad"> · 1 failed<\/span> · median 15s · \$0\.38/);
+    expect(card(html, "issue")).toContain('href="/sessions?factory=acme%2Fwidgets"');
+    expect(card(html, "quick")).toContain("no runs");
+    expect(workflowsTab()).not.toContain("Last 30 days");                           // still loading: no record said
+  });
+
+  it("draws each workflow with the session page's stage graph, in neutral cards from what starts it to its report", () => {
+    const html = card(workflowsTab(RECORD), "issue");
+
+    expect(html.match(/data-stage="\d+"/g)).toHaveLength(10);
+    expect(stage(html, 0)).toContain("border-t-fg/40");                             // neutral, never a status edge
+    expect(html).not.toMatch(/border-t-(ok|accent|wait|bad)/);
+    expect(html).toContain(">an issue</span>");
+    expect(html).toContain(">report</span>");
+    expect(stage(html, 0)).toContain("scout");
+    expect(stage(html, 5)).toContain("reviewer, builder");                         // the agents bound to it
+    expect(stage(html, 2)).toContain(">code</span>");
+  });
+
+  it("annotates each stage with its rows' median time and cost, its gate's rounds and wait, and marks the slowest and failures", () => {
+    const html = card(workflowsTab(RECORD), "issue");
+
+    // plan worked 0.509s for $0.143; its gate asked twice, rejected once, waiting 0.457s at the median.
+    expect(stage(html, 1)).toContain("&lt;1s · $0.14 <span class=\"text-faint\">median</span>");
+    expect(stage(html, 1)).toContain("plan gate · asks a person");
+    expect(stage(html, 1)).toContain("1 of 2 rounds rejected · wait &lt;1s");
+    expect(stage(html, 9)).toContain("integrate gate · passes by policy");
+    expect(stage(html, 7)).toContain("slowest stage");                             // document: 0.715s
+    expect(html.match(/slowest stage/g)).toHaveLength(1);
+    expect(stage(html, 4)).toContain("1 failure");
+    expect(html.match(/failure/g)).toHaveLength(1);
+  });
+
+  it("folds each workflow's agents into a table: where each runs, its tools, and what it may write", () => {
+    const html = card(workflowsTab(RECORD), "issue");
+
+    const agents = DESCRIBED.workflows.find((w) => w.name === "issue")!.agents.map((agent) => agent.name);
+    expect(html).toContain(`${agents.length} agents: ${agents.join(", ")}`);
+    expect(html).toContain("docs/asf/spec/");                                       // the planner's write boundary
+    expect(html).toContain("rolls back any change outside what it may write");
+  });
+
+  it("runs a prompt workflow from the header's dialog, and only a prompt workflow", () => {
+    const html = workflowsTab(RECORD);
+    const prompts = DESCRIBED.workflows.filter((w) => w.input === "prompt");
+
+    expect(html.match(/aria-label="Run [^"]+"/g)).toEqual(prompts.map((w) => `aria-label="Run ${w.name}"`));
   });
 
   it("says a factory without a description is unchecked, and how to check it", () => {
-    const html = renderToStaticMarkup(<WorkflowsTab check={null} />);
+    const html = renderToStaticMarkup(<WorkflowsTab check={null} factory="acme/widgets" stations={[]} now={NOW} />);
 
     expect(html).toContain("Unchecked.");
     expect(html).toContain("install.py --ci");
@@ -70,25 +174,30 @@ describe("the Workflows tab", () => {
 });
 
 describe("the header", () => {
-  it("leaves Run a prompt to the app header", () => {
+  it("links the Factories list in its breadcrumbs, and names the factory last, unlinked", () => {
     const html = renderToStaticMarkup(
-      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} />);
+    const crumbs = html.slice(html.indexOf("<nav"), html.indexOf("</nav>") + "</nav>".length);
 
-    expect(html).not.toContain("Run a prompt");                     // the app header's, not the factory's (#108)
+    expect(crumbs).toBe(renderToStaticMarkup(<Crumbs trail={[{ label: "Factories", href: "/factories" }]} here="acme/widgets" />));
+    expect(crumbs).toMatch(/<a [^>]*href="\/factories"[^>]*>Factories<\/a>/);
+    expect(crumbs).toMatch(/<span aria-current="page">acme\/widgets<\/span>/);
   });
 
-  it("offers Trigger… on a factory the forge shows — the Factories list's rows open the page, so this is its one way in", () => {
-    const header = (shown: Page) => renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+  it("leaves Run a prompt and Trigger a workflow to the app header", () => {
+    const html = renderToStaticMarkup(
+      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} />);
 
-    expect(header(page())).toMatch(/<button[^>]*>Trigger…<\/button>/);
-    expect(header(page({ onForge: false }))).not.toContain("Trigger…");
+    // The app header's, not the factory's (#108): both open on the factory in view.
+    expect(html).not.toContain("Run a prompt");
+    expect(html).not.toContain("Trigger");
+    expect(html).not.toContain("<button");
   });
 
   it("is unchecked, never broken, without a CI workflow", () => {
     const shown = page({ check: null, stations: [] });
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} />);
 
     expect(html).toContain("unchecked");
     expect(html).not.toContain("failing");
@@ -96,16 +205,139 @@ describe("the header", () => {
 });
 
 describe("the Config tab", () => {
-  it("lists the default branch's files, the check, and each station's drift", () => {
-    const shown = page();
-    const html = renderToStaticMarkup(
-      <ConfigTab page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} />);
+  /** The Config tab of `shown`, its stations' drift measured by LOOK, for the viewer alex. */
+  function config(shown: Page, given: Partial<Parameters<typeof ConfigTab>[0]> = {}): string {
+    return renderToStaticMarkup(
+      <ViewerLogin.Provider value="alex">
+        <ConfigTab page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} onEdit={() => {}}
+                   onTab={() => {}} {...given} />
+      </ViewerLogin.Provider>);
+  }
+  /** The text of the group titled `title`, up to the next one. */
+  function group(html: string, title: string): string {
+    const from = html.indexOf(`<h2>${title}</h2>`);
+    expect(from).toBeGreaterThan(-1);
+    const to = html.indexOf("<h2>", from + 1);
+    return text(html.slice(from, to < 0 ? undefined : to));
+  }
+  const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&#x27;/g, "'").replace(/\s+/g, " ").replace(/ ([,.:;])(?= )/g, "$1");
+  const described = page({ check: { ...page().check!, description: SETTINGS } });
 
-    expect(html).toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);
-    expect(html).toContain("failing");
-    expect(html).toContain("✗</span> nightly");
-    expect(html).toContain("local edits");
-    expect(html).toContain("3 commits behind");
+  it("leads with Edit config and the proposals still open", () => {
+    const opened: Look = { ...LOOK, proposals: [{
+      number: 12, title: "Raise the budget", url: `${FORGE}/acme/widgets/pull/12`, head: "cockpit/alex/raise-the-budget",
+      author: "alex", at: NOW - 3_600_000, draft: false,
+    }] };
+    const html = config(described, { look: opened });
+
+    expect(html).toMatch(/<button[^>]*>Edit config<\/button>/);
+    expect(html).not.toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);   // the editor lists the files
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/pull/12"[^>]*><svg [^>]*aria-label="pull request open"`));
+    // The default branch, as the forge has it.
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a>`));
+    expect(text(html)).toContain("#12 Raise the budget · by you 1h ago");
+    expect(text(config(described))).toContain("No config edit proposed here is open.");
+  });
+
+  it("disables Edit config without write access, and says why", () => {
+    const because = editRefusal("triage")!;
+    const html = config(page({ ...described, edit: because }));
+
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Edit config<\/button>/);
+    expect(html).toContain(because);
+  });
+
+  it("shows each group's resolved settings, from the factory's own self-description", () => {
+    const html = config(described);
+
+    const check = group(html, "Check");
+    expect(check).toContain("failing");
+    expect(check).toMatch(/✓ issue/);
+    expect(check).toMatch(/✗ nightly .*agent 'nobody' is neither in the roster/);
+
+    const forge = group(html, "Forge and tracker");
+    expect(forge).toContain("GitHub · github.com");
+    expect(forge).toContain("Issues GitHub Issues of acme/widgets");
+    expect(forge).toContain("Reviews pull requests of acme/widgets, answered by pr-review");
+    expect(forge).toContain("queued asf:queued");
+    expect(forge).toContain("review failed asf:pr-failed");
+
+    const intake = group(html, "Where work comes from");
+    expect(intake).toContain("asf:ship → issue");
+    expect(intake).toContain("asf:refine-ship → refine-ship");
+    expect(intake).toContain("Queued as asf:queued");
+    expect(intake).toContain("Trusted authors you, sam");
+    expect(intake).toContain("At once 2 issue runs");
+    expect(intake).toContain("Trusted reviewers anyone who can review");
+    expect(intake).toContain("Never work review comments by codecov[bot]");
+    expect(intake).toContain("Prompts quick, sdlc, ship");
+
+    const gates = group(html, "People at gates");
+    expect(gates).toContain("plan passes by policy — on in issue");
+    expect(gates).toContain("integrate passes by policy");
+    expect(gates).toContain("Every other gate passes by policy.");
+    expect(gates).toContain("Attended asks in place for 15m, then suspends");
+    expect(gates).toContain("Rounds at most 3");
+    expect(gates).toContain("Notifies scripts/notify.sh");
+
+    const landing = group(html, "How work lands");
+    expect(landing).toContain("Prompt runs a pull request, opened by the factory");
+    expect(landing).toContain("Branches asf/<session> on origin");
+    expect(landing).toContain("Based on the branch each station's checkout has out");
+    expect(landing).toContain("Worktrees .asf-worktrees/, removed after a clean success, kept otherwise for resume");
+
+    const limits = group(html, "Limits and data");
+    expect(limits).toContain("Budget $2.50 · 2M tokens per session");
+    expect(limits).toContain("Transcripts kept, and aged out 14 days after a session finishes");
+    expect(limits).toContain("The cockpit may send answer, abort, kill, resume");
+    expect(limits).toContain("Drift 2 stations on another config → Stations");    // st_a edited, st_b behind on another
+    expect(limits).toContain("Purged nothing");
+  });
+
+  it("says what a setting's empty or zero value means, and leaves out what an unwatched review watcher would do", () => {
+    const settings = structuredClone(SETTINGS.settings!);
+    settings.hitl = { ...settings.hitl, waitSeconds: 0, maxRounds: 0, notifyCommand: [] };
+    settings.intake.reviews.watched = false;
+    settings.intake.trustedAuthors = [];
+    const html = config(page({ check: { ...page().check!, description: { ...SETTINGS, settings } } }));
+
+    const gates = group(html, "People at gates");
+    expect(gates).toContain("Attended suspends at once");
+    expect(gates).toContain("Rounds until the person approves or aborts");
+    expect(gates).toContain("Notifies runs no command");
+    const intake = group(html, "Where work comes from");
+    expect(intake).toContain("Trusted authors anyone whose issue gets labelled");
+    expect(intake).toContain("Reviews not watched");
+    expect(intake).not.toContain("Trusted reviewers");
+    expect(group(html, "Forge and tracker")).toContain("Reviews not watched");
+  });
+
+  it("says the settings are not described when the self-description predates them, and still shows the check", () => {
+    const html = config(page());
+
+    expect(group(html, "Check")).toMatch(/✗ nightly/);
+    expect(text(html)).toContain("Not described.");
+    expect(text(html)).toContain("format 1");
+    for (const title of ["Forge and tracker", "Where work comes from", "People at gates", "How work lands"]) {
+      expect(html).not.toContain(`<h2>${title}</h2>`);
+    }
+    expect(group(html, "Limits and data")).toContain("Budget $2.50 · 2M tokens per session");
+  });
+
+  it("says a factory without a self-description is unchecked, never broken", () => {
+    const html = text(config(page({ check: null })));
+
+    expect(html).toContain("Unchecked");
+    expect(html).toContain("install.py --ci");
+    expect(html).toContain("Not described.");
+    expect(html).not.toMatch(/broken|failing/);
+  });
+
+  it("lists every purge of the factory's bodies", () => {
+    const html = config(described, { purges: [{ at: NOW - 60_000, session: "", via: "cockpit", by: "sam", reason: "a key in a prompt" }] });
+
+    expect(group(html, "Limits and data")).toContain("Purged every session, by sam 1m ago: a key in a prompt");
   });
 
   it("measures config only against a check made at the default branch's commit", () => {
@@ -128,13 +360,15 @@ const PANELS = { overview: <p>the overview</p>, workflows: <p>the workflows</p>,
 function factoryView(shown: Page, tab: FactoryTab, look: Look | null = LOOK) {
   return renderToStaticMarkup(
     <FactoryView page={shown} look={look} drifts={drifts(shown, look)} forge={FORGE} now={NOW} tab={tab} onTab={() => {}}
-                 triggering={false} onTrigger={() => {}} trigger={null} panels={PANELS} />);
+                 panels={PANELS} />);
 }
 
-/** The panel of `tab`, as `html` has it: hidden or not. */
-function panel(html: string, tab: FactoryTab): string {
-  return html.match(new RegExp(`<div[^>]*id="factory-${tab}"[^>]*>`))?.[0] ?? "";
+/** Where the panel of `tab` opens in `html`, and its opening tag: hidden or not. The panels come in the tabs' order. */
+function opening(html: string, tab: FactoryTab): { at: number; tag: string } {
+  const found = [...html.matchAll(/<div[^>]*role="tabpanel"[^>]*>/g)][(Object.keys(FACTORY_TABS) as FactoryTab[]).indexOf(tab)];
+  return found ? { at: found.index, tag: found[0] } : { at: -1, tag: "" };
 }
+const panel = (html: string, tab: FactoryTab) => opening(html, tab).tag;
 
 describe("the factory page", () => {
   it("is headed by the name, its check, the default branch at its commit, the stations online and the budget", () => {
@@ -142,7 +376,7 @@ describe("the factory page", () => {
 
     expect(html).toContain(`href="${FORGE}/acme/widgets"`);
     expect(html).toContain("check failing");
-    expect(html).toContain(`<code>main</code> at <code>${TIP.slice(0, 7)}</code>`);
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a> at <code>${TIP.slice(0, 7)}</code>`));
     expect(html).toContain("1/2 stations online");                 // st_a polled 5s ago, st_b an hour ago
     expect(html).toContain("$2.50 · 2M tokens per session");
   });
@@ -167,7 +401,7 @@ describe("the factory page", () => {
 
     const quiet = page({
       check: { ...page().check!, ok: true, description: { ...DESCRIPTION, problems: [] } },
-      stations: [{ station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW, head: TIP, configHash: DESCRIPTION.checked.configHash }],
+      stations: [{ station: "st_a", name: "alex@mbp:widgets", kind: "local", owner: "alex", seenAt: NOW, head: TIP, configHash: DESCRIPTION.checked.configHash, watchers: [] }],
     });
     expect(factoryView(quiet, "overview")).not.toContain("aria-label=\"1 station drifted\"");
     expect(factoryView(quiet, "overview")).not.toMatch(/<span[^>]*aria-label="[^"]*"[^>]*class="[^"]*rounded-full/);
@@ -182,9 +416,14 @@ describe("the factory page", () => {
   });
 
   it("is where /stations goes: the stations tab of the viewer's one factory, or the factories to choose from", () => {
-    expect(stationsAddress(["acme/widgets", "acme/widgets"])).toBe("/factories/acme/widgets?tab=stations");
-    expect(stationsAddress(["acme/widgets", "acme/gadgets"])).toBe("/factories");
-    expect(stationsAddress([])).toBe("/factories");
+    expect(soleAddress(["acme/widgets", "acme/widgets"], "stations")).toBe("/factories/acme/widgets?tab=stations");
+    expect(soleAddress(["acme/widgets", "acme/gadgets"], "stations")).toBe("/factories");
+    expect(soleAddress([], "stations")).toBe("/factories");
+  });
+
+  it("is where /cost goes: the Overview of the viewer's one factory, or the factories to choose from", () => {
+    expect(soleAddress(["acme/widgets"], "overview")).toBe("/factories/acme/widgets");
+    expect(soleAddress(["acme/widgets", "acme/gadgets"], "overview")).toBe("/factories");
   });
 });
 
@@ -260,26 +499,25 @@ describe("the Stations tab", () => {
     const shown = page();
     const html = renderToStaticMarkup(
       <FactoryView page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} tab={tabOf("stations")} onTab={() => {}}
-                   triggering={false} onTrigger={() => {}} trigger={null}
                    panels={{ ...PANELS, stations: (
                      <StationsTab stations={[CARD]} ci={{ jobs: [], checks: [] }} drifts={drifts(shown, LOOK)} now={NOW} factory="acme/widgets"
                                   forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
-                                  registrations={[{ station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 60_000, approved: false, because: null }]} />
+                                  registrations={[{ station: "st_new", name: "alex@new:widgets", host: "new", tokenless: false, expiresAt: NOW + 60_000, approved: false, because: null }]} />
                    ) }} />);
-    const stations = html.slice(html.indexOf('id="factory-stations"'), html.indexOf('id="factory-config"'));
+    const stations = html.slice(opening(html, "stations").at, opening(html, "config").at);
 
     expect(panel(html, "stations")).not.toContain("hidden");
-    expect(stations).toContain("alex@new:widgets</code> asks to become a station");
+    expect(stations).toContain("alex@new:widgets</code> asks from <code>new</code> to become a station");
     expect(stations).toContain("alex@mbp:widgets");
     for (const tab of ["overview", "workflows", "config"] as const) expect(panel(html, tab)).toContain("hidden");
   });
 
   it("puts pending registrations on top, to approve with the code the station's terminal shows", () => {
     const html = stationsTab([CARD], [
-      { station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 8 * 60_000, approved: false, because: null },
-      { station: "st_sam", name: "sam@lab:widgets", expiresAt: NOW + 9 * 60_000, approved: false,
+      { station: "st_new", name: "alex@new:widgets", host: "new", tokenless: false, expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+      { station: "st_sam", name: "sam@lab:widgets", host: "lab", tokenless: false, expiresAt: NOW + 9 * 60_000, approved: false,
         because: "a station takes commands for its owner, which needs write on acme/widgets; the forge says you have read" },
-      { station: "st_ok", name: "dana@box:widgets", expiresAt: NOW + 9 * 60_000, approved: true, because: null },
+      { station: "st_ok", name: "dana@box:widgets", host: "box", tokenless: false, expiresAt: NOW + 9 * 60_000, approved: true, because: null },
     ]);
 
     expect(html.indexOf("alex@new:widgets")).toBeLessThan(html.indexOf("alex@mbp:widgets"));
@@ -290,5 +528,69 @@ describe("the Stations tab", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Approve<\/button>/);
     expect(html).toContain("the forge says you have read");
     expect(html).toContain("Approved: it picks up its token on its next poll.");
+  });
+
+  it("names the host a registration asked from, and says when approving it hands over an ingest token", () => {
+    const html = stationsTab([CARD], [
+      { station: "st_new", name: "alex@new:widgets", host: "new", tokenless: true, expiresAt: NOW + 8 * 60_000, approved: false, because: null },
+    ]);
+    const shown = html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
+
+    expect(shown).toContain("alex@new:widgets asks from new to become a station of acme/widgets");
+    expect(shown).toContain("it holds no ingest token: approving hands it one, as yours");
+  });
+});
+
+/** A factory's ingest tokens, as tokens.listed answers. */
+const TOKENS: IngestTokenList = {
+  mayIssue: true,
+  tokens: [
+    { id: "t1" as IngestTokenList["tokens"][number]["id"], via: "station", label: "alex@mbp:widgets", station: "st_7f3a9c", by: "alex",
+      issuedAt: NOW - 3_600_000, revocable: true },
+    { id: "t2" as IngestTokenList["tokens"][number]["id"], via: "cockpit", label: "GitHub Actions", station: "", by: "ada",
+      issuedAt: NOW - 86_400_000, revocable: true },
+    { id: "t3" as IngestTokenList["tokens"][number]["id"], via: "deployment", label: "", station: "", by: "",
+      issuedAt: NOW - 7 * 86_400_000, revocable: false },
+  ],
+};
+
+function tokensCard(listed: IngestTokenList = TOKENS, issued: string | null = null) {
+  const html = renderToStaticMarkup(
+    <IngestTokens listed={listed} issued={issued} site="https://happy-otter-123.convex.site" factory="acme/widgets" now={NOW}
+                  onIssue={() => {}} onRevoke={() => {}} />);
+  return { html, shown: html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ") };
+}
+
+describe("the Stations tab's ingest tokens", () => {
+  it("lists every live token by how it was issued, to what, by whom and when, with Revoke where the viewer may", () => {
+    const { html, shown } = tokensCard();
+
+    expect(shown).toContain("alex@mbp:widgets");
+    expect(shown).toContain("a station's registration, approved by alex");
+    expect(shown).toContain("GitHub Actions");
+    expect(shown).toContain("issued here by ada");
+    expect(shown).toContain("issued on the deployment");
+    expect(html.match(/<button[^>]*>Revoke<\/button>/g)).toHaveLength(2);
+  });
+
+  it("offers an admin a token for CI, and shows the one just issued once, with where it goes", () => {
+    expect(tokensCard().html).toMatch(/<button[^>]*>Issue a token<\/button>/);
+    expect(tokensCard({ ...TOKENS, mayIssue: false }).html).not.toContain("Issue a token");
+
+    const { shown } = tokensCard(TOKENS, "asf_ingest_once");
+    expect(shown).toContain("asf_ingest_once");
+    expect(shown).toContain("shown this once");
+    expect(shown).toContain("secrets.ASF_COCKPIT_TOKEN");
+    expect(shown).toContain("vars.ASF_COCKPIT_URL");
+    expect(shown).toContain("https://happy-otter-123.convex.site");
+  });
+});
+
+describe("the Factory page, spaced (#154)", () => {
+  it("leaves 20px under its header, by its gap alone", () => {
+    const html = factoryView(page(), "overview");
+
+    expect(rootClasses(html)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-5"]));
+    expect(verticalMargins(classesOf(html, "header")[0])).toEqual([]);
   });
 });

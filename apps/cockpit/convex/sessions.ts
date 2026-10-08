@@ -8,9 +8,11 @@ import { roleOf } from "./commands";
 import { defaultCheck, repoOf } from "./factory";
 import { readableFactories } from "./factories";
 import { forgeWeb } from "./forge/memory";
+import { statesOf } from "./items";
 import { readDescription } from "./model/description";
 import { miniOf } from "./model/graph";
 import { phaseView, readSummary, view } from "./model/session";
+import { phaseType } from "./model/story";
 import { canRead, readable, viewing } from "./viewer";
 
 // Who sees a session is the forge's call, not the cockpit's: in a team
@@ -57,7 +59,9 @@ export const list = query({
     return {
       ...found,
       factories,
-      sessions: found.sessions.map(({ factory: from, session, acked, summary }) => ({ factory: from, session, acked, summary })),
+      sessions: await Promise.all(found.sessions.map(async ({ factory: from, session, acked, summary }) => ({
+        factory: from, session, acked, summary, states: await statesOf(ctx, from, summary),
+      }))),
     };
   },
 });
@@ -83,7 +87,8 @@ export const get = query({
     const budget = check && readDescription(check.description).budget;
     // Whether the viewer may purge its bodies (retention.ts): an admin of its repository.
     const mayPurge = (await roleOf(ctx, await viewing(ctx, signIn), stored.factory)) === "admin";
-    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), budget, mayPurge, ...page };
+    const states = await statesOf(ctx, stored.factory, page.summary);
+    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), budget, mayPurge, states, ...page };
   },
 });
 
@@ -119,7 +124,7 @@ export const progress = query({
     return {
       mini: graph ? miniOf(graph) : { blocks: [], current: null },
       stage: graph?.kind === "stages" && graph.current !== null ? graph.stages[graph.current].name : null,
-      phase: phase && { name: phase.name, since: phase.since },
+      phase: phase && { name: phase.name, type: phaseType(phase.kind), since: phase.since },
     };
   },
 });

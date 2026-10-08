@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Purged } from "@/convex/retention";
-import { Button, control, cx, Field } from "./ui";
+import { Button, Control, cx, Field } from "./ui";
 
 /**
  * A purge, asked for in two steps: open it, say why, confirm. What it removes
@@ -24,8 +24,13 @@ interface PurgeProps {
   onPurge: (reason: string) => Promise<Purged>;
 }
 
-/** The purge itself — what it removes, why, and the button — for a page that opens it its own way (a dialog). */
-export function PurgeForm({ label, explains, onPurge, className }: PurgeProps & { className?: string }) {
+/**
+ * The purge itself — what it removes, why, and the button — for a page that
+ * opens it its own way (a dialog). `onPurged` hears of a purge that went
+ * through, so whoever opened it can close it; a refusal or an error stays
+ * here, said in place, for the viewer to read and try again.
+ */
+export function PurgeForm({ label, explains, onPurge, onPurged, className }: PurgeProps & { onPurged?: () => void; className?: string }) {
   const [reason, setReason] = useState("");
   const [said, setSaid] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,7 +38,11 @@ export function PurgeForm({ label, explains, onPurge, className }: PurgeProps & 
     setBusy(true);
     setSaid("");
     void onPurge(reason)
-      .then((done) => setSaid(done.ok ? "Purging: the bodies are going now, and the audit line is written." : `Not purged: ${done.because}`))
+      .then((done) => {
+        if (!done.ok) return setSaid(`Not purged: ${done.because}`);
+        setSaid("Purging: the bodies are going now, and the audit line is written.");
+        onPurged?.();
+      })
       .catch((error: unknown) => setSaid(`Not purged: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => setBusy(false));
   };
@@ -42,8 +51,7 @@ export function PurgeForm({ label, explains, onPurge, className }: PurgeProps & 
       <p className="text-muted">{explains}</p>
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Why" className="min-w-0 grow">
-          <input type="text" value={reason} className={control} onChange={(event) => setReason(event.target.value)}
-                 placeholder="a token leaked into an artifact" />
+          <Control type="text" value={reason} onValueChange={setReason} placeholder="a token leaked into an artifact" />
         </Field>
         <Button variant="danger" disabled={busy || !reason.trim()} onClick={purge}>{label}</Button>
       </div>

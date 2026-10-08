@@ -3,7 +3,8 @@
 import { useState } from "react";
 import type { ClaimView } from "@/convex/model/claim";
 import { ONLINE_FOR } from "@/convex/model/command";
-import { formatSpan } from "./format";
+import { formatSpan, workItemHref } from "./format";
+import { ForgeRef } from "./icons";
 import { Button, LinkButton } from "./ui";
 import { useWho } from "./viewer";
 
@@ -23,11 +24,15 @@ function awayWords(claim: Pick<ClaimView, "heardAt">, now: number): string {
  * weekend is not a dead one, and nothing releases a claim by the clock. A
  * writer may release it, in two steps, the second saying what that does.
  * Shown on the session page, under its station and in Needs attention.
+ * `forge` is the forge's web origin, which the work item is linked on.
  */
-export function ClaimRow({ claim, now, onRelease }: { claim: ClaimView; now: number; onRelease?: (claim: ClaimView) => void }) {
+export function ClaimRow({ claim, now, forge, onRelease }: {
+  claim: ClaimView; now: number; forge: string; onRelease?: (claim: ClaimView) => void;
+}) {
   const [asking, setAsking] = useState(false);
   const who = useWho();
-  const item = `${claim.kind === "pr" ? "pull request" : "issue"} #${claim.number}`;
+  const href = workItemHref(forge, claim.repo, claim.kind, claim.number);
+  const item = <ForgeRef kind={claim.kind} href={href} state={claim.state}>#{claim.number}</ForgeRef>;
   const consequence = claim.consequence.charAt(0).toUpperCase() + claim.consequence.slice(1);
   if (claim.released !== null) {
     const { by, why } = claim.released;

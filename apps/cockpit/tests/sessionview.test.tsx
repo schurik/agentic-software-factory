@@ -6,6 +6,7 @@ import { DrawerView } from "../components/session/SessionDrawer";
 import { SessionView, sessionMenu, type Page } from "../components/session/SessionView";
 import { readShown, SHOWN, type Shown, writeShown } from "../components/session/shown";
 import { firstLine } from "../components/session/Timeline";
+import { Crumbs } from "../components/ui";
 import { ViewerLogin } from "../components/viewer";
 import type { ClaimView } from "../convex/model/claim";
 import type { SteeringView } from "../convex/model/command";
@@ -110,6 +111,18 @@ describe("the header", () => {
     expect(top).toMatch(/<a [^>]*href="https:\/\/forge\/acme\/widgets\/pull\/9"[^>]*>.*?#9<\/span><\/a>/);
     expect(top).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/tree\/asf\/a9f259f0"[^>]*>.*?asf\/a9f259f0<\/span><\/a>/);
     expect(read(top)).toContain("success");
+  });
+
+  it("links its factory and that factory's sessions in its breadcrumbs, and names itself last, unlinked", () => {
+    const top = header(html());
+    const crumbs = top.slice(top.indexOf("<nav"), top.indexOf("</nav>") + "</nav>".length);
+
+    expect(crumbs).toBe(renderToStaticMarkup(
+      <Crumbs trail={[{ label: "acme/widgets", href: "/factories/acme/widgets" }, { label: "sessions", href: "/sessions?factory=acme%2Fwidgets" }]}
+              here={<code>a9f259f0</code>} />));
+    expect(crumbs).toMatch(/<a [^>]*href="\/factories\/acme\/widgets"[^>]*>acme\/widgets<\/a>/);
+    expect(crumbs).toMatch(/<a [^>]*href="\/sessions\?factory=acme%2Fwidgets"[^>]*>sessions<\/a>/);
+    expect(crumbs).toMatch(/<span aria-current="page"><code>a9f259f0<\/code><\/span>/);
   });
 
   it("offers a finished session's pull request as its one action", () => {
@@ -236,9 +249,16 @@ describe("the Now card", () => {
     expect(card).toMatch(/3m 2\ds elapsed/);
   });
 
+  it("says which issue a gate was asked on, with its icon, linked on the forge", () => {
+    const card = nowCard(html({ events: upTo(SUSPENDED), viewer: "alex" }));
+    expect(read(card)).toMatch(/round 1, asked on #42/);
+    expect(card).toMatch(/asked on <a [^>]*href="https:\/\/forge\/acme\/widgets\/issues\/42"[^>]*><svg [^>]*aria-label="issue"/);
+  });
+
   it("says where a finished session's work went, and how long it took", () => {
     const card = read(nowCard(html()));
-    expect(card).toContain("All work landed in pull request #9");
+    expect(card).toContain("All work landed in #9");
+    expect(nowCard(html())).toMatch(/landed in <a [^>]*href="https:\/\/forge\/acme\/widgets\/pull\/9"[^>]*><svg [^>]*aria-label="pull request"/);
     expect(card).toContain("15s took");
   });
 
@@ -297,7 +317,6 @@ describe("the tabs", () => {
     expect(read(journal)).toMatch(/ 10\. review_1 · reviewer · success — approved: R1 and R2 are met /);
     // Markdown inside an entry is rendered: the journal's backticks and line breaks.
     expect(journal).toMatch(/⚑ risk \(planner, in plan\): the date is local midnight<br\/>\s*because: converted in UTC/);
-    expect(journal).toContain("max-w-[80ch]");
   });
 
   it("tell an agent's ⚑ note, a report, from a person's ✎ remark, an instruction that wins", () => {
@@ -409,13 +428,14 @@ describe("a claim the session holds", () => {
   const held: ClaimView = {
     id: "k1", kind: "issue", number: 42, repo: "acme/widgets", session: "a9f259f0", station: "st_7f3a9c",
     stationName: "alex@mbp:widgets", seenAt: NOW - 2 * 86_400_000, heardAt: NOW - 2 * 86_400_000,
-    grantedAt: NOW - 3 * 86_400_000, released: null, refused: null,
+    grantedAt: NOW - 3 * 86_400_000, released: null, refused: null, state: null,
     consequence: "relabels #42 `asf:queued` and abandons session a9f259f0",
   };
 
   it("is in Details: which station holds it and how long it has been away, with Release spelled out", () => {
     const markup = html({ events: failedIn(upTo(BUILDING)), claims: [held] });
-    expect(markup.replace(/<[^>]+>/g, "").replace(/\s+/g, " ")).toContain("issue #42 held by alex@mbp:widgets, offline 2d");
+    expect(markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")).toContain("#42 held by alex@mbp:widgets , offline 2d");
+    expect(markup).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/issues\/42"[^>]*><svg [^>]*aria-label="issue".*?#42<\/span><\/a> held by/);
     expect(markup).toMatch(/<button[^>]*title="Relabels #42 `asf:queued` and abandons session a9f259f0"[^>]*>Release claim<\/button>/);
   });
 });
