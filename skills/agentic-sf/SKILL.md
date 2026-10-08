@@ -1,7 +1,7 @@
 ---
 name: agentic-sf
-description: Agentic Software Factory — workflows as directories (workflow.yaml + tasks + agent bindings) over a closed stage vocabulary, with one entry point. Use when the user asks to install agentic-sf (`/agentic-sf install`, or plain words), run a workflow with asf, list or check workflows, create or edit a workflow directory, tune an agent's identity or a stage's task, or inspect a run's trace. Keywords - agentic-sf, asf, software factory, workflow.yaml, stage, task file, agent directory, factory.yaml.
-argument-hint: "[install | run <workflow> \"<prompt>\" | list | check | create workflow | edit agent | ...]"
+description: Agentic Software Factory — workflows as directories (workflow.yaml + tasks + agent bindings) over a closed stage vocabulary, with one entry point. Use when the user is new to agentic-sf (`/agentic-sf onboard`, "how do I start?"), asks to install or upgrade it, run a workflow or work an issue with asf, answer a waiting run, start the watchers, connect a repository to a cockpit or register a station, list or check workflows, create or edit a workflow directory, tune an agent's identity or a stage's task, inspect a run, or uninstall it. Keywords - agentic-sf, asf, software factory, workflow.yaml, stage, task file, agent directory, factory.yaml, cockpit, station.
+argument-hint: "[onboard | install | upgrade | doctor | run <workflow> \"<prompt>\" | issue <n> | up | connect cockpit | register station | create workflow | edit agent | uninstall | ...]"
 ---
 
 # Agentic Software Factory (asf)
@@ -28,10 +28,13 @@ The directory this `SKILL.md` lives in. Substitute it, never the literal
 
 ## Startup
 
-Three steps. Then stop.
+A request to be onboarded — `onboard`, "I'm new to this", "how do I start?",
+"what can it do?" — reads [cookbooks/onboard.md](cookbooks/onboard.md) and
+follows it instead. Anything else: three steps. Then stop.
 
 1. If `asf/factory.yaml` does not exist, say in one line that the factory is
-   not installed here and offer [cookbooks/install.md](cookbooks/install.md).
+   not installed here and offer [cookbooks/install.md](cookbooks/install.md)
+   — and, to someone new to it, [cookbooks/onboard.md](cookbooks/onboard.md).
    Stamping it by hand instead of running `install.py` is how a repo ends up
    with `asf/` but no `.env` — read the cookbook. Otherwise:
 2. Compare `asf/.skill-version` (the release that stamped this factory) with
@@ -123,13 +126,14 @@ journal file and lists its deviations.
 
 ## Request routing
 
-Commands are inline; five requests carry a cookbook as well — install,
-upgrade, run, uninstall, connecting a cockpit — and those are the ones whose
-answer is a decision process rather than a command. Read it before acting, not
-after.
+Commands are inline; six requests carry a cookbook as well — onboarding,
+install, upgrade, run, connecting a cockpit, uninstall — and those are the ones
+whose answer is a decision process rather than a command. Read it before
+acting, not after.
 
 | Request | Do |
 |---|---|
+| onboard / new to the skill / "how do I start?" / "what can it do?" / "how do I …?" across install, setup, cockpit, stations, updating, workflows | [cookbooks/onboard.md](cookbooks/onboard.md) — **read it first**: find where they stand (not installed, behind, not ready, ready) by looking, say it in two lines, offer the next step, then answer what they ask with the cookbook each answer names. Never recite it |
 | install / set up the factory here | [cookbooks/install.md](cookbooks/install.md) — **read it first**: four decisions belong to the repo, and `install.py` is the only supported way in. Then `uv run <skill>/scripts/install.py --harness claude_code\|pi` and `just doctor` |
 | upgrade the factory / "stamped at X · skill is Y" / `asf/.skill-version` missing or older than the skill's / a re-install printed `YOUR CONFIG NAMES OBSOLETE KEYS` | [cookbooks/upgrade.md](cookbooks/upgrade.md) — **read it first**: `install.py --force` refreshes the code and never the operator's `asf/factory.yaml`, so each key a release added (`cockpit.commands`, `worktree.publish`) and each obsolete one (`observability:`, `integration.mode: none`) is a decision put to the engineer, and registering a station is theirs to approve. Never refused meanwhile; `just doctor` prints both versions |
 | "is this repo ready to run?" / something failed before the first phase | `just doctor` — every check with its fix, then every workflow checked; spawns nothing. [cookbooks/install.md](cookbooks/install.md#post-install-checklist) |
@@ -148,7 +152,7 @@ after.
 | is this workflow runnable | `uv run asf/asf.py check <name>` — spawns nothing, names every problem |
 | what does this factory say it is / what a cockpit shows of it | `uv run asf/asf.py check --json` — the **self-description**: every workflow's trigger, stages, agents with their `tools`/`writes`, gates, the per-session budget, and the settings (routes, gates, how work lands, transcripts, commands, the tracker's project and labels) with every default resolved, as the factory's own code loads them. A cockpit never reads workflow files; this is all it knows of them |
 | show the workflows in the cockpit / "the factory says unchecked" / a CI check for the config | the optional CI workflow: `install.py --harness <h> --ci` stamps `.github/workflows/asf-check.yml` (`check --json --ship` on pull requests and default-branch pushes); the repo sets `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN` — a token a repository admin issues on the factory's Stations tab ([cookbooks/connect_cockpit.md](cookbooks/connect_cockpit.md#ci)). Ask before adding it — a repository's CI is its own. [cookbooks/install.md](cookbooks/install.md#run-it) |
-| create a workflow | copy the closest directory under `asf/workflows/`, edit `workflow.yaml`, run `check`. Read [references/design.md](references/design.md#workflows) first |
+| create or change a workflow | copy the closest directory under `asf/workflows/` (or edit one), edit `workflow.yaml`, run `check`. Read [references/design.md](references/design.md) first |
 | tailor an agent's TASK for one workflow | add `asf/workflows/<name>/tasks/<key>.md` — keys are the stage's TASKS (scout, plan, implement, fix, review, revise, document, recon, ask, refine). Keep the `## Report` block matching the type; `check` verifies it. `pr-review/tasks/implement.md` is the shipped example |
 | tailor an agent's IDENTITY for one workflow | bind it in `workflow.yaml` under `agents:` with `system_append: [agents/<x>.md]` — append, never replace |
 | change an agent for every workflow | edit `asf/agents/<name>/agent.md` — the frontmatter is the boundary, the prose is the voice |

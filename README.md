@@ -219,6 +219,9 @@ brings its own auth and needs no API key; `pi` needs that provider's key), how t
 tests and lint, how a run's branch lands, and whether issues may start runs. Ask your agent to
 install agentic-sf and it reads that cookbook for you; `just doctor` then answers whether the repo
 is ready. Taking the factory back out again is [`cookbooks/uninstall.md`](skills/agentic-sf/cookbooks/uninstall.md).
+New to all of it? `/agentic-sf onboard` (or "how do I start?") has your agent read
+[`cookbooks/onboard.md`](skills/agentic-sf/cookbooks/onboard.md): where your repository stands, and
+the answer to each first question — install, setup, the cockpit and stations, updating, workflows.
 
 ## Developing the skill
 

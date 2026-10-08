@@ -52,6 +52,13 @@ before — `None` when there are none, never omitted.
   it fails, is the new `cookbooks/connect_cockpit.md`, which `install.md`, `upgrade.md` and
   `SKILL.md` now point to. `asf/cockpit/min-version` does not rise: a local cockpit registers
   nothing.
+- **`/agentic-sf onboard`.** A new cookbook, `cookbooks/onboard.md`, finds where a repository
+  stands (not installed, behind, not ready, ready) and answers a new user's questions — install,
+  setup, the first run, the tracker, the cockpit and stations, updating, workflows and agents,
+  removing it — each pointing to the cookbook that holds the rest. It is the skill's first
+  argument hint, and the hints and description now name what the skill does today (upgrade,
+  doctor, issues, `up`, connecting a cockpit, registering a station, uninstall) instead of the
+  run trace it no longer has.
 - **The upgrade says how to update the skill itself, and `npx skills update` is not it.** In a
   repository the `skills` CLI sees an Eve agent in, `update` installs for Eve alone and then calls
   the skill current, and `--agent claude-code -y` alone copies the skill over the
