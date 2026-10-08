@@ -6,7 +6,7 @@
 import { isRecord } from "../model/wire";
 import {
   type Change, type Distance, FACTORY_FILE, type Issue, type Label, type OpenPull, type Person, type Proposal, type Pull,
-  type Repository, type Role,
+  type Repository, type Role, type Touched,
 } from "./forge";
 
 export interface Credential {
@@ -294,8 +294,36 @@ export class GitHub {
     }
   }
 
-  /** Every page of a listing, in order. `read` takes one page's body to its items. */
-  async list<T>(as: Credential, path: string, read: (body: unknown) => T[]): Promise<T[]> {
+  /**
+   * Every issue and pull request of `repo` that changed at or after `since`,
+   * as `as` is shown them, the latest change first — or null when they are
+   * not. One listing by when each last changed, newest first, whose first
+   * page is asked every round and conditionally: a round in which nothing
+   * changed is one `304`. Only a page with nothing on it older than `since`
+   * — more changed since the last look than a page holds — goes on to the next.
+   */
+  async touched(as: Credential, repo: string, since: string): Promise<Touched[] | null> {
+    const after = Date.parse(since);
+    const fresh = (item: Touched) => Date.parse(item.updatedAt) >= after;
+    let found: Touched[];
+    try {
+      found = await this.list(as, `/repos/${repo}/issues?state=all&sort=updated&direction=desc&per_page=100`,
+        (body) => items(body).map(readTouched), (page) => !page.every(fresh));
+    } catch (error) {
+      if (error instanceof ForgeError && UNSHOWN.has(error.status)) return null;
+      throw error;
+    }
+    // Paged while things changed, one may be on two pages: its first is its latest.
+    const seen = new Set<number>();
+    return found.filter((item) => fresh(item) && !seen.has(item.number) && seen.add(item.number));
+  }
+
+  /**
+   * Every page of a listing, in order — or, given `enough`, the pages up to
+   * the first it says is. `read` takes one page's body to its items.
+   */
+  async list<T>(as: Credential, path: string, read: (body: unknown) => T[],
+                enough: (page: T[]) => boolean = () => false): Promise<T[]> {
     const all: T[] = [];
     let url: string | null = this.api + path;
     while (url !== null) {
@@ -305,6 +333,7 @@ export class GitHub {
         return { items: read(body), next: next(response), full: entries(body) >= size };
       });
       all.push(...page.items);
+      if (enough(page.items)) break;
       // A full page that named no successor is asked for one anyway. A `304`
       // says its body is what it was — not that it is still the last page:
       // whether the ETag covers the `Link` header is nothing GitHub promises.
@@ -372,6 +401,18 @@ function readIssue(body: unknown, number: number): Issue {
   };
 }
 
+/** An issue or pull request as a listing of the issues endpoint describes it, and where it stands. */
+function readTouched(body: Record<string, unknown>): Touched {
+  const pull = isRecord(body.pull_request) ? body.pull_request : null;
+  const state = body.state === "open"
+    ? (pull !== null && body.draft === true ? "draft" : "open")
+    : (pull !== null && typeof pull.merged_at === "string" ? "merged" : "closed");
+  return {
+    number: Number(body.number), pull: pull !== null, state,
+    updatedAt: typeof body.updated_at === "string" ? body.updated_at : "",
+  };
+}
+
 /** An open pull request of `repo` as the forge's body for it describes it. */
 function readPull(pull: Record<string, unknown>, repo: string): OpenPull {
   const head = isRecord(pull.head) ? pull.head : {};
@@ -383,6 +424,7 @@ function readPull(pull: Record<string, unknown>, repo: string): OpenPull {
     head: own && typeof head.ref === "string" ? head.ref : "",
     author: isRecord(pull.user) && typeof pull.user.login === "string" ? pull.user.login : "",
     at: typeof pull.created_at === "string" ? Date.parse(pull.created_at) || 0 : 0,
+    draft: pull.draft === true,
   };
 }
 

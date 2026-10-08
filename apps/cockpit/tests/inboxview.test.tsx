@@ -36,7 +36,7 @@ describe("the inbox's keys", () => {
 const ROW: Row = {
   factory: "acme/widgets", session: "a9f259f0", gate: "plan", round: 2, kind: "gate", questions: 0,
   since: "2026-10-01T11:30:00.000Z", summary: "the plan now names the module", channel: "issue", issueNumber: 42,
-  issueUrl: "https://github.com/acme/widgets/issues/42", workItem: "#42 Resolve relative due dates",
+  issueUrl: "https://github.com/acme/widgets/issues/42", issueState: null, workItem: "#42 Resolve relative due dates",
   workflow: "issue", station: "schurik@mbp:widgets", forYou: [], blocked: null,
   via: "comment", refused: null, queued: null, stationSeenAt: 0, attendedAt: null, note: "",
 };

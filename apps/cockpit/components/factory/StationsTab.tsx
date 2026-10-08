@@ -286,7 +286,7 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
         <div className="mt-4"><Sessions factory={factory} rows={station.sessions} now={now} workflow station={false} /></div>
       ) : null}
       {station.claims.length ? (
-        <div className="mt-3">{station.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} now={now} onRelease={onRelease} />)}</div>
+        <div className="mt-3">{station.claims.map((claim) => <ClaimRow key={claim.id} claim={claim} now={now} forge={forge} onRelease={onRelease} />)}</div>
       ) : null}
       {waiting.length ? (
         <ul className="mt-3 grid gap-1 rounded-lg bg-wait-soft px-3 py-2 text-sm">

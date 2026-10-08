@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import {
-  asCommitted, asEdited, branchFor, editRefusal, proposalProblem, provenance, yamlProblem,
+  asCommitted, asEdited, branchFor, editable, editRefusal, proposalProblem, provenance, yamlProblem,
 } from "../convex/model/config";
 import { fakeForge, type FakeForge, localMode, type Role } from "./forge";
 import { catchUp, cockpit, type Cockpit, signIn, team } from "./helpers";
@@ -101,6 +101,22 @@ describe("the YAML check", () => {
   });
 });
 
+describe("which files the cockpit edits", () => {
+  it("are the text config under asf/: YAML, Markdown, plain text, JSON, TOML and the samples beside them", () => {
+    for (const path of [
+      "asf/factory.yaml", "asf/workflows/sdlc/workflow.yml", "asf/agents/planner/agent.md", "asf/notes.txt",
+      "asf/data.json", "asf/pyproject.toml", "asf/env.sample", "asf/.env.sample", "asf/FACTORY.YAML",
+    ]) expect(editable(path), path).toBe(true);
+  });
+
+  it("are never Python, a binary or a file with no kind to go by, and never outside asf/", () => {
+    for (const path of [
+      "asf/asf.py", "asf/stages/plan/stage.py", "asf/logo.png", "asf/engine/__pycache__/x.pyc", "asf/cockpit/min-version",
+      "asf/.skill-version", "asf/justfile", "README.md", "asf/../README.md", "asf",
+    ]) expect(editable(path), path).toBe(false);
+  });
+});
+
 describe("a file's line endings", () => {
   it("are LF in the editor, and the file's own again when it is committed", () => {
     expect(asEdited(FACTORY_YAML)).toEqual({ ok: true, text: FACTORY_YAML, crlf: false });
@@ -125,7 +141,8 @@ describe("what blocks a proposal before the forge is asked", () => {
     expect(proposalProblem([file], "  ")).toBe("a pull request needs a title");
     expect(proposalProblem([], "Raise the budget")).toBe("no file was edited");
     expect(proposalProblem([file, file], "Raise the budget")).toBe("asf/factory.yaml is in the proposal twice");
-    expect(proposalProblem([{ path: "README.md", content: "" }], "x")).toMatch(/only the files under `asf\/`/);
+    expect(proposalProblem([{ path: "README.md", content: "" }], "x")).toMatch(/only the text files under `asf\/`/);
+    expect(proposalProblem([{ path: "asf/asf.py", content: "" }], "x")).toMatch(/only the text files under `asf\/`/);
     expect(proposalProblem([{ path: "asf/factory.yaml", content: "a: [1\n" }], "x")).toMatch(/^asf\/factory\.yaml, line /);
   });
 });
@@ -271,8 +288,8 @@ describe("proposing a config edit", () => {
   });
 
   it.each([
-    ["a file outside asf/", proposing({ files: [{ path: "README.md", content: "# gone\n" }] }), "only the files under `asf/`"],
-    ["a path that climbs out", proposing({ files: [{ path: "asf/../README.md", content: "x\n" }] }), "only the files under `asf/`"],
+    ["a file outside asf/", proposing({ files: [{ path: "README.md", content: "# gone\n" }] }), "only the text files under `asf/`"],
+    ["a path that climbs out", proposing({ files: [{ path: "asf/../README.md", content: "x\n" }] }), "only the text files under `asf/`"],
     ["a file the base does not hold", proposing({ files: [{ path: "asf/new.yaml", content: "a: 1\n" }] }), "asf/new.yaml is not"],
     ["the same file twice", proposing({ files: [{ path: "asf/factory.yaml", content: EDITED }, { path: "asf/factory.yaml", content: EDITED }] }), "twice"],
     ["no change at all", proposing({ files: [{ path: "asf/factory.yaml", content: FACTORY_YAML }] }), "nothing changed"],
@@ -314,7 +331,7 @@ describe("reading a file to edit", () => {
     expect(await t.action(api.config.read, { factory: "acme/widgets", path: "asf/factory.yaml", ref: BASE, signIn: alex }))
       .toEqual({ ok: true, text: FACTORY_YAML, crlf: false });
     expect(await t.action(api.config.read, { factory: "acme/widgets", path: "README.md", ref: BASE, signIn: alex }))
-      .toEqual({ ok: false, because: expect.stringContaining("only the files under `asf/`") });
+      .toEqual({ ok: false, because: expect.stringContaining("only the text files under `asf/`") });
     expect(await t.action(api.config.read, { factory: "acme/widgets", path: "asf/factory.yaml", ref: BASE }))
       .toEqual({ ok: false, because: "no such factory among the ones you can read" });
   });
@@ -353,6 +370,33 @@ describe("the Factory page says whether the viewer may edit", () => {
   });
 });
 
+describe("the Config tab's files", () => {
+  it("are only the factory's text config: the forge's look leaves out its Python and anything else", async () => {
+    const forge = fakeForge();
+    const { t, alex } = await teamWith(forge, "write");
+    forge.commit("acme/widgets", "c".repeat(40), {
+      "asf/asf.py": "print('hello')\n",
+      "asf/stages/plan/stage.py": "STAGE = 1\n",
+      "asf/cockpit/min-version": "1.0.0\n",
+    });
+
+    const looked = await t.action(api.factory.look, { factory: "acme/widgets", signIn: alex });
+
+    expect(looked.ok && looked.files).toEqual([
+      "asf/agents/planner/agent.md", "asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml",
+    ]);
+  });
+
+  it("are all a reader may open: a file the look leaves out is not read", async () => {
+    const forge = fakeForge();
+    const { t, alex } = await teamWith(forge, "write");
+    forge.commit("acme/widgets", "c".repeat(40), { "asf/asf.py": "print('hello')\n" });
+
+    expect(await t.action(api.config.read, { factory: "acme/widgets", path: "asf/asf.py", ref: "c".repeat(40), signIn: alex }))
+      .toEqual({ ok: false, because: expect.stringContaining("only the text files under `asf/`") });
+  });
+});
+
 describe("the Config tab's open proposals", () => {
   it("are the open pull requests from a cockpit/ branch, as the factory's look finds them", async () => {
     const forge = fakeForge();
@@ -369,7 +413,7 @@ describe("the Config tab's open proposals", () => {
 
     expect(looked.ok && looked.proposals).toEqual([{
       number: opened.number, title: "Raise the budget", url: opened.url, head: "cockpit/alex/raise-the-budget",
-      author: "alex", at: expect.any(Number),
+      author: "alex", at: expect.any(Number), draft: false,
     }]);
   });
 

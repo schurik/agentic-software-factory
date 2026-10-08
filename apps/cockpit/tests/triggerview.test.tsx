@@ -53,7 +53,7 @@ describe("the trigger form", () => {
   it("links the issue it labelled, or says why it did not", () => {
     expect(form({ issue: "42", label: "" }, {
       outcome: { ok: true, workflow: "issue", title: "health check broken", url: "https://github.com/acme/widgets/issues/42" },
-    })).toContain("#42 health check broken</a>: issue starts when the factory&#x27;s issues watcher next polls");
+    })).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/issues\/42" target="_blank" rel="noreferrer"><svg [^>]*aria-label="issue open".*?#42 health check broken<\/span><\/a>: issue starts when the factory&#x27;s issues watcher next polls/);
     expect(form({ issue: "43", label: "" }, { outcome: { ok: false, because: "#43 is closed" } }))
       .toContain("Not triggered: #43 is closed.");
   });

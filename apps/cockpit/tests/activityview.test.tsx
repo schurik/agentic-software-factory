@@ -12,7 +12,7 @@ const HOUR = 3600_000;
 
 const CLAIM: ClaimView = {
   id: "k1", kind: "issue", number: 42, repo: "acme/widgets", session: "b1", station: "st_bob", stationName: "bob@desk:widgets",
-  seenAt: 0, heardAt: NOW - 50 * HOUR, grantedAt: NOW - 50 * HOUR, released: null, refused: null,
+  seenAt: 0, heardAt: NOW - 50 * HOUR, grantedAt: NOW - 50 * HOUR, released: null, refused: null, state: null,
   consequence: "relabels #42 `asf:queued` and abandons session b1",
 };
 
@@ -56,7 +56,8 @@ describe("the Stations tab", () => {
     const said = text(render());
 
     expect(said).toMatch(/alex@mbp:widgets.*r1.*running.*f1.*fail/);
-    expect(said).toContain("issue #42 held by bob@desk:widgets , offline 2d");
+    expect(said).toContain("#42 held by bob@desk:widgets , offline 2d");
+    expect(render()).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/issues\/42"[^>]*><svg [^>]*aria-label="issue"/);
     expect(said).toMatch(/Release claim/);
   });
 

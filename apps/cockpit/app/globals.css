@@ -13,6 +13,18 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* A scroll bar that shows only while the pointer is over what it scrolls: at rest the content has
+   the room, and the bar is there the moment a hand reaches for it. Standard properties where they
+   are supported; WebKit's pseudo-elements, which those properties switch off, for Safari. */
+@utility scrollbar-rest {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  &:hover { scrollbar-color: var(--line-strong) transparent; }
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-thumb { border-radius: 4px; background: transparent; }
+  &:hover::-webkit-scrollbar-thumb { background: var(--line-strong); }
+}
+
 :root {
   --bg: #f4f4f5;
   --surface: #ffffff;

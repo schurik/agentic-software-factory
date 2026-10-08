@@ -30,6 +30,7 @@ import type * as forge_token from "../forge/token.js";
 import type * as handshakes from "../handshakes.js";
 import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
+import type * as items from "../items.js";
 import type * as ingest from "../ingest.js";
 import type * as model_answer from "../model/answer.js";
 import type * as model_attention from "../model/attention.js";
@@ -102,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   handshakes: typeof handshakes;
   http: typeof http;
   inbox: typeof inbox;
+  items: typeof items;
   ingest: typeof ingest;
   "model/answer": typeof model_answer;
   "model/attention": typeof model_attention;

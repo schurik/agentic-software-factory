@@ -6,8 +6,8 @@ import { FACTORY_FILE } from "@/convex/forge/forge";
 import type { Budget, DescribedWorkflow, Settings } from "@/convex/model/description";
 import type { Drift } from "@/convex/model/drift";
 import type { Purged } from "@/convex/retention";
-import { formatAgoAt, formatDuration, plural } from "../format";
-import { StageIcon } from "../icons";
+import { branchHref, formatAgoAt, formatDuration, plural } from "../format";
+import { ForgeRef, StageIcon } from "../icons";
 import { Purge } from "../Purge";
 import { Button, Card, Facts, LinkButton, Loading, Notice, Pre, StatusPill, Tag } from "../ui";
 import { useWho } from "../viewer";
@@ -22,9 +22,10 @@ export type PurgeLine = NonNullable<FunctionReturnType<typeof api.retention.purg
  * how work lands, and limits and data — as its own `asf check --json`
  * described them on the default branch, every default resolved by the
  * factory's code: the cockpit never parses factory.yaml. Above them, "Edit
- * config": the files under `asf/` there, each edited as text into a pull
- * request in the writer's name, and the proposals still open. Pure: the
- * page's query, the forge look, the drifts and the editor come in as props.
+ * config", which opens the editor's dialog on the files under `asf/` there,
+ * edited as text into a pull request in the writer's name, and the proposals
+ * still open. Pure: the page's query, the forge look, the drifts and the
+ * editor come in as props.
  */
 export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purges, onPurge, onTab }: {
   page: Page;
@@ -33,9 +34,9 @@ export function ConfigTab({ page, look, drifts, forge, now, onEdit, editor, purg
   /** The forge's web origin, e.g. https://github.com. */
   forge: string;
   now: number;
-  /** Open `path` in the editor. Without it the files are listed only. */
-  onEdit?: (path: string) => void;
-  /** The editor, when a file is open in it. */
+  /** Open the editor. Without it there is no Edit config. */
+  onEdit?: () => void;
+  /** The editor's dialog, once it has been opened. */
   editor?: ReactNode;
   /** Every purge of the factory's bodies, newest first. */
   purges?: PurgeLine[] | null;
@@ -98,38 +99,37 @@ function names(logins: string[], who: (login: string) => string, none: string): 
 }
 
 /**
- * Edit config: where the config is and what changing it means, the files
- * under `asf/` linked to the forge — "Edit config" opens factory.yaml, and
- * each file has its own Edit — and the pull requests proposed here still open.
+ * Edit config: where the config is and what changing it means, the one
+ * action that opens the editor — whose dialog lists the files — and the pull
+ * requests proposed here still open.
  */
 function Edit({ page, look, forge, now, onEdit }: {
   page: Page;
   look: Look | null;
   forge: string;
   now: number;
-  onEdit?: (path: string) => void;
+  onEdit?: () => void;
 }) {
   const who = useWho();
   const tip = look?.ok ? look.tip : null;
   const files = look?.ok ? look.files : null;
-  const first = files?.includes(FACTORY_FILE) ? FACTORY_FILE : files?.[0];
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <p className="min-w-0 grow text-sm">
           The factory&apos;s config is <code>asf/</code> on the default branch
-          {page.defaultBranch ? <>, <code>{page.defaultBranch}</code></> : null}{tip ? <> at <code>{short(tip)}</code></> : null}.
+          {page.defaultBranch ? <>, <ForgeRef kind="branch" href={branchHref(forge, page.repo, page.defaultBranch)}>{page.defaultBranch}</ForgeRef></> : null}{tip ? <> at <code>{short(tip)}</code></> : null}.
           A change to it is a pull request, checked in the repository&apos;s CI.
         </p>
         {onEdit ? (
-          <Button variant="primary" size="sm" className="self-start" disabled={page.edit !== null || first === undefined}
-                  title={page.edit ?? undefined} onClick={() => first && onEdit(first)}>Edit config</Button>
+          <Button variant="primary" size="sm" className="self-start" disabled={page.edit !== null || !files?.length}
+                  title={page.edit ?? undefined} onClick={onEdit}>Edit config</Button>
         ) : null}
       </div>
       {onEdit && page.edit !== null ? <p className="mt-2 text-sm text-muted">Editing is disabled: {page.edit}.</p> : null}
 
       {look === null ? <div className="mt-3 text-sm"><Loading what="Asking the forge…" /></div>
-        : !look.ok ? <Notice className="text-sm">{look.because}</Notice>
+        : !look.ok ? <Notice className="mt-3 text-sm">{look.because}</Notice>
           : (
             <>
               <h3 className="mt-4 mb-1.5 text-sm font-medium text-muted">Open proposals</h3>
@@ -137,25 +137,15 @@ function Edit({ page, look, forge, now, onEdit }: {
                 <ul className="grid gap-1 text-sm">
                   {look.proposals.map((proposal) => (
                     <li key={proposal.number}>
-                      <a href={proposal.url} target="_blank" rel="noreferrer">#{proposal.number} {proposal.title}</a>
+                      <ForgeRef kind="pr" href={proposal.url} state={proposal.draft ? "draft" : "open"} newTab>
+                        #{proposal.number} {proposal.title}
+                      </ForgeRef>
                       <span className="text-muted"> · by {who(proposal.author)} {formatAgoAt(proposal.at, now)}</span>
                     </li>
                   ))}
                 </ul>
               )}
-              <h3 className="mt-4 mb-1.5 text-sm font-medium text-muted">Files</h3>
-              {files === null ? <p className="text-sm text-muted">The forge does not show this factory&apos;s files.</p> : (
-                <ul className="overflow-hidden rounded-lg border border-line text-sm">
-                  {files.map((path) => (
-                    <li key={path} className="flex items-center gap-3 border-b border-line px-3.5 py-2 last:border-b-0">
-                      <a href={`${forge}/${page.repo}/blob/${tip}/${path}`} className="min-w-0 grow break-all"><code>{path}</code></a>
-                      {onEdit ? (
-                        <Button size="sm" disabled={page.edit !== null} title={page.edit ?? undefined} onClick={() => onEdit(path)}>Edit</Button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {!files?.length ? <p className="mt-3 text-sm text-muted">The forge shows no config file of this factory&apos;s to edit.</p> : null}
             </>
           )}
     </Card>
@@ -183,7 +173,7 @@ function CheckGroup({ check, now, onTab }: { check: Check | null; now: number; o
         {description.skillVersion ? <> · skill {description.skillVersion}</> : <> · stamped before 1.1</>}
       </p>
       {description.newer ? (
-        <Notice className="text-sm">
+        <Notice className="mt-3 text-sm">
           This description is format {description.format}, newer than this cockpit reads: upgrade the cockpit to see all of it.
         </Notice>
       ) : null}

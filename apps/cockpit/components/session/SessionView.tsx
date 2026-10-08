@@ -5,6 +5,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { ChevronRight, Copy, Ellipsis, Trash2, X } from "lucide-react";
 import { type ReactNode, useContext, useState } from "react";
+import type { ItemStates } from "@/convex/items";
 import type { ClaimView } from "@/convex/model/claim";
 import type { SteeringView } from "@/convex/model/command";
 import type { Budget } from "@/convex/model/description";
@@ -12,12 +13,13 @@ import { isLive, type SessionView as View, until } from "@/convex/model/session"
 import { markOfStatus, miniOf } from "@/convex/model/graph";
 import type { Chapter } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
-import { formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
+import { branchHref, formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
+import { factoryHref } from "../factory/view";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
 import { PurgeForm } from "../Purge";
-import { Button, buttonClass, Card, cx, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, Tabs } from "../ui";
+import { Button, buttonClass, Card, Crumbs, cx, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, Tabs } from "../ui";
 import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
@@ -36,7 +38,12 @@ export type Page = View & {
   budget: Budget | null;
   /** Whether the viewer may purge its bodies: an admin of its repository. */
   mayPurge?: boolean;
+  /** Where its issue and pull request stand on the forge; not known when absent. */
+  states?: ItemStates;
 };
+
+/** A session's work items, where nothing is known of where they stand. */
+const UNKNOWN: ItemStates = { issue: null, pr: null };
 
 /** What the ⋯ menu holds for this viewer: copying the id always, purging for an admin of the repository. */
 export function sessionMenu(page: Page): ("copy" | "purge")[] {
@@ -124,7 +131,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
         })}
         {summary.status === "running" ? <p className="px-1 text-sm text-muted">● live · updating as events arrive</p> : null}
       </div>
-      <NowCard summary={summary} story={story} budget={page.budget} now={now} viewer={viewer} openPhase={openPhase}
+      <NowCard summary={summary} states={page.states ?? UNKNOWN} story={story} budget={page.budget} now={now} viewer={viewer} openPhase={openPhase}
                openGate={waiting && go(withGate(shown, waiting.phaseId))} className="max-md:order-1" />
       <Card className="px-5 pb-5 max-md:order-3 md:px-6">
         <Tabs label="Session" selected={tab} onSelect={(next: SessionTab) => onShow?.({ ...shown, tab: next })} tabs={tabs} />
@@ -149,21 +156,22 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
 function Header({ page, action, onCommand, onPurge }: {
   page: Page; action: Action | null; onCommand?: (command: Command) => void; onPurge?: (reason: string) => Promise<Purged>;
 }) {
-  const { summary, story, session, factory, forge } = page;
+  const { summary, story, session, factory, forge, states = UNKNOWN } = page;
   const issue = issueNumber(summary.issueUrl);
   const pr = prNumber(summary.prUrl);
   return (
     <header>
-      <div className="text-sm text-muted">{factory} / sessions / <code>{session}</code></div>
+      <Crumbs trail={[{ label: factory, href: factoryHref(factory) }, { label: "sessions", href: `/sessions?factory=${encodeURIComponent(factory)}` }]} here={<code>{session}</code>} />
       <div className="mt-1.5 flex flex-col gap-3 md:flex-row md:items-start">
         <div className="min-w-0 grow">
           <h1>{story.title || `Session ${session}`}</h1>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
-            {issue ? <ForgeRef kind="issue" href={summary.issueUrl}>#{issue}</ForgeRef> : summary.trigger === "prompt" ? <span>from a prompt</span> : null}
-            {pr ? <ForgeRef kind="pr" href={summary.prUrl}>#{pr}</ForgeRef> : null}
+            {issue ? <ForgeRef kind="issue" href={summary.issueUrl} state={states.issue}>#{issue}</ForgeRef>
+              : summary.trigger === "prompt" ? <span>from a prompt</span> : null}
+            {pr ? <ForgeRef kind="pr" href={summary.prUrl} state={states.pr}>#{pr}</ForgeRef> : null}
             {summary.branch ? (
               <span className="flex min-w-0 items-center gap-1">
-                <ForgeRef kind="branch" href={forge ? `${forge}/${factory}/tree/${summary.branch}` : ""}>{summary.branch}</ForgeRef>
+                <ForgeRef kind="branch" href={branchHref(forge, factory, summary.branch)}>{summary.branch}</ForgeRef>
                 {summary.baseRef ? <span className="text-faint">→ {summary.baseRef}</span> : null}
               </span>
             ) : null}

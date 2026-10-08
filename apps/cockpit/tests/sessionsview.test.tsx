@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type Listed, type SessionsFound, SessionsView, Where } from "../components/sessions/SessionsTable";
 import { EMPTY_SUMMARY, type Summary } from "../convex/model/session";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // The Sessions page (#116), rendered to static markup with no backend: the
 // factory pills and the one search box above a table of five columns — a
@@ -16,7 +17,7 @@ function text(html: string): string {
 
 function listed(session: string, fields: Partial<Summary> = {}, factory = "acme/widgets"): Listed {
   return {
-    factory, session, acked: 4,
+    factory, session, acked: 4, states: { issue: null, pr: null },
     summary: {
       ...EMPTY_SUMMARY, status: "success", workflows: ["issue", "pr-review"], workflow: "pr-review", triggeredBy: "sam",
       request: "#42 Resolve relative due dates via the meeting date", issueUrl: "https://github.com/acme/widgets/issues/42",
@@ -162,10 +163,19 @@ describe("a session's where", () => {
   it("is its mini graph once it does", () => {
     const html = renderToStaticMarkup(<Where workflow="issue" progress={{
       mini: { blocks: [{ key: "0", status: "done", stage: "scout", phase: null }, { key: "1", status: "running", stage: "plan", phase: null }], current: 1 },
-      stage: "plan", phase: { name: "plan", since: "2026-10-01T11:50:00.000Z" },
+      stage: "plan", phase: { name: "plan", type: "agent", since: "2026-10-01T11:50:00.000Z" },
     }} />);
 
     expect(text(html)).toContain("plan");
     expect(html).toContain('title="scout"');
+  });
+});
+
+describe("the sessions page, spaced (#154)", () => {
+  it("leaves 20px under its title, by its gap alone", () => {
+    for (const html of [render(), render({ looked: 0, sessions: [] })]) {
+      expect(rootClasses(html)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-5"]));
+      expect(verticalMargins(classesOf(html, "header")[0])).toEqual([]);
+    }
   });
 });

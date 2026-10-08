@@ -15,8 +15,10 @@ import { readDescription } from "../convex/model/description";
 import { phasedIn } from "../convex/model/phases";
 import { EMPTY_SUMMARY } from "../convex/model/session";
 import { stagesOf } from "../convex/model/workflows";
+import { Crumbs } from "../components/ui";
 import { ViewerLogin } from "../components/viewer";
 import { recorded } from "./helpers";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // The Factory page's header and tabs, rendered to static markup with no
 // backend (spec #40): workflows from the factory's own self-description, a
@@ -172,6 +174,16 @@ describe("the Workflows tab", () => {
 });
 
 describe("the header", () => {
+  it("links the Factories list in its breadcrumbs, and names the factory last, unlinked", () => {
+    const html = renderToStaticMarkup(
+      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+    const crumbs = html.slice(html.indexOf("<nav"), html.indexOf("</nav>") + "</nav>".length);
+
+    expect(crumbs).toBe(renderToStaticMarkup(<Crumbs trail={[{ label: "Factories", href: "/factories" }]} here="acme/widgets" />));
+    expect(crumbs).toMatch(/<a [^>]*href="\/factories"[^>]*>Factories<\/a>/);
+    expect(crumbs).toMatch(/<span aria-current="page">acme\/widgets<\/span>/);
+  });
+
   it("leaves Run a prompt to the app header", () => {
     const html = renderToStaticMarkup(
       <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
@@ -217,16 +229,18 @@ describe("the Config tab", () => {
     .replace(/&#x27;/g, "'").replace(/\s+/g, " ").replace(/ ([,.:;])(?= )/g, "$1");
   const described = page({ check: { ...page().check!, description: SETTINGS } });
 
-  it("leads with Edit config, the files it edits, and the proposals still open", () => {
+  it("leads with Edit config and the proposals still open", () => {
     const opened: Look = { ...LOOK, proposals: [{
       number: 12, title: "Raise the budget", url: `${FORGE}/acme/widgets/pull/12`, head: "cockpit/alex/raise-the-budget",
-      author: "alex", at: NOW - 3_600_000,
+      author: "alex", at: NOW - 3_600_000, draft: false,
     }] };
     const html = config(described, { look: opened });
 
     expect(html).toMatch(/<button[^>]*>Edit config<\/button>/);
-    expect(html).toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);
-    expect(html).toContain(`<a href="${FORGE}/acme/widgets/pull/12"`);
+    expect(html).not.toContain(`href="${FORGE}/acme/widgets/blob/${TIP}/asf/factory.yaml"`);   // the editor lists the files
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/pull/12"[^>]*><svg [^>]*aria-label="pull request open"`));
+    // The default branch, as the forge has it.
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a>`));
     expect(text(html)).toContain("#12 Raise the budget · by you 1h ago");
     expect(text(config(described))).toContain("No config edit proposed here is open.");
   });
@@ -365,7 +379,7 @@ describe("the factory page", () => {
 
     expect(html).toContain(`href="${FORGE}/acme/widgets"`);
     expect(html).toContain("check failing");
-    expect(html).toContain(`<code>main</code> at <code>${TIP.slice(0, 7)}</code>`);
+    expect(html).toMatch(new RegExp(`<a [^>]*href="${FORGE}/acme/widgets/tree/main"[^>]*><svg [^>]*aria-label="branch".*?main</span></a> at <code>${TIP.slice(0, 7)}</code>`));
     expect(html).toContain("1/2 stations online");                 // st_a polled 5s ago, st_b an hour ago
     expect(html).toContain("$2.50 · 2M tokens per session");
   });
@@ -557,5 +571,14 @@ describe("the Stations tab's ingest tokens", () => {
     const reader = drawn({ ...TOKENS, mayIssue: false });
     expect(reader).not.toContain("Issue a token for CI");
     expect(reader).toContain("issued here by an admin");
+  });
+});
+
+describe("the Factory page, spaced (#154)", () => {
+  it("leaves 20px under its header, by its gap alone", () => {
+    const html = factoryView(page(), "overview");
+
+    expect(rootClasses(html)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-5"]));
+    expect(verticalMargins(classesOf(html, "header")[0])).toEqual([]);
   });
 });

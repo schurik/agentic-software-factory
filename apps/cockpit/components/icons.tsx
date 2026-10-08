@@ -1,9 +1,11 @@
 import {
-  BookOpen, CircleDot, Code, ExternalLink, Eye, FlaskConical, GitBranch, GitCommitHorizontal, GitMerge, GitPullRequest,
-  ListChecks, type LucideIcon, Shapes, Telescope,
+  BookOpen, CircleCheck, CircleDot, Code, ExternalLink, Eye, FlaskConical, GitBranch, GitCommitHorizontal, GitMerge,
+  GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, ListChecks, type LucideIcon, Shapes, Telescope,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import type { ItemState } from "@/convex/forge/forge";
 import type { Mark, StageStatus } from "@/convex/model/graph";
+import type { PhaseType } from "@/convex/model/story";
 import { cx } from "./ui";
 
 /**
@@ -50,31 +52,60 @@ export function StatusIcon({ status, size = 14, className }: { status: Mark | St
   }
 }
 
-/** Whether a phase was a person at a gate, code, or an agent: a diamond, brackets, a ringed dot. */
-export function KindIcon({ type, className }: { type: "gate" | "code" | "agent"; className?: string }) {
-  const props = { width: 12, height: 12, viewBox: "0 0 16 16", role: "img", "aria-label": type, className: cx("shrink-0 text-faint", className) };
+/** Whether a phase was a person at a gate, code, or an agent: a diamond, brackets, a ringed dot; faint unless `className` colours it. */
+export function KindIcon({ type, size = 12, className = "text-faint" }: { type: PhaseType; size?: number; className?: string }) {
+  const props = { width: size, height: size, viewBox: "0 0 16 16", role: "img", "aria-label": type, className: cx("shrink-0", className) };
   if (type === "gate") return <svg {...props}><path d="M8 1.5L14.5 8 8 14.5 1.5 8z" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M8 1.5L14.5 8 8 14.5z" fill="currentColor" /></svg>;
   if (type === "code") return <svg {...props}><path d="M5.5 4L2 8l3.5 4M10.5 4L14 8l-3.5 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
   return <svg {...props}><circle cx="8" cy="8" r="2.4" fill="currentColor" /><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>;
 }
 
 const REFS = { issue: CircleDot, pr: GitPullRequest, branch: GitBranch } as const;
+const REF_WORDS: Record<keyof typeof REFS, string> = { issue: "issue", pr: "pull request", branch: "branch" };
+
+/**
+ * An issue or a pull request where it stands, as the forge draws it: open
+ * green, merged purple, closed unmerged red, a draft grey — and a closed
+ * issue purple, done as a merge is. An issue has no draft, nor a merge.
+ */
+const STATED: Record<"issue" | "pr", Partial<Record<ItemState, [LucideIcon, string]>>> = {
+  issue: { open: [CircleDot, "text-ok"], closed: [CircleCheck, "text-merged"] },
+  pr: {
+    open: [GitPullRequest, "text-ok"], draft: [GitPullRequestDraft, "text-faint"],
+    merged: [GitMerge, "text-merged"], closed: [GitPullRequestClosed, "text-bad"],
+  },
+};
 
 /**
  * A thing on the forge — an issue, a pull request, a branch — with its icon,
- * linked there when the cockpit knows where that is. Its state on the forge
- * (open, merged…) is not something the events say, so it is not coloured as one.
+ * linked there when the cockpit knows where that is: `href` "" draws it
+ * unlinked, as a row that is itself a link must. The icon is what tells an
+ * issue's `#42` from a pull request's, so it says so to a screen reader too;
+ * the text keeps the line's baseline, so one reads in a sentence as in a row.
+ * An issue's or a pull request's `state` on the forge draws its icon and
+ * tone; one the cockpit does not know (null) is drawn in none.
  */
-export function ForgeRef({ kind, href, children }: { kind: keyof typeof REFS; href: string; children: ReactNode }) {
-  const Icon = REFS[kind];
+export function ForgeRef({ kind, href, state = null, newTab = false, children }: {
+  kind: keyof typeof REFS;
+  href: string;
+  /** Where an issue or a pull request stands on the forge, as the poll last read it; null when not known. */
+  state?: ItemState | null;
+  /** Opened beside the cockpit, for a link away from work the page still holds. */
+  newTab?: boolean;
+  children: ReactNode;
+}) {
+  const stated = kind === "branch" || state === null ? undefined : STATED[kind][state];
+  const [Icon, tone] = stated ?? [REFS[kind], "text-faint"];
+  const label = stated ? `${REF_WORDS[kind]} ${state}` : REF_WORDS[kind];
   const body = (
     <>
-      <Icon size={14} strokeWidth={2} aria-hidden="true" className="shrink-0 text-faint" />
+      <Icon size={14} strokeWidth={2} role="img" aria-label={label} className={cx("shrink-0 self-center", tone)} />
       <span className={cx("truncate", kind === "branch" && "font-mono")}>{children}</span>
     </>
   );
-  const shape = "inline-flex min-w-0 items-center gap-1 whitespace-nowrap";
-  return href ? <a className={cx(shape, "text-muted hover:text-fg")} href={href}>{body}</a> : <span className={shape}>{body}</span>;
+  const shape = "inline-flex min-w-0 items-baseline gap-1 whitespace-nowrap";
+  if (!href) return <span className={shape}>{body}</span>;
+  return <a className={cx(shape, "text-muted hover:text-fg")} href={href} {...(newTab ? { target: "_blank", rel: "noreferrer" } : {})}>{body}</a>;
 }
 
 export { ExternalLink };

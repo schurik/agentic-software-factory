@@ -126,7 +126,14 @@ wrong account.
   will not show the cockpit (gone, blocked, behind an organization's SSO) is not a factory here.
   Then it asks every factory which of its open issues carry the queued label and a route label —
   the work an issues watcher would start (`discovery:queues`) — every round, since a label changes
-  no push, and with ETags, so a round where nothing was labelled is all `304`s.
+  no push, and with ETags, so a round where nothing was labelled is all `304`s. Last, it asks each
+  factory with a session where its issues and pull requests stand — open, closed, a draft, merged —
+  which no event says, since a pull request is merged long after the session that opened it ended
+  (`discovery:items`). That is one listing of what changed most recently, again with an ETag, so a
+  quiet round is one `304` a factory; it pages back only when more changed since the last look than
+  a page holds, and the first look goes back to a day before the factory's oldest session. What it
+  finds is kept in `forgeItems`, and every icon of an issue or a pull request is drawn in it: one it
+  has not read is drawn in no state, as before.
 - **Rate limits** are read from the response headers, never assumed: an Enterprise Server has them
   off unless its admin turned them on. The poll leaves a quarter of a budget untouched, stops when
   it gets there, and carries on when the limit resets; the Factories page says so meanwhile.
@@ -491,8 +498,8 @@ than it. The answer is `200 {}`: an ingest token can add, and read nothing back.
 kind is not `ci` is refused with a 403 — a checkout's own edits are what drift measures, never what
 it is measured against.
 
-`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header that says the factory's state
-in one line — its name with a link to it on the forge, the check's state, the default branch at its
+`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header, under a breadcrumb back to the
+Factories list, that says the factory's state in one line — its name with a link to it on the forge, the check's state, the default branch at its
 commit, how many of its stations are online and the per-session budget — and four tabs: Overview,
 Workflows, Stations and Config. The tab open is the address's (`?tab=stations`), so Now's Needs
 attention rows land on the tab that answers them (Compare and Stations on Stations, See config on
@@ -556,11 +563,19 @@ resolved by its code; the cockpit never parses `factory.yaml`. A description fro
 still shows its check, and says the settings are not described; a factory no CI workflow ever
 described is **unchecked**, never broken.
 
-**Edit config** leads the tab, over the files under `asf/` on the default branch and the pull
-requests proposed from here that are still open — those from a `cockpit/` branch, which the page's
-`look` reads with the forge's `pulls`. A writer edits those files there, and the edit becomes a pull request opened **as them**
+**Edit config** leads the tab, over the pull requests proposed from here that are still open —
+those from a `cockpit/` branch, which the page's `look` reads with the forge's `pulls`. It opens
+the editor, a dialog that covers the screen: its files a nav down the left (a picker on a phone),
+a blue dot on each with changes; beside it, a Changes tab with the diff of every changed file the
+pull request will carry, then a tab for each file edited, the one open filling the rest; under it,
+the pull request's title, description and submit, always in view, with what proposing does behind
+an info button. The files are the text config under `asf/` on the default branch, which the
+`look` alone lists (`editable` in `convex/model/config.ts`: YAML, Markdown, plain text, JSON, TOML
+and samples such as `env.sample` — never the factory's Python, never a binary — and the actions
+refuse any other file too). Closing the dialog loses nothing. A writer edits files there, and the
+edit becomes a pull request opened **as them**
 (`convex/config.ts`). The repository stays the source of truth: the editor is the files' raw text,
-read from the forge at the commit the tab listed them at, and what is typed is committed byte for
+read from the forge at the commit the dialog listed them at, and what is typed is committed byte for
 byte — never parsed and written back, so a comment survives. A textarea keeps only LF, so a CRLF
 file is edited as LF and committed with its CRLF back, and one that mixes the two is not edited
 here. The cockpit checks YAML syntax only (`convex/model/config.ts`: a `.yaml` file as one

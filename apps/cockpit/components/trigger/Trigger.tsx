@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Role } from "@/convex/forge/forge";
 import { refusal } from "@/convex/model/trigger";
 import type { Offered, Triggered } from "@/convex/trigger";
+import { ForgeRef } from "../icons";
 import { said } from "../said";
 import { Button, control, Field, Notice } from "../ui";
 import { useWho } from "../viewer";
@@ -56,7 +57,7 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
   const number = Number(asked.issue);
   const ready = Number.isInteger(number) && number > 0 && !busy;
   return (
-    <form className="my-2 grid max-w-lg gap-3" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
+    <form className="grid max-w-lg gap-3" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
       <Field label="Workflow">
         <select value={route.label} className={control} onChange={(event) => onChange({ ...asked, label: event.target.value })}>
           {routes.routes.map(({ label, workflow }) => (
@@ -78,7 +79,7 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
       </Button>
       {outcome?.ok ? (
         <Notice tone="ok" className="text-sm">
-          Labelled <a href={outcome.url} target="_blank" rel="noreferrer">#{asked.issue} {outcome.title}</a>: {outcome.workflow} starts
+          Labelled <ForgeRef kind="issue" href={outcome.url} state="open" newTab>#{asked.issue} {outcome.title}</ForgeRef>: {outcome.workflow} starts
           when the factory&apos;s issues watcher next polls.
         </Notice>
       ) : outcome ? <Notice tone="bad" className="text-sm">Not triggered: {outcome.because}.</Notice> : null}

@@ -1,6 +1,7 @@
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Check, ChevronsUpDown } from "lucide-react";
-import type { ComponentProps, MouseEvent, ReactNode } from "react";
+import Link from "next/link";
+import { type ComponentProps, Fragment, type MouseEvent, type ReactNode } from "react";
 import { type Tone, toneOf } from "./session/words";
 
 /**
@@ -109,10 +110,18 @@ const EDGE: Record<"wait" | "bad" | "ok" | "none", string> = {
   wait: "border-l-wait", bad: "border-l-bad", ok: "border-l-ok", none: "border-l-line-strong",
 };
 
+/*
+ * One vertical rhythm (#154): a block — a Notice, a PageHeader, a Section —
+ * carries no outer margin; where it is put decides the space around it. On a
+ * page that is the column's gap, and in a card's running text the margin its
+ * siblings take there too. A block's own margin would add to a gap rather
+ * than replace it.
+ */
+
 /** Something the page says about itself — a refusal, an outcome, a missing piece — set apart from what it shows. */
 export function Notice({ tone = "wait", className, children, ...rest }: ComponentProps<"div"> & { tone?: keyof typeof EDGE }) {
   return (
-    <div {...rest} className={cx("my-3 rounded-lg border border-l-[3px] border-line bg-surface px-3.5 py-2.5", EDGE[tone], className)}>
+    <div {...rest} className={cx("rounded-lg border border-l-[3px] border-line bg-surface px-3.5 py-2.5", EDGE[tone], className)}>
       {children}
     </div>
   );
@@ -123,11 +132,40 @@ export function Loading({ what = "Loading…" }: { what?: string }) {
   return <p className="text-muted">{what}</p>;
 }
 
-/** A page's title row: what it is, a line under it, and anything that acts on the whole page at the right. */
-export function PageHeader({ title, sub, children }: { title: ReactNode; sub?: ReactNode; children?: ReactNode }) {
+/** One step back up a page's breadcrumbs: what it is called, and where it goes. */
+export interface Crumb {
+  label: ReactNode;
+  href: string;
+}
+
+/**
+ * Where a page sits (#153): each place above it, a link back to it, and then
+ * `here` — the page you are on, which is never a link. The one breadcrumb
+ * every page draws, so a session's and a factory's read alike.
+ */
+export function Crumbs({ trail, here }: { trail: Crumb[]; here: ReactNode }) {
   return (
-    <header className="mb-6 flex flex-wrap items-start gap-x-4 gap-y-3">
+    <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
+      {trail.map((crumb) => (
+        <Fragment key={crumb.href}>
+          <Link href={crumb.href} className="text-muted hover:text-fg">{crumb.label}</Link>
+          <span aria-hidden="true" className="text-faint">/</span>
+        </Fragment>
+      ))}
+      <span aria-current="page">{here}</span>
+    </nav>
+  );
+}
+
+/**
+ * A page's title row: its breadcrumbs over what it is, a line under it, and
+ * anything that acts on the whole page at the right.
+ */
+export function PageHeader({ crumbs, title, sub, children }: { crumbs?: ReactNode; title: ReactNode; sub?: ReactNode; children?: ReactNode }) {
+  return (
+    <header className="flex flex-wrap items-start gap-x-4 gap-y-3">
       <div className="min-w-0 grow">
+        {crumbs ? <div className="mb-1.5">{crumbs}</div> : null}
         <h1>{title}</h1>
         {sub ? <div className="mt-1 text-muted">{sub}</div> : null}
       </div>
@@ -153,7 +191,7 @@ export function Standalone({ title, children }: { title: ReactNode; children: Re
 /** A titled part of a page. */
 export function Section({ title, right, className, children }: { title: ReactNode; right?: ReactNode; className?: string; children: ReactNode }) {
   return (
-    <section className={cx("mt-8 first:mt-0", className)}>
+    <section className={className}>
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2>{title}</h2>
         {right ? <div className="ml-auto">{right}</div> : null}
@@ -218,16 +256,18 @@ export const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.
  * A labelled choice of one among `items`, drawn like a control and opened
  * as a menu. With nothing to choose it is disabled, and says `placeholder`.
  */
-export function Select({ label, items, value, placeholder, onChange, className }: {
+export function Select({ label, items, value, placeholder, onChange, className, labelOf = (item) => item }: {
   label: ReactNode;
   items: string[];
   value: string;
   placeholder?: string;
   onChange: (value: string) => void;
   className?: string;
+  /** How an item reads, when not as itself. */
+  labelOf?: (item: string) => string;
 }) {
   return (
-    <BaseSelect.Root items={items.map((item) => ({ label: item, value: item }))} value={value || null}
+    <BaseSelect.Root items={items.map((item) => ({ label: labelOf(item), value: item }))} value={value || null}
                      disabled={!items.length} onValueChange={(chosen) => { if (typeof chosen === "string") onChange(chosen); }}>
       <div className={cx("grid min-w-0 gap-1", className)}>
         <BaseSelect.Label className="text-sm font-medium">{label}</BaseSelect.Label>
@@ -242,7 +282,7 @@ export function Select({ label, items, value, placeholder, onChange, className }
             <BaseSelect.List>
               {items.map((item) => (
                 <BaseSelect.Item key={item} value={item} className={menuItem}>
-                  <BaseSelect.ItemText className="grow">{item}</BaseSelect.ItemText>
+                  <BaseSelect.ItemText className="grow">{labelOf(item)}</BaseSelect.ItemText>
                   <BaseSelect.ItemIndicator><Check size={14} className="text-accent" aria-hidden="true" /></BaseSelect.ItemIndicator>
                 </BaseSelect.Item>
               ))}

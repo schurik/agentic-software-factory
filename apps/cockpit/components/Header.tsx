@@ -99,7 +99,7 @@ function Places({ path, waiting }: { path: string; waiting: number }) {
           {place.label}
           {place.id === "now" && waiting > 0 ? (
             <span aria-label={`${plural(waiting, "gate")} waiting on you`}
-                  className="ml-1.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-wait-soft px-1 text-[11px] font-semibold text-wait tabular-nums">
+                  className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-wait-soft px-1 text-[10px] leading-none font-semibold text-wait tabular-nums">
               {waiting}
             </span>
           ) : null}

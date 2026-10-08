@@ -1,7 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { appValidator } from "./forge/app";
-import { roleValidator } from "./forge/forge";
+import { itemStateValidator, roleValidator } from "./forge/forge";
 import { claimKindValidator, releasedValidator, requeueValidator } from "./model/claim";
 import { commandStateValidator, reportValidator, verbValidator } from "./model/command";
 import { storedEventFields } from "./model/wire";
@@ -94,7 +94,9 @@ export default defineSchema({
     .index("by_activity", ["activity"])
     .index("by_factory_activity", ["factory", "activity"])
     .index("by_waiting", ["waiting", "activity"])
-    .index("by_factory_waiting", ["factory", "waiting"]),
+    .index("by_factory_waiting", ["factory", "waiting"])
+    // A factory's sessions in the order they were first stored: its oldest is first.
+    .index("by_factory", ["factory"]),
 
   // What a session's agent calls cost in one quarter hour, charged to one
   // workflow, station and person (model/spend.ts), added to by ingest as each
@@ -185,10 +187,28 @@ export default defineSchema({
     // as the poll last found them; null when the forge would not say, absent
     // until it was first asked. What "nobody watching" is read against.
     queued: v.optional(v.union(v.null(), v.array(v.number()))),
+    // A factory's issues and pull requests (`forgeItems`) are known as they
+    // stood at this time (ISO 8601): the latest change the poll has read.
+    // Absent until it first looked.
+    itemsSince: v.optional(v.string()),
   })
     .index("by_key", ["key"])
     .index("by_stale", ["stale"])
     .index("by_factory", ["factory", "key"]),
+
+  // Where a factory's issue or pull request stands on the forge — open,
+  // closed, a draft, merged — as the poll last read it (discovery.ts
+  // `items`). No event says it: a pull request is merged long after the
+  // session that opened it ended. Kept as long as its repository is, and
+  // only ever replaced by a later answer; an item with no row is drawn as
+  // one whose state is not known.
+  forgeItems: defineTable({
+    repo: v.string(),                 // a `repos.key`
+    number: v.number(),
+    pull: v.boolean(),
+    state: itemStateValidator,
+    updatedAt: v.string(),            // when it last changed, as the forge stamps it
+  }).index("by_item", ["repo", "number"]),
 
   // A person the cockpit knows by their forge login: whoever signed in with
   // the team's GitHub App, or — `local` — the one person whose token a local
@@ -423,5 +443,6 @@ export default defineSchema({
     listing: v.optional(v.union(v.null(), v.number())),
     checking: v.optional(v.union(v.null(), v.number())),
     queueing: v.optional(v.union(v.null(), v.number())),
+    tracking: v.optional(v.union(v.null(), v.number())),
   }),
 });

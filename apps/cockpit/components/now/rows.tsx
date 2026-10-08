@@ -4,15 +4,16 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
+import type { ItemState } from "@/convex/forge/forge";
 import { type Attention, expensive, type Facts, needsAttention, stuck, waitedLong } from "@/convex/model/attention";
 import { stationWords, type Row as Wait } from "@/convex/model/inbox";
 import type { Other } from "@/convex/inbox";
 import type { Running } from "@/convex/now";
 import { tabHref } from "../factory/view";
-import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref } from "../format";
+import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref, type WorkItemKind } from "../format";
 import { asks, verbsOf } from "../gate/answer";
 import { MiniGraph } from "../graph/StageGraph";
-import { StageIcon, StatusIcon } from "../icons";
+import { ForgeRef, KindIcon, StageIcon, StatusIcon } from "../icons";
 import { keyOf, whyYours } from "../inbox/waits";
 import { phaseName } from "../session/words";
 import { Card, cx, followInPlace, type Go, Tag } from "../ui";
@@ -32,14 +33,33 @@ import { useWho } from "../viewer";
 /** Where a running session is, from its own events (`sessions.progress`). */
 export type Progress = NonNullable<FunctionReturnType<typeof api.sessions.progress>>;
 
-/** A stage's icon on a tinted square: amber when it waits on a person, blue while it runs. */
-function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
+/** An icon on a tinted square: amber when it waits on a person, blue while it runs. */
+function Glyph({ title, tone, children }: { title: string; tone: "wait" | "run"; children: ReactNode }) {
   return (
-    <span title={name} className={cx("grid size-6 place-items-center rounded-md",
-                                     tone === "wait" ? "bg-wait-soft text-wait" : "bg-accent-soft text-accent")}>
-      <StageIcon name={name} size={14} />
+    <span title={title} className={cx("grid size-6 place-items-center rounded-md",
+                                      tone === "wait" ? "bg-wait-soft text-wait" : "bg-accent-soft text-accent")}>
+      {children}
     </span>
   );
+}
+
+/** A stage's icon on its square. */
+function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
+  return <Glyph title={name} tone={tone}><StageIcon name={name} size={14} /></Glyph>;
+}
+
+/**
+ * Where a running session is, as the glyph its row leads with: the stage's
+ * icon, or in a chapter drawn without stages the phase's — a gate, code, an
+ * agent — and an empty square of the same size while its progress loads or
+ * between phases. Never a spinner: the mini graph beside it says it runs.
+ * The phase is named by its name alone: progress knows no gate or round.
+ */
+function RunningGlyph({ progress }: { progress: Progress | null | undefined }) {
+  if (progress?.stage) return <StageGlyph name={progress.stage} tone="run" />;
+  const phase = progress?.phase;
+  if (phase) return <Glyph title={phaseName({ name: phase.name })} tone="run"><KindIcon type={phase.type} size={14} className="text-current" /></Glyph>;
+  return <span aria-hidden="true" className="block size-6 rounded-md bg-surface-2" />;
 }
 
 /** One row of a list drawn as Now's are; the Factories list's too. */
@@ -91,7 +111,7 @@ export function Empty({ children }: { children: ReactNode }) {
  */
 export function FoldSection({ title, count, open, children }: { title: string; count: number; open: boolean; children: ReactNode }) {
   return (
-    <Collapsible.Root defaultOpen={open} render={<section className="mt-8" />}>
+    <Collapsible.Root defaultOpen={open} render={<section />}>
       <Collapsible.Trigger className="group flex w-full items-baseline gap-2 text-left">
         <h2>{title}</h2>
         <span className="text-sm text-faint tabular-nums">{count}</span>
@@ -127,13 +147,39 @@ function question(wait: Wait): ReactNode {
     : <><span className="font-medium text-fg">{asked}</span> {asks(wait)} · round {wait.round}</>;
 }
 
-/** Where a row is: its factory, and its work item — `#42`, `PR #9` — or that it was a prompt, with none. */
-function whereOf(factory: string, ref: string): string {
-  return ref ? `${factory} ${ref}` : `${factory} · prompt`;
+/** An issue or a pull request, by number, and where it stands on the forge when that is known. */
+interface Item {
+  kind: WorkItemKind;
+  number: number;
+  state: ItemState | null;
+}
+
+/**
+ * A work item named in a row, with its kind's icon in its state. The row is
+ * itself a link, and a link inside a link is no HTML a browser keeps, so it
+ * is not one.
+ */
+function WorkItem({ kind, number, state }: Item) {
+  return <ForgeRef kind={kind} href="" state={state}>#{number}</ForgeRef>;
+}
+
+/** A label and the work item it is about: a long label is cut short, never the number. */
+function Labelled({ label, item }: { label: string; item: Item }) {
+  return (
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+      <span className="truncate">{label}</span><span className="shrink-0"><WorkItem {...item} /></span>
+    </span>
+  );
+}
+
+/** Where a row is: its factory, and its work item — an issue, a pull request — or that it was a prompt, with none. */
+function whereOf(factory: string, item: Item | null): ReactNode {
+  return item === null ? `${factory} · prompt` : <Labelled label={factory} item={item} />;
 }
 
 /** Where a wait is: its factory, and the work item it is asked on. */
-const waitsAt = ({ factory, issueNumber: number }: Pick<Wait, "factory" | "issueNumber">) => whereOf(factory, number ? `#${number}` : "");
+const waitsAt = ({ factory, issueNumber: number, issueState: state }: Pick<Wait, "factory" | "issueNumber" | "issueState">) =>
+  whereOf(factory, number ? { kind: "issue", number, state } : null);
 
 /** The gates waiting on the viewer, each opening in the drawer over Now; `selected` is the one the keys are on. */
 export function InboxRows({ rows, selected, now, open }: { rows: Wait[]; selected: string | null; now: number; open: (key: string) => Go }) {
@@ -212,7 +258,7 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
         return [{
           key: `${factory}/claim/${item.claim.id}`, failed: false, factory,
           title: <>Claim held by a station away for {formatSpan(item.away)}</>,
-          line: `${item.claim.stationName} · ${item.claim.kind === "pr" ? "pull request" : "issue"} #${item.claim.number}`,
+          line: <Labelled label={`${item.claim.stationName} ·`} item={item.claim} />,
           step: "Release", href: sessionHref(factory, item.claim.session),
         }];
       case "drift":
@@ -230,7 +276,8 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
         return [{
           key: `${factory}/unwatched`, failed: false, factory,
           title: <>{plural(item.issues.length, "queued issue")}, no online station watching</>,
-          line: item.issues.map((number) => `#${number}`).join(" "), step: "Stations", href: tabHref(factory, "stations"),
+          line: <span className="inline-flex items-center gap-2">{item.issues.map((number) => <WorkItem key={number} kind="issue" number={number} state="open" />)}</span>,
+          step: "Stations", href: tabHref(factory, "stations"),
         }];
     }
   }));
@@ -264,7 +311,7 @@ export function RunningRow({ row, progress, now }: { row: Running; progress: Pro
   const elapsed = secondsBetween(row.startedAt, now);
   return (
     <Row href={sessionHref(row.factory, row.session)}
-         glyph={progress?.stage ? <StageGlyph name={progress.stage} tone="run" /> : <StatusIcon status="running" size={16} className="mt-1 ml-1" />}
+         glyph={<RunningGlyph progress={progress} />}
          title={<span className="truncate">{titleOf(row.title, Number(issue)) || row.session}</span>}
          lines={[
            <span key="graph" className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -273,7 +320,8 @@ export function RunningRow({ row, progress, now }: { row: Running; progress: Pro
                ? <span className="font-medium text-wait">{formatDuration(secondsBetween(phase.since, now))} in {where}</span> : null}
            </span>,
          ]}
-         where={whereOf(row.factory, pr ? `PR #${pr}` : issue ? `#${issue}` : "")}
+         where={whereOf(row.factory, pr ? { kind: "pr", number: Number(pr), state: row.states.pr }
+           : issue ? { kind: "issue", number: Number(issue), state: row.states.issue } : null)}
          when={<>
            {expensive(row.cost, row.ceiling)
              ? <span className={cx("font-medium", row.cost >= row.ceiling ? "text-bad" : "text-wait")}>{formatDollars(row.cost)} of {formatDollars(row.ceiling)}</span>

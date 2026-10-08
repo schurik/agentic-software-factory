@@ -171,7 +171,7 @@ describe("a running session's progress", () => {
 
     const progress = (await t.query(api.sessions.progress, { factory: "acme/widgets", session, signIn: await signIn(t, forge, "alex") }))!;
     expect(progress.stage).toBe("plan");
-    expect(progress.phase).toEqual({ name: "plan", since: STAGED[upTo].ts });
+    expect(progress.phase).toEqual({ name: "plan", type: "agent", since: STAGED[upTo].ts });
     const current = progress.mini.blocks[progress.mini.current!];
     expect(current).toMatchObject({ stage: "plan", status: "running" });
     expect(progress.mini.blocks.map((block) => block.status)).toEqual(["done", "running", ...Array(8).fill("pending")]);

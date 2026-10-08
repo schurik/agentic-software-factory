@@ -20,13 +20,28 @@ export const CONFIG_DIR = "asf";
 const SLUG_LENGTH = 48;
 
 /**
- * Why `path` is not a config file the cockpit edits, or null when it is: a
- * file under `asf/`, spelled the way the forge's tree lists it.
+ * The kinds of file a config is written in, by extension: text a textarea
+ * gives back as it was read. A sample (`env.sample`) is the text an operator
+ * copies into a dotfile. Never Python — `asf/` holds the factory's code too,
+ * which a change to is a pull request of its own — and never a binary.
  */
+const TEXT_CONFIG = /\.(ya?ml|md|txt|json|toml|sample)$/i;
+
+/**
+ * Whether the cockpit edits `path`: a text config file under `asf/`, spelled
+ * the way the forge's tree lists it. The Config tab lists only these, and
+ * reading or proposing any other file is refused.
+ */
+export function editable(path: string): boolean {
+  return outsideConfig(path) === null;
+}
+
+/** Why `path` is not a config file the cockpit edits (`editable`), or null when it is. */
 export function outsideConfig(path: string): string | null {
   const parts = path.split("/");
   const plain = parts.length > 1 && parts[0] === CONFIG_DIR && parts.every((part) => part !== "" && part !== "." && part !== "..");
-  return plain ? null : `${path} is not a config file: the cockpit edits only the files under \`${CONFIG_DIR}/\``;
+  return plain && TEXT_CONFIG.test(path) ? null
+    : `${path} is not a config file: the cockpit edits only the text files under \`${CONFIG_DIR}/\` (YAML, Markdown, plain text, JSON, TOML and samples)`;
 }
 
 /**

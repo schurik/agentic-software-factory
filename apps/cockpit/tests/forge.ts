@@ -75,6 +75,12 @@ interface Issue {
   state: "open" | "closed";
   pull: boolean;
   labels: string[];
+  /** A pull request's: opened as a draft, and not yet marked ready. */
+  draft: boolean;
+  /** A pull request's: when it was merged, null until it is. */
+  mergedAt: string | null;
+  /** When anything about it last changed: what a listing sorted by `updated` goes by. */
+  updatedAt: string;
 }
 
 /** Labels added to an issue in one request: by whom, through which kind of token. */
@@ -299,10 +305,26 @@ export class FakeForge {
 
   /** Issue (or, `pull`, pull request) `number` of `name`. */
   issue(name: string, number: number,
-        given: { title: string; state?: "open" | "closed"; pull?: boolean; labels?: string[] }): void {
+        given: { title: string; state?: "open" | "closed"; pull?: boolean; draft?: boolean; labels?: string[] }): void {
     this.known(name).issues.set(number, {
       title: given.title, state: given.state ?? "open", pull: given.pull ?? false, labels: [...(given.labels ?? [])],
+      draft: given.draft ?? false, mergedAt: null, updatedAt: touchedAt(),
     });
+  }
+
+  /** Issue or pull request `number` of `name` closed, as its page's Close button does. */
+  close(name: string, number: number): void {
+    this.changed(name, number, { state: "closed" });
+  }
+
+  /** Pull request `number` of `name` merged: closed, and when it was merged said. */
+  merge(name: string, number: number): void {
+    this.changed(name, number, { state: "closed", draft: false, mergedAt: touchedAt() });
+  }
+
+  /** Pull request `number` of `name` marked a draft again (`ready` false) or ready for review. */
+  ready(name: string, number: number, ready: boolean): void {
+    this.changed(name, number, { draft: !ready });
   }
 
   /** Every label addition to issue `number` of `name`. */
@@ -313,6 +335,13 @@ export class FakeForge {
   /** The labels issue `number` of `name` carries now. */
   labelsOn(name: string, number: number): string[] {
     return [...(this.known(name).issues.get(number)?.labels ?? [])];
+  }
+
+  /** Anything about issue `number` of `name` changed: when, its `updated_at`. */
+  private changed(name: string, number: number, change: Partial<Issue>): void {
+    const issue = this.known(name).issues.get(number);
+    if (!issue) throw new Error(`the fake forge has no issue ${name}#${number}`);
+    Object.assign(issue, change, { updatedAt: touchedAt() });
   }
 
   /** What has been posted on issue `number` of `name`. */
@@ -520,15 +549,14 @@ export class FakeForge {
       const repo = this.repos.get(issues[1].toLowerCase());
       if (!repo || !this.reads(bearer, repo)) return this.reply(request, token, 404, { message: "Not Found" });
       // As GitHub filters them: by state (open unless asked), and by every label named, comma-separated.
+      // Sorted by when each was last updated, the latest first, when asked to be.
       const state = url.searchParams.get("state") ?? "open";
       const wanted = (url.searchParams.get("labels") ?? "").split(",").filter(Boolean);
+      const updated = url.searchParams.get("sort") === "updated";
       const found = [...repo.issues]
         .filter(([, issue]) => (state === "all" || issue.state === state) && wanted.every((name) => issue.labels.includes(name)))
-        .map(([number, issue]) => ({
-          number, title: issue.title, state: issue.state, labels: issue.labels.map((name) => ({ name })),
-          html_url: `https://${this.host}/${repo.name}/${issue.pull ? "pull" : "issues"}/${number}`,
-          ...(issue.pull ? { pull_request: { url: `${this.api}/repos/${repo.name}/pulls/${number}` } } : {}),
-        }));
+        .sort(([a, x], [b, y]) => (updated ? y.updatedAt.localeCompare(x.updatedAt) || b - a : 0))
+        .map(([number, issue]) => this.wireIssue(repo, number, issue));
       return this.page(request, token, url, found, (items) => items);
     }
     const pulls = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(path);
@@ -541,6 +569,7 @@ export class FakeForge {
         .map((pull) => ({
           number: pull.number, title: pull.title, state: repo.issues.get(pull.number)?.state, user: { login: pull.author },
           html_url: `https://${this.host}/${repo.name}/pull/${pull.number}`, created_at: pull.at,
+          draft: repo.issues.get(pull.number)?.draft ?? false,
           head: { ref: pull.head, repo: { full_name: repo.name } }, base: { ref: pull.base },
         }));
       return this.page(request, token, url, found, (items) => items);
@@ -550,12 +579,7 @@ export class FakeForge {
       const repo = this.repos.get(reading[1].toLowerCase());
       const issue = repo?.issues.get(Number(reading[2]));
       if (!repo || !this.reads(bearer, repo) || !issue) return this.reply(request, token, 404, { message: "Not Found" });
-      const number = Number(reading[2]);
-      return this.reply(request, token, 200, {
-        number, title: issue.title, state: issue.state, labels: issue.labels.map((name) => ({ name })),
-        html_url: `https://${this.host}/${repo.name}/${issue.pull ? "pull" : "issues"}/${number}`,
-        ...(issue.pull ? { pull_request: { url: `${this.api}/repos/${repo.name}/pulls/${number}` } } : {}),
-      });
+      return this.reply(request, token, 200, this.wireIssue(repo, Number(reading[2]), issue));
     }
     const labelling = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/labels$/.exec(path);
     if (labelling && method === "POST" && bearer.kind !== "app") {
@@ -782,6 +806,18 @@ export class FakeForge {
     return wire;
   }
 
+  /** An issue as GitHub's issues endpoints serve it: a pull request among them says so, and whether it was merged. */
+  private wireIssue(repo: Repo, number: number, issue: Issue): Record<string, unknown> {
+    return {
+      number, title: issue.title, state: issue.state, labels: issue.labels.map((name) => ({ name })),
+      html_url: `https://${this.host}/${repo.name}/${issue.pull ? "pull" : "issues"}/${number}`,
+      updated_at: issue.updatedAt,
+      ...(issue.pull
+        ? { draft: issue.draft, pull_request: { url: `${this.api}/repos/${repo.name}/pulls/${number}`, merged_at: issue.mergedAt } }
+        : {}),
+    };
+  }
+
   private page<T>(request: Request, bearer: string, url: URL, items: T[], wrap: (items: T[]) => unknown): Response {
     const page = Number(url.searchParams.get("page") ?? "1");
     const size = Math.min(Number(url.searchParams.get("per_page") ?? "30"), this.pageSize);
@@ -837,9 +873,14 @@ export class FakeForge {
  */
 function opening(repo: Repo, pull: Omit<Pull, "number" | "at">): number {
   const number = Math.max(0, ...repo.issues.keys()) + 1;
-  repo.issues.set(number, { title: pull.title, state: "open", pull: true, labels: [] });
+  repo.issues.set(number, { title: pull.title, state: "open", pull: true, labels: [], draft: false, mergedAt: null, updatedAt: touchedAt() });
   repo.pulls.push({ ...pull, number, at: new Date(Date.UTC(2026, 8, 1) + number * 60_000).toISOString() });
   return number;
+}
+
+/** When something on the forge changes now: the test's clock, as GitHub stamps an `updated_at` — to the second. */
+function touchedAt(): string {
+  return new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(".000Z", "Z");
 }
 
 /** A unified diff of two trees, as far as a test reads one: every changed file, its old lines out and its new lines in. */

@@ -1,12 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { NowDrawerView, nowAddress } from "../components/now/Now";
-import { type Progress, RunningRow } from "../components/now/rows";
+import { OtherRows, type Progress, RunningRow } from "../components/now/rows";
 import { NowView } from "../components/now/NowView";
 import { ViewerLogin } from "../components/viewer";
 import type { Facts } from "../convex/model/attention";
+import type { Other } from "../convex/inbox";
 import type { Row } from "../convex/model/inbox";
 import type { NowPage, Running } from "../convex/now";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // Now (#115), rendered to static markup from a page model and a clock, the
 // way a browser first paints it: the Inbox, Needs attention and Running open,
@@ -21,7 +23,7 @@ const ago = (ms: number) => new Date(NOW - ms).toISOString();
 const ROW: Row = {
   factory: "acme/widgets", session: "a9f259f0", gate: "plan", round: 2, kind: "gate", questions: 0,
   since: ago(12 * MINUTE), summary: "the plan now names the module", channel: "issue", issueNumber: 42,
-  issueUrl: "https://github.com/acme/widgets/issues/42", workItem: "#42 Resolve relative due dates",
+  issueUrl: "https://github.com/acme/widgets/issues/42", issueState: null, workItem: "#42 Resolve relative due dates",
   workflow: "issue", station: "schurik@mbp:widgets", forYou: [], blocked: null,
   via: "comment", refused: null, queued: null, stationSeenAt: 0, attendedAt: null, note: "",
 };
@@ -30,7 +32,7 @@ const QUIET: Facts = { gates: { mine: 0, total: 0 }, failed: [], claims: [], che
 
 const RUNNING: Running = {
   factory: "acme/gadgets", session: "7d2f90aa", title: "#7 Add a health check", workflow: "issue",
-  issueUrl: "https://github.com/acme/gadgets/issues/7", prUrl: "", startedAt: ago(42 * MINUTE), cost: 0.12, ceiling: 0.25,
+  issueUrl: "https://github.com/acme/gadgets/issues/7", prUrl: "", states: { issue: null, pr: null }, startedAt: ago(42 * MINUTE), cost: 0.12, ceiling: 0.25,
 };
 
 const PROGRESS: Progress = {
@@ -44,7 +46,7 @@ const PROGRESS: Progress = {
     current: 2,
   },
   stage: "verify",
-  phase: { name: "verify_2", since: ago(4 * MINUTE) },
+  phase: { name: "verify_2", type: "agent", since: ago(4 * MINUTE) },
 };
 
 const PAGE: NowPage = {
@@ -132,7 +134,7 @@ describe("Needs attention", () => {
       check: "failing",
       claims: [{ id: "cl_1", station: "st_1", stationName: "alex@mbp:widgets", repo: "acme/widgets", kind: "issue", number: 42,
                  session: "c1", seenAt: NOW - 30 * 3600_000, heardAt: NOW - 30 * 3600_000, grantedAt: NOW - 31 * 3600_000,
-                 released: null, refused: null, consequence: "the issue goes back to the queue" }],
+                 released: null, refused: null, state: null, consequence: "the issue goes back to the queue" }],
       queued: [44, 45], watchers: [],
       drifted: [{ station: "st_2", name: "sam@box:widgets", badges: ["config differs"] }],
     } }] };
@@ -152,6 +154,53 @@ describe("Needs attention", () => {
   });
 });
 
+describe("a work item, in every row", () => {
+  // Every row of Now names its issue or pull request as the forge does, with
+  // the kind's icon (#150). The row is itself a link, so the reference is not
+  // one: a link inside a link is no HTML a browser keeps.
+
+  /** Whether `markup` draws `text` with the icon of `kind` ("issue", "pull request") before it. */
+  const drawn = (markup: string, kind: string, text: string) =>
+    new RegExp(`aria-label="${kind}"(?:(?!aria-label=)[^])*?>${text}</span>`).test(markup);
+  const others = (row: Other) => renderToStaticMarkup(
+    <ViewerLogin.Provider value="alex"><OtherRows rows={[row]} now={NOW} open={link} /></ViewerLogin.Provider>,
+  );
+  const running = (row: Running) => renderToStaticMarkup(<RunningRow row={row} now={NOW} progress={PROGRESS} />);
+
+  it("draws the Inbox's issue with its icon", () => {
+    const inbox = section(html(), "Inbox");
+    expect(drawn(inbox, "issue", "#42")).toBe(true);
+    expect(inbox).not.toMatch(/<a [^>]*>(?:(?!<\/a>)[^])*<a /);
+  });
+
+  it("draws Waiting on others' issue with its icon", () => {
+    expect(drawn(others(PAGE.others[0]), "issue", "#51")).toBe(true);
+  });
+
+  it("draws a running session's pull request, or its issue, with its icon", () => {
+    expect(drawn(running({ ...RUNNING, prUrl: "https://github.com/acme/gadgets/pull/9" }), "pull request", "#9")).toBe(true);
+    expect(drawn(running(RUNNING), "issue", "#7")).toBe(true);
+  });
+
+  it("says a prompt session's row is a prompt, with no icon", () => {
+    const markup = running({ ...RUNNING, title: "add a health check", issueUrl: "" });
+    expect(read(markup)).toContain("acme/gadgets · prompt");
+    expect(markup).not.toMatch(/aria-label="(issue|pull request)"/);
+  });
+
+  it("draws a claim's work item and the unwatched issues in Needs attention with their icons", () => {
+    const claim = { id: "cl_1", station: "st_1", stationName: "alex@mbp:widgets", repo: "acme/widgets", kind: "pr" as const, number: 12,
+                    session: "c1", seenAt: NOW - 30 * 3600_000, heardAt: NOW - 30 * 3600_000, grantedAt: NOW - 31 * 3600_000,
+                    released: null, refused: null, state: null, consequence: "the pull request goes back to the queue" };
+    const markup = section(html({ ...PAGE, attention: [{ factory: "acme/widgets", facts: { ...QUIET, claims: [claim], queued: [44, 45] } }] }),
+                           "Needs attention");
+    expect(drawn(markup, "pull request", "#12")).toBe(true);
+    // A queued issue is an open one: that is what the poll found it by.
+    expect(drawn(markup, "issue open", "#44")).toBe(true);
+    expect(drawn(markup, "issue open", "#45")).toBe(true);
+  });
+});
+
 describe("the thresholds, against the given clock", () => {
   const amber = (markup: string, words: string) => new RegExp(`class="[^"]*text-wait[^"]*"[^>]*>${words}<`).test(markup);
 
@@ -163,11 +212,11 @@ describe("the thresholds, against the given clock", () => {
   });
 
   it("calls a session stuck once a phase has run past 10 minutes, naming where", () => {
-    const at = (since: number) => read(html(PAGE, { progress: { ...PROGRESS, phase: { name: "verify_2", since: ago(since) } } }));
+    const at = (since: number) => read(html(PAGE, { progress: { ...PROGRESS, phase: { name: "verify_2", type: "agent", since: ago(since) } } }));
     expect(at(10 * MINUTE)).not.toContain("in verify");
     expect(at(10 * MINUTE + 1000)).toContain("10m in verify");
     // A chapter drawn without stages says the phase, humanised.
-    expect(read(html(PAGE, { progress: { ...PROGRESS, stage: null, phase: { name: "verify_2", since: ago(17 * MINUTE) } } })))
+    expect(read(html(PAGE, { progress: { ...PROGRESS, stage: null, phase: { name: "verify_2", type: "agent", since: ago(17 * MINUTE) } } })))
       .toContain("17m in verify #2");
   });
 
@@ -190,6 +239,37 @@ describe("the thresholds, against the given clock", () => {
     expect(running).toContain('aria-label="running"');
     expect(read(running)).toContain("verify");
     expect(running).toContain('href="/sessions/acme/gadgets/7d2f90aa"');
+  });
+});
+
+describe("a running session's glyph", () => {
+  // The row leads with where the session is (#152): the stage's icon, or
+  // without a stage the phase's, or while its progress loads a neutral square
+  // of the same size. Never a spinner: the mini graph beside it says running.
+
+  /** The glyph a running row leads with, given its progress. */
+  const glyph = (progress: Progress | null | undefined) =>
+    renderToStaticMarkup(<RunningRow row={RUNNING} now={NOW} progress={progress} />).match(/^<a [^>]*><span class="-mt-0.5 -ml-1">(.*?)<\/span><span class="min-w-0">/)![1];
+
+  it("is the stage's icon while the session is in a stage", () => {
+    expect(glyph(PROGRESS)).toMatch(/^<span title="verify" class="[^"]*size-6[^"]*bg-accent-soft/);
+    expect(glyph(PROGRESS)).toContain("lucide-flask-conical");
+  });
+
+  it("is the phase's icon in a chapter drawn without stages, not the spinner", () => {
+    for (const type of ["agent", "code", "gate"] as const) {
+      const drawn = glyph({ ...PROGRESS, stage: null, phase: { name: "verify_2", type, since: ago(MINUTE) } });
+      expect(drawn).toMatch(/^<span title="verify #2" class="[^"]*size-6[^"]*bg-accent-soft/);
+      expect(drawn).toContain(`aria-label="${type}"`);
+      expect(drawn).not.toContain('aria-label="running"');
+    }
+  });
+
+  it("is a neutral square of the same size while it loads, or between phases", () => {
+    for (const progress of [undefined, null, { ...PROGRESS, stage: null, phase: null }]) {
+      const drawn = glyph(progress);
+      expect(drawn).toMatch(/^<span aria-hidden="true" class="[^"]*size-6[^"]*bg-surface-2[^"]*"><\/span>$/);
+    }
   });
 });
 
@@ -225,5 +305,16 @@ describe("the gate's drawer over Now", () => {
 
   it("holds nothing when the address names no gate", () => {
     expect(read(at(nowAddress({})))).not.toContain("the gate drawer of");
+  });
+});
+
+describe("Now, spaced (#154)", () => {
+  it("leaves 32px under its title and between its sections, by its gap alone", () => {
+    const markup = html();
+
+    expect(rootClasses(markup)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-8"]));
+    expect(verticalMargins(classesOf(markup, "header")[0])).toEqual([]);
+    expect(classesOf(markup, "section")).toHaveLength(4);
+    for (const section of classesOf(markup, "section")) expect(verticalMargins(section)).toEqual([]);
   });
 });
