@@ -470,8 +470,8 @@ than it. The answer is `200 {}`: an ingest token can add, and read nothing back.
 kind is not `ci` is refused with a 403 — a checkout's own edits are what drift measures, never what
 it is measured against.
 
-`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header that says the factory's state
-in one line — its name with a link to it on the forge, the check's state, the default branch at its
+`/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header, under a breadcrumb back to the
+Factories list, that says the factory's state in one line — its name with a link to it on the forge, the check's state, the default branch at its
 commit, how many of its stations are online and the per-session budget — and four tabs: Overview,
 Workflows, Stations and Config. The tab open is the address's (`?tab=stations`), so Now's Needs
 attention rows land on the tab that answers them (Compare and Stations on Stations, See config on

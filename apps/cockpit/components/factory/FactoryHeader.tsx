@@ -3,11 +3,12 @@ import { liveness } from "@/convex/model/command";
 import { branchHref } from "../format";
 import { ExternalLink, ForgeRef } from "../icons";
 import { TriggerButton } from "../trigger/Trigger";
-import { PageHeader, Tag } from "../ui";
+import { Crumbs, PageHeader, Tag } from "../ui";
 import { budgetWords, checkWords, type Page, short } from "./view";
 
 /**
- * The Factory page's fixed header (#118), its state in one line: the
+ * The Factory page's fixed header (#118), under a breadcrumb back to the
+ * Factories list (#153), its state in one line: the
  * repository with a link to it on the forge, what its `asf check` last said,
  * the default branch at its commit, how many of its stations are online by
  * the page's clock, and the configured per-session budget — and on the right
@@ -30,6 +31,7 @@ export function FactoryHeader({ page, look, forge, now, triggering, onTrigger }:
   const online = page.stations.filter((row) => liveness(row.seenAt, null, now).online).length;
   return (
     <PageHeader
+      crumbs={<Crumbs trail={[{ label: "Factories", href: "/factories" }]} here={page.repo} />}
       title={
         <span className="flex flex-wrap items-center gap-2">
           {page.repo}

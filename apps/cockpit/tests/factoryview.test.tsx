@@ -15,6 +15,7 @@ import { readDescription } from "../convex/model/description";
 import { phasedIn } from "../convex/model/phases";
 import { EMPTY_SUMMARY } from "../convex/model/session";
 import { stagesOf } from "../convex/model/workflows";
+import { Crumbs } from "../components/ui";
 import { ViewerLogin } from "../components/viewer";
 import { recorded } from "./helpers";
 
@@ -172,6 +173,16 @@ describe("the Workflows tab", () => {
 });
 
 describe("the header", () => {
+  it("links the Factories list in its breadcrumbs, and names the factory last, unlinked", () => {
+    const html = renderToStaticMarkup(
+      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+    const crumbs = html.slice(html.indexOf("<nav"), html.indexOf("</nav>") + "</nav>".length);
+
+    expect(crumbs).toBe(renderToStaticMarkup(<Crumbs trail={[{ label: "Factories", href: "/factories" }]} here="acme/widgets" />));
+    expect(crumbs).toMatch(/<a [^>]*href="\/factories"[^>]*>Factories<\/a>/);
+    expect(crumbs).toMatch(/<span aria-current="page">acme\/widgets<\/span>/);
+  });
+
   it("leaves Run a prompt to the app header", () => {
     const html = renderToStaticMarkup(
       <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
