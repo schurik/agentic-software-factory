@@ -187,6 +187,21 @@ describe("registering a station that holds no ingest token", () => {
     ]);
   });
 
+  it("lists a station once when it asks again, and only its newest code can be approved", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const alex = await signIn(t, forge, "alex");
+    const first = await registerNamed(t, "acme/widgets");
+    const second = await registerNamed(t, "acme/widgets");
+
+    const listed = await t.query(api.stations.registrations, { factory: "acme/widgets", signIn: alex });
+    expect(listed).toHaveLength(1);
+    expect(await t.mutation(api.stations.approve, { code: first.code, signIn: alex })).toMatchObject({ ok: false });
+    expect(await json(await handed(t, first.device))).toMatchObject({ status: "expired" });
+    expect(await t.mutation(api.stations.approve, { code: second.code, signIn: alex })).toEqual({ ok: true });
+    expect((await json(await handed(t, second.device))).status).toBe("approved");
+  });
+
   it("hands no ingest token to a station that asked with one", async () => {
     const forge = fakeForge();
     const t = await teamOf(forge, { alex: "write" });

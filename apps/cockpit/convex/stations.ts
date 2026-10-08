@@ -128,6 +128,18 @@ export const request = internalMutation({
       const refused = await crowded(ctx, factory, source);
       if (refused !== null) return { ok: false as const, status: 429, error: refused };
     }
+    // A station that asks again has given up on what it asked before — the
+    // command that printed that code was stopped, or its code ran out — so
+    // only its newest code is listed, and only that one can be approved.
+    // Without this a second `register` showed the same station twice on the
+    // Stations tab. One a person approved already is left to be handed over,
+    // and a request the limits refuse (above) changes nothing.
+    const earlier = await ctx.db.query("registrations")
+      .withIndex("by_factory", (q) => q.eq("factory", factory).gt("expiresAt", Date.now()))
+      .collect();
+    for (const asked of earlier) {
+      if (asked.station === station.id && asked.approvedBy === null) await ctx.db.delete(asked._id);
+    }
     await ctx.db.insert("registrations", {
       device, code, factory, station: station.id, name: station.name, kind: station.kind,
       expiresAt: Date.now() + REGISTRATION_FOR, approvedBy: null, host, tokenless: ingest === null,

@@ -241,8 +241,10 @@ they have answered, and only what they chose.
 | `hitl.when_unattended` — only when issues or reviews start runs | A gate fires on a run the tracker started — the `issue` workflow's plan, say: | **Suspend and wait** `(Recommended)`, as stamped — answered on the issue or in the cockpit · **Approve it and go on** — recorded as the policy's approval, with nobody looking. A run the engineer starts always stops |
 
 Then edit `asf/factory.yaml` with the answers, run `uv run asf/asf.py check`,
-show them `git diff asf/factory.yaml`, and ask once more: **Commit it** ·
-**Leave it uncommitted**. Anything else in the file — limits, worktrees, the
+show them `git diff asf/factory.yaml`, and record it: `just onboard --mark
+settings`. Committing it, with the rest of the stamp, is the next step of
+onboarding and has its own question
+([onboard.md § 3](onboard.md#3-commit-and-publish-the-factory)). Anything else in the file — limits, worktrees, the
 tracker's commands — keeps its stamped value; its comment says what it does,
 and they can ask.
 

@@ -23,7 +23,8 @@ cockpit off — with the question tool
 ([SKILL.md § Asking the person](../SKILL.md#asking-the-person)):
 
 - **Local cockpit** `(Recommended)` when nobody mentioned a team — on this
-  machine, theirs alone, nothing to register;
+  machine, theirs alone, nothing to register; record it with `just onboard
+  --mark cockpit=local`;
 - **Our team's cockpit** — they type its URL through Other, or you ask for it
   next; it brings the CI check with it;
 - **Set up a team cockpit** — they run the deployment:
@@ -56,6 +57,12 @@ already has people signing in to it, skip to the next section.
    environment variables: nothing copies them from Vercel into the backend.
 
 ## Once per repository checkout
+
+**First, the factory is on the forge's default branch** — committed and
+pushed, or merged. The cockpit lists only factories whose default branch
+holds `asf/factory.yaml`, so a code printed before that has no Stations tab to
+be approved on. `just onboard` says whether it is (`published`); if not, that
+is [onboard.md § 3](onboard.md#3-commit-and-publish-the-factory) first.
 
 1. **`ASF_COCKPIT_URL` in `.env`** — the deployment's **site** origin:
    `https://<name>.convex.site` on Convex Cloud (not the `.convex.cloud`
@@ -111,7 +118,8 @@ uv run <skill>/scripts/install.py --harness <harness> --ci
 only what is missing — here, the one workflow — and says so; commit it with
 the rest of the change. If `.github/workflows/asf-check.yml` is already there,
 it is already done. With a **local** cockpit nothing needs it, and it stays the
-repository's call: [install.md](install.md#run-it).
+repository's call: [install.md](install.md#run-it), and declining it is
+recorded with `just onboard --mark ci=declined`.
 
 It ships only once the repository holds the two settings it reads. A CI job
 takes part in no device flow, so it ships with a token copied into the
@@ -127,7 +135,8 @@ whatever ships with it from then on. The operator's route still works too:
 
 | What you see | Why | Fix |
 |---|---|---|
-| `register`: "the code expired before anyone approved it", or the page says no station waits on that code | A code lives ten minutes and is spent once the station has its token | `just station-register` again for a fresh code |
+| `register`: "the code expired before anyone approved it", or the page says no station waits on that code | A code lives ten minutes and is spent once the station has its token — and registering again withdraws the station's earlier code, so only the newest is listed and can be approved | `just station-register` again for a fresh code |
+| The approval link opens, but the factory has no page, or its Stations tab shows nothing to approve | The factory is **not on the default branch** yet: the cockpit lists only factories whose default branch holds `asf/factory.yaml` | Commit and push it, or merge its pull request (`just onboard` says when `published` is done), then `just station-register` again |
 | `/setup`: "not a setup code this deployment printed" | The pages and the backend are on **different deployments**: the code was printed on one, the pages talk to another (on Vercel, `CONVEX_URL` or the deploy key names another deployment) | Print the code on the deployment the pages use — the dashboard link `/setup` shows is that one |
 | The approval page: "…needs write on owner/name; the forge says you have read" (or the repository is not one the forge lets them read) | The approver lacks **write** on the repository, or the App is not installed on it | Someone with write approves; or install the App on the repository |
 | `register`: "…is alex's station: they register it again, or revoke it first" | The station holds a live token another person approved | Its owner registers it, or revokes it on the Stations tab first |

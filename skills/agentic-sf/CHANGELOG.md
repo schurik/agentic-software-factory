@@ -52,6 +52,20 @@ before — `None` when there are none, never omitted.
   it fails, is the new `cookbooks/connect_cockpit.md`, which `install.md`, `upgrade.md` and
   `SKILL.md` now point to. `asf/cockpit/min-version` does not rise: a local cockpit registers
   nothing.
+- **Onboarding is a sequence the factory keeps track of.** `asf onboard` (`just onboard`) prints
+  the steps from stamped to running — installed, ready, settings decided, committed, **published
+  on the default branch**, a cockpit chosen, this checkout connected, the CI check, labels, a
+  first run — each judged by evidence (git, the forge, `.env`, the kept station token, the session
+  directory), and the first one not done as `next`; `--json` for an agent. The three decisions
+  that leave no trace are recorded with `--mark` (`settings`, `cockpit=local`, `ci=declined`) in
+  the gitignored `asf/data/onboarding.json`, which also says when onboarding started and finished,
+  so the skill offers to continue one left halfway. `cookbooks/onboard.md` is now those steps in
+  order, and the factory is committed and on the default branch **before** any cockpit is chosen:
+  a cockpit lists only factories whose default branch holds `asf/factory.yaml`, so a station
+  registered earlier printed a code whose approval nobody could find.
+- **A station that registers again is listed once.** Each `asf station register` added a pending
+  request, so running it twice showed the same station twice on the Stations tab; asking again now
+  withdraws the station's earlier, unapproved code, and only the newest can be approved.
 - **The first registration describes the factory; after that it is CI's job.** When a team
   cockpit holds no self-description of the factory yet, `asf station register` sends one once the
   person approves it — what `asf check --json` prints, with the token it registered by — so the
@@ -104,7 +118,10 @@ before — `None` when there are none, never omitted.
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`
    (`cookbooks/connect_cockpit.md`). A checkout that keeps its token needs nothing.
-5. A factory connected to a team cockpit without the CI workflow: stamp it, `install.py --harness
+5. `just onboard` comes with the re-stamp's justfile; a justfile that was kept (the repository's
+   own, or a stamped one that diverged) needs its `onboard` recipe copied from the fresh one, or
+   run `uv run asf/asf.py onboard`. The duplicate-station fix is the cockpit's: upgrade it.
+6. A factory connected to a team cockpit without the CI workflow: stamp it, `install.py --harness
    <harness> --ci`, and set `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN`
    (`cookbooks/connect_cockpit.md` § CI). A cockpit older than this release never says whether the
    factory is described, so registering against one describes nothing — as before.
