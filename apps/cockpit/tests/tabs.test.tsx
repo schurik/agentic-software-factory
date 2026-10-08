@@ -14,11 +14,23 @@ const sources = import.meta.glob(["../components/**/*.tsx", "../app/**/*.tsx"],
 function tabs(selected: "one" | "two" = "two") {
   return renderToStaticMarkup(
     <Tabs label="Things" selected={selected} onSelect={() => {}} end={<a href="/elsewhere">Elsewhere</a>}
+          pinned={<button type="button">Discard</button>}
           tabs={[{ id: "one", label: "One" }, { id: "two", label: "Two" }]}>
       <TabPanel value="one" keepMounted>first</TabPanel>
       <TabPanel value="two" keepMounted>second</TabPanel>
     </Tabs>,
   );
+}
+
+/** The element `html` opens at `at`, through its matching close: what it holds. */
+function element(html: string, at: number): string {
+  const tags = /<(\/?)div\b[^>]*>/g;
+  tags.lastIndex = at;
+  for (let depth = 0, tag; (tag = tags.exec(html)); ) {
+    depth += tag[1] ? -1 : 1;
+    if (depth === 0) return html.slice(at, tags.lastIndex);
+  }
+  return html.slice(at);
 }
 
 describe("Tabs", () => {
@@ -44,6 +56,15 @@ describe("Tabs", () => {
     expect(html).not.toMatch(/-m[by]-/);
     expect(html).not.toContain("border-b-2");
     expect(html).toContain('href="/elsewhere"');
+  });
+
+  it("scrolls `end` with the tabs, and keeps `pinned` in view beside them", () => {
+    const html = tabs();
+    const scroller = element(html, html.lastIndexOf("<div", html.search(/class="[^"]*overflow-x-auto/)));
+    expect(scroller).toContain('role="tablist"');
+    expect(scroller).toContain(">Elsewhere</a>");
+    expect(scroller).not.toContain(">Discard</button>");
+    expect(html).toContain(">Discard</button>");
   });
 
   it("is the only tab bar: nothing else draws a tab, a tablist or a tabpanel by hand", () => {

@@ -320,7 +320,7 @@ export function ConfigEditorView({
                   label: <span className="inline-flex items-center gap-1.5"><code>{named(path)}</code>{unsaved(drafts, path) ? <Dot /> : null}</span>,
                 })),
               ]}
-              end={front !== "changes" && current !== null && current.text !== current.original ? (
+              pinned={front !== "changes" && current !== null && current.text !== current.original ? (
                 <Button variant="ghost" size="sm" onClick={() => onDiscard(current.path)}>Discard these changes</Button>
               ) : null}
               className="flex min-h-0 grow flex-col" barClassName="shrink-0 bg-bg px-4 sm:px-5">

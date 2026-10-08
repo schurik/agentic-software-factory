@@ -312,12 +312,14 @@ export function Kbd({ children }: { children: ReactNode }) {
  * pixel and so scrolled it vertically. The row's line is an inset shadow, so
  * the Indicator covers it under the selected tab without leaving the box. It
  * scrolls sideways, scrollbar hidden, when the tabs outgrow the screen; `end`
- * sits at its far end — a link away, say — and scrolls with it.
+ * sits at its far end — a link away, say — and scrolls with it, while
+ * `pinned` sits beyond it, outside the scroll, for what must stay in reach
+ * however many tabs there are: an action on the tab shown.
  *
  * The panels are `children`, each a `TabPanel` naming the tab it belongs to.
  * One that is drawn only while shown can be one panel valued `selected`.
  */
-export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, barClassName, end, children }: {
+export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, barClassName, end, pinned, children }: {
   tabs: { id: T; label: ReactNode }[];
   selected: T;
   onSelect: (tab: T) => void;
@@ -325,21 +327,25 @@ export function Tabs<T extends string>({ tabs, selected, onSelect, label, classN
   className?: string;
   barClassName?: string;
   end?: ReactNode;
+  pinned?: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <BaseTabs.Root value={selected} onValueChange={(value: T) => onSelect(value)} className={className}>
-      <div className={cx("no-scrollbar flex overflow-x-auto shadow-[inset_0_-1px_0_var(--line)]", barClassName)}>
-        <BaseTabs.List aria-label={label} className="relative flex shrink-0 gap-1">
-          {tabs.map((tab) => (
-            <BaseTabs.Tab key={tab.id} value={tab.id}
-                          className="shrink-0 px-2.5 py-2 text-sm font-medium whitespace-nowrap text-muted hover:text-fg focus-visible:-outline-offset-2 data-active:text-fg">
-              {tab.label}
-            </BaseTabs.Tab>
-          ))}
-          <BaseTabs.Indicator renderBeforeHydration className="absolute bottom-0 left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-accent transition-[translate,width] duration-150 motion-reduce:transition-none" />
-        </BaseTabs.List>
-        {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
+      <div className={cx("flex shadow-[inset_0_-1px_0_var(--line)]", barClassName)}>
+        <div className="no-scrollbar flex min-w-0 grow overflow-x-auto">
+          <BaseTabs.List aria-label={label} className="relative flex shrink-0 gap-1">
+            {tabs.map((tab) => (
+              <BaseTabs.Tab key={tab.id} value={tab.id}
+                            className="shrink-0 px-2.5 py-2 text-sm font-medium whitespace-nowrap text-muted hover:text-fg focus-visible:-outline-offset-2 data-active:text-fg">
+                {tab.label}
+              </BaseTabs.Tab>
+            ))}
+            <BaseTabs.Indicator renderBeforeHydration className="absolute bottom-0 left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-accent transition-[translate,width] duration-150 motion-reduce:transition-none" />
+          </BaseTabs.List>
+          {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
+        </div>
+        {pinned ? <div className="flex shrink-0 items-center pl-2">{pinned}</div> : null}
       </div>
       {children}
     </BaseTabs.Root>
