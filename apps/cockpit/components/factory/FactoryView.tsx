@@ -14,7 +14,7 @@ import { dotsOf, FACTORY_TABS, type FactoryTab, type Page } from "./view";
  * config editor's — outlives a look at another tab. Pure: the panels come in
  * drawn.
  */
-export function FactoryView({ page, look, drifts, forge, now, tab, onTab, triggering, onTrigger, trigger, panels }: {
+export function FactoryView({ page, look, drifts, forge, now, tab, onTab, panels }: {
   page: Page;
   look: Look | null;
   drifts: Map<string, Drift>;
@@ -23,10 +23,6 @@ export function FactoryView({ page, look, drifts, forge, now, tab, onTab, trigge
   now: number;
   tab: FactoryTab;
   onTab: (tab: FactoryTab) => void;
-  triggering: boolean;
-  onTrigger: () => void;
-  /** The trigger form, while it is open. */
-  trigger: ReactNode;
   panels: Record<FactoryTab, ReactNode>;
 }) {
   const dots = dotsOf(page, drifts);
@@ -44,8 +40,7 @@ export function FactoryView({ page, look, drifts, forge, now, tab, onTab, trigge
   });
   return (
     <div className="flex flex-col gap-5">
-      <FactoryHeader page={page} look={look} forge={forge} now={now} triggering={triggering} onTrigger={onTrigger} />
-      {trigger}
+      <FactoryHeader page={page} look={look} forge={forge} now={now} />
       <Tabs label="Factory" selected={tab} onSelect={onTab} tabs={tabs} className="flex flex-col gap-6" end={
         <Link href={`/sessions?factory=${encodeURIComponent(page.repo)}`}
               className="text-sm whitespace-nowrap text-muted no-underline hover:text-fg">
