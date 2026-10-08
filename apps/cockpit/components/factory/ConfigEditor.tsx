@@ -308,7 +308,7 @@ export function ConfigEditorView({
 
       <div className="flex min-w-0 grow flex-col">
         <div className="shrink-0 bg-bg px-4 pt-3 sm:px-5 md:hidden">
-          <Select label="File" items={files} value={shown ?? ""} labelOf={(path) => `${named(path)}${unsaved(drafts, path) ? " •" : ""}`}
+          <Select label="File" items={files.map((path) => ({ value: path, label: `${named(path)}${unsaved(drafts, path) ? " •" : ""}` }))} value={shown ?? ""}
                   onChange={onOpen} />
         </div>
         <Tabs label="What the pull request changes, and the files being edited" selected={front}

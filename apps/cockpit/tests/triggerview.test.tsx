@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type Asked, TriggerButton, TriggerFormView } from "../components/trigger/Trigger";
+import { notAnIssue } from "../convex/model/trigger";
+import { buttonClass } from "../components/ui";
 
 // The trigger on a factory's page, rendered to static markup with no
 // backend: a button that is disabled, with the reason, wherever the forge
@@ -28,6 +30,11 @@ describe("the trigger button", () => {
     const html = renderToStaticMarkup(<TriggerButton role="triage" open={false} onToggle={() => undefined} />);
     expect(html).not.toContain(' disabled=""');
   });
+
+  it("is a primary action, like every other one in the cockpit (#156)", () => {
+    const html = renderToStaticMarkup(<TriggerButton role="triage" open={false} onToggle={() => undefined} />);
+    expect(html).toContain(`class="${buttonClass("primary", "sm")}"`);
+  });
 });
 
 describe("the trigger form", () => {
@@ -36,6 +43,17 @@ describe("the trigger form", () => {
     expect(html).toContain("Adds <code>asf:refine</code> and <code>asf:queued</code> to the issue as alex");
     expect(html).toContain("Trigger refine");
     expect(html).not.toContain(' disabled=""');
+  });
+
+  it("picks the workflow with the shared Select, never a native one (#156)", () => {
+    const html = form({ issue: "42", label: "asf:refine" });
+    expect(html).not.toContain("<select");
+    expect(html).toMatch(/role="combobox"[^>]*>.*refine \(asf:refine\)/);
+  });
+
+  it("takes an issue as a positive whole number", () => {
+    expect(notAnIssue("42")).toBeNull();
+    for (const typed of ["", "0", "-3", "4.2", "1e3", "abc"]) expect(notAnIssue(typed)).toMatch(/positive whole number/);
   });
 
   it("waits for an issue number before it can be sent", () => {

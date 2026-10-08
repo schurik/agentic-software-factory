@@ -700,7 +700,10 @@ or split, each file collapsible, the words that changed marked. `tests/inbox.tes
 against it — who is permitted, why a row is disabled, the comment posted as whom, the subject at
 the pinned commit — and `tests/answer.test.ts` renders the golden answers. `tests/trigger.test.ts`
 drives the trigger: the routes found by their golden descriptions, the labels added as whom, and
-every refusal, below triage first.
+every refusal, below triage first. `tests/triggerform.test.tsx` is the one test that needs a DOM,
+and names happy-dom as its environment for that file alone: it picks a route from the trigger form's
+Select, types an issue and submits, and an issue that is not a positive whole number says so under
+its field instead of being sent.
 
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
 cockpit calls it, in memory, installed as `fetch`. It stands in at the wire rather than behind the

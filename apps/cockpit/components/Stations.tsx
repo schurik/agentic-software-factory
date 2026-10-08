@@ -9,7 +9,7 @@ import { api } from "@/convex/_generated/api";
 import { soleAddress, tabHref } from "./factory/view";
 import { said } from "./said";
 import { useSignIn } from "./signIn";
-import { Button, control, cx, Facts, Field, Loading, Notice, Standalone } from "./ui";
+import { Button, Control, Facts, Field, Loading, Notice, Standalone } from "./ui";
 
 /**
  * Where an old `/stations` link lands (#118): a factory's page holds its
@@ -77,8 +77,8 @@ export function ApprovalView({ code, asked, outcome, onCode, onApprove }: Approv
     <Standalone title="Approve a station">
       <form onSubmit={(event) => { event.preventDefault(); }}>
         <Field label="Code">
-          <input value={code} placeholder="ABCD-EF23" onChange={(event) => onCode(event.target.value)}
-                 autoComplete="off" spellCheck={false} className={cx(control, "w-full font-mono sm:w-48")} />
+          <Control value={code} placeholder="ABCD-EF23" onValueChange={onCode}
+                   autoComplete="off" spellCheck={false} className="w-full font-mono sm:w-48" />
         </Field>
       </form>
       {/* Once the station has its token the request is spent, and the code finds nothing: say what was done. */}

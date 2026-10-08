@@ -5,7 +5,7 @@ import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import { liveness, pending } from "@/convex/model/command";
 import { formatAgo, formatClock, sessionHref } from "../format";
-import { Button, control, Field, Notice, Select } from "../ui";
+import { Button, Control, Field, Notice, Select } from "../ui";
 import { type RunDialogAction, type RunDialogState, workflowOf } from "./dialog";
 
 export type Targets = NonNullable<FunctionReturnType<typeof api.commands.runTargets>>;
@@ -115,8 +115,8 @@ export function RunForm({ factories, state, workflows, targets, runs, now, busy,
                 onChange={(chosen) => onChange({ type: "workflow", workflow: chosen })} />
       </div>
       <Field label="Prompt">
-        <textarea value={state.prompt} rows={5} placeholder="What should change?" className={control}
-                  onChange={(event) => onChange({ type: "prompt", prompt: event.target.value })} />
+        <Control render={<textarea rows={5} />} value={state.prompt} placeholder="What should change?"
+                 onValueChange={(prompt) => onChange({ type: "prompt", prompt })} />
       </Field>
       {cannot ? <Notice className="text-sm">{cannot}</Notice>
         : station ? (

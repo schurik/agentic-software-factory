@@ -1,3 +1,4 @@
+import { Field as BaseField } from "@base-ui/react/field";
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Tabs as BaseTabs } from "@base-ui/react/tabs";
 import { Check, ChevronsUpDown } from "lucide-react";
@@ -235,15 +236,34 @@ export const control = cx(
   "focus:border-accent focus:ring-4 focus:ring-accent-soft disabled:opacity-60",
 );
 
-/** A form field: its label over its control, and what it means under it. */
-export function Field({ label, hint, className, children }: { label: ReactNode; hint?: ReactNode; className?: string; children: ReactNode }) {
+/**
+ * A form field, base-ui's Field drawn once: its label over its control, what
+ * it means under it, and — once a `Form` is submitted with what `validate`
+ * refuses — why, under that. The control is a `Control`, which the label
+ * names; `name` is what the form calls its value.
+ */
+export function Field({ label, hint, name, validate, className, children }: {
+  label: ReactNode;
+  hint?: ReactNode;
+  name?: string;
+  /** Why the value will not do, or null when it will. */
+  validate?: (value: unknown) => string | null;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <label className={cx("grid gap-1", className)}>
-      <span className="text-sm font-medium">{label}</span>
+    <BaseField.Root name={name} validate={validate} className={cx("grid gap-1", className)}>
+      <BaseField.Label className="text-sm font-medium">{label}</BaseField.Label>
       {children}
-      {hint ? <span className="text-sm text-muted">{hint}</span> : null}
-    </label>
+      {hint ? <BaseField.Description className="text-sm text-muted">{hint}</BaseField.Description> : null}
+      <BaseField.Error className="text-sm text-bad" />
+    </BaseField.Root>
   );
+}
+
+/** A field's input — or, with `render={<textarea />}`, its textarea — drawn as a control. */
+export function Control({ className, ...rest }: Omit<ComponentProps<typeof BaseField.Control>, "className"> & { className?: string }) {
+  return <BaseField.Control className={cx(control, className)} {...rest} />;
 }
 
 /** A menu's or a select's popup, and one item in it. */
@@ -253,45 +273,53 @@ export const menuPopup = cx(
 );
 export const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 outline-none select-none data-highlighted:bg-surface-2";
 
+/** One choice in a `Select`: what it is, and how it reads. */
+export interface Choice {
+  value: string;
+  label: string;
+}
+
 /**
  * A labelled choice of one among `items`, drawn like a control and opened
- * as a menu. With nothing to choose it is disabled, and says `placeholder`.
+ * as a menu: a field of its own, which a `Form` knows by `name`. An item that
+ * reads other than as itself is a `Choice`. With nothing to choose it is
+ * disabled, and says `placeholder`.
  */
-export function Select({ label, items, value, placeholder, onChange, className, labelOf = (item) => item }: {
+export function Select({ label, items, value, name, placeholder, onChange, className }: {
   label: ReactNode;
-  items: string[];
+  items: (string | Choice)[];
   value: string;
+  name?: string;
   placeholder?: string;
   onChange: (value: string) => void;
   className?: string;
-  /** How an item reads, when not as itself. */
-  labelOf?: (item: string) => string;
 }) {
+  const options = items.map((item) => (typeof item === "string" ? { value: item, label: item } : item));
   return (
-    <BaseSelect.Root items={items.map((item) => ({ label: labelOf(item), value: item }))} value={value || null}
-                     disabled={!items.length} onValueChange={(chosen) => { if (typeof chosen === "string") onChange(chosen); }}>
-      <div className={cx("grid min-w-0 gap-1", className)}>
+    <BaseField.Root name={name} className={cx("grid min-w-0 gap-1", className)}>
+      <BaseSelect.Root items={options} value={value || null} disabled={!options.length}
+                       onValueChange={(chosen) => { if (typeof chosen === "string") onChange(chosen); }}>
         <BaseSelect.Label className="text-sm font-medium">{label}</BaseSelect.Label>
         <BaseSelect.Trigger className={cx(control, "flex h-9 min-w-0 items-center justify-between gap-2 text-left hover:bg-surface-2 data-popup-open:border-accent")}>
           <BaseSelect.Value placeholder={placeholder} className="truncate data-placeholder:text-faint" />
           <BaseSelect.Icon><ChevronsUpDown size={14} className="text-muted" aria-hidden="true" /></BaseSelect.Icon>
         </BaseSelect.Trigger>
-      </div>
-      <BaseSelect.Portal>
-        <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className="z-50">
-          <BaseSelect.Popup className={cx(menuPopup, "max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-y-auto")}>
-            <BaseSelect.List>
-              {items.map((item) => (
-                <BaseSelect.Item key={item} value={item} className={menuItem}>
-                  <BaseSelect.ItemText className="grow">{labelOf(item)}</BaseSelect.ItemText>
-                  <BaseSelect.ItemIndicator><Check size={14} className="text-accent" aria-hidden="true" /></BaseSelect.ItemIndicator>
-                </BaseSelect.Item>
-              ))}
-            </BaseSelect.List>
-          </BaseSelect.Popup>
-        </BaseSelect.Positioner>
-      </BaseSelect.Portal>
-    </BaseSelect.Root>
+        <BaseSelect.Portal>
+          <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className="z-50">
+            <BaseSelect.Popup className={cx(menuPopup, "max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-y-auto")}>
+              <BaseSelect.List>
+                {options.map((option) => (
+                  <BaseSelect.Item key={option.value} value={option.value} className={menuItem}>
+                    <BaseSelect.ItemText className="grow">{option.label}</BaseSelect.ItemText>
+                    <BaseSelect.ItemIndicator><Check size={14} className="text-accent" aria-hidden="true" /></BaseSelect.ItemIndicator>
+                  </BaseSelect.Item>
+                ))}
+              </BaseSelect.List>
+            </BaseSelect.Popup>
+          </BaseSelect.Positioner>
+        </BaseSelect.Portal>
+      </BaseSelect.Root>
+    </BaseField.Root>
   );
 }
 

@@ -39,7 +39,7 @@ describe("setting up the GitHub App", () => {
     expect(page).toContain("docker compose exec app ./convex.sh run setup:code");
     expect([...page.matchAll(/<li[^>]*>/g)]).toHaveLength(3);
     expect(text(page)).toContain("with its sign-in and its webhook pointed at this cockpit");
-    for (const label of ["Setup code", "GitHub host", "Organization"]) expect(page).toContain(`>${label}</span>`);
+    for (const label of ["Setup code", "GitHub host", "Organization"]) expect(page).toMatch(new RegExp(`<label [^>]*for="[^"]+"[^>]*>${label}</label>`));
     expect(page).toContain('value="github.com"');
     expect(page).toMatch(/<button type="submit"[^>]*>Continue to GitHub<\/button>/);
   });
