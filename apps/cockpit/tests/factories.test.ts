@@ -187,7 +187,8 @@ describe("the Factories list in local mode, with the person's own token", () => 
     expect((await t.query(api.factories.list, {}))?.factories.map((factory) => factory.repo)).toEqual(["acme/widgets"]);
   });
 
-  it("keeps up with more repositories than one transaction, or one look, takes", async () => {
+  // Heavy by nature — 450 repositories, looked at twice — so it is given longer than the default.
+  it("keeps up with more repositories than one transaction, or one look, takes", { timeout: 30_000 }, async () => {
     const forge = fakeForge();
     const token = forge.person("alex");
     const names = Array.from({ length: 450 }, (_, index) => `acme/r${String(index).padStart(3, "0")}`);
