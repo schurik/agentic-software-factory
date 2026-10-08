@@ -46,7 +46,7 @@ export type Page = View & {
 const UNKNOWN: ItemStates = { issue: null, pr: null };
 
 /** What the ⋯ menu holds for this viewer: copying the id always, purging for an admin of the repository. */
-export function sessionMenu(page: Page): ("copy" | "purge")[] {
+export function sessionMenu(page: Pick<Page, "mayPurge">): ("copy" | "purge")[] {
   return page.mayPurge ? ["copy", "purge"] : ["copy"];
 }
 
@@ -206,7 +206,7 @@ function ActionControl({ action, onCommand }: { action: Action | null; onCommand
 }
 
 /** What is rarely needed and never first: copying the id, and purging the session's bodies. */
-function More({ page, onPurge }: { page: Page; onPurge?: (reason: string) => Promise<Purged> }) {
+export function More({ page, onPurge }: { page: Pick<Page, "session" | "mayPurge">; onPurge?: (reason: string) => Promise<Purged> }) {
   const [purging, setPurging] = useState(false);
   const items = sessionMenu(page).filter((item) => item !== "purge" || onPurge);
   return (
@@ -244,7 +244,7 @@ function More({ page, onPurge }: { page: Page; onPurge?: (reason: string) => Pro
                 <Dialog.Title className="grow text-lg font-semibold">Purge session {page.session}</Dialog.Title>
                 <Dialog.Close aria-label="Close" className={buttonClass("ghost", "sm")}><X size={14} aria-hidden="true" /></Dialog.Close>
               </div>
-              <PurgeForm label="Purge bodies" onPurge={onPurge}
+              <PurgeForm label="Purge bodies" onPurge={onPurge} onPurged={() => setPurging(false)}
                          explains="Removes every artifact's content, every command's output and the transcript from this cockpit. The events stay — phases, gates, decisions, cost — and so does a line saying who purged them, when and why." />
             </Dialog.Popup>
           </Dialog.Portal>

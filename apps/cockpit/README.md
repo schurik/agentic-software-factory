@@ -702,10 +702,13 @@ or split, each file collapsible, the words that changed marked. `tests/inbox.tes
 against it — who is permitted, why a row is disabled, the comment posted as whom, the subject at
 the pinned commit — and `tests/answer.test.ts` renders the golden answers. `tests/trigger.test.ts`
 drives the trigger: the routes found by their golden descriptions, the labels added as whom, and
-every refusal, below triage first. `tests/triggerform.test.tsx` is the one test that needs a DOM,
-and names happy-dom as its environment for that file alone: it picks a factory and a route from the
-trigger dialog's Selects, types an issue and submits, and an issue that is not a positive whole number says so under
-its field instead of being sent.
+every refusal, below triage first. Two tests need a DOM, and each
+names happy-dom as its environment for that file alone. `tests/triggerform.test.tsx` picks a factory
+and a route from the trigger dialog's Selects, types an issue and submits, and an issue that is not a
+positive whole number says so under its field instead of being sent. `tests/purgedialog.test.tsx`
+purges from the session page's ⋯ menu: a purge that went through closes the dialog, and a refusal
+or an error keeps it open with the reason. It renders the menu alone, not the whole page, because
+under happy-dom vite will not load the golden corpus from outside the app.
 
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
 cockpit calls it, in memory, installed as `fetch`. It stands in at the wire rather than behind the
