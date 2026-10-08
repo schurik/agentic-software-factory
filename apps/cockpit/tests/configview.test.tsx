@@ -78,26 +78,48 @@ describe("the editor's files", () => {
   /** The tabs' labels, in order. */
   const tabs = (html: string) => [...html.matchAll(/<button[^>]*role="tab"[^>]*>(.*?)<\/button>/g)].map(([, label]) => label.replace(/<[^>]+>/g, ""));
 
-  it("are a nav down the side, and a picker on a phone, the one open marked", () => {
-    const html = editor([changed], { files: FILES });
+  /** The nav's markup alone. */
+  const navOf = (html: string) => html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
+  /** The nav's row for `path`, a folder or a file, up to the next row. */
+  const row = (nav: string, path: string) => {
+    const from = nav.search(new RegExp(`data-(folder|file)="${path}"`));
+    expect(from, path).toBeGreaterThan(-1);
+    const to = nav.slice(from + 1).search(/data-(folder|file)="/);
+    return nav.slice(from, to < 0 ? undefined : from + 1 + to);
+  };
 
-    const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
+  it("are a tree down the side, grouped by folder like a file explorer, and a picker on a phone", () => {
+    const nav = navOf(editor([changed], { files: FILES }));
+
     expect(nav).toContain('aria-label="Files"');
-    expect(nav.match(/<button/g)?.length).toBe(3);
-    expect(nav).toMatch(/<button[^>]*aria-current="true"[^>]*>.*?factory\.yaml/);
-    expect(nav).not.toMatch(/<button[^>]*aria-current="true"[^>]*>.*?agent\.md/);
+    // Folders first, then files, each level in name order; every folder open to begin with.
+    expect([...nav.matchAll(/data-(folder|file)="([^"]+)"/g)].map(([, kind, path]) => `${kind} ${path}`)).toEqual([
+      "folder asf/agents", "folder asf/agents/planner", "file asf/agents/planner/agent.md",
+      "folder asf/workflows", "folder asf/workflows/sdlc", "file asf/workflows/sdlc/workflow.yaml",
+      "file asf/factory.yaml",
+    ]);
+    expect(nav.match(/<button[^>]*data-folder="[^"]+"[^>]*>/g)?.every((folder) => folder.includes('aria-expanded="true"'))).toBe(true);
+    // A row is named by its last part, and indented by its depth.
+    expect(row(nav, "asf/workflows/sdlc/workflow.yaml")).toMatch(/>workflow\.yaml<\/span>/);
+    expect(row(nav, "asf/workflows/sdlc")).toMatch(/padding-left:20px/);
+    expect(row(nav, "asf/workflows/sdlc/workflow.yaml")).toMatch(/padding-left:52px/);
+    // The one open is marked.
+    expect(row(nav, "asf/factory.yaml")).toMatch(/aria-current="true"/);
+    expect(row(nav, "asf/agents/planner/agent.md")).not.toMatch(/aria-current/);
     // The phone's picker: base-ui's Select, the open file on its trigger, with its dot.
-    expect(html).toMatch(/<button[^>]*role="combobox"[^>]*>.*?factory\.yaml •/s);
+    expect(editor([changed], { files: FILES })).toMatch(/<button[^>]*role="combobox"[^>]*>.*?factory\.yaml •/s);
   });
 
-  it("each carry a small blue dot in the list while they have changes", () => {
-    const html = editor([changed, agent, workflow], { files: FILES });
+  it("each carry a small blue dot in the tree while they have changes, and so does each folder they are in", () => {
+    const nav = navOf(editor([changed, agent, workflow], { files: FILES }));
 
-    const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
-    const dot = '<span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-accent"></span><span class="sr-only">changed</span>';
-    expect(nav).toContain(`factory.yaml</code>${dot}`);
-    expect(nav).toContain(`workflows/sdlc/workflow.yaml</code>${dot}`);
-    expect(nav).not.toContain(`agent.md</code>${dot}`);
+    const dot = '<span aria-hidden="true" class="ml-auto size-1.5 shrink-0 rounded-full bg-accent"></span><span class="sr-only">changed</span>';
+    expect(row(nav, "asf/factory.yaml")).toContain(dot);
+    expect(row(nav, "asf/workflows/sdlc/workflow.yaml")).toContain(dot);
+    expect(row(nav, "asf/workflows")).toContain(dot);
+    expect(row(nav, "asf/workflows/sdlc")).toContain(dot);
+    expect(row(nav, "asf/agents/planner/agent.md")).not.toContain(dot);
+    expect(row(nav, "asf/agents")).not.toContain(dot);
   });
 
   it("are tabs after Changes: each one edited, and the one open", () => {
