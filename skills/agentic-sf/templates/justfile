@@ -24,6 +24,10 @@ default:
 doctor:
     @{{asf}} doctor
 
+# where onboarding stands, and the next step: just onboard [--mark settings]
+onboard *ARGS:
+    @{{asf}} onboard "$@"
+
 # the forge labels this config names: just labels [--create]
 labels *ARGS:
     @{{asf}} labels "$@"

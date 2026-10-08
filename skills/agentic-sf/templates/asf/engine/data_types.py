@@ -2010,6 +2010,52 @@ class ShipResult(BaseModel):
     error: str = ""
 
 
+# ── Onboarding (engine/onboarding.py) ────────────────────────────────────────
+
+OnboardingState = Literal["done", "next", "todo", "skipped"]
+
+
+class OnboardingMark(BaseModel):
+    """One decision `asf onboard --mark` recorded: its value, and when."""
+
+    value: str = ""
+    at: str = ""
+
+
+class OnboardingRecord(BaseModel):
+    """`<data_dir>/onboarding.json`: the onboarding decisions that leave no
+    trace anywhere else — the settings walked, a local cockpit chosen, the CI
+    check declined. Every other step is read off the repository itself, so
+    this holds three keys at most and can never say a step is done that is not.
+    Gitignored with the rest of `data_dir`: a decision a checkout recorded is
+    that checkout's, and a fresh clone reads the shared ones off the forge.
+
+    `started` is the first `asf onboard` here and `finished` the first one that
+    found every step done — "" until then, and cleared when a step comes undone.
+    The skill's startup reads the two to offer picking up where it stopped."""
+
+    started: str = ""
+    finished: str = ""
+    marks: dict[str, OnboardingMark] = Field(default_factory=dict)
+
+
+class OnboardingStep(BaseModel):
+    """One step of `asf onboard`, as the checklist and `--json` print it."""
+
+    step: str
+    title: str
+    state: OnboardingState
+    detail: str = ""                # what the evidence says
+    how: str = ""                   # what to do, and where the skill says how
+
+
+class OnboardingProgress(BaseModel):
+    """Every step in order, and the first one not done (`next`, "" once all are)."""
+
+    steps: list[OnboardingStep]
+    next: str = ""
+
+
 # ── The self-description (engine/describe.py) ────────────────────────────────
 #
 # What `asf check --json` prints: the factory as its own code loads it, so that

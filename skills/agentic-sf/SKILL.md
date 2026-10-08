@@ -57,6 +57,12 @@ when a request calls for it.
 Exception: if the engineer's first message already contains a request, skip
 the waiting and route it.
 
+Onboarding left halfway: when `asf/data/onboarding.json` exists and its
+`finished` is empty, run `just onboard` and add one line — "onboarding stopped
+at <next>" — offering to continue with the question tool (**Continue
+onboarding** · **Not now**), before or beside whatever they asked.
+[cookbooks/onboard.md](cookbooks/onboard.md) is where it continues.
+
 ## Orchestrator rules
 
 You run the system and help the engineer interact with it. **You do no
@@ -107,7 +113,7 @@ asf/
   workflows/<name>/       workflow.yaml (input, agents, stages), optional tasks/<key>.md, optional agents/<x>.md
   stages/<name>/          stage.py (the contract) + its default task files
   engine/                 the machinery: session, worktree, gates, permissions, hitl, tracer, …
-  data/                   runtime: sessions/<adw_id>/, station.json (this checkout's id) — never edit
+  data/                   runtime: sessions/<adw_id>/, station.json (this checkout's id), onboarding.json — never edit
 ```
 
 Every run works in its own worktree on branch `asf/<adw_id>`; the checkout is
@@ -164,7 +170,7 @@ acting, not after.
 
 | Request | Do |
 |---|---|
-| onboard / new to the skill / "how do I start?" / "what can it do?" / "how do I …?" across install, setup, cockpit, stations, updating, workflows | [cookbooks/onboard.md](cookbooks/onboard.md) — **read it first**: find where they stand (not installed, behind, not ready, ready) by looking, say it in two lines, offer the next step, then answer what they ask with the cookbook each answer names. Never recite it |
+| onboard / new to the skill / "how do I start?" / "what can it do?" / "how do I …?" across install, setup, cockpit, stations, updating, workflows / "where did I leave off?" | [cookbooks/onboard.md](cookbooks/onboard.md) — **read it first**: `just onboard` says which step they are on, judged by evidence — install, ready and settings, **commit and publish the factory before any cockpit**, cockpit and station, CI, labels, first run — and the decisions that leave no trace are recorded with `just onboard --mark`. Take the steps in order. Never recite it |
 | install / set up the factory here | [cookbooks/install.md](cookbooks/install.md) — **read it first**: four decisions belong to the repo, and `install.py` is the only supported way in. Then `uv run <skill>/scripts/install.py --harness claude_code\|pi` and `just doctor`, and after a first install walk the stamped `asf/factory.yaml` with them — budget, model, gates, trusted authors, transcripts, cockpit commands — each with the question tool ([cookbooks/install.md](cookbooks/install.md#the-factorys-settings)) |
 | upgrade the factory / "stamped at X · skill is Y" / `asf/.skill-version` missing or older than the skill's / a re-install printed `YOUR CONFIG NAMES OBSOLETE KEYS` | [cookbooks/upgrade.md](cookbooks/upgrade.md) — **read it first**: `install.py --force` refreshes the code and never the operator's `asf/factory.yaml`, so each key a release added (`cockpit.commands`, `worktree.publish`) and each obsolete one (`observability:`, `integration.mode: none`) is a decision put to the engineer, and registering a station is theirs to approve. Never refused meanwhile; `just doctor` prints both versions |
 | "is this repo ready to run?" / something failed before the first phase | `just doctor` — every check with its fix, then every workflow checked; spawns nothing. [cookbooks/install.md](cookbooks/install.md#post-install-checklist) |

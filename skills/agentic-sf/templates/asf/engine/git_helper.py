@@ -15,6 +15,7 @@ already know its own answer.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -322,6 +323,39 @@ def delete_remote_branch(cwd: Pathish, remote: str, branch: str) -> subprocess.C
     the completed process — a refusal is data. Git drops the remote-tracking
     ref with it, so `remote_tip` answers "" afterwards."""
     return _ask_git(cwd, "push", remote, "--delete", branch)
+
+
+def fetch(cwd: Pathish, remote: str, branch: str) -> bool:
+    """Bring `<remote>/<branch>` up to date; False when the remote could not be
+    asked. Never prompts — a remote that wants a password is one that could not
+    be asked — and gives up after thirty seconds."""
+    try:
+        completed = subprocess.run(["git", "fetch", "--quiet", remote, branch], cwd=str(cwd),
+                                   capture_output=True, text=True, timeout=30,
+                                   env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    except subprocess.TimeoutExpired:
+        return False
+    return completed.returncode == 0
+
+
+def default_branch(cwd: Pathish, remote: str) -> str:
+    """The remote's default branch, "" when nothing says. What `<remote>/HEAD`
+    points at (a clone sets it), else what the remote answers, else a `main` or
+    `master` the remote is known to have."""
+    completed = _ask_git(cwd, "symbolic-ref", "--quiet", f"refs/remotes/{remote}/HEAD")
+    prefix = f"refs/remotes/{remote}/"
+    if completed.returncode == 0 and completed.stdout.strip().startswith(prefix):
+        return completed.stdout.strip()[len(prefix):]
+    try:
+        answer = subprocess.run(["git", "ls-remote", "--symref", remote, "HEAD"], cwd=str(cwd),
+                                capture_output=True, text=True, timeout=30,
+                                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).stdout
+    except subprocess.TimeoutExpired:
+        answer = ""
+    for line in answer.splitlines():
+        if line.startswith("ref: refs/heads/") and line.endswith("\tHEAD"):
+            return line[len("ref: refs/heads/"):-len("\tHEAD")]
+    return next((name for name in ("main", "master") if remote_tip(cwd, remote, name)), "")
 
 
 def remote_tip(cwd: Pathish, remote: str, branch: str) -> str:

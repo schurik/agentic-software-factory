@@ -11,6 +11,8 @@ Usage:
                                                  --ship sends it to the cockpit as a CI station
     uv run asf/asf.py doctor                     is this repo ready to run? checks + fixes
     uv run asf/asf.py labels [--create]          the forge labels this config names
+    uv run asf/asf.py onboard [--json] [--mark step[=value]] [--forget step]
+                                                 where onboarding stands, and its next step
     uv run asf/asf.py run <workflow> "<prompt or path/to/prompt.md>"
                         [--adw-id a1b2c3d4] [--resume] [--hitl all|none|every|plan]
     uv run asf/asf.py run <workflow> <number> [--force]
@@ -51,8 +53,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from engine import (commands, describe, factory, operate, station, supervise, utils,  # noqa: E402
-                    watch, workflow)
+from engine import (commands, describe, factory, git_helper, onboarding, operate,  # noqa: E402
+                    station, supervise, utils, watch, workflow)
 from engine.data_types import Invocation  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
@@ -117,6 +119,18 @@ def cmd_doctor(args) -> int:
     print()
     args.workflow = None
     return max(code, cmd_check(args))
+
+
+def cmd_onboard(args) -> int:
+    cfg = factory.load(args.config)
+    root = git_helper.main_root()
+    for spoken in args.mark:
+        onboarding.mark(cfg, root, spoken)
+    for step in args.forget:
+        onboarding.forget(cfg, root, step)
+    found = onboarding.progress(cfg, root)
+    sys.stdout.write(onboarding.dumps(found) if args.json else onboarding.show(found, root) + "\n")
+    return 0
 
 
 def cmd_labels(args) -> int:
@@ -258,6 +272,14 @@ def build_parser() -> argparse.ArgumentParser:
     lbl.add_argument("--create", action="store_true",
                      help="define the missing ones; never edits or deletes an existing label")
     lbl.set_defaults(func=cmd_labels)
+    onb = _config_on(sub.add_parser("onboard", help="where onboarding stands, and its next step"))
+    onb.add_argument("--json", action="store_true", help="the steps as JSON, for an agent")
+    onb.add_argument("--mark", action="append", default=[], metavar="STEP[=VALUE]",
+                     help="record a decision that leaves no trace: settings, cockpit=local, "
+                          "cockpit=team, ci=declined")
+    onb.add_argument("--forget", action="append", default=[], metavar="STEP",
+                     help="drop a recorded decision")
+    onb.set_defaults(func=cmd_onboard)
 
     run = _config_on(sub.add_parser("run", help="run one workflow against a prompt"))
     run.add_argument("workflow")
