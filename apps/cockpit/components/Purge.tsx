@@ -39,8 +39,9 @@ export function PurgeForm({ label, explains, onPurge, onPurged, className }: Pur
     setSaid("");
     void onPurge(reason)
       .then((done) => {
-        setSaid(done.ok ? "Purging: the bodies are going now, and the audit line is written." : `Not purged: ${done.because}`);
-        if (done.ok) onPurged?.();
+        if (!done.ok) return setSaid(`Not purged: ${done.because}`);
+        setSaid("Purging: the bodies are going now, and the audit line is written.");
+        onPurged?.();
       })
       .catch((error: unknown) => setSaid(`Not purged: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => setBusy(false));

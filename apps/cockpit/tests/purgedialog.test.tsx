@@ -11,6 +11,8 @@ import type { Purged } from "../convex/retention";
 // the page then says who purged which phase's bodies — and one that did not
 // keeps it open, saying why, so the viewer can read it and try again. The
 // Config tab's inline purge has nothing to close and reports in place.
+// The menu is rendered alone, not the whole page: under happy-dom vite will
+// not load the golden corpus from outside the app, and the menu needs none.
 
 /** Opens the purge dialog from the ⋯ menu, gives a reason and confirms. */
 async function purgeFromMenu(onPurge: (reason: string) => Promise<Purged>) {
@@ -33,6 +35,13 @@ describe("the session page's purge dialog", () => {
 
     expect(onPurge).toHaveBeenCalledWith("a token in a prompt");
     await waitFor(() => expect(dialog()).toBeNull());
+  });
+
+  it("keeps the button disabled, and the dialog open, while the purge runs", async () => {
+    await purgeFromMenu(() => new Promise<Purged>(() => undefined));
+
+    expect((screen.getByRole("button", { name: "Purge bodies" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(dialog()).not.toBeNull();
   });
 
   it("stays open, saying why, when the purge is refused", async () => {
