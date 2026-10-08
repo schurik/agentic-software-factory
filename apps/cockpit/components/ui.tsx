@@ -1,5 +1,8 @@
+import { Dialog } from "@base-ui/react/dialog";
+import { Field as BaseField } from "@base-ui/react/field";
 import { Select as BaseSelect } from "@base-ui/react/select";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Tabs as BaseTabs } from "@base-ui/react/tabs";
+import { Check, ChevronsUpDown, X } from "lucide-react";
 import Link from "next/link";
 import { type ComponentProps, Fragment, type MouseEvent, type ReactNode } from "react";
 import { type Tone, toneOf } from "./session/words";
@@ -234,15 +237,34 @@ export const control = cx(
   "focus:border-accent focus:ring-4 focus:ring-accent-soft disabled:opacity-60",
 );
 
-/** A form field: its label over its control, and what it means under it. */
-export function Field({ label, hint, className, children }: { label: ReactNode; hint?: ReactNode; className?: string; children: ReactNode }) {
+/**
+ * A form field, base-ui's Field drawn once: its label over its control, what
+ * it means under it, and — once a `Form` is submitted with what `validate`
+ * refuses — why, under that. The control is a `Control`, which the label
+ * names; `name` is what the form calls its value.
+ */
+export function Field({ label, hint, name, validate, className, children }: {
+  label: ReactNode;
+  hint?: ReactNode;
+  name?: string;
+  /** Why the value will not do, or null when it will. */
+  validate?: (value: unknown) => string | null;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <label className={cx("grid gap-1", className)}>
-      <span className="text-sm font-medium">{label}</span>
+    <BaseField.Root name={name} validate={validate} className={cx("grid gap-1", className)}>
+      <BaseField.Label className="text-sm font-medium">{label}</BaseField.Label>
       {children}
-      {hint ? <span className="text-sm text-muted">{hint}</span> : null}
-    </label>
+      {hint ? <BaseField.Description className="text-sm text-muted">{hint}</BaseField.Description> : null}
+      <BaseField.Error className="text-sm text-bad" />
+    </BaseField.Root>
   );
+}
+
+/** A field's input — or, with `render={<textarea />}`, its textarea — drawn as a control. */
+export function Control({ className, ...rest }: Omit<ComponentProps<typeof BaseField.Control>, "className"> & { className?: string }) {
+  return <BaseField.Control className={cx(control, className)} {...rest} />;
 }
 
 /** A menu's or a select's popup, and one item in it. */
@@ -252,45 +274,95 @@ export const menuPopup = cx(
 );
 export const menuItem = "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 outline-none select-none data-highlighted:bg-surface-2";
 
+/** One choice in a `Select`: what it is, and how it reads. */
+export interface Choice {
+  value: string;
+  label: string;
+}
+
 /**
  * A labelled choice of one among `items`, drawn like a control and opened
- * as a menu. With nothing to choose it is disabled, and says `placeholder`.
+ * as a menu: a field of its own, which a `Form` knows by `name`. An item that
+ * reads other than as itself is a `Choice`. With nothing to choose it is
+ * disabled, and says `placeholder`.
  */
-export function Select({ label, items, value, placeholder, onChange, className, labelOf = (item) => item }: {
+export function Select({ label, items, value, name, placeholder, onChange, className }: {
   label: ReactNode;
-  items: string[];
+  items: (string | Choice)[];
   value: string;
+  name?: string;
   placeholder?: string;
   onChange: (value: string) => void;
   className?: string;
-  /** How an item reads, when not as itself. */
-  labelOf?: (item: string) => string;
 }) {
+  const options = items.map((item) => (typeof item === "string" ? { value: item, label: item } : item));
   return (
-    <BaseSelect.Root items={items.map((item) => ({ label: labelOf(item), value: item }))} value={value || null}
-                     disabled={!items.length} onValueChange={(chosen) => { if (typeof chosen === "string") onChange(chosen); }}>
-      <div className={cx("grid min-w-0 gap-1", className)}>
+    <BaseField.Root name={name} className={cx("grid min-w-0 gap-1", className)}>
+      <BaseSelect.Root items={options} value={value || null} disabled={!options.length}
+                       onValueChange={(chosen) => { if (typeof chosen === "string") onChange(chosen); }}>
         <BaseSelect.Label className="text-sm font-medium">{label}</BaseSelect.Label>
         <BaseSelect.Trigger className={cx(control, "flex h-9 min-w-0 items-center justify-between gap-2 text-left hover:bg-surface-2 data-popup-open:border-accent")}>
           <BaseSelect.Value placeholder={placeholder} className="truncate data-placeholder:text-faint" />
           <BaseSelect.Icon><ChevronsUpDown size={14} className="text-muted" aria-hidden="true" /></BaseSelect.Icon>
         </BaseSelect.Trigger>
-      </div>
-      <BaseSelect.Portal>
-        <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className="z-50">
-          <BaseSelect.Popup className={cx(menuPopup, "max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-y-auto")}>
-            <BaseSelect.List>
-              {items.map((item) => (
-                <BaseSelect.Item key={item} value={item} className={menuItem}>
-                  <BaseSelect.ItemText className="grow">{labelOf(item)}</BaseSelect.ItemText>
-                  <BaseSelect.ItemIndicator><Check size={14} className="text-accent" aria-hidden="true" /></BaseSelect.ItemIndicator>
-                </BaseSelect.Item>
-              ))}
-            </BaseSelect.List>
-          </BaseSelect.Popup>
-        </BaseSelect.Positioner>
-      </BaseSelect.Portal>
-    </BaseSelect.Root>
+        <BaseSelect.Portal>
+          <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className="z-50">
+            <BaseSelect.Popup className={cx(menuPopup, "max-h-[var(--available-height)] min-w-[var(--anchor-width)] overflow-y-auto")}>
+              <BaseSelect.List>
+                {options.map((option) => (
+                  <BaseSelect.Item key={option.value} value={option.value} className={menuItem}>
+                    <BaseSelect.ItemText className="grow">{option.label}</BaseSelect.ItemText>
+                    <BaseSelect.ItemIndicator><Check size={14} className="text-accent" aria-hidden="true" /></BaseSelect.ItemIndicator>
+                  </BaseSelect.Item>
+                ))}
+              </BaseSelect.List>
+            </BaseSelect.Popup>
+          </BaseSelect.Positioner>
+        </BaseSelect.Portal>
+      </BaseSelect.Root>
+    </BaseField.Root>
+  );
+}
+
+/**
+ * A dialog over the page, as the header's actions open one (#108): a card
+ * near the top of the screen, its title and what it does over its body, and
+ * a close button; Escape and the backdrop close it too. The body is drawn
+ * only while it is open, so a closed one asks the backend nothing.
+ */
+export function Modal({ open, onClose, title, description, children }: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={(opened) => { if (!opened) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className={cx(
+          "fixed inset-0 z-40 bg-black/25 transition-opacity dark:bg-black/60",
+          "data-ending-style:opacity-0 data-starting-style:opacity-0",
+        )} />
+        <Dialog.Popup className={cx(
+          "fixed top-[8dvh] left-1/2 z-50 max-h-[84dvh] w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto",
+          "rounded-xl border border-line bg-surface p-5 shadow-pop transition-[scale,opacity] duration-150",
+          "data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
+        )}>
+          <div className="mb-4 flex items-start gap-3">
+            <div className="grow">
+              <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted">{description}</Dialog.Description>
+            </div>
+            <Dialog.Close aria-label="Close"
+                          className="-mt-1 -mr-1 grid size-8 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg">
+              <X size={16} aria-hidden="true" />
+            </Dialog.Close>
+          </div>
+          {open ? children : null}
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -304,35 +376,55 @@ export function Kbd({ children }: { children: ReactNode }) {
 }
 
 /**
- * A row of tabs over one panel, underlined in the accent like the header's
- * places. It scrolls sideways on its own when the tabs outgrow the screen.
- * `end` sits at the row's far end — a link away, say — and scrolls with it.
+ * A row of tabs over its panels, base-ui's Tabs drawn once: the arrow keys
+ * move between tabs, and the selected one is underlined in the accent, like
+ * the header's places, by the row's Indicator — never by a tab's own border
+ * pulled over the row's with a negative margin, which overflowed the row by a
+ * pixel and so scrolled it vertically. The row's line is an inset shadow, so
+ * the Indicator covers it under the selected tab without leaving the box. It
+ * scrolls sideways, scrollbar hidden, when the tabs outgrow the screen; `end`
+ * sits at its far end — a link away, say — and scrolls with it, while
+ * `pinned` sits beyond it, outside the scroll, for what must stay in reach
+ * however many tabs there are: an action on the tab shown.
+ *
+ * The panels are `children`, each a `TabPanel` naming the tab it belongs to.
+ * One that is drawn only while shown can be one panel valued `selected`.
  */
-export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, end }: {
+export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, barClassName, end, pinned, children }: {
   tabs: { id: T; label: ReactNode }[];
   selected: T;
   onSelect: (tab: T) => void;
   label?: string;
   className?: string;
+  barClassName?: string;
   end?: ReactNode;
+  pinned?: ReactNode;
+  children?: ReactNode;
 }) {
   return (
-    <div className={cx("flex overflow-x-auto border-b border-line [scrollbar-width:none]", className)}>
-      <div role="tablist" aria-label={label} className="flex gap-1">
-        {tabs.map((tab) => (
-          <button key={tab.id} type="button" role="tab" aria-selected={tab.id === selected} onClick={() => onSelect(tab.id)}
-                  className={cx(
-                    "relative -mb-px shrink-0 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap",
-                    tab.id === selected ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg",
-                  )}>
-            {tab.label}
-          </button>
-        ))}
+    <BaseTabs.Root value={selected} onValueChange={(value: T) => onSelect(value)} className={className}>
+      <div className={cx("flex shadow-[inset_0_-1px_0_var(--line)]", barClassName)}>
+        <div className="no-scrollbar flex min-w-0 grow overflow-x-auto">
+          <BaseTabs.List aria-label={label} className="relative flex shrink-0 gap-1">
+            {tabs.map((tab) => (
+              <BaseTabs.Tab key={tab.id} value={tab.id}
+                            className="shrink-0 px-2.5 py-2 text-sm font-medium whitespace-nowrap text-muted hover:text-fg focus-visible:-outline-offset-2 data-active:text-fg">
+                {tab.label}
+              </BaseTabs.Tab>
+            ))}
+            <BaseTabs.Indicator renderBeforeHydration className="absolute bottom-0 left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-accent transition-[translate,width] duration-150 motion-reduce:transition-none" />
+          </BaseTabs.List>
+          {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
+        </div>
+        {pinned ? <div className="flex shrink-0 items-center pl-2">{pinned}</div> : null}
       </div>
-      {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
-    </div>
+      {children}
+    </BaseTabs.Root>
   );
 }
+
+/** One tab's panel, under a `Tabs`: `value` is the tab's id. */
+export const TabPanel = BaseTabs.Panel;
 
 /** A block of text exactly as it was written: output, a file, a payload. */
 export function Pre({ className, children }: { className?: string; children: ReactNode }) {

@@ -1,8 +1,6 @@
 "use client";
 
-import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery } from "convex/react";
-import { X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, type Dispatch, type ReactNode, useCallback, useContext, useEffect, useReducer, useState } from "react";
 import { api } from "@/convex/_generated/api";
@@ -10,7 +8,7 @@ import { repoKey } from "@/convex/forge/forge";
 import { useClock } from "../clock";
 import { said } from "../said";
 import { useSignIn } from "../signIn";
-import { cx } from "../ui";
+import { Modal } from "../ui";
 import { CLOSED, factoryInView, RUN_PARAM, runDialog, type RunDialogAction, type RunDialogState } from "./dialog";
 import { RunForm } from "./RunForm";
 
@@ -60,33 +58,10 @@ export function RunPrompt({ enabled, children }: { enabled: boolean; children: R
   return (
     <Opener.Provider value={open}>
       {children}
-      <Dialog.Root open={state.open} onOpenChange={(opened) => { if (!opened) dispatch({ type: "close" }); }}>
-        <Dialog.Portal>
-          <Dialog.Backdrop className={cx(
-            "fixed inset-0 z-40 bg-black/25 transition-opacity dark:bg-black/60",
-            "data-ending-style:opacity-0 data-starting-style:opacity-0",
-          )} />
-          <Dialog.Popup className={cx(
-            "fixed top-[8dvh] left-1/2 z-50 max-h-[84dvh] w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto",
-            "rounded-xl border border-line bg-surface p-5 shadow-pop transition-[scale,opacity] duration-150",
-            "data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
-          )}>
-            <div className="mb-4 flex items-start gap-3">
-              <div className="grow">
-                <Dialog.Title className="text-lg font-semibold">Run a prompt</Dialog.Title>
-                <Dialog.Description className="mt-1 text-sm text-muted">
-                  One of your stations on the factory starts a session from it, as you.
-                </Dialog.Description>
-              </div>
-              <Dialog.Close aria-label="Close"
-                            className="-mt-1 -mr-1 grid size-8 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg">
-                <X size={16} aria-hidden="true" />
-              </Dialog.Close>
-            </div>
-            {state.open ? <LiveRunForm state={state} dispatch={dispatch} /> : null}
-          </Dialog.Popup>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <Modal open={state.open} onClose={() => dispatch({ type: "close" })} title="Run a prompt"
+             description="One of your stations on the factory starts a session from it, as you.">
+        <LiveRunForm state={state} dispatch={dispatch} />
+      </Modal>
     </Opener.Provider>
   );
 }

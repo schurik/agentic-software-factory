@@ -5,7 +5,7 @@ import { FactoryHeader } from "../components/factory/FactoryHeader";
 import { FactoryView } from "../components/factory/FactoryView";
 import { IngestTokens, type Registration, StationsTab, type Token, type Tokens } from "../components/factory/StationsTab";
 import {
-  behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
+  behind, budgetWords, drifts, FACTORY_TABS, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
 } from "../components/factory/view";
 import { type WorkflowsRecord, WorkflowsTab } from "../components/factory/WorkflowsTab";
 import type { StationDetail } from "../convex/activity";
@@ -176,7 +176,7 @@ describe("the Workflows tab", () => {
 describe("the header", () => {
   it("links the Factories list in its breadcrumbs, and names the factory last, unlinked", () => {
     const html = renderToStaticMarkup(
-      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} />);
     const crumbs = html.slice(html.indexOf("<nav"), html.indexOf("</nav>") + "</nav>".length);
 
     expect(crumbs).toBe(renderToStaticMarkup(<Crumbs trail={[{ label: "Factories", href: "/factories" }]} here="acme/widgets" />));
@@ -184,25 +184,20 @@ describe("the header", () => {
     expect(crumbs).toMatch(/<span aria-current="page">acme\/widgets<\/span>/);
   });
 
-  it("leaves Run a prompt to the app header", () => {
+  it("leaves Run a prompt and Trigger a workflow to the app header", () => {
     const html = renderToStaticMarkup(
-      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={page()} look={LOOK} forge={FORGE} now={NOW} />);
 
-    expect(html).not.toContain("Run a prompt");                     // the app header's, not the factory's (#108)
-  });
-
-  it("offers Trigger… on a factory the forge shows — the Factories list's rows open the page, so this is its one way in", () => {
-    const header = (shown: Page) => renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
-
-    expect(header(page())).toMatch(/<button[^>]*>Trigger…<\/button>/);
-    expect(header(page({ onForge: false }))).not.toContain("Trigger…");
+    // The app header's, not the factory's (#108): both open on the factory in view.
+    expect(html).not.toContain("Run a prompt");
+    expect(html).not.toContain("Trigger");
+    expect(html).not.toContain("<button");
   });
 
   it("is unchecked, never broken, without a CI workflow", () => {
     const shown = page({ check: null, stations: [] });
     const html = renderToStaticMarkup(
-      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} triggering={false} onTrigger={() => {}} />);
+      <FactoryHeader page={shown} look={null} forge={FORGE} now={NOW} />);
 
     expect(html).toContain("unchecked");
     expect(html).not.toContain("failing");
@@ -365,13 +360,15 @@ const PANELS = { overview: <p>the overview</p>, workflows: <p>the workflows</p>,
 function factoryView(shown: Page, tab: FactoryTab, look: Look | null = LOOK) {
   return renderToStaticMarkup(
     <FactoryView page={shown} look={look} drifts={drifts(shown, look)} forge={FORGE} now={NOW} tab={tab} onTab={() => {}}
-                 triggering={false} onTrigger={() => {}} trigger={null} panels={PANELS} />);
+                 panels={PANELS} />);
 }
 
-/** The panel of `tab`, as `html` has it: hidden or not. */
-function panel(html: string, tab: FactoryTab): string {
-  return html.match(new RegExp(`<div[^>]*id="factory-${tab}"[^>]*>`))?.[0] ?? "";
+/** Where the panel of `tab` opens in `html`, and its opening tag: hidden or not. The panels come in the tabs' order. */
+function opening(html: string, tab: FactoryTab): { at: number; tag: string } {
+  const found = [...html.matchAll(/<div[^>]*role="tabpanel"[^>]*>/g)][(Object.keys(FACTORY_TABS) as FactoryTab[]).indexOf(tab)];
+  return found ? { at: found.index, tag: found[0] } : { at: -1, tag: "" };
 }
+const panel = (html: string, tab: FactoryTab) => opening(html, tab).tag;
 
 describe("the factory page", () => {
   it("is headed by the name, its check, the default branch at its commit, the stations online and the budget", () => {
@@ -502,13 +499,12 @@ describe("the Stations tab", () => {
     const shown = page();
     const html = renderToStaticMarkup(
       <FactoryView page={shown} look={LOOK} drifts={drifts(shown, LOOK)} forge={FORGE} now={NOW} tab={tabOf("stations")} onTab={() => {}}
-                   triggering={false} onTrigger={() => {}} trigger={null}
                    panels={{ ...PANELS, stations: (
                      <StationsTab stations={[CARD]} ci={{ jobs: [], checks: [] }} drifts={drifts(shown, LOOK)} now={NOW} factory="acme/widgets"
                                   forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
                                   registrations={[{ station: "st_new", name: "alex@new:widgets", kind: "local", host: "new", open: false, expiresAt: NOW + 60_000, approved: false, because: null }]} />
                    ) }} />);
-    const stations = html.slice(html.indexOf('id="factory-stations"'), html.indexOf('id="factory-config"'));
+    const stations = html.slice(opening(html, "stations").at, opening(html, "config").at);
 
     expect(panel(html, "stations")).not.toContain("hidden");
     expect(stations).toContain("alex@new:widgets</code> asks to become a station");

@@ -79,3 +79,35 @@ def test_the_upgrade_cookbook_walks_every_step_a_pre_1_1_stamp_lacks():
                  "cockpit.commands", "station-register", "observability", "mode: none",
                  "labels --create", "just doctor", "CHANGELOG.md"):
         assert step in cookbook, f"the upgrade cookbook never mentions {step}"
+
+
+# The install and update command, the same in every place that gives one. Two agents, not one:
+# `skills` copies when every target agent shares a directory, so `--agent claude-code` alone puts
+# a real directory where the link to `.agents/skills/` was. `pi` reads `.agents/skills/` itself,
+# which is what makes the CLI write there and link Claude Code to it — and naming agents keeps a
+# `-y` from picking Eve alone in a repo the CLI sees Eve in (issue #172, checked with skills 1.7.1).
+SKILLS_ADD = ("npx skills add schurik/agentic-software-factory --skill agentic-sf"
+              " --agent claude-code pi -y")
+README = SKILL_ROOT.parent.parent / "README.md"
+ONE_AGENT_YES = re.compile(r"(?:-a|--agent)\s+claude-code\s+-y")
+
+
+def test_the_upgrade_updates_the_skill_before_it_re_stamps():
+    """`--force` from a stale skill stamps the old engine back, and between releases the
+    version cannot say the copy is stale — so the copy is updated, and checked, first."""
+    cookbook = (COOKBOOKS / "upgrade.md").read_text()
+    assert "## Update the skill first" in cookbook
+    assert cookbook.index("## Update the skill first") < cookbook.index("## Re-stamp")
+    step = cookbook.split("## Update the skill first", 1)[1].split("\n## ", 1)[0]
+    for mention in (SKILLS_ADD, "git -C <skill> pull", "claude plugin update",
+                    "npx skills update", "Eve", "skills-lock.json", "readlink"):
+        assert mention in " ".join(step.split()), f"updating the skill never mentions {mention}"
+
+
+@pytest.mark.parametrize("doc", [README, COOKBOOKS / "install.md", COOKBOOKS / "upgrade.md"],
+                         ids=lambda p: p.name)
+def test_every_install_of_the_skill_is_the_command_that_links(doc: Path):
+    text = doc.read_text()
+    assert SKILLS_ADD in text, f"{doc.name} does not give the install/update command"
+    assert not ONE_AGENT_YES.search(text), \
+        f"{doc.name} suggests `--agent claude-code -y` alone, which copies instead of linking"

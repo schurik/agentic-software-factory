@@ -14,7 +14,6 @@ import { useRunPrompt } from "../run/RunDialog";
 import { said } from "../said";
 import { useCockpit } from "../Shell";
 import { useSignIn } from "../signIn";
-import { TriggerForm } from "../trigger/Trigger";
 import { Loading, Notice } from "../ui";
 import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
@@ -66,7 +65,6 @@ export function FactoryPage({ factory }: { factory: string }) {
   const purge = useAction(api.retention.purgeFactory);
   const [released, setReleased] = useState("");
   const [problem, setProblem] = useState("");
-  const [triggering, setTriggering] = useState(false);
   const run = useRunPrompt();
   // The file open in the config editor, and the commit the editor reads every file at — fixed when it first opens,
   // and kept when its dialog closes, so that its drafts outlive closing it.
@@ -111,8 +109,6 @@ export function FactoryPage({ factory }: { factory: string }) {
 
   return (
     <FactoryView page={page} look={look} drifts={measured} forge={web} now={now} tab={tab} onTab={onTab}
-                 triggering={triggering} onTrigger={() => setTriggering(!triggering)}
-                 trigger={triggering ? <TriggerForm factory={page.repo} signIn={signIn} as={viewer?.login ?? ""} /> : null}
                  panels={{
                    overview: <OverviewTab overview={overview} days={days} midnights={midnights} now={now} timeZone={timeZone} onDays={setDays} />,
                    workflows: (

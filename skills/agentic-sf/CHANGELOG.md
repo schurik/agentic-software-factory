@@ -39,6 +39,13 @@ before — `None` when there are none, never omitted.
   tracker's project and labels — so a cockpit shows them without parsing factory.yaml. The
   tracker's raw command arrays are left out. A 1.3.0 cockpit reads both formats; an older one
   reads format 2 as far as it can and says it is newer.
+- **The upgrade says how to update the skill itself, and `npx skills update` is not it.** In a
+  repository the `skills` CLI sees an Eve agent in, `update` installs for Eve alone and then calls
+  the skill current, and `--agent claude-code -y` alone copies the skill over the
+  `.claude/skills/` link — so a re-stamp from the copy left behind brought the old engine back,
+  and between releases the version could not tell. `cookbooks/upgrade.md` now updates each kind
+  of copy first and checks its files moved; the README and the install cookbook give the one
+  command that links: `npx skills add … --skill agentic-sf --agent claude-code pi -y`.
 - **A checkout connects to a team cockpit with nothing but its URL.** `just station-register` with
   only `ASF_COCKPIT_URL` set names the factory itself — the origin remote, `owner/name` — and the
   person with write on it who approves the code in the browser hands the station that factory's
@@ -57,10 +64,13 @@ before — `None` when there are none, never omitted.
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
    new factory, or a cockpit older than that shows each chapter's and phase's start as an event it
    cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
-2. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning and the
+2. Update the skill copy before stamping from it (`cookbooks/upgrade.md` § Update the skill
+   first) — a vendored one with `npx skills add schurik/agentic-software-factory --skill
+   agentic-sf --agent claude-code pi -y`, not `npx skills update`.
+3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning and the
    settings in the self-description, and registering without a token; nothing else changes. A
    factory with the CI workflow ships format 2 on its next default-branch push.
-3. A checkout that ships to a shared cockpit with `ASF_COCKPIT_TOKEN` needs nothing: it keeps
+4. A checkout that ships to a shared cockpit with `ASF_COCKPIT_TOKEN` needs nothing: it keeps
    working as it did. To connect one without the token, remove it from `.env` and run `just
    station-register` against a cockpit of this release (the 1.3.0 minimum above; an older one
    refuses the request and says so). A CI job keeps its `secrets.ASF_COCKPIT_TOKEN`; an admin can

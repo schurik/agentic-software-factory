@@ -97,3 +97,8 @@ export function refusal(role: Role | null): string | null {
   }
   return null;
 }
+
+/** Why `typed` names no issue, or null when it does: a positive whole number. */
+export function notAnIssue(typed: string): string | null {
+  return /^\d+$/.test(typed) && Number(typed) > 0 ? null : "An issue is a positive whole number, like 42";
+}

@@ -9,7 +9,7 @@ import type { Me } from "./Header";
 import { said } from "./said";
 import { useCockpit } from "./Shell";
 import { carried, carry } from "./signIn";
-import { Button, buttonClass, control, cx, Field, Loading, Notice, Pre, Standalone } from "./ui";
+import { Button, buttonClass, Control, cx, Field, Loading, Notice, Pre, Standalone } from "./ui";
 
 /** What the setup form sends GitHub's way: the code printed on the deployment, the host, and the owning organization. */
 export interface Begin {
@@ -122,15 +122,14 @@ export function SetupView({ mode, forge, webhook, dashboard = null, onBegin }: {
       </ol>
       <form className="grid gap-4 pt-3" onSubmit={(event) => void submit(event)}>
         <Field label="Setup code">
-          <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="asf_setup_…"
-                 autoComplete="off" spellCheck={false} required className={control} />
+          <Control value={code} onValueChange={setCode} placeholder="asf_setup_…"
+                   autoComplete="off" spellCheck={false} required />
         </Field>
         <Field label="GitHub host" hint={<>github.com, or your Enterprise Server&apos;s host name. An App belongs to one host.</>}>
-          <input value={host} onChange={(event) => setHost(event.target.value)} spellCheck={false} required className={control} />
+          <Control value={host} onValueChange={setHost} spellCheck={false} required />
         </Field>
         <Field label="Organization" hint="The organization that will own the App. Leave empty to register it under your own account.">
-          <input value={organization} onChange={(event) => setOrganization(event.target.value)} placeholder="acme"
-                 spellCheck={false} className={control} />
+          <Control value={organization} onValueChange={setOrganization} placeholder="acme" spellCheck={false} />
         </Field>
         <Button type="submit" variant="primary" className="justify-self-start" disabled={leaving}>Continue to GitHub</Button>
       </form>

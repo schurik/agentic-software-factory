@@ -1,45 +1,32 @@
 "use client";
 
-import { useAction } from "convex/react";
-import { useEffect, useState } from "react";
-import { api } from "@/convex/_generated/api";
-import type { Role } from "@/convex/forge/forge";
-import { refusal } from "@/convex/model/trigger";
+import { Form } from "@base-ui/react/form";
+import { notAnIssue } from "@/convex/model/trigger";
 import type { Offered, Triggered } from "@/convex/trigger";
 import { ForgeRef } from "../icons";
-import { said } from "../said";
-import { Button, control, Field, Notice } from "../ui";
+import { Button, Control, Field, Notice, Select } from "../ui";
 import { useWho } from "../viewer";
-
-/**
- * The trigger in a factory's page header: enabled from triage up, which is what the
- * forge asks of a labeller, and otherwise disabled with the reason. Pure, so a
- * test renders it.
- */
-export function TriggerButton({ role, open, onToggle }: { role: Role | null; open: boolean; onToggle: () => void }) {
-  const because = refusal(role);
-  return (
-    <>
-      <Button size="sm" disabled={because !== null} title={because ?? undefined} aria-expanded={open} onClick={onToggle}>
-        Trigger…
-      </Button>
-      {because !== null ? <span className="text-sm text-muted"> {because}</span> : null}
-    </>
-  );
-}
 
 /** What the form is filled in with. */
 export interface Asked {
+  factory: string;
   issue: string;
   label: string;
 }
 
 /**
- * The trigger form: which workflow, on which issue, and what pressing the
- * button will do — before it is pressed, and once it has been. Pure.
+ * The Trigger a workflow dialog's body: the factory and one of its routes,
+ * the issue, what pressing Trigger will do — before it is pressed, and once
+ * it has been — then Cancel and Trigger. Whether the viewer may label the
+ * factory's issues is the forge's word, which `routes` carries: the dialog
+ * opens on any factory, and says there why nothing can be triggered on one.
+ *
+ * Pure: what it shows comes from its props, so a test renders it.
  */
-export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onChange, onSubmit }: {
-  factory: string;
+export function TriggerFormView({ factories, routes, asked, busy, outcome, as, onChange, onSubmit, onCancel }: {
+  /** The factories on the forge the viewer can read, and the one in view. */
+  factories: string[];
+  /** The chosen factory's routes; null while they are read. */
   routes: Offered | null;
   asked: Asked;
   busy: boolean;
@@ -48,77 +35,49 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
   as: string;
   onChange: (asked: Asked) => void;
   onSubmit: () => void;
+  onCancel: () => void;
 }) {
   const who = useWho();
-  if (routes === null) return <p className="text-sm text-muted">Reading {factory}&apos;s route labels from the forge…</p>;
-  if (!routes.ok) return <Notice className="text-sm">Nothing can be triggered on {factory} from here: {routes.because}.</Notice>;
-  const route = routes.routes.find(({ label }) => label === asked.label) ?? routes.routes[0];
+  const { factory } = asked;
+  const offered = routes?.ok ? routes.routes : [];
+  const route = offered.find(({ label }) => label === asked.label) ?? offered[0];
   const by = as ? who(as) : "you";
-  const number = Number(asked.issue);
-  const ready = Number.isInteger(number) && number > 0 && !busy;
+  const ready = route !== undefined && asked.issue !== "" && !busy;
   return (
-    <form className="grid max-w-lg gap-3" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
-      <Field label="Workflow">
-        <select value={route.label} className={control} onChange={(event) => onChange({ ...asked, label: event.target.value })}>
-          {routes.routes.map(({ label, workflow }) => (
-            <option key={label} value={label}>{workflow} ({label})</option>
-          ))}
-        </select>
+    <Form className="grid gap-4" onFormSubmit={() => { if (ready) onSubmit(); }}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Select label="Factory" items={factories} value={factory} placeholder="Pick a factory"
+                onChange={(chosen) => onChange({ ...asked, factory: chosen, label: "" })} />
+        <Select label="Workflow" name="label" value={route?.label ?? ""} placeholder="No route label"
+                onChange={(label) => onChange({ ...asked, label })}
+                items={offered.map(({ label, workflow }) => ({ value: label, label: `${workflow} (${label})` }))} />
+      </div>
+      <Field label="Issue" name="issue" validate={(value) => notAnIssue(String(value ?? ""))}>
+        <Control inputMode="numeric" placeholder="42" value={asked.issue}
+                 onValueChange={(typed) => onChange({ ...asked, issue: typed.replace(/^#/, "") })} />
       </Field>
-      <Field label="Issue">
-        <input inputMode="numeric" placeholder="42" value={asked.issue} className={control}
-               onChange={(event) => onChange({ ...asked, issue: event.target.value.replace(/^#/, "") })} />
-      </Field>
-      <p className="text-sm text-muted">
-        Adds <code>{route.label}</code> and <code>{routes.queued}</code> to the issue as {by}. The
-        factory&apos;s issues watcher starts {route.workflow} on its next poll, and records {by} as who
-        triggered it.
-      </p>
-      <Button type="submit" variant="primary" className="justify-self-start" disabled={!ready}>
-        {busy ? "Labelling…" : `Trigger ${route.workflow}`}
-      </Button>
+      {!factory ? (factories.length ? null : <Notice className="text-sm">You can read no factory on the forge yet.</Notice>)
+        : routes === null ? <p className="text-sm text-muted">Reading {factory}&apos;s route labels from the forge…</p>
+        : !routes.ok ? <Notice className="text-sm">Nothing can be triggered on {factory} from here: {routes.because}.</Notice>
+        : route ? (
+          <p className="text-sm text-muted">
+            Adds <code>{route.label}</code> and <code>{routes.queued}</code> to the issue as {by}. The
+            factory&apos;s issues watcher starts {route.workflow} on its next poll, and records {by} as who
+            triggered it.
+          </p>
+        ) : null}
       {outcome?.ok ? (
         <Notice tone="ok" className="text-sm">
           Labelled <ForgeRef kind="issue" href={outcome.url} state="open" newTab>#{asked.issue} {outcome.title}</ForgeRef>: {outcome.workflow} starts
           when the factory&apos;s issues watcher next polls.
         </Notice>
       ) : outcome ? <Notice tone="bad" className="text-sm">Not triggered: {outcome.because}.</Notice> : null}
-    </form>
-  );
-}
-
-/** The form for one factory, with its route labels read from the forge as it opens. */
-export function TriggerForm({ factory, signIn, as }: { factory: string; signIn: string | undefined; as: string }) {
-  const readRoutes = useAction(api.trigger.routes);
-  const trigger = useAction(api.trigger.trigger);
-  const [routes, setRoutes] = useState<Offered | null>(null);
-  const [asked, setAsked] = useState<Asked>({ issue: "", label: "" });
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<Triggered | null>(null);
-
-  useEffect(() => {
-    let current = true;
-    readRoutes({ factory, signIn }).then(
-      (got) => { if (current) setRoutes(got); },
-      (error: unknown) => { if (current) setRoutes({ ok: false, because: said(error) }); });
-    return () => { current = false; };
-  }, [readRoutes, factory, signIn]);
-
-  const submit = async () => {
-    if (routes === null || !routes.ok) return;
-    setBusy(true);
-    setOutcome(null);
-    try {
-      const label = asked.label || routes.routes[0].label;
-      setOutcome(await trigger({ factory, issue: Number(asked.issue), label, signIn }));
-    } catch (error) {
-      setOutcome({ ok: false, because: said(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <TriggerFormView factory={factory} routes={routes} asked={asked} busy={busy} outcome={outcome} as={as}
-                     onChange={(next) => { setAsked(next); setOutcome(null); }} onSubmit={() => void submit()} />
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" variant="primary" disabled={!ready}>
+          {busy ? "Labelling…" : route ? `Trigger ${route.workflow}` : "Trigger"}
+        </Button>
+      </div>
+    </Form>
   );
 }
