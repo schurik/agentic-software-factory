@@ -44,6 +44,11 @@ asked for in, and a page that names the factory in another case reads the same s
 docker compose exec app ./convex.sh run tokens:issue '{"factory": "acme/widgets"}'
 ```
 
+That is the operator's route, with the deployment's admin key. Nobody else needs it: a checkout
+registering with only the cockpit's URL is handed a token of its own once a person with write
+approves it, and a repository's admin issues CI's on its factory page ([Ingest
+tokens](#ingest-tokens-without-the-admin-key)).
+
 ## Set up a team cockpit
 
 A team's cockpit has to be reachable by the people who use it and, for webhooks, by GitHub. Tell
@@ -60,11 +65,19 @@ webhook**, and the setup page says so before you leave for GitHub. Everything el
 the cockpit learns of the forge by the catch-up poll alone, once a minute. Sign-in needs only your
 browser to reach the cockpit, so `http://localhost:3000` is fine for that.
 
-1. Print a setup code. It is what shows you run the deployment; it works once, for an hour.
+1. Print a setup code. It is what shows you run the deployment — before an App exists nobody can
+   sign in, so running a function with the deployment's admin key is the only admin check there
+   is. It works once, for an hour. Anything that runs `setup:code` on the deployment will do, and
+   `/setup` shows the route that fits where it runs:
 
    ```bash
-   docker compose exec app ./convex.sh run setup:code
+   docker compose exec app ./convex.sh run setup:code     # the compose file's
+   npx convex run setup:code                              # Convex Cloud, CLI pointed at it
    ```
+
+   On Convex Cloud (a `*.convex.site` `CONVEX_SITE_URL`) `/setup` links the deployment's
+   **Functions** page in the Convex dashboard instead: pick `setup:code` and **Run** it. Neither
+   route needs this source.
 
 2. Open `/setup` on the cockpit, enter the code, the GitHub host and the organization that will own
    the App, and continue. GitHub shows the App it is about to create; confirm it there.
@@ -270,11 +283,13 @@ Content-Type: application/json
 
 ## Ship from a station
 
-A stamped factory ships on its own once its `.env` (or a CI job's environment) names the cockpit:
+A stamped factory ships on its own once its `.env` (or a CI job's environment) names the cockpit,
+and the station holds an ingest token: one its registration was handed (below), or
+`ASF_COCKPIT_TOKEN`, which wins when set:
 
 ```bash
-ASF_COCKPIT_URL=http://127.0.0.1:3211      # the site origin, not :3210
-ASF_COCKPIT_TOKEN=asf_ingest_…
+ASF_COCKPIT_URL=http://127.0.0.1:3211      # the site origin, not :3210 (Convex Cloud: https://<name>.convex.site)
+ASF_COCKPIT_TOKEN=asf_ingest_…             # optional on a machine that registered; CI's comes from the factory page
 ```
 
 Every `asf run` then ships its session from a background thread as it goes, and `asf station sync`
@@ -295,15 +310,26 @@ uv run asf/asf.py run quick "add a health check"   # appears on :3000 within sec
 ## Commands: register a station; kill, resume, answer and run
 
 A station takes commands — the steering the forge cannot carry — once a person approved it. In a
-stamped checkout, with `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` set:
+stamped checkout, with `ASF_COCKPIT_URL` set:
 
 ```bash
 uv run asf/asf.py station register       # prints a code, and /stations/approve?code=… to open
 ```
 
-The person opens that page signed in (write on the repository), approves, and the station's next
-poll of `POST /station/register/poll` is handed a command token: theirs, for that station alone,
-kept as a digest here (`convex/stations.ts`). The link is built from `COCKPIT_APP_URL`, which the
+The request carries the factory's ingest token when the checkout has one (`ASF_COCKPIT_TOKEN`),
+which says which factory the station is. Without one it names the factory itself — its origin
+remote, `owner/name` — and the host it runs on. The person opens that page signed in (write on the
+repository), approves, and the station's next poll of `POST /station/register/poll` is handed a
+command token: theirs, for that station alone, kept as a digest here (`convex/stations.ts`). A
+station that asked without an ingest token is handed one of its own too, the approver's, which it
+ships with from then on.
+
+Asking without a token needs nothing anyone holds, so anyone who reaches the site can ask, naming
+any repository, and the approval is the only gate. The page names the repository, the station, its
+kind and its host before its button, and refuses outright a viewer without write. The requests
+waiting are capped per factory, per source (the first hop of `X-Forwarded-For`, where a proxy in
+front of the deployment sets it) and in all (`TOKENLESS_*` in `convex/model/command.ts`), and run
+out after ten minutes as every request does. The link is built from `COCKPIT_APP_URL`, which the
 compose file passes to the backend; without it the station names the Stations page instead. A local
 cockpit issues its station that token itself (`stations:local`, through `docker compose exec`).
 
@@ -334,6 +360,19 @@ which settles only that station's own commands. Revoking a token under Stations 
 
 Each verb is the station's to obey: its `asf/factory.yaml` lists it under `cockpit.commands` (`run`
 is off unless listed), and the cockpit greys out what the station's report says it would refuse.
+
+### Ingest tokens without the admin key
+
+Every ingest token is a row of its own (`convex/tokens.ts`), listed on the factory's **Stations**
+tab by how it came to be — a station's registration and who approved it, an admin on that page, or
+the deployment's `tokens:issue` — and revocable there by a repository admin or by whoever it was
+issued by. A revoked token's ingest, claims and descriptions are `401`, and a station's **Revoke**
+takes the ingest token its registration was handed along with its command token. A registration
+of the same station again replaces its token.
+
+A CI job takes part in no device flow, so a repository **admin** issues it a token on the Stations
+tab: named for what it is for, shown once beside the site origin, and stored as the repository's
+`secrets.ASF_COCKPIT_TOKEN` with that origin as `vars.ASF_COCKPIT_URL`.
 
 ## Claims: which station starts a work item
 
@@ -518,6 +557,9 @@ claim; its last 30 days by the viewer's midnights — sessions and failures amon
 recently active, and what its key paid; the
 commands waiting for it, each with when it expires; and Revoke, for its owner or an admin of the
 repository. Every CI job is one **CI** card: the sessions that ran in CI and the checks CI pushed.
+Each asking station names the host it asked from, and says when it holds no ingest token, so that
+approving it hands it one. Under the cards, **Ingest tokens** lists the factory's live tokens and
+issues one for CI to an admin ([above](#ingest-tokens-without-the-admin-key)).
 The old `/stations` goes on to the Stations tab of the one factory the viewer's stations are in, or
 to the Factories list; approving a station keeps its own page, `/stations/approve`.
 
@@ -630,7 +672,12 @@ Set up once:
    project's default environment variables for preview deployments.
 
 Stations ship to the deployment's site, its `https://<name>.convex.site` address
-(`ASF_COCKPIT_URL`), and a production build runs the same backfills `docker/start.sh` does.
+(`ASF_COCKPIT_URL`) — not the `.convex.cloud` address, and not the pages' — and a production build
+runs the same backfills `docker/start.sh` does. There is no container to print a setup code in:
+`/setup` links the deployment's **Functions** page in the Convex dashboard, where `setup:code` is
+run, and the CLI (`npx convex run setup:code`) does the same. A setup code the pages refuse as
+"not a setup code this deployment printed" was printed on another deployment than the one the
+pages use.
 
 ## How the pieces connect
 
@@ -652,7 +699,7 @@ its container, into the deployment's environment, which the diagram leaves out �
 its ingest token by running `tokens:issue` inside the app container. For each event the loop posts the new lines, the backend stores each `seq` once and
 answers with the highest `seq` it holds without a gap, and the loop records that in the session's
 `shipped.json`. Against a shared cockpit (`ASF_COCKPIT_URL`) the right-hand side is the team's
-deployment: there is no cockpit child and no token step (`ASF_COCKPIT_TOKEN` is the token), every
+deployment: there is no cockpit child and no token step (the token is `ASF_COCKPIT_TOKEN`, or the one the station's registration was handed), every
 `asf run` also ships its own session, and the ingest request is the same.
 
 ## Develop

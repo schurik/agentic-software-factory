@@ -26,6 +26,7 @@ export function SetupPage() {
   const { mode, forge } = useCockpit();
   const begin = useAction(api.setup.begin);
   const webhook = useQuery(api.setup.webhook, {});
+  const deployment = useQuery(api.setup.deployment, {});
 
   const leave = async (fields: Begin) => {
     const begun = await begin({ ...fields, appUrl: window.location.origin });
@@ -43,7 +44,7 @@ export function SetupPage() {
     form.submit();
   };
 
-  return <SetupView mode={mode} forge={forge} webhook={webhook} onBegin={leave} />;
+  return <SetupView mode={mode} forge={forge} webhook={webhook} deployment={deployment} onBegin={leave} />;
 }
 
 /**
@@ -51,11 +52,13 @@ export function SetupPage() {
  * team's the three steps and the form that leaves for GitHub. `onBegin`
  * leaves, or throws what went wrong, which the form then says.
  */
-export function SetupView({ mode, forge, webhook, onBegin }: {
+export function SetupView({ mode, forge, webhook, deployment, onBegin }: {
   mode: Me["mode"];
   forge: Me["forge"];
   /** Where GitHub would deliver the App's webhook, and whether it could: undefined while that is asked. */
   webhook: FunctionReturnType<typeof api.setup.webhook> | undefined;
+  /** Where the deployment runs — on Convex Cloud, or the compose file's: undefined while that is asked. */
+  deployment: FunctionReturnType<typeof api.setup.deployment> | undefined;
   onBegin: (fields: Begin) => Promise<void>;
 }) {
   const [code, setCode] = useState("");
@@ -109,7 +112,7 @@ export function SetupView({ mode, forge, webhook, onBegin }: {
       <ol className="list-decimal pl-5 marker:text-muted [&>li+li]:mt-2">
         <li>
           Print a setup code on the deployment. It shows you run this cockpit, and works once, for an hour.
-          <Pre className="mt-1.5">docker compose exec app ./convex.sh run setup:code</Pre>
+          <SetupCode cloud={deployment?.cloud ?? null} />
         </li>
         <li>
           Fill this in and continue to GitHub, which shows the App it is about to create: private to your
@@ -132,6 +135,22 @@ export function SetupView({ mode, forge, webhook, onBegin }: {
       </form>
       {problem ? <Notice tone="bad" role="alert">{problem}</Notice> : null}
     </Standalone>
+  );
+}
+
+/**
+ * How to print a setup code where this deployment runs: anything that runs a
+ * function with its admin key will do. On Convex Cloud that is its dashboard
+ * or the Convex CLI, since there is no container; else the compose file's.
+ */
+function SetupCode({ cloud }: { cloud: FunctionReturnType<typeof api.setup.deployment>["cloud"] }) {
+  if (cloud === null) return <Pre className="mt-1.5">docker compose exec app ./convex.sh run setup:code</Pre>;
+  return (
+    <>
+      {" "}On Convex Cloud, open <a href={cloud.functions}>{cloud.name}&apos;s functions</a> in the Convex dashboard,
+      pick <code>setup:code</code> and run it — or with the Convex CLI, pointed at that deployment:
+      <Pre className="mt-1.5">npx convex run setup:code</Pre>
+    </>
   );
 }
 

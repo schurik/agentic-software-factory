@@ -91,14 +91,22 @@ export function ApprovalView({ code, asked, outcome, onCode, onApprove }: Approv
         : asked === null ? <Notice>No station is waiting on that code: it may have expired. Run <code>asf station register</code> again.</Notice>
         : (
           <div className="rounded-lg border border-line bg-surface-2 px-4 py-3">
+            {/* What asked, in full, before the button: a code approved by mistake hands that station what follows. */}
             <Facts>
-              <dt>Station</dt><dd><code>{asked.name}</code> <span className="text-sm text-muted">({asked.kind}, {asked.station})</span></dd>
-              <dt>Factory</dt><dd>{asked.factory}</dd>
+              <dt>Repository</dt><dd>{asked.factory}</dd>
+              <dt>Station</dt><dd><code>{asked.name}</code> <span className="text-sm text-muted">({asked.station})</span></dd>
+              <dt>Kind</dt><dd>{asked.kind}</dd>
+              <dt>Host</dt><dd>{asked.host ? <code>{asked.host}</code> : <span className="text-muted">not said</span>}</dd>
             </Facts>
             <p className="mt-3 text-sm">
               Approving makes this station yours: it takes commands from this cockpit for you, as far as its own{" "}
               <code>asf/factory.yaml</code> opts them in. Approve only a station you started.
             </p>
+            {asked.tokenless ? (
+              <p className="mt-2 text-sm">
+                It holds no ingest token: approving hands it one, so it can write sessions into {asked.factory} as you.
+              </p>
+            ) : null}
             {asked.because ? <Notice className="mt-3 text-sm">{asked.because}</Notice> : null}
             <Button variant="primary" className="mt-3" disabled={asked.because !== null || asked.approved} onClick={onApprove}>
               {asked.approved ? "Approved" : "Approve"}

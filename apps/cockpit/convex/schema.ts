@@ -26,11 +26,27 @@ export default defineSchema({
 
   // A factory-scoped, append-only credential: it can add events to its own
   // factory's sessions and nothing else — no read, no command. Only a digest is
-  // kept, so the table leaking is not every station's secret leaking.
+  // kept, so the table leaking is not every station's secret leaking. One row
+  // per token, so each is revoked on its own (tokens.ts); a revoked one is kept,
+  // `revokedAt` set, because a factory's spelling is read off every token it
+  // was ever issued (spelling.ts). The fields after `digest` are absent from a
+  // token issued before tokens were listed: issued on the deployment, then.
   ingestTokens: defineTable({
     factory: v.string(),
     digest: v.string(),
-  }).index("by_digest", ["digest"]),
+    // How it was issued: with the deployment's admin key (`tokens:issue`), to
+    // a station a person approved (`stations.handOver`), or by a repository's
+    // admin on the factory page, for CI (`tokens.issueFor`).
+    via: v.optional(v.union(v.literal("deployment"), v.literal("station"), v.literal("cockpit"))),
+    label: v.optional(v.string()),    // the station's name, or what the admin called it
+    station: v.optional(v.string()),  // via a station: its id
+    by: v.optional(v.string()),       // the forge login of who approved or issued it; "" on the deployment
+    issuedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_digest", ["digest"])
+    .index("by_factory", ["factory"])
+    .index("by_station", ["factory", "station"]),
 
   // One document per domain event, exactly as the station sent it. The payload
   // is kept as the JSON text it arrived as (model/wire.ts) and never validated
@@ -305,7 +321,12 @@ export default defineSchema({
 
   // A station asking to be registered (`asf station register`): the digest of
   // the secret it polls with, and the code a person approves it by. Gone once
-  // the station has its token, or once it ran out.
+  // the station has its token, or once it ran out. `tokenless` is a request
+  // that named its factory itself, holding no ingest token: anyone who reaches
+  // the site can make one, so they are counted (`TOKENLESS_*`), by factory and
+  // by `source` — the address a proxy in front of the deployment said it came
+  // from, absent when none said — and approving one hands the station an
+  // ingest token too. Both absent from a request kept before they existed.
   registrations: defineTable({
     device: v.string(),
     code: v.string(),
@@ -315,11 +336,17 @@ export default defineSchema({
     kind: v.string(),
     expiresAt: v.number(),
     approvedBy: v.union(v.null(), v.id("viewers")),
+    host: v.optional(v.string()),
+    tokenless: v.optional(v.boolean()),
+    source: v.optional(v.string()),
   })
     .index("by_device", ["device"])
     .index("by_code", ["code"])
     .index("by_expiry", ["expiresAt"])
-    .index("by_factory", ["factory", "expiresAt"]),
+    .index("by_factory", ["factory", "expiresAt"])
+    .index("by_factory_tokenless", ["factory", "tokenless", "expiresAt"])
+    .index("by_tokenless", ["tokenless", "expiresAt"])
+    .index("by_source", ["source", "expiresAt"]),
 
   // When a run's own shipper last polled for its session's commands: a
   // session is attended while that is recent. Kept apart from `sessions`, so a

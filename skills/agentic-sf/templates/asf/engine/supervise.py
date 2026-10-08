@@ -232,7 +232,7 @@ class Target:
 
 def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Target | None:
     """The shared cockpit, the local one this process starts or joined, or None."""
-    shared = station.configured()
+    shared = station.configured(anchor(main_root, cfg.defaults.data_dir))
     if shared is not None:
         return Target(Destination(lambda: shared, label=f"shared: {shared.url}"),
                       lambda: station.credential(main_root, cfg.defaults.data_dir), local=False)
@@ -418,7 +418,16 @@ def status(cfg: FactoryConfig) -> int:
     rows = artifacts.watcher_states(artifacts.watchers_dir(main_root, cfg.defaults.data_dir))
     print(f"repo:      {main_root}")
     print(f"sessions:  {sessions}{'' if sessions.is_dir() else '  (no runs yet)'}")
-    ships_to = local_cockpit.shared() or f"local — `asf up` starts it at {local_cockpit.app_url()}"
+    ships_to = local_cockpit.shared()
+    if ships_to:
+        token = station.shipped_with(anchor(main_root, cfg.defaults.data_dir))
+        ships_to += (f" — ships with {token}" if token
+                     else " — no ingest token, nothing ships: `asf station register`")
+        held = station.credential(main_root, cfg.defaults.data_dir)
+        if held is not None and held.cockpit == station.configured().url:
+            ships_to += f"; takes commands for {held.owner or 'its owner'}"
+    else:
+        ships_to = f"local — `asf up` starts it at {local_cockpit.app_url()}"
     print(f"cockpit:   {ships_to}\n")
     print("watchers")
     for kind, enabled in (("issues", cfg.issues.enabled), ("prs", cfg.pull_requests.enabled)):

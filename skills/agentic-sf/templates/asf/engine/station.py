@@ -28,8 +28,10 @@ the run is the run it was before stations existed.
 
 COMMANDS ride the same loop. A station a person registered (`asf station
 register`, `engine/commands.py`) holds their command token in
-`<data_dir>/station-token.json`, and a `Loop` given a `steering` asks the
-cockpit for commands between shipping rounds: a run's own shipper for its own
+`<data_dir>/station-token.json` — and, registered without ASF_COCKPIT_TOKEN,
+the ingest token that approval handed it, which it then ships with
+(`configured`) — and a `Loop` given a `steering` asks the cockpit for
+commands between shipping rounds: a run's own shipper for its own
 session, the station loop for everything else. Each of those polls is also how
 the cockpit knows the session is attended, or the station online — there is no
 heartbeat besides.
@@ -80,7 +82,7 @@ def identify(main_root: str | Path, data_dir: str) -> Station:
     root = Path(main_root)
     record = _station_record(anchor(root, data_dir) / STATION_FILE)
     name = os.environ.get("ASF_STATION_NAME", "").strip()
-    return Station(id=record.id, name=name or f"{_login()}@{_host()}:{root.resolve().name}",
+    return Station(id=record.id, name=name or f"{_login()}@{host()}:{root.resolve().name}",
                    kind="ci" if os.environ.get("CI", "").strip() else "local")
 
 
@@ -143,16 +145,21 @@ def operator() -> str:
     return os.environ.get("GITHUB_ACTOR", "").strip() or engineer_name()
 
 
-def _host() -> str:
+def host() -> str:
+    """This machine's name, as a station's default name and its registration say it."""
     return socket.gethostname().split(".")[0] or "localhost"
 
 
 def credential(main_root: str | Path, data_dir: str) -> StationCredential | None:
     """The command token `asf station register` kept, or None: an unregistered
     station ships all the same, and is simply never asked to do anything."""
+    return kept_in(anchor(Path(main_root), data_dir))
+
+
+def kept_in(data: Path) -> StationCredential | None:
+    """What a registration kept under `data`, the station's data_dir anchored."""
     try:
-        return StationCredential.model_validate_json(
-            (anchor(Path(main_root), data_dir) / CREDENTIAL_FILE).read_text())
+        return StationCredential.model_validate_json((data / CREDENTIAL_FILE).read_text())
     except (OSError, ValueError):
         return None
 
@@ -167,9 +174,13 @@ def keep(main_root: str | Path, data_dir: str, held: StationCredential) -> Path:
 
 # ── where it ships ───────────────────────────────────────────────────────────
 
-def configured() -> Cockpit | None:
+def configured(data: Path | None = None) -> Cockpit | None:
     """The cockpit ASF_COCKPIT_URL names, or None — and None changes nothing.
 
+    Its token is ASF_COCKPIT_TOKEN. Unset, it is the ingest token a
+    registration handed this station for that cockpit, kept under `data` (the
+    station's data_dir, anchored) — given; a caller that passes none, such as
+    `register` and a CI job's `describe`, means the environment's alone.
     The token may be empty: the cockpit refuses that as it refuses a wrong one,
     with a 401, and a 401 is the one failure `asf station sync` reports.
     """
@@ -181,7 +192,30 @@ def configured() -> Cockpit | None:
               f"until it is the cockpit backend's site origin, e.g. http://127.0.0.1:3211",
               file=sys.stderr, flush=True)
         return None
-    return Cockpit(url=url, token=os.environ.get("ASF_COCKPIT_TOKEN", "").strip())
+    cockpit = Cockpit(url=url, token=os.environ.get("ASF_COCKPIT_TOKEN", "").strip())
+    if cockpit.token or data is None:
+        return cockpit
+    held = kept_in(data)
+    if held is not None and held.cockpit == cockpit.url and held.ingest_token:
+        return cockpit.model_copy(update={"token": held.ingest_token})
+    return cockpit
+
+
+def shipped_with(data: Path | None) -> str:
+    """What this station ships to the shared cockpit with, in words — "" for
+    no token at all — as `asf doctor` and `asf status` say it."""
+    if os.environ.get("ASF_COCKPIT_TOKEN", "").strip():
+        return "ASF_COCKPIT_TOKEN"
+    cockpit = configured(data)
+    if cockpit is None or not cockpit.token:
+        return ""
+    held = kept_in(data) if data is not None else None
+    return f"the ingest token {(held.owner if held else '') or 'its approver'} approved for it"
+
+
+def data_of(session_dir: str | Path) -> Path:
+    """The data_dir a session directory lives under: `<data_dir>/sessions/<adw_id>`."""
+    return Path(session_dir).parent.parent
 
 
 # (url, token, body) -> (status, body). Raises OSError when nothing answered.
@@ -301,12 +335,12 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
     step. A token that is wrong stays wrong until a person fixes it, which is
     what a red job is for.
     """
-    cockpit = configured()
-    if cockpit is None:
-        print("no cockpit configured — set ASF_COCKPIT_URL (and ASF_COCKPIT_TOKEN) in .env "
-              "or the job's environment to ship sessions to one")
-        return 0
     main_root = git_helper.main_root()
+    cockpit = configured(anchor(main_root, cfg.defaults.data_dir))
+    if cockpit is None:
+        print("no cockpit configured — set ASF_COCKPIT_URL in .env, and register this station "
+              "(`asf station register`), or set ASF_COCKPIT_TOKEN in a job's environment")
+        return 0
     here = identify(main_root, cfg.defaults.data_dir)
     print(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}")
     root = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
@@ -322,8 +356,9 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
             continue
         print(f"  {shipped.adw_id}: {shipped.outcome} — {shipped.error}")
         if shipped.outcome == "unauthorized":
-            print("  the cockpit refused ASF_COCKPIT_TOKEN; nothing more is sent until it "
-                  "is a token that cockpit issued for this repository")
+            print("  the cockpit refused the ingest token (ASF_COCKPIT_TOKEN, or the one "
+                  "`asf station register` kept); nothing more is sent until it is a live token "
+                  "that cockpit issued for this repository — `asf station register` again")
             return 1
         if shipped.outcome == "unreachable":
             print("  nothing is lost: every session is kept from its acknowledged seq, "
@@ -348,7 +383,7 @@ def start(session_dir: str | Path, transport: Transport | None = None,
     lives, flushing on the way out — or None, and nothing at all, when no
     cockpit is configured. Called by every process that owns a session; the
     one that RUNS it also polls for the commands that name it (`steering`)."""
-    cockpit = configured()
+    cockpit = configured(data_of(session_dir))
     if cockpit is None:
         return None
     shipper = Shipper(session_dir, cockpit, transport or post, steering=steering).start()
@@ -360,7 +395,7 @@ def flush(session_dir: str | Path, transport: Transport = post) -> None:
     """One bounded round, for a process that writes to a session it does not
     run — a watcher aborting a run at its gate — and outlives the write by
     hours, so an exit-time flush would come far too late."""
-    cockpit = configured()
+    cockpit = configured(data_of(session_dir))
     if cockpit is not None:
         Shipper(session_dir, cockpit, transport).start().stop()
 
@@ -488,8 +523,9 @@ class Loop:
             if self.destination.refused(cockpit):
                 self._shipped_to = None
                 return False
-            self._say("unauthorized", f"the cockpit refused ASF_COCKPIT_TOKEN ({result.error}); "
-                                      f"nothing more is shipped from this process")
+            self._say("unauthorized", f"the cockpit refused the ingest token ({result.error}); "
+                                      f"nothing more is shipped from this process — set "
+                                      f"ASF_COCKPIT_TOKEN, or `asf station register` again")
             self._gave_up = True
             return False
         if result.outcome == "refused":

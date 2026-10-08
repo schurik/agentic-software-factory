@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { ATTENDED_FOR, liveness, REDELIVER_AFTER, TTL } from "../convex/model/command";
+import { ATTENDED_FOR, liveness, REDELIVER_AFTER, TOKENLESS_PER_FACTORY, TOKENLESS_PER_SOURCE, TTL } from "../convex/model/command";
 import { fakeForge, type FakeForge, type Role } from "./forge";
 import { factory, fixture, ingest, signIn } from "./helpers";
 import {
-  approved, handed, json, localOf, poll, post, register, REPORT, running, SESSION, STATION, steerable, teamOf,
+  approved, asking, handed, json, localOf, poll, post, register, registerNamed, REPORT, running, SESSION, STATION, steerable, teamOf,
 } from "./station";
 
 // Stations a person can steer (spec #40, #54): a station registers by a device
@@ -124,7 +124,7 @@ describe("registering a station", () => {
     const listed = (holding?: string) => t.query(api.stations.registrations, { factory: "acme/widgets", signIn: holding });
 
     expect(await listed(alex)).toEqual([
-      { station: STATION.id, name: STATION.name, expiresAt: Date.now() + 10 * 60_000, approved: false, because: null },
+      { station: STATION.id, name: STATION.name, host: "", tokenless: false, expiresAt: Date.now() + 10 * 60_000, approved: false, because: null },
       expect.objectContaining({ station: "st_late", name: "late@box:widgets" }),
     ]);
     // Typing the code is what proves the approver saw the station's terminal: the list never says it.
@@ -152,6 +152,137 @@ describe("registering a station", () => {
     expect(issued.owner).toBe("alex");
     expect((await poll(t, issued.token)).status).toBe(200);
     expect(await t.query(api.stations.mine, {})).toEqual([expect.objectContaining({ owner: "alex", registered: true })]);
+  });
+});
+
+// ── registering without an ingest token (#175) ──────────────────────────────
+
+describe("registering a station that holds no ingest token", () => {
+  it("names its factory itself, and is handed an ingest token of its own with its command token once a writer approved it", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const alex = await signIn(t, forge, "alex");
+
+    expect((await post(t, "/station/register", null, { station: STATION })).status).toBe(401);
+    expect((await post(t, "/station/register", null, { station: STATION, factory: "not a repository" })).status).toBe(400);
+    const { device, code } = await registerNamed(t, "acme/widgets");
+
+    // The page names what asked, and that approving gives it a way to write sessions into the factory.
+    expect(await t.query(api.stations.pending, { code, signIn: alex })).toMatchObject({
+      factory: "acme/widgets", name: STATION.name, kind: "local", host: "mbp", tokenless: true, because: null,
+    });
+    expect(await t.mutation(api.stations.approve, { code, signIn: alex })).toEqual({ ok: true });
+
+    const answer = await json(await handed(t, device));
+    expect(answer).toMatchObject({ status: "approved", owner: "alex", station: STATION.id });
+    expect(answer.token).toMatch(/^asf_station_/);
+    expect(answer.ingest_token).toMatch(/^asf_ingest_/);
+    expect((await poll(t, answer.token as string)).status).toBe(200);
+    expect((await ingest(t, answer.ingest_token as string, { session: SESSION, events: running() })).status).toBe(200);
+
+    // It is the approver's, and the factory page says so.
+    const listed = await t.query(api.tokens.listed, { factory: "acme/widgets", signIn: alex });
+    expect(listed?.tokens).toEqual([
+      expect.objectContaining({ via: "station", label: STATION.name, station: STATION.id, by: "alex", issuedAt: Date.now() }),
+    ]);
+  });
+
+  it("hands no ingest token to a station that asked with one", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const ingestToken = await factory(t, "acme/widgets");
+    const alex = await signIn(t, forge, "alex");
+    const { device, code } = await register(t, ingestToken);
+
+    expect((await t.query(api.stations.pending, { code, signIn: alex }))?.tokenless).toBe(false);
+    await t.mutation(api.stations.approve, { code, signIn: alex });
+    const answer = await json(await handed(t, device));
+    expect(answer.status).toBe("approved");
+    expect(answer).not.toHaveProperty("ingest_token");
+  });
+
+  it("is refused outright to a viewer without write on the repository it names", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { sam: "read" });
+    const { code } = await registerNamed(t, "acme/widgets");
+    const sam = await signIn(t, forge, "sam");
+
+    expect((await t.query(api.stations.pending, { code, signIn: sam }))?.because).toMatch(/needs write on acme\/widgets/);
+    expect(await t.mutation(api.stations.approve, { code, signIn: sam })).toMatchObject({ ok: false });
+  });
+
+  it("is stored under the factory's own spelling, whatever case the station named it in", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const alex = await signIn(t, forge, "alex");
+    const { device, code } = await registerNamed(t, "ACME/Widgets");
+
+    expect((await t.query(api.stations.pending, { code, signIn: alex }))?.factory).toBe("acme/widgets");
+    await t.mutation(api.stations.approve, { code, signIn: alex });
+    const { ingest_token: issued } = await json(await handed(t, device));
+    await ingest(t, issued as string, { session: SESSION, events: running() });
+    expect((await t.query(api.sessions.list, { factory: "acme/widgets", signIn: alex }))?.sessions).toHaveLength(1);
+  });
+
+  it("rotates the ingest token when its owner registers it again, and loses it with the station's revoke", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const alex = await signIn(t, forge, "alex");
+    const handOver = async () => {
+      const { device, code } = await registerNamed(t, "acme/widgets");
+      await t.mutation(api.stations.approve, { code, signIn: alex });
+      return await json(await handed(t, device));
+    };
+    const first = await handOver();
+    const second = await handOver();
+
+    expect((await ingest(t, first.ingest_token as string, { session: SESSION, events: running() })).status).toBe(401);
+    expect((await ingest(t, second.ingest_token as string, { session: SESSION, events: running() })).status).toBe(200);
+    expect((await t.query(api.tokens.listed, { factory: "acme/widgets", signIn: alex }))?.tokens).toHaveLength(1);
+
+    await t.mutation(api.stations.revoke, { factory: "acme/widgets", station: STATION.id, signIn: alex });
+    expect((await ingest(t, second.ingest_token as string, { session: SESSION, events: running() })).status).toBe(401);
+    expect((await t.query(api.tokens.listed, { factory: "acme/widgets", signIn: alex }))?.tokens).toEqual([]);
+  });
+
+  it("is rate-limited per factory and per source, so nobody floods the table, and room comes back as requests run out", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const station = (n: number) => ({ ...STATION, id: `st_${n}` });
+
+    for (let n = 0; n < TOKENLESS_PER_SOURCE; n++) await registerNamed(t, `acme/repo${n}`, station(n), "203.0.113.7");
+    const crowded = await asking(t, "acme/another", station(99), "203.0.113.7");
+    expect(crowded.status).toBe(429);
+    expect((await json(crowded)).error).toMatch(/too many/);
+
+    for (let n = 0; n < TOKENLESS_PER_FACTORY; n++) await registerNamed(t, "acme/widgets", station(100 + n), `198.51.100.${n}`);
+    expect((await asking(t, "acme/widgets", station(200), "192.0.2.1")).status).toBe(429);
+    // Holding the factory's ingest token is no anonymous request, and is never counted against it.
+    expect((await post(t, "/station/register", await factory(t, "acme/widgets"), { station: station(201) })).status).toBe(200);
+
+    vi.advanceTimersByTime(11 * 60_000);
+    expect((await asking(t, "acme/widgets", station(200), "192.0.2.1")).status).toBe(200);
+    expect((await asking(t, "acme/another", station(99), "203.0.113.7")).status).toBe(200);
+  });
+
+  it("runs out when nobody approves it in time, as one asked with a token does", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const { device, code } = await registerNamed(t, "acme/widgets");
+
+    vi.advanceTimersByTime(11 * 60_000);
+
+    expect((await handed(t, device)).status).toBe(410);
+    expect(await t.mutation(api.stations.approve, { code, signIn: await signIn(t, forge, "alex") })).toMatchObject({ ok: false });
+  });
+
+  it("waits on the Stations tab with its host, saying it holds no ingest token", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    await registerNamed(t, "acme/widgets");
+
+    expect(await t.query(api.stations.registrations, { factory: "acme/widgets", signIn: await signIn(t, forge, "alex") }))
+      .toEqual([expect.objectContaining({ station: STATION.id, host: "mbp", tokenless: true })]);
   });
 });
 

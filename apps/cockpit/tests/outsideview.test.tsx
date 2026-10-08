@@ -21,11 +21,16 @@ const oldClasses = (markup: string) =>
 const forge: Me["forge"] = { host: "github.com", ready: false, app: null };
 const app = { slug: "acme-cockpit", installUrl: "https://github.com/apps/acme-cockpit/installations/new" };
 const reachable = { url: "https://cockpit.acme.dev/forge/webhook", deliverable: true };
+const selfHosted = { site: "https://cockpit.acme.dev", cloud: null };
+const onConvexCloud = {
+  site: "https://happy-otter-123.convex.site",
+  cloud: { name: "happy-otter-123", functions: "https://dashboard.convex.dev/d/happy-otter-123/functions" },
+};
 const begin = async () => {};
 
 describe("setting up the GitHub App", () => {
   const setup = (props: Partial<Parameters<typeof SetupView>[0]> = {}) =>
-    renderToStaticMarkup(<SetupView mode="team" forge={forge} webhook={reachable} onBegin={begin} {...props} />);
+    renderToStaticMarkup(<SetupView mode="team" forge={forge} webhook={reachable} deployment={selfHosted} onBegin={begin} {...props} />);
 
   it("is not needed by a local cockpit, which says why", () => {
     const local = setup({ mode: "local" });
@@ -42,6 +47,20 @@ describe("setting up the GitHub App", () => {
     for (const label of ["Setup code", "GitHub host", "Organization"]) expect(page).toMatch(new RegExp(`<label [^>]*for="[^"]+"[^>]*>${label}</label>`));
     expect(page).toContain('value="github.com"');
     expect(page).toMatch(/<button type="submit"[^>]*>Continue to GitHub<\/button>/);
+  });
+
+  it("on Convex Cloud, prints the setup code from the deployment's dashboard or its CLI, never a container that is not there", () => {
+    const page = setup({ deployment: onConvexCloud });
+    expect(page).not.toContain("docker compose");
+    expect(page).toContain(`href="${onConvexCloud.cloud.functions}"`);
+    expect(text(page)).toContain("happy-otter-123");
+    expect(text(page)).toContain("setup:code");
+    expect(page).toContain("npx convex run setup:code");
+    expect([...page.matchAll(/<li[^>]*>/g)]).toHaveLength(3);
+  });
+
+  it("shows the compose command until it knows where it runs", () => {
+    expect(setup({ deployment: undefined })).toContain("docker compose exec app ./convex.sh run setup:code");
   });
 
   it("warns that registering again replaces the App, and offers to install it instead", () => {
@@ -128,7 +147,7 @@ describe("signing in", () => {
 describe("approving a station", () => {
   const asked: NonNullable<Asked> = {
     code: "ABCD-EF23", factory: "acme/widgets", name: "alex-laptop", kind: "machine", station: "st_1a2b",
-    expiresAt: 0, approved: false, because: null,
+    host: "mbp", tokenless: false, expiresAt: 0, approved: false, because: null,
   };
   const approval = (props: Partial<Approval> = {}) => renderToStaticMarkup(
     <ApprovalView code="ABCD-EF23" asked={asked} outcome={null} onCode={() => {}} onApprove={() => {}} {...props} />,
@@ -148,12 +167,22 @@ describe("approving a station", () => {
     expect(approve(approval({ asked: null }))).toBe("");
   });
 
-  it("shows which station of which factory is asking, and what approving it means", () => {
+  it("names the repository, station, kind and host asking before its button, and what approving it means", () => {
     const page = approval();
-    expect(text(page)).toContain("Station alex-laptop (machine, st_1a2b)");
-    expect(text(page)).toContain("Factory acme/widgets");
+    expect(text(page)).toContain("Repository acme/widgets");
+    expect(text(page)).toContain("Station alex-laptop (st_1a2b)");
+    expect(text(page)).toContain("Kind machine");
+    expect(text(page)).toContain("Host mbp");
+    expect(page.indexOf("Host")).toBeLessThan(page.indexOf(approve(page)));
     expect(text(page)).toContain("Approving makes this station yours");
+    expect(text(page)).not.toContain("ingest token");
     expect(approve(page)).not.toContain('disabled=""');
+  });
+
+  it("says that approving a station that holds no ingest token hands it one, in the approver's name", () => {
+    const page = approval({ asked: { ...asked, tokenless: true } });
+    expect(text(page)).toContain("It holds no ingest token: approving hands it one, so it can write sessions into acme/widgets as you.");
+    expect(text(approval({ asked: { ...asked, tokenless: true, host: "" } }))).toContain("Host not said");
   });
 
   it("says why the viewer may not approve it, and does not let them", () => {
@@ -172,7 +201,7 @@ describe("approving a station", () => {
 
   it("says why approving failed, under the station it was for", () => {
     const page = approval({ outcome: { ok: false, text: "That code has run out." } });
-    expect(text(page)).toContain("Factory acme/widgets");
+    expect(text(page)).toContain("Repository acme/widgets");
     expect(text(page)).toContain("That code has run out.");
   });
 
