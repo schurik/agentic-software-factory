@@ -14,7 +14,7 @@ import { workItem } from "../inbox/waits";
 import { keyed } from "../inbox/keys";
 import { isMarkdown, Markdown } from "../Markdown";
 import { channelWords } from "../session/words";
-import { Button, buttonClass, control, cx, followInPlace, type Go, Kbd, Pre, Tabs } from "../ui";
+import { Button, buttonClass, control, cx, followInPlace, type Go, Kbd, Pre, TabPanel, Tabs } from "../ui";
 import { useWho } from "../viewer";
 import { decide, verbsOf } from "./answer";
 
@@ -280,28 +280,29 @@ export function GateView({ gate, read, since, now, posting, problem, onAnswer, t
           {noSince ? (
             <p className="mb-3 text-sm text-muted">No “Changes since round {noSince.round}”: {noSince.because}.</p>
           ) : null}
-          <Tabs label="Gate" selected={shown} onSelect={onTab} tabs={tabs} />
-          <div role="tabpanel" className="pt-4">
-            {shown === "questions" ? (
-              <div className="grid gap-3">
-                {gate.questions.map((question, at) => (
-                  <QuestionCard key={at} question={question} answer={answers[at] ?? ""} disabled={off || !answering}
-                                onChange={(text) => setAnswers((all) => all.map((each, i) => (i === at ? text : each)))} />
-                ))}
-              </div>
-            ) : shown === "since" ? (
-              <DiffRead got={since} title={`${gate.subject.files.map(({ path }) => path).join(", ") || "the plan"}, ` +
-                                           `round ${row.round - 1} → ${row.round}`} />
-            ) : shown === "issue" ? <Doc doc={material.issue} />
-              : shown === "findings" ? <Doc doc={material.findings} />
-              : shown === "review" ? (
-                <div className="flex flex-col gap-3">
-                  {material.review?.summary ? <p className="text-sm text-muted">{material.review.summary}</p> : null}
-                  <Doc doc={material.review?.doc ?? null} />
+          <Tabs label="Gate" selected={shown} onSelect={onTab} tabs={tabs}>
+            <TabPanel key={shown} value={shown} className="pt-4">
+              {shown === "questions" ? (
+                <div className="grid gap-3">
+                  {gate.questions.map((question, at) => (
+                    <QuestionCard key={at} question={question} answer={answers[at] ?? ""} disabled={off || !answering}
+                                  onChange={(text) => setAnswers((all) => all.map((each, i) => (i === at ? text : each)))} />
+                  ))}
                 </div>
-              ) : shown === "checks" ? <Checks checks={material.checks} />
-              : <Subject gate={gate} read={read} what={shown === "plan" ? "the plan" : shown === "changes" ? "the changes" : "the subject"} />}
-          </div>
+              ) : shown === "since" ? (
+                <DiffRead got={since} title={`${gate.subject.files.map(({ path }) => path).join(", ") || "the plan"}, ` +
+                                             `round ${row.round - 1} → ${row.round}`} />
+              ) : shown === "issue" ? <Doc doc={material.issue} />
+                : shown === "findings" ? <Doc doc={material.findings} />
+                : shown === "review" ? (
+                  <div className="flex flex-col gap-3">
+                    {material.review?.summary ? <p className="text-sm text-muted">{material.review.summary}</p> : null}
+                    <Doc doc={material.review?.doc ?? null} />
+                  </div>
+                ) : shown === "checks" ? <Checks checks={material.checks} />
+                : <Subject gate={gate} read={read} what={shown === "plan" ? "the plan" : shown === "changes" ? "the changes" : "the subject"} />}
+            </TabPanel>
+          </Tabs>
         </div>
       </div>
     </DrawerFrame>

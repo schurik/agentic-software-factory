@@ -25,6 +25,12 @@
   &:hover::-webkit-scrollbar-thumb { background: var(--line-strong); }
 }
 
+/* A row that scrolls sideways with no bar ever shown for it: a tab row, whose tabs are the cue. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
 :root {
   --bg: #f4f4f5;
   --surface: #ffffff;

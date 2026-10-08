@@ -1,4 +1,5 @@
 import { Select as BaseSelect } from "@base-ui/react/select";
+import { Tabs as BaseTabs } from "@base-ui/react/tabs";
 import { Check, ChevronsUpDown } from "lucide-react";
 import Link from "next/link";
 import { type ComponentProps, Fragment, type MouseEvent, type ReactNode } from "react";
@@ -304,35 +305,49 @@ export function Kbd({ children }: { children: ReactNode }) {
 }
 
 /**
- * A row of tabs over one panel, underlined in the accent like the header's
- * places. It scrolls sideways on its own when the tabs outgrow the screen.
- * `end` sits at the row's far end — a link away, say — and scrolls with it.
+ * A row of tabs over its panels, base-ui's Tabs drawn once: the arrow keys
+ * move between tabs, and the selected one is underlined in the accent, like
+ * the header's places, by the row's Indicator — never by a tab's own border
+ * pulled over the row's with a negative margin, which overflowed the row by a
+ * pixel and so scrolled it vertically. The row's line is an inset shadow, so
+ * the Indicator covers it under the selected tab without leaving the box. It
+ * scrolls sideways, scrollbar hidden, when the tabs outgrow the screen; `end`
+ * sits at its far end — a link away, say — and scrolls with it.
+ *
+ * The panels are `children`, each a `TabPanel` naming the tab it belongs to.
+ * One that is drawn only while shown can be one panel valued `selected`.
  */
-export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, end }: {
+export function Tabs<T extends string>({ tabs, selected, onSelect, label, className, barClassName, end, children }: {
   tabs: { id: T; label: ReactNode }[];
   selected: T;
   onSelect: (tab: T) => void;
   label?: string;
   className?: string;
+  barClassName?: string;
   end?: ReactNode;
+  children?: ReactNode;
 }) {
   return (
-    <div className={cx("flex overflow-x-auto border-b border-line [scrollbar-width:none]", className)}>
-      <div role="tablist" aria-label={label} className="flex gap-1">
-        {tabs.map((tab) => (
-          <button key={tab.id} type="button" role="tab" aria-selected={tab.id === selected} onClick={() => onSelect(tab.id)}
-                  className={cx(
-                    "relative -mb-px shrink-0 border-b-2 px-2.5 py-2 text-sm font-medium whitespace-nowrap",
-                    tab.id === selected ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg",
-                  )}>
-            {tab.label}
-          </button>
-        ))}
+    <BaseTabs.Root value={selected} onValueChange={(value: T) => onSelect(value)} className={className}>
+      <div className={cx("no-scrollbar flex overflow-x-auto shadow-[inset_0_-1px_0_var(--line)]", barClassName)}>
+        <BaseTabs.List aria-label={label} className="relative flex shrink-0 gap-1">
+          {tabs.map((tab) => (
+            <BaseTabs.Tab key={tab.id} value={tab.id}
+                          className="shrink-0 px-2.5 py-2 text-sm font-medium whitespace-nowrap text-muted hover:text-fg focus-visible:-outline-offset-2 data-active:text-fg">
+              {tab.label}
+            </BaseTabs.Tab>
+          ))}
+          <BaseTabs.Indicator className="absolute bottom-0 left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-accent transition-[translate,width] duration-150 motion-reduce:transition-none" />
+        </BaseTabs.List>
+        {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
       </div>
-      {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
-    </div>
+      {children}
+    </BaseTabs.Root>
   );
 }
+
+/** One tab's panel, under a `Tabs`: `value` is the tab's id. */
+export const TabPanel = BaseTabs.Panel;
 
 /** A block of text exactly as it was written: output, a file, a payload. */
 export function Pre({ className, children }: { className?: string; children: ReactNode }) {

@@ -5,7 +5,7 @@ import { FactoryHeader } from "../components/factory/FactoryHeader";
 import { FactoryView } from "../components/factory/FactoryView";
 import { type Registration, StationsTab } from "../components/factory/StationsTab";
 import {
-  behind, budgetWords, drifts, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
+  behind, budgetWords, drifts, FACTORY_TABS, type FactoryTab, type Page, referenceOf, soleAddress, tabHref, tabOf,
 } from "../components/factory/view";
 import { type WorkflowsRecord, WorkflowsTab } from "../components/factory/WorkflowsTab";
 import type { StationDetail } from "../convex/activity";
@@ -368,10 +368,12 @@ function factoryView(shown: Page, tab: FactoryTab, look: Look | null = LOOK) {
                  triggering={false} onTrigger={() => {}} trigger={null} panels={PANELS} />);
 }
 
-/** The panel of `tab`, as `html` has it: hidden or not. */
-function panel(html: string, tab: FactoryTab): string {
-  return html.match(new RegExp(`<div[^>]*id="factory-${tab}"[^>]*>`))?.[0] ?? "";
+/** Where the panel of `tab` opens in `html`, and its opening tag: hidden or not. The panels come in the tabs' order. */
+function opening(html: string, tab: FactoryTab): { at: number; tag: string } {
+  const found = [...html.matchAll(/<div[^>]*role="tabpanel"[^>]*>/g)][(Object.keys(FACTORY_TABS) as FactoryTab[]).indexOf(tab)];
+  return found ? { at: found.index, tag: found[0] } : { at: -1, tag: "" };
 }
+const panel = (html: string, tab: FactoryTab) => opening(html, tab).tag;
 
 describe("the factory page", () => {
   it("is headed by the name, its check, the default branch at its commit, the stations online and the budget", () => {
@@ -508,7 +510,7 @@ describe("the Stations tab", () => {
                                   forge={FORGE} defaultBranch="main" release="1.0.0" onApprove={() => {}} onRevoke={() => {}}
                                   registrations={[{ station: "st_new", name: "alex@new:widgets", expiresAt: NOW + 60_000, approved: false, because: null }]} />
                    ) }} />);
-    const stations = html.slice(html.indexOf('id="factory-stations"'), html.indexOf('id="factory-config"'));
+    const stations = html.slice(opening(html, "stations").at, opening(html, "config").at);
 
     expect(panel(html, "stations")).not.toContain("hidden");
     expect(stations).toContain("alex@new:widgets</code> asks to become a station");

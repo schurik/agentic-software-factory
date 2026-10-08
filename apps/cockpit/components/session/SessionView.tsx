@@ -19,7 +19,7 @@ import { factoryHref } from "../factory/view";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
 import { PurgeForm } from "../Purge";
-import { Button, buttonClass, Card, Crumbs, cx, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, Tabs } from "../ui";
+import { Button, buttonClass, Card, Crumbs, cx, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, TabPanel, Tabs } from "../ui";
 import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
@@ -134,19 +134,20 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
       <NowCard summary={summary} states={page.states ?? UNKNOWN} story={story} budget={page.budget} now={now} viewer={viewer} openPhase={openPhase}
                openGate={waiting && go(withGate(shown, waiting.phaseId))} className="max-md:order-1" />
       <Card className="px-5 pb-5 max-md:order-3 md:px-6">
-        <Tabs label="Session" selected={tab} onSelect={(next: SessionTab) => onShow?.({ ...shown, tab: next })} tabs={tabs} />
-        <div className="pt-4" role="tabpanel">
-          {tab === "details" ? (
-            <Details page={page} now={now} steering={steering ?? null} claims={claims ?? []} onRelease={onRelease} />
-          ) : tab === "timeline" ? (
-            <Timeline chapters={story.chapters} opened={shown.phase} openPhase={openPhase} />
-          ) : tab === "journal" ? (
-            <Journal entries={story.journalEntries} />
-          ) : (
-            <ForgeDiff subject={`${story.baseCommit}...${story.headCommit}`} read={readChanges}
-                       title={`${summary.branch} against ${summary.baseRef || story.baseCommit.slice(0, 7)}`} />
-          )}
-        </div>
+        <Tabs label="Session" selected={tab} onSelect={(next: SessionTab) => onShow?.({ ...shown, tab: next })} tabs={tabs}>
+          <TabPanel key={tab} value={tab} className="pt-4">
+            {tab === "details" ? (
+              <Details page={page} now={now} steering={steering ?? null} claims={claims ?? []} onRelease={onRelease} />
+            ) : tab === "timeline" ? (
+              <Timeline chapters={story.chapters} opened={shown.phase} openPhase={openPhase} />
+            ) : tab === "journal" ? (
+              <Journal entries={story.journalEntries} />
+            ) : (
+              <ForgeDiff subject={`${story.baseCommit}...${story.headCommit}`} read={readChanges}
+                         title={`${summary.branch} against ${summary.baseRef || story.baseCommit.slice(0, 7)}`} />
+            )}
+          </TabPanel>
+        </Tabs>
       </Card>
       <SessionDrawer page={page} shown={shown} onShow={onShow} phase={phase} gate={gate} />
     </div>
