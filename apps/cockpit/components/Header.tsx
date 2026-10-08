@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "@base-ui/react/menu";
-import { Check, LogOut, Monitor, Moon, Play, Sun, type LucideIcon } from "lucide-react";
+import { Check, LogOut, Monitor, Moon, Play, Sun, Zap, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import type { FunctionReturnType } from "convex/server";
@@ -16,17 +16,18 @@ export type Me = FunctionReturnType<typeof api.viewer.me>;
 /**
  * The header every page sits under (#105): the brand — with "local" under it
  * in a local cockpit — the three places, Run a prompt (#108), the one way
- * to start one, Now carrying the count of gates waiting on the viewer
+ * to start one, and Trigger a workflow beside it, the one way to label an
+ * issue for one — both on every page, as dialogs — Now carrying the count of gates waiting on the viewer
  * (#115), and the viewer's avatar, whose menu holds who they are,
  * which kind of cockpit this is, the theme, and Sign out in a team
  * cockpit. It stands up from the page: the card surface over the page's
  * grey, and the place you are in underlined in the accent on its rule.
  */
-export function Header({ me, path, waiting = 0, onSignOut, onRun }: {
+export function Header({ me, path, waiting = 0, onSignOut, onRun, onTrigger }: {
   me: Me | undefined; path: string;
   /** How many gates wait on the viewer: what Now carries, from every page. */
   waiting?: number;
-  onSignOut: () => void; onRun: () => void;
+  onSignOut: () => void; onRun: () => void; onTrigger: () => void;
 }) {
   const known = knows(me);
   return (
@@ -44,11 +45,17 @@ export function Header({ me, path, waiting = 0, onSignOut, onRun }: {
         {known ? <Places path={path} waiting={waiting} /> : null}
         <span className="grow" />
         {known ? (
-          <Button size="sm" aria-label="Run a prompt" onClick={onRun}>
-            <Play size={12} fill="currentColor" aria-hidden="true" />
-            {/* On a phone the icon alone, beside the three places. */}
-            <span className="hidden sm:inline">Run a prompt</span>
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button size="sm" aria-label="Run a prompt" onClick={onRun}>
+              <Play size={12} fill="currentColor" aria-hidden="true" />
+              {/* On a phone the icon alone, beside the three places. */}
+              <span className="hidden sm:inline">Run a prompt</span>
+            </Button>
+            <Button size="sm" aria-label="Trigger a workflow" onClick={onTrigger}>
+              <Zap size={12} fill="currentColor" aria-hidden="true" />
+              <span className="hidden sm:inline">Trigger a workflow</span>
+            </Button>
+          </div>
         ) : null}
         {me !== undefined ? <AvatarMenu me={me} onSignOut={onSignOut} /> : null}
       </div>

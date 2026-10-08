@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { Header, knows, type Me } from "./Header";
 import { RunPrompt, useRunPrompt } from "./run/RunDialog";
 import { holdSignIn, useSignIn } from "./signIn";
+import { TriggerWorkflow, useTrigger } from "./trigger/TriggerDialog";
 import { SignInWall } from "./SignInPage";
 import { Loading } from "./ui";
 import { ViewerLogin } from "./viewer";
@@ -55,26 +56,29 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <RunPrompt enabled={knows(me)}>
-      <RunHeader me={me} path={pathname} waiting={waiting}
-                 onSignOut={() => { if (signIn) void signOut({ signIn }).finally(() => holdSignIn(null)); }} />
-      <main className="mx-auto max-w-[1280px] px-4 pt-6 pb-16 md:px-6 md:pt-8">
-        {me === undefined ? <Loading />
-          : walled ? <SignInWall forge={me.forge} />
-          : me.viewer && !me.viewer.reachKnown && !open
-            // What was known is too old to show anything on; the refresh above is asking.
-            ? <Loading what={`Asking ${me.forge.host} what you can read…`} />
-            : (
-              <Cockpit.Provider value={me}>
-                <ViewerLogin.Provider value={me.viewer?.login ?? null}>{children}</ViewerLogin.Provider>
-              </Cockpit.Provider>
-            )}
-      </main>
+      <TriggerWorkflow as={me?.viewer?.login ?? ""}>
+        <ActionsHeader me={me} path={pathname} waiting={waiting}
+                       onSignOut={() => { if (signIn) void signOut({ signIn }).finally(() => holdSignIn(null)); }} />
+        <main className="mx-auto max-w-[1280px] px-4 pt-6 pb-16 md:px-6 md:pt-8">
+          {me === undefined ? <Loading />
+            : walled ? <SignInWall forge={me.forge} />
+            : me.viewer && !me.viewer.reachKnown && !open
+              // What was known is too old to show anything on; the refresh above is asking.
+              ? <Loading what={`Asking ${me.forge.host} what you can read…`} />
+              : (
+                <Cockpit.Provider value={me}>
+                  <ViewerLogin.Provider value={me.viewer?.login ?? null}>{children}</ViewerLogin.Provider>
+                </Cockpit.Provider>
+              )}
+        </main>
+      </TriggerWorkflow>
     </RunPrompt>
   );
 }
 
-/** The header, its Run a prompt opening the dialog on the factory in view. */
-function RunHeader(props: Omit<ComponentProps<typeof Header>, "onRun">) {
+/** The header, its Run a prompt and Trigger a workflow opening their dialogs on the factory in view. */
+function ActionsHeader(props: Omit<ComponentProps<typeof Header>, "onRun" | "onTrigger">) {
   const run = useRunPrompt();
-  return <Header {...props} onRun={() => run()} />;
+  const trigger = useTrigger();
+  return <Header {...props} onRun={() => run()} onTrigger={trigger} />;
 }
