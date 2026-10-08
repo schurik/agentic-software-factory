@@ -124,6 +124,24 @@ describe("the editor's files", () => {
     expect(html).not.toContain("Discard these changes");
   });
 
+  it("are a list the editor can be widened against, by pointer or by key", () => {
+    const html = editor([changed], { files: FILES });
+
+    expect(html).toMatch(/<nav aria-label="Files"[^>]*style="width:256px"/);
+    expect(html).toMatch(/<div role="separator" aria-orientation="vertical" aria-label="Resize the file list" aria-valuenow="256" aria-valuemin="160" aria-valuemax="560" tabindex="0"/);
+  });
+
+  it("are highlighted under the text being edited, which stays the text", () => {
+    const html = editor([changed], { files: FILES });
+
+    const under = html.slice(html.indexOf('<pre aria-hidden="true"'), html.indexOf("</pre>"));
+    expect(under).toContain('<span class="text-muted"># the budget</span>');
+    expect(under).toContain('<span class="text-accent">max_cost_usd</span>');
+    expect(under).toContain('<span class="text-wait">5</span>');
+    expect(under.replace(/<[^>]+>/g, "")).toBe(changed.text);
+    expect(html).toMatch(/<textarea[^>]*>[\s\S]*max_cost_usd: 5/);
+  });
+
   it("go into one pull request together", () => {
     const html = editor([changed, workflow], { files: FILES });
     expect(html).not.toMatch(/<button type="submit"[^>]* disabled=""/);
