@@ -162,7 +162,7 @@ describe("a session's where", () => {
   it("is its mini graph once it does", () => {
     const html = renderToStaticMarkup(<Where workflow="issue" progress={{
       mini: { blocks: [{ key: "0", status: "done", stage: "scout", phase: null }, { key: "1", status: "running", stage: "plan", phase: null }], current: 1 },
-      stage: "plan", phase: { name: "plan", since: "2026-10-01T11:50:00.000Z" },
+      stage: "plan", phase: { name: "plan", type: "agent", since: "2026-10-01T11:50:00.000Z" },
     }} />);
 
     expect(text(html)).toContain("plan");

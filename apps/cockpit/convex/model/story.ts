@@ -586,6 +586,11 @@ function duration(phase: PhaseState): number | null {
   return seconds;
 }
 
+/** Whether a phase of `kind` is a person at a gate, an agent, or code: the type its item and its icon say. */
+export function phaseType(kind: string): "gate" | "agent" | "code" {
+  return kind === "engineer" ? "gate" : kind === "agent" ? "agent" : "code";
+}
+
 function item(phase: PhaseState, journal: Entry[]): Item {
   const placed = { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name,
                    stageIndex: phase.stageIndex };

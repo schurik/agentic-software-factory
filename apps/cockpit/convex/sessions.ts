@@ -12,6 +12,7 @@ import { statesOf } from "./items";
 import { readDescription } from "./model/description";
 import { miniOf } from "./model/graph";
 import { phaseView, readSummary, view } from "./model/session";
+import { phaseType } from "./model/story";
 import { canRead, readable, viewing } from "./viewer";
 
 // Who sees a session is the forge's call, not the cockpit's: in a team
@@ -123,7 +124,7 @@ export const progress = query({
     return {
       mini: graph ? miniOf(graph) : { blocks: [], current: null },
       stage: graph?.kind === "stages" && graph.current !== null ? graph.stages[graph.current].name : null,
-      phase: phase && { name: phase.name, since: phase.since },
+      phase: phase && { name: phase.name, type: phaseType(phase.kind), since: phase.since },
     };
   },
 });

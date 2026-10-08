@@ -52,8 +52,8 @@ export function StatusIcon({ status, size = 14, className }: { status: Mark | St
 }
 
 /** Whether a phase was a person at a gate, code, or an agent: a diamond, brackets, a ringed dot. */
-export function KindIcon({ type, className }: { type: "gate" | "code" | "agent"; className?: string }) {
-  const props = { width: 12, height: 12, viewBox: "0 0 16 16", role: "img", "aria-label": type, className: cx("shrink-0 text-faint", className) };
+export function KindIcon({ type, size = 12, className = "text-faint" }: { type: "gate" | "code" | "agent"; size?: number; className?: string }) {
+  const props = { width: size, height: size, viewBox: "0 0 16 16", role: "img", "aria-label": type, className: cx("shrink-0", className) };
   if (type === "gate") return <svg {...props}><path d="M8 1.5L14.5 8 8 14.5 1.5 8z" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M8 1.5L14.5 8 8 14.5z" fill="currentColor" /></svg>;
   if (type === "code") return <svg {...props}><path d="M5.5 4L2 8l3.5 4M10.5 4L14 8l-3.5 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
   return <svg {...props}><circle cx="8" cy="8" r="2.4" fill="currentColor" /><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>;

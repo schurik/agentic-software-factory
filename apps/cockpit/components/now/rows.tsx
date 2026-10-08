@@ -13,7 +13,7 @@ import { tabHref } from "../factory/view";
 import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref, type WorkItemKind } from "../format";
 import { asks, verbsOf } from "../gate/answer";
 import { MiniGraph } from "../graph/StageGraph";
-import { ForgeRef, StageIcon, StatusIcon } from "../icons";
+import { ForgeRef, KindIcon, StageIcon, StatusIcon } from "../icons";
 import { keyOf, whyYours } from "../inbox/waits";
 import { phaseName } from "../session/words";
 import { Card, cx, followInPlace, type Go, Tag } from "../ui";
@@ -33,14 +33,32 @@ import { useWho } from "../viewer";
 /** Where a running session is, from its own events (`sessions.progress`). */
 export type Progress = NonNullable<FunctionReturnType<typeof api.sessions.progress>>;
 
-/** A stage's icon on a tinted square: amber when it waits on a person, blue while it runs. */
-function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
+/** An icon on a tinted square: amber when it waits on a person, blue while it runs. */
+function Glyph({ title, tone, children }: { title: string; tone: "wait" | "run"; children: ReactNode }) {
   return (
-    <span title={name} className={cx("grid size-6 place-items-center rounded-md",
-                                     tone === "wait" ? "bg-wait-soft text-wait" : "bg-accent-soft text-accent")}>
-      <StageIcon name={name} size={14} />
+    <span title={title} className={cx("grid size-6 place-items-center rounded-md",
+                                      tone === "wait" ? "bg-wait-soft text-wait" : "bg-accent-soft text-accent")}>
+      {children}
     </span>
   );
+}
+
+/** A stage's icon on its square. */
+function StageGlyph({ name, tone }: { name: string; tone: "wait" | "run" }) {
+  return <Glyph title={name} tone={tone}><StageIcon name={name} size={14} /></Glyph>;
+}
+
+/**
+ * Where a running session is, as the glyph its row leads with: the stage's
+ * icon, or in a chapter drawn without stages the phase's — a gate, code, an
+ * agent — and an empty square of the same size while its progress loads or
+ * between phases. Never a spinner: the mini graph beside it says it runs.
+ */
+function RunningGlyph({ progress }: { progress: Progress | null | undefined }) {
+  if (progress?.stage) return <StageGlyph name={progress.stage} tone="run" />;
+  const phase = progress?.phase;
+  if (phase) return <Glyph title={phaseName({ name: phase.name })} tone="run"><KindIcon type={phase.type} size={14} className="text-current" /></Glyph>;
+  return <span aria-hidden="true" className="block size-6 rounded-md bg-surface-2" />;
 }
 
 /** One row of a list drawn as Now's are; the Factories list's too. */
@@ -292,7 +310,7 @@ export function RunningRow({ row, progress, now }: { row: Running; progress: Pro
   const elapsed = secondsBetween(row.startedAt, now);
   return (
     <Row href={sessionHref(row.factory, row.session)}
-         glyph={progress?.stage ? <StageGlyph name={progress.stage} tone="run" /> : <StatusIcon status="running" size={16} className="mt-1 ml-1" />}
+         glyph={<RunningGlyph progress={progress} />}
          title={<span className="truncate">{titleOf(row.title, Number(issue)) || row.session}</span>}
          lines={[
            <span key="graph" className="flex flex-wrap items-center gap-x-3 gap-y-1">

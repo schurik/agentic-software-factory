@@ -45,7 +45,7 @@ const PROGRESS: Progress = {
     current: 2,
   },
   stage: "verify",
-  phase: { name: "verify_2", since: ago(4 * MINUTE) },
+  phase: { name: "verify_2", type: "agent", since: ago(4 * MINUTE) },
 };
 
 const PAGE: NowPage = {
@@ -211,11 +211,11 @@ describe("the thresholds, against the given clock", () => {
   });
 
   it("calls a session stuck once a phase has run past 10 minutes, naming where", () => {
-    const at = (since: number) => read(html(PAGE, { progress: { ...PROGRESS, phase: { name: "verify_2", since: ago(since) } } }));
+    const at = (since: number) => read(html(PAGE, { progress: { ...PROGRESS, phase: { name: "verify_2", type: "agent", since: ago(since) } } }));
     expect(at(10 * MINUTE)).not.toContain("in verify");
     expect(at(10 * MINUTE + 1000)).toContain("10m in verify");
     // A chapter drawn without stages says the phase, humanised.
-    expect(read(html(PAGE, { progress: { ...PROGRESS, stage: null, phase: { name: "verify_2", since: ago(17 * MINUTE) } } })))
+    expect(read(html(PAGE, { progress: { ...PROGRESS, stage: null, phase: { name: "verify_2", type: "agent", since: ago(17 * MINUTE) } } })))
       .toContain("17m in verify #2");
   });
 
@@ -238,6 +238,37 @@ describe("the thresholds, against the given clock", () => {
     expect(running).toContain('aria-label="running"');
     expect(read(running)).toContain("verify");
     expect(running).toContain('href="/sessions/acme/gadgets/7d2f90aa"');
+  });
+});
+
+describe("a running session's glyph", () => {
+  // The row leads with where the session is (#152): the stage's icon, or
+  // without a stage the phase's, or while its progress loads a neutral square
+  // of the same size. Never a spinner: the mini graph beside it says running.
+
+  /** The glyph a running row leads with, given its progress. */
+  const glyph = (progress: Progress | null | undefined) =>
+    renderToStaticMarkup(<RunningRow row={RUNNING} now={NOW} progress={progress} />).match(/^<a [^>]*><span class="-mt-0.5 -ml-1">(.*?)<\/span><span class="min-w-0">/)![1];
+
+  it("is the stage's icon while the session is in a stage", () => {
+    expect(glyph(PROGRESS)).toMatch(/^<span title="verify" class="[^"]*size-6[^"]*bg-accent-soft/);
+    expect(glyph(PROGRESS)).toContain("lucide-flask-conical");
+  });
+
+  it("is the phase's icon in a chapter drawn without stages, not the spinner", () => {
+    for (const type of ["agent", "code", "gate"] as const) {
+      const drawn = glyph({ ...PROGRESS, stage: null, phase: { name: "verify_2", type, since: ago(MINUTE) } });
+      expect(drawn).toMatch(/^<span title="verify #2" class="[^"]*size-6[^"]*bg-accent-soft/);
+      expect(drawn).toContain(`aria-label="${type}"`);
+      expect(drawn).not.toContain('aria-label="running"');
+    }
+  });
+
+  it("is a neutral square of the same size while it loads, or between phases", () => {
+    for (const progress of [undefined, null, { ...PROGRESS, stage: null, phase: null }]) {
+      const drawn = glyph(progress);
+      expect(drawn).toMatch(/^<span aria-hidden="true" class="[^"]*size-6[^"]*bg-surface-2[^"]*"><\/span>$/);
+    }
   });
 });
 
