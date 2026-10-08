@@ -1,7 +1,8 @@
+import { Dialog } from "@base-ui/react/dialog";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Tabs as BaseTabs } from "@base-ui/react/tabs";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, X } from "lucide-react";
 import Link from "next/link";
 import { type ComponentProps, Fragment, type MouseEvent, type ReactNode } from "react";
 import { type Tone, toneOf } from "./session/words";
@@ -320,6 +321,48 @@ export function Select({ label, items, value, name, placeholder, onChange, class
         </BaseSelect.Portal>
       </BaseSelect.Root>
     </BaseField.Root>
+  );
+}
+
+/**
+ * A dialog over the page, as the header's actions open one (#108): a card
+ * near the top of the screen, its title and what it does over its body, and
+ * a close button; Escape and the backdrop close it too. The body is drawn
+ * only while it is open, so a closed one asks the backend nothing.
+ */
+export function Modal({ open, onClose, title, description, children }: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={(opened) => { if (!opened) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className={cx(
+          "fixed inset-0 z-40 bg-black/25 transition-opacity dark:bg-black/60",
+          "data-ending-style:opacity-0 data-starting-style:opacity-0",
+        )} />
+        <Dialog.Popup className={cx(
+          "fixed top-[8dvh] left-1/2 z-50 max-h-[84dvh] w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto",
+          "rounded-xl border border-line bg-surface p-5 shadow-pop transition-[scale,opacity] duration-150",
+          "data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
+        )}>
+          <div className="mb-4 flex items-start gap-3">
+            <div className="grow">
+              <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted">{description}</Dialog.Description>
+            </div>
+            <Dialog.Close aria-label="Close"
+                          className="-mt-1 -mr-1 grid size-8 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg">
+              <X size={16} aria-hidden="true" />
+            </Dialog.Close>
+          </div>
+          {open ? children : null}
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

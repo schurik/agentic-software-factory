@@ -11,7 +11,8 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { action, type ActionCtx, internalQuery } from "./_generated/server";
+import { action, type ActionCtx, internalQuery, query } from "./_generated/server";
+import { readableFactories } from "./factories";
 import { ForgeError } from "./forge/github";
 import { forgeSaid, open, UNREADABLE } from "./forge/open";
 import { refusal, type Route, type Routes, routesOf, unoffered, unready } from "./model/trigger";
@@ -45,15 +46,32 @@ export const asking = internalQuery({
 });
 
 /**
+ * The factories the header's trigger dialog offers: those on the forge the
+ * viewer can read, by name. Whether they may label one is the forge's role,
+ * which `routes` says once one is chosen. Null for someone not signed in.
+ */
+export const factories = query({
+  args: { signIn: v.optional(v.string()) },
+  handler: async (ctx, { signIn }): Promise<string[] | null> => {
+    const who = await viewing(ctx, signIn);
+    if (who.mode === "team" && who.viewer === null) return null;
+    return (await readableFactories(ctx, who, false)).map((factory) => factory.repo);
+  },
+});
+
+/**
  * The workflows `factory` can be triggered with: the route labels its
  * repository defines, as `asf labels --create` described them, and its
- * queued label. Read on the cockpit's own credential.
+ * queued label. Read on the cockpit's own credential — and none, saying why,
+ * for someone the forge would not let label it: the dialog opens on any
+ * factory, so it is the one place that says so.
  */
 export const routes = action({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, args): Promise<Offered> => {
-    const asked: { reads: boolean } = await ctx.runQuery(internal.trigger.asking, args);
+    const asked: { reads: boolean; because: string | null } = await ctx.runQuery(internal.trigger.asking, args);
     if (!asked.reads) return { ok: false, because: UNREADABLE };
+    if (asked.because !== null) return { ok: false, because: asked.because };
     return await offered(ctx, args.factory);
   },
 });

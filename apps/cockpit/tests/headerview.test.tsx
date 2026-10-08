@@ -12,7 +12,7 @@ const TEAM: Me = { mode: "team", forge, viewer: alex };
 const LOCAL: Me = { mode: "local", forge, viewer: { ...alex, avatarUrl: "" } };
 
 const html = (me: Me | undefined, path = "/", waiting = 0) =>
-  renderToStaticMarkup(<Header me={me} path={path} waiting={waiting} onSignOut={() => {}} onRun={() => {}} />);
+  renderToStaticMarkup(<Header me={me} path={path} waiting={waiting} onSignOut={() => {}} onRun={() => {}} onTrigger={() => {}} />);
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 describe("the places", () => {
@@ -55,18 +55,28 @@ describe("the places", () => {
   });
 });
 
-describe("Run a prompt", () => {
+describe.each(["Run a prompt", "Trigger a workflow"])("%s", (action) => {
   it("is on every page, phone included, for anyone the cockpit knows (#108)", () => {
     for (const path of ["/", "/sessions", "/factories/acme/widgets", "/sessions/acme/widgets/a9f259f0", "/stations"]) {
       // The words give way to the icon on a phone; its name stays.
-      expect(html(TEAM, path)).toMatch(/<button[^>]*aria-label="Run a prompt"[^>]*>.*<span class="hidden sm:inline">Run a prompt<\/span><\/button>/);
+      expect(html(TEAM, path)).toMatch(new RegExp(`<button[^>]*aria-label="${action}"[^>]*>(?:(?!</button>).)*<span class="hidden sm:inline">${action}</span></button>`));
     }
-    expect(html(LOCAL)).toContain('aria-label="Run a prompt"');
+    expect(html(LOCAL)).toContain(`aria-label="${action}"`);
   });
 
   it("is not offered to someone a team cockpit does not know yet", () => {
-    expect(html({ ...TEAM, viewer: null })).not.toContain("Run a prompt");
-    expect(html(undefined)).not.toContain("Run a prompt");
+    expect(html({ ...TEAM, viewer: null })).not.toContain(action);
+    expect(html(undefined)).not.toContain(action);
+  });
+});
+
+describe("Trigger a workflow", () => {
+  it("sits beside Run a prompt and looks like it, never disabled: whether the forge lets the viewer label is the dialog's to say", () => {
+    const buttons = [...html(TEAM, "/factories/acme/widgets").matchAll(/<button[^>]*aria-label="([^"]+)"[^>]*>/g)];
+    const [run, trigger] = buttons.filter(([, label]) => label === "Run a prompt" || label === "Trigger a workflow");
+    expect([run[1], trigger[1]]).toEqual(["Run a prompt", "Trigger a workflow"]);
+    expect(trigger[0].match(/class="[^"]*"/)![0]).toBe(run[0].match(/class="[^"]*"/)![0]);
+    expect(trigger[0]).not.toContain(' disabled=""');
   });
 });
 

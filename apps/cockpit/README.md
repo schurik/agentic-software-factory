@@ -186,13 +186,15 @@ the people its trust list names. The list and the open gate are live queries.
 
 ## Triggering a workflow
 
-A factory's page has a **Trigger** button in its header: pick a workflow and an issue, and the
+The app header has **Trigger a workflow** beside **Run a prompt**, on every page: it opens a
+dialog on the factory in view, where you pick a factory, one of its workflows and an issue, and the
 cockpit adds that workflow's route label and the factory's queued label to the issue **as the
 viewer** — on their user access token in a team cockpit, or the local cockpit's `gh auth token`.
 Nothing is started here: the factory's issues watcher dequeues the issue on its next poll, as it
 would one labelled on the forge, and records whoever the forge's `labeled` event names as the run's
-trigger. The button is enabled from **triage** up, which is what the forge asks of a labeller, and
-otherwise disabled with the reason; the forge is what enforces it. A closed issue, a pull request, a
+trigger. Only someone with **triage** or higher can trigger, which is what the forge asks of a
+labeller: below that, the dialog says why nothing can be triggered on that factory, and the forge
+is what enforces it. A closed issue, a pull request, a
 label that routes nothing, an issue already queued (no new `labeled` event would name the viewer) and
 one a run already has (a run parked at a gate keeps it on `running`; queueing it again would start a
 second) are refused before anything is labelled (`convex/trigger.ts`).
@@ -369,7 +371,7 @@ has been offline over a day, drift, nobody watching), which its page and Now nam
 moving: sessions **running** (not suspended), its **stations online** of all that registered, and
 the **workflows** its default branch's self-description loads. On the right are its **spend** this
 month, a calendar month in the viewer's own timezone (`convex/model/period.ts`), list-price
-equivalent, and when it was last active. A row opens its factory, whose header holds **Trigger…**.
+equivalent, and when it was last active. A row opens its factory, which the header's **Trigger a workflow** then opens on.
 Drift there is measured against the commit the default branch's last check ran on, since a query
 cannot ask the forge; the Factory page measures against the forge's tip.
 
@@ -701,8 +703,8 @@ against it — who is permitted, why a row is disabled, the comment posted as wh
 the pinned commit — and `tests/answer.test.ts` renders the golden answers. `tests/trigger.test.ts`
 drives the trigger: the routes found by their golden descriptions, the labels added as whom, and
 every refusal, below triage first. `tests/triggerform.test.tsx` is the one test that needs a DOM,
-and names happy-dom as its environment for that file alone: it picks a route from the trigger form's
-Select, types an issue and submits, and an issue that is not a positive whole number says so under
+and names happy-dom as its environment for that file alone: it picks a factory and a route from the
+trigger dialog's Selects, types an issue and submits, and an issue that is not a positive whole number says so under
 its field instead of being sent.
 
 No test talks to GitHub. `tests/forge.ts` is a **fake forge**: GitHub's REST API as far as the
