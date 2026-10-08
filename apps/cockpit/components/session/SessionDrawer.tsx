@@ -64,7 +64,7 @@ export function DrawerView({ page, shown, onShow, phase, gate: gateOf }: DrawerP
   if (gate) return gateOf?.(gate, shown.gateTab, (tab) => onShow?.({ ...shown, gateTab: tab }), go(closed(shown))) ?? null;
   if (found) {
     return (
-      <DrawerFrame icon={<KindIcon type={found.phase.type} className="size-4" />} title={phaseName(found.phase)}
+      <DrawerFrame icon={<KindIcon type={found.phase.type} size={16} />} title={phaseName(found.phase)}
                    what="phase" back={stage ? go(back(shown)) : null} close={go(closed(shown))}>
         <PhaseView page={page} found={found}>
           {phase?.(found.phase, shown.phaseTab, (tab) => onShow?.({ ...shown, phaseTab: tab }))}
