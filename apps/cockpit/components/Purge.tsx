@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Purged } from "@/convex/retention";
-import { Button, control, cx, Field } from "./ui";
+import { Button, Control, cx, Field } from "./ui";
 
 /**
  * A purge, asked for in two steps: open it, say why, confirm. What it removes
@@ -42,8 +42,7 @@ export function PurgeForm({ label, explains, onPurge, className }: PurgeProps & 
       <p className="text-muted">{explains}</p>
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Why" className="min-w-0 grow">
-          <input type="text" value={reason} className={control} onChange={(event) => setReason(event.target.value)}
-                 placeholder="a token leaked into an artifact" />
+          <Control type="text" value={reason} onValueChange={setReason} placeholder="a token leaked into an artifact" />
         </Field>
         <Button variant="danger" disabled={busy || !reason.trim()} onClick={purge}>{label}</Button>
       </div>

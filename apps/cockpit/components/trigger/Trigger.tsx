@@ -1,5 +1,6 @@
 "use client";
 
+import { Form } from "@base-ui/react/form";
 import { useAction } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
@@ -8,7 +9,7 @@ import { refusal } from "@/convex/model/trigger";
 import type { Offered, Triggered } from "@/convex/trigger";
 import { ForgeRef } from "../icons";
 import { said } from "../said";
-import { Button, control, Field, Notice } from "../ui";
+import { Button, Control, Field, Notice, Select } from "../ui";
 import { useWho } from "../viewer";
 
 /**
@@ -20,7 +21,7 @@ export function TriggerButton({ role, open, onToggle }: { role: Role | null; ope
   const because = refusal(role);
   return (
     <>
-      <Button size="sm" disabled={because !== null} title={because ?? undefined} aria-expanded={open} onClick={onToggle}>
+      <Button variant="primary" size="sm" disabled={because !== null} title={because ?? undefined} aria-expanded={open} onClick={onToggle}>
         Trigger…
       </Button>
       {because !== null ? <span className="text-sm text-muted"> {because}</span> : null}
@@ -32,6 +33,11 @@ export function TriggerButton({ role, open, onToggle }: { role: Role | null; ope
 export interface Asked {
   issue: string;
   label: string;
+}
+
+/** Why `typed` names no issue, or null when it does: a positive whole number. */
+export function notAnIssue(typed: string): string | null {
+  return /^\d+$/.test(typed) && Number(typed) > 0 ? null : "An issue is a positive whole number, like 42";
 }
 
 /**
@@ -54,27 +60,20 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
   if (!routes.ok) return <Notice className="text-sm">Nothing can be triggered on {factory} from here: {routes.because}.</Notice>;
   const route = routes.routes.find(({ label }) => label === asked.label) ?? routes.routes[0];
   const by = as ? who(as) : "you";
-  const number = Number(asked.issue);
-  const ready = Number.isInteger(number) && number > 0 && !busy;
   return (
-    <form className="grid max-w-lg gap-3" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
-      <Field label="Workflow">
-        <select value={route.label} className={control} onChange={(event) => onChange({ ...asked, label: event.target.value })}>
-          {routes.routes.map(({ label, workflow }) => (
-            <option key={label} value={label}>{workflow} ({label})</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Issue">
-        <input inputMode="numeric" placeholder="42" value={asked.issue} className={control}
-               onChange={(event) => onChange({ ...asked, issue: event.target.value.replace(/^#/, "") })} />
+    <Form className="grid max-w-lg gap-3" onFormSubmit={() => { if (!busy) onSubmit(); }}>
+      <Select label="Workflow" name="label" value={route.label} onChange={(label) => onChange({ ...asked, label })}
+              items={routes.routes.map(({ label, workflow }) => ({ value: label, label: `${workflow} (${label})` }))} />
+      <Field label="Issue" name="issue" validate={(value) => notAnIssue(String(value ?? ""))}>
+        <Control inputMode="numeric" placeholder="42" value={asked.issue}
+                 onValueChange={(typed) => onChange({ ...asked, issue: typed.replace(/^#/, "") })} />
       </Field>
       <p className="text-sm text-muted">
         Adds <code>{route.label}</code> and <code>{routes.queued}</code> to the issue as {by}. The
         factory&apos;s issues watcher starts {route.workflow} on its next poll, and records {by} as who
         triggered it.
       </p>
-      <Button type="submit" variant="primary" className="justify-self-start" disabled={!ready}>
+      <Button type="submit" variant="primary" className="justify-self-start" disabled={busy || asked.issue === ""}>
         {busy ? "Labelling…" : `Trigger ${route.workflow}`}
       </Button>
       {outcome?.ok ? (
@@ -83,7 +82,7 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
           when the factory&apos;s issues watcher next polls.
         </Notice>
       ) : outcome ? <Notice tone="bad" className="text-sm">Not triggered: {outcome.because}.</Notice> : null}
-    </form>
+    </Form>
   );
 }
 
