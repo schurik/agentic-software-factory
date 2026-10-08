@@ -8,7 +8,7 @@ repository, and it stamps a small Python control plane — `asf/` — into that 
 on, a workflow is something you run, read, check and edit, not a chat you supervise.
 
 ```bash
-npx skills add schurik/agentic-software-factory      # the skill, into your agent
+npx skills add schurik/agentic-software-factory --skill agentic-sf --agent claude-code pi -y
 ```
 
 Then, from the repository you want a factory in, ask your agent to **install agentic-sf here**. It
@@ -188,14 +188,22 @@ has the sequence: start-up, page load, and what happens for each event.
 ## Install the skill
 
 ```bash
-npx skills add schurik/agentic-software-factory          # this project, .claude/skills/
-npx skills add schurik/agentic-software-factory -g       # every project, ~/.claude/skills/
+npx skills add schurik/agentic-software-factory --skill agentic-sf --agent claude-code pi -y
 ```
 
-It finds the one skill in here (`agentic-sf`) and asks which agents to wire it into; `-a claude-code
--y` answers ahead of time, and `--copy` copies instead of symlinking. Any agent that reads a
-`SKILL.md` works — the CLI targets Claude Code, Codex, Cursor, opencode, Windsurf, Zed, Cline,
-Roo, Amp, Goose, Devin, Antigravity and Eve.
+That writes the skill to `.agents/skills/agentic-sf/` in this project and links
+`.claude/skills/agentic-sf` to it; add `-g` for every project (`~/.agents/skills/`, linked from
+`~/.claude/skills/`). The same command updates it.
+
+Name two agents, not `claude-code` alone. When every agent named shares one skills directory, the
+CLI copies instead of linking, so `--agent claude-code` by itself puts a real directory in
+`.claude/skills/`, and every agent reading `.agents/skills/` (pi, Codex, Cursor, opencode…) keeps
+whatever was there. pi reads `.agents/skills/` itself, which is what makes the CLI write there and
+link Claude Code to it. Naming the agents also keeps `-y` from choosing for you: in a repository
+with an Eve agent, `-y` without `--agent` installs for Eve alone — which is also why `npx skills
+update` is not how to update it ([`cookbooks/upgrade.md`](skills/agentic-sf/cookbooks/upgrade.md#update-the-skill-first)).
+Any agent that reads a `SKILL.md` works — the CLI targets Claude Code, Codex, Cursor, opencode,
+Windsurf, Zed, Cline, Roo, Amp, Goose, Devin, Antigravity and Eve.
 
 As a Claude Code plugin instead, which also brings the `/agentic-sf` command:
 
