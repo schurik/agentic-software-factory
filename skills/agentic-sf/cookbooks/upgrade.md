@@ -7,7 +7,9 @@ Startup, when `asf/.skill-version` is missing or older than
 
 **An old stamp is never refused.** It keeps running exactly as it did, so
 nothing here is urgent and nothing here is yours to do unasked: say what the
-two versions are, offer the upgrade, and do it when the engineer says so. The
+two versions are, offer the upgrade with the question tool (**Upgrade now** ·
+**Not now**; [SKILL.md § Asking the person](../SKILL.md#asking-the-person)),
+and do it when the engineer says so. The
 one thing a re-stamp can refuse is its own config: from 1.2 a config saying
 `worktree.integration.mode: none` stops every command until it says something
 else — so settle that one (below) in the same change. A
@@ -118,8 +120,8 @@ re-stamp is reviewed as a diff of its own.
    to `--harness`; another would stamp another roster's prompts.
 4. **Nothing mid-flight.** `just status` and `just pending`. Stop `just up`
    (ctrl-c where it runs). A run still working would carry on in code that
-   changed under it: let it finish, or `just kill <id>` with the engineer's
-   say-so. A session waiting at a gate is fine — it resumes in the new code.
+   changed under it: let it finish, or `just kill <id>` — ask first, with the
+   question tool: **Wait for it** · **Kill it**. A session waiting at a gate is fine — it resumes in the new code.
 
 ## Re-stamp
 
@@ -155,8 +157,10 @@ From the **target repo root**. Read three things in what it prints:
 
 `diff asf/factory.yaml asf/factory.yaml.new` shows what a fresh stamp would say.
 Most new keys have defaults that apply without them — the `.new` shows them, and
-nothing needs copying. These do not, and each is the repository's call: put each
-to the engineer with what it does, and edit `asf/factory.yaml` with their answer.
+nothing needs copying. These do not, and each is the repository's call: put the
+ones that apply to the engineer in one question-tool call (up to four; the rest
+in the next), each option saying what it does, and edit `asf/factory.yaml` with
+their answer. The options are below each.
 
 1. **`observability:`** — obsolete and ignored since 1.2: delete it. The
    database it placed is no longer written; the file it names (by default
@@ -169,22 +173,26 @@ to the engineer with what it does, and edit `asf/factory.yaml` with their answer
    - *push nothing* → `mode: pr` and `worktree.publish: on_integrate`;
    - *push, open no pull request* → `mode: pr` and `open_pr: false`.
    A workflow's own `integrate: {mode: none}` is the same question; `just check`
-   names each one.
+   names each one. One option per meaning; none `(Recommended)`.
 3. **`worktree.publish`** — unset, it follows the cockpit: `on_create` once one
    is configured (a session's branch is pushed as it starts and before every
    gate, so the cockpit can show what the gate asks about, and deleted from the
    remote when the session finishes unintegrated), `on_integrate` without one.
    Leaving it unset is a fine answer; `on_integrate` keeps branches local at the
-   price of gates the cockpit cannot show.
+   price of gates the cockpit cannot show. Options: **Leave it unset**
+   `(Recommended)` · **`on_integrate`** · **`on_create`**.
 4. **`cockpit.commands`** — without it a station obeys **no** command a cockpit
    sends: no kill, no resume, no answering a prompt run's gate from the inbox.
    A fresh stamp lists `commands: [answer, abort, kill, resume]` under
    `cockpit:`; `run` (starting prompt workflows from the cockpit) is off unless
    listed. Opting a verb in is the repository's decision, made in this reviewed
-   file — never add one on the engineer's behalf.
+   file — never add one on the engineer's behalf. Ask with `multiSelect`:
+   **`answer` + `abort`** (a prompt run's gate, from the inbox) · **`kill`** ·
+   **`resume`** · **`run`**; what they tick is the list.
 5. **`cockpit.transcripts`** — off unless the file says `true`. It sends every
    prompt and the harness's raw output, tool arguments and results included:
-   say so before they choose, and never turn it on for them.
+   say so in the options' descriptions, and never turn it on for them: **Leave
+   it off** `(Recommended)` · **Send transcripts**.
 
 Then delete `asf/factory.yaml.new` — it was a proposal, and leaving it is how
 the next `--force` writes over the one they read.
@@ -208,7 +216,10 @@ the next `--force` writes over the one they read.
   needs its description set on the forge for the cockpit's Trigger button to
   find it (`just labels` shows the text).
 - **The optional CI check** — `install.py --harness <harness> --force --ci`
-  stamps `.github/workflows/asf-check.yml`. A repository's CI is its own: ask.
+  stamps `.github/workflows/asf-check.yml`. A repository's CI is its own: ask
+  with the question tool — unless it ships to a **team cockpit** (`ASF_COCKPIT_URL` set), where it
+  comes with the cockpit and you say why
+  ([connect_cockpit.md](connect_cockpit.md#ci)).
 - **A justfile that was kept** (the repository's own, or a stamped one that
   diverged) may still carry `obs`, `phases` and a `sessions` or `tail` that
   read the old database. They are gone since 1.2: `just sessions` and `just

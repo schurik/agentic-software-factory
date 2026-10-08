@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from engine import commands, events, factory, station, supervise
+from engine import commands, describe, events, factory, station, supervise
 from engine.data_types import EVENT_KINDS, Cockpit, Command, StationCredential
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, git,
@@ -251,6 +251,74 @@ def test_a_cockpit_from_before_tokenless_registration_is_named_as_the_reason(sta
 
     assert commands.register(cfg, cockpit, wait=lambda _: None, say=said.append) == 1
     assert "ASF_COCKPIT_TOKEN" in said[-1] and "upgrade" in said[-1]
+
+
+# ── the first registration describes the factory ─────────────────────────────
+
+def test_the_first_registration_describes_the_factory_with_the_ingest_token_it_was_handed(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    said: list[str] = []
+
+    assert approved_without_a_token(stamped, cfg, cockpit, said) == 0
+
+    [sent] = cockpit.descriptions
+    here = station.identify(stamped, DATA_DIR)
+    assert sent["station"]["id"] == here.id and sent["station"]["kind"] == "local"
+    assert {flow["name"] for flow in sent["description"]["workflows"]} >= {"sdlc", "issue"}
+    shown = "\n".join(said)
+    assert "described the factory" in shown
+    # No CI workflow is stamped here, so it says which one keeps it current, and how to add it.
+    assert "no .github/workflows/asf-check.yml" in shown and "--ci" in shown
+
+
+def test_after_the_first_describing_the_factory_is_the_ci_workflow_s_job(stamped: Path,
+                                                                         monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    approved_without_a_token(stamped, cfg, cockpit)
+    workflow = stamped / ".github" / "workflows" / "asf-check.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("name: asf check\n")
+    said: list[str] = []
+
+    assert approved_without_a_token(stamped, cfg, cockpit, said) == 0      # registered again
+
+    assert len(cockpit.descriptions) == 1
+    assert "described" not in "\n".join(said)
+
+    # And a cockpit that would take it says so when this station tries anyway.
+    fresh = FakeCockpit()
+    fresh.descriptions.append({"station": {"kind": "ci"}})
+    fresh.says_described = False
+    describe.first(Cockpit(url=URL, token=fresh.token), fresh, said.append)
+    assert "CI workflow keeps the description current" in said[-2]
+    assert "from now on .github/workflows/asf-check.yml keeps" in said[-1]
+
+
+def test_a_cockpit_that_does_not_say_whether_the_factory_is_described_is_sent_nothing(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    cockpit.says_described = False
+
+    assert approved_without_a_token(stamped, cfg, cockpit) == 0
+    assert cockpit.descriptions == []
+
+
+def test_a_first_description_from_another_branch_is_refused_and_registering_still_succeeds(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    git(stamped, "checkout", "-q", "-b", "feature/x")
+    cockpit = FakeCockpit()
+    cockpit.default_branch = "main"
+    said: list[str] = []
+
+    assert approved_without_a_token(stamped, cfg, cockpit, said) == 0
+
+    assert cockpit.descriptions == []
+    assert "not described" in "\n".join(said) and "default branch, main" in "\n".join(said)
 
 
 # ── the poll and its report ──────────────────────────────────────────────────

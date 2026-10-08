@@ -14,7 +14,10 @@
  *   3. the station's next poll of `/station/register/poll` is handed a command
  *      token — that person's, for this station alone — of which only the
  *      digest is kept (`handOver`); and, when it asked holding no ingest
- *      token, an ingest token of its own, the approver's too (#175).
+ *      token, an ingest token of its own, the approver's too (#175) — and
+ *      whether the factory is described yet: the first station to register
+ *      a factory nothing has described pushes its description once
+ *      (`describe.keep`), and the CI workflow keeps it current after.
  *
  * A request naming its factory needs nothing anyone holds, so anyone who
  * reaches the site can make one, naming any repository. The approval is then
@@ -249,7 +252,7 @@ export const registration = internalQuery({
 export const handOver = internalMutation({
   args: { device: v.string(), token: v.string(), ingest: v.string() },
   returns: v.union(
-    v.object({ state: v.literal("approved"), owner: v.string(), station: v.string(), ingest: v.boolean() }),
+    v.object({ state: v.literal("approved"), owner: v.string(), station: v.string(), ingest: v.boolean(), described: v.boolean() }),
     v.object({ state: v.union(v.literal("pending"), v.literal("expired")) }),
   ),
   handler: async (ctx, { device, token, ingest }) => {
@@ -267,7 +270,8 @@ export const handOver = internalMutation({
       });
     }
     await ctx.db.delete(asked._id);
-    return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station, ingest: issued };
+    const described = await ctx.db.query("checks").withIndex("by_factory_at", (q) => q.eq("factory", asked.factory)).first() !== null;
+    return { state: "approved" as const, owner: owner?.login ?? "", station: asked.station, ingest: issued, described };
   },
 });
 

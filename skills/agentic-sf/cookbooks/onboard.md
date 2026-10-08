@@ -6,7 +6,10 @@ short and names the cookbook that holds the rest — read that one before acting
 on the answer, as the routing table says.
 
 Do not recite this file. Find where they stand (below), say it in two lines,
-offer the next step, and answer the questions they actually ask.
+offer the next step with the question tool — that step `(Recommended)`, the
+next one or two after it, and "just explain it" — and answer the questions
+they actually ask. Every decision below is asked the same way
+([SKILL.md § Asking the person](../SKILL.md#asking-the-person)).
 
 ## What it is, in one breath
 
@@ -25,7 +28,7 @@ Look, do not ask:
 
 | What you find | Where they are | Next step |
 |---|---|---|
-| no `asf/factory.yaml` | nothing stamped here | [Install](#install-it) |
+| no `asf/factory.yaml` | nothing stamped here | [Install](#install-it), then [its settings](install.md#the-factorys-settings) |
 | `asf/.skill-version` missing or older than `<skill>/templates/asf/.skill-version` | stamped by an older release | [Update the factory](#update-the-factory) |
 | stamped, current, `just doctor` has failures | stamped, not ready | [Set it up](#set-it-up) |
 | stamped, current, doctor clean | ready | [First run](#the-first-run), then whatever they ask |
@@ -38,13 +41,22 @@ how a run's branch lands, whether issues may start runs), stamps `asf/`, the
 `justfile`, `.env` and the `.gitignore` entries, and is safe to run again.
 → [install.md](install.md)
 
+**"Now what?"**, right after a first install — walk the stamped
+`asf/factory.yaml` with them before the first run: what a session may spend,
+which model, where a run stops for a person, whose issues may start one,
+transcripts and the cockpit's commands, each put to them with the question
+tool. → [install.md](install.md#the-factorys-settings)
+
 **"Which harness?"** — `claude_code` uses the engineer's own Claude Code login
 and needs no key; `pi` needs that provider's API key in `.env`. The installer
 lists what the skill ships.
 
-**"Can CI check it?"** — `--ci` stamps an optional workflow that runs `asf
-check` on every pull request and tells a cockpit what the factory is. It is the
-repository's CI: ask before adding it. → [install.md](install.md#run-it)
+**"Can CI check it?"** — `--ci` stamps a workflow that runs `asf check` on
+every pull request and tells a cockpit what the factory is. With a **team
+cockpit** it comes with connecting, unasked, and you say why
+([connect_cockpit.md](connect_cockpit.md#ci)); with only the local one it is
+the repository's CI: ask with the question tool before adding it.
+→ [install.md](install.md#run-it)
 
 ## Set it up
 
@@ -94,8 +106,10 @@ before the first `up`.
 **"How do I connect to our team's cockpit?"** — set `ASF_COCKPIT_URL` (the
 deployment's **site** origin) in `.env`, then **register the station**: `just
 station-register` prints a code, a person with write on the repository approves
-it in the cockpit, and the station keeps its tokens. Never approve it for them.
-→ [connect_cockpit.md](connect_cockpit.md)
+it in the cockpit, and the station keeps its tokens — and, the first time,
+describes the factory to the cockpit. Never approve it for them. Then **add the
+CI check**, saying why: it keeps that description current from the default
+branch. → [connect_cockpit.md](connect_cockpit.md)
 
 **"What is a station?"** — one checkout of the repository, on a machine or in a
 CI job. It ships its sessions to the cockpit and, once registered, takes the

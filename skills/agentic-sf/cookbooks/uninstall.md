@@ -19,7 +19,11 @@ This is the one irreversible thing in the factory, and most of what it deletes
 is not recoverable from git: the run record under `asf/data/` was never tracked,
 and neither were the worktrees. So do not run it on an engineer's say-so alone.
 
-**Run `--dry-run`, show them the plan, and let them answer.** It prints exactly
+**Run `--dry-run`, show them the plan, and let them answer** — with the
+question tool ([SKILL.md § Asking the person](../SKILL.md#asking-the-person)):
+**Uninstall, keep the branches** · **Uninstall and delete the `asf/` branches
+(`--branches`)** · **Don't uninstall**. None is `(Recommended)`: this one is
+theirs alone. It prints exactly
 what would be deleted, what would be kept and why, how many worktrees go, and
 which branches would survive. Nothing is written.
 

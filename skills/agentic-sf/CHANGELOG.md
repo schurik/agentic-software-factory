@@ -52,6 +52,28 @@ before — `None` when there are none, never omitted.
   it fails, is the new `cookbooks/connect_cockpit.md`, which `install.md`, `upgrade.md` and
   `SKILL.md` now point to. `asf/cockpit/min-version` does not rise: a local cockpit registers
   nothing.
+- **The first registration describes the factory; after that it is CI's job.** When a team
+  cockpit holds no self-description of the factory yet, `asf station register` sends one once the
+  person approves it — what `asf check --json` prints, with the token it registered by — so the
+  Factory page shows the workflows and settings from the moment the repository connects, not
+  "unchecked". The cockpit's hand-over says whether anything has (`described`); it takes a local
+  station's description only while nothing has, and only for the default branch, and refuses one
+  after (403), because the default branch's description is what every station's config drift is
+  measured against. Registering never fails on it: it says what happened and which workflow keeps
+  the description current. And **choosing a team cockpit adds the CI check**: the cookbooks
+  (`connect_cockpit.md`, `onboard.md`, `install.md`, `upgrade.md`, `SKILL.md`) have the agent stamp
+  `.github/workflows/asf-check.yml` as part of connecting and say why, rather than ask; with only
+  the local cockpit it stays the repository's call.
+- **Every question to the person goes through the question tool.** `SKILL.md` § Asking the
+  person: wherever the person has to answer — the install questions, a `factory.yaml` decision on
+  upgrade, a gate's verdict, uninstalling, which cockpit, the next step — the agent asks with its
+  harness's question tool (`AskUserQuestion` in Claude Code), all of that point's questions in one
+  call, the default first and marked, never a question left in prose. Each cookbook names the
+  options at its own stopping points; a harness without the tool asks in one numbered message.
+  After a first install the agent walks the stamped `asf/factory.yaml` the same way — what a
+  session may spend, which model, where a run stops for a person, whose issues and reviews may
+  start one, transcripts, which commands a cockpit may send, and what a gate does unattended
+  (`install.md` § The factory's settings).
 - **`/agentic-sf onboard`.** A new cookbook, `cookbooks/onboard.md`, finds where a repository
   stands (not installed, behind, not ready, ready) and answers a new user's questions — install,
   setup, the first run, the tracker, the cockpit and stations, updating, workflows and agents,
@@ -82,6 +104,10 @@ before — `None` when there are none, never omitted.
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`
    (`cookbooks/connect_cockpit.md`). A checkout that keeps its token needs nothing.
+5. A factory connected to a team cockpit without the CI workflow: stamp it, `install.py --harness
+   <harness> --ci`, and set `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN`
+   (`cookbooks/connect_cockpit.md` § CI). A cockpit older than this release never says whether the
+   factory is described, so registering against one describes nothing — as before.
 
 ## 1.2.0 — 2026-10-02
 

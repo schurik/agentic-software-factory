@@ -16,10 +16,18 @@ the commands, say what to open and what it will show; they click.
   this machine (Docker, `http://localhost:3000`) and its station is the
   engineer's by itself. Nothing to register, nothing to issue. Stop here.
 - **`ASF_COCKPIT_URL` set**: a **shared** (team) cockpit. The rest of this
-  cookbook.
+  cookbook — and the repository's **CI check comes with it** (below).
 
-Ask which one they mean before touching `.env`: a URL there turns the local
-cockpit off.
+Ask which one they mean before touching `.env` — a URL there turns the local
+cockpit off — with the question tool
+([SKILL.md § Asking the person](../SKILL.md#asking-the-person)):
+
+- **Local cockpit** `(Recommended)` when nobody mentioned a team — on this
+  machine, theirs alone, nothing to register;
+- **Our team's cockpit** — they type its URL through Other, or you ask for it
+  next; it brings the CI check with it;
+- **Set up a team cockpit** — they run the deployment:
+  [Once per cockpit](#once-per-cockpit--its-operator) first.
 
 ## Once per cockpit — its operator
 
@@ -57,24 +65,56 @@ already has people signing in to it, skip to the next section.
    `origin` remote (`owner/name`), prints a code and a link to
    `/stations/approve?code=…`, and waits ten minutes.
 3. **A person with write on the repository approves it** in the cockpit,
-   signed in. The page names the repository, the station, its kind and its host
+   signed in. `register` waits for it by itself — there is nothing to ask
+   while it does. The page names the repository, the station, its kind and its host
    before the button; they approve only a station they started. **Never approve
    it for them**, and never open the link signed in as anyone.
 4. The station is handed a **command token** and an **ingest token**, both
    theirs, kept in the gitignored `asf/data/station-token.json`. From then on
    every run, `just up` and `just station-sync` ship with that ingest token;
    `ASF_COCKPIT_TOKEN`, if it is ever set, wins over it.
-5. **Check it**: `just doctor` — its `cockpit` line says what the station ships
+5. **The first registration describes the factory.** When nothing has
+   described it to this cockpit yet, `register` sends the factory's
+   self-description once — what `asf check --json` prints: its workflows,
+   agents, gates and settings — so the Factory page shows them from the start
+   instead of **unchecked**. Only from the **default branch**: on any other the
+   cockpit refuses it, and `register` says so and still succeeds. After that
+   first one the cockpit takes descriptions only from CI (next section),
+   because the default branch's description is what every station's config
+   drift is measured against, and a laptop's edits must not become it.
+6. **Check it**: `just doctor` — its `cockpit` line says what the station ships
    with — and `just status`, whose `cockpit:` line says the same and whom the
    station takes commands for. Then `just up`; the station appears on the
    factory's **Stations** tab.
 
 A checkout that already has `ASF_COCKPIT_TOKEN` registers exactly as before:
-the token names the factory, and only a command token comes back.
+the token names the factory, and only a command token comes back (and the
+factory is described, if nothing has described it yet).
 
 ## CI
 
-A CI job takes part in no device flow, so it ships with a token copied into the
+**Choosing a team cockpit adds the CI check.** Do not ask whether to: stamp it
+as part of connecting, and tell them why in these words or close to them —
+
+> I'm adding `.github/workflows/asf-check.yml`. It runs `asf check` on every
+> pull request, so a workflow that will not load goes red on the pull request
+> that broke it, and on every push to the default branch it sends the
+> cockpit the factory's description. Registering described the factory once;
+> from now on this keeps it current, and it is what the cockpit measures every
+> station's config drift against. It spawns no agent and spends nothing.
+
+```bash
+uv run <skill>/scripts/install.py --harness <harness> --ci
+```
+
+`<harness>` is `defaults.harness` in `asf/factory.yaml`. The re-run stamps
+only what is missing — here, the one workflow — and says so; commit it with
+the rest of the change. If `.github/workflows/asf-check.yml` is already there,
+it is already done. With a **local** cockpit nothing needs it, and it stays the
+repository's call: [install.md](install.md#run-it).
+
+It ships only once the repository holds the two settings it reads. A CI job
+takes part in no device flow, so it ships with a token copied into the
 repository. A **repository admin** opens the factory's page → **Stations** →
 **Ingest tokens**, names it (e.g. `GitHub Actions`) and issues it. The token is
 shown **once**. They store it as `secrets.ASF_COCKPIT_TOKEN`, and the site

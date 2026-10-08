@@ -10,8 +10,10 @@
 # cockpit as this job's CI station. A cockpit never runs repository code or
 # reads workflow files; this is how it learns what the factory is, and the
 # description pushed from the default branch is what it measures every
-# station's config drift against. Without it the cockpit shows the factory as
-# "unchecked", not broken.
+# station's config drift against. The first checkout connected to the cockpit
+# describes the factory once; from then on keeping it current is this job's,
+# and the cockpit refuses a local checkout's. Without either, the cockpit shows
+# the factory as "unchecked", not broken.
 #
 # Two settings, both optional — without them the check runs and ships nothing:
 #   vars.ASF_COCKPIT_URL       the shared cockpit backend's site origin

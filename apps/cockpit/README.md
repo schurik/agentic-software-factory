@@ -508,8 +508,11 @@ with the factory's ingest token, `{station: {id, name, kind}, description}`, kee
 branch (`convex/describe.ts`), as the JSON text it arrived as; `convex/model/description.ts` reads
 it, every format ever written (`tests/golden/self-description/v<N>.json`), and says when one is newer
 than it. The answer is `200 {}`: an ingest token can add, and read nothing back. A station whose
-kind is not `ci` is refused with a 403 — a checkout's own edits are what drift measures, never what
-it is measured against.
+kind is not `ci` is refused with a 403 once the factory has any description — a checkout's own
+edits are what drift measures, never what it is measured against. Before that, the first station to
+register describes it once (`/station/register/poll` answers `described: false`, and
+`asf station register` pushes it), from the default branch only (409 from any other), so the factory
+is not unchecked from the moment it connects; the CI workflow keeps it current after.
 
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header, under a breadcrumb back to the
 Factories list, that says the factory's state in one line — its name with a link to it on the forge, the check's state, the default branch at its
@@ -574,7 +577,7 @@ run another config, pointing to Stations, and every purge of the bodies. Every s
 factory's own word on itself: the `settings` of its self-description (format 2), each default
 resolved by its code; the cockpit never parses `factory.yaml`. A description from before format 2
 still shows its check, and says the settings are not described; a factory no CI workflow ever
-described is **unchecked**, never broken.
+described, and no station's first registration either, is **unchecked**, never broken.
 
 **Edit config** leads the tab, over the pull requests proposed from here that are still open —
 those from a `cockpit/` branch, which the page's `look` reads with the forge's `pulls`. It opens
