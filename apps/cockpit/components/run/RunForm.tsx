@@ -118,7 +118,7 @@ export function RunForm({ factories, state, workflows, targets, runs, now, busy,
         <textarea value={state.prompt} rows={5} placeholder="What should change?" className={control}
                   onChange={(event) => onChange({ type: "prompt", prompt: event.target.value })} />
       </Field>
-      {cannot ? <Notice className="my-0 text-sm">{cannot}</Notice>
+      {cannot ? <Notice className="text-sm">{cannot}</Notice>
         : station ? (
           <p className="text-sm text-muted">
             Runs on {where(station, now)} — only ever one of your own: a run starts an agent on that machine, on its owner&apos;s budget.

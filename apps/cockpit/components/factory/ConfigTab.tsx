@@ -129,7 +129,7 @@ function Edit({ page, look, forge, now, onEdit }: {
       {onEdit && page.edit !== null ? <p className="mt-2 text-sm text-muted">Editing is disabled: {page.edit}.</p> : null}
 
       {look === null ? <div className="mt-3 text-sm"><Loading what="Asking the forge…" /></div>
-        : !look.ok ? <Notice className="text-sm">{look.because}</Notice>
+        : !look.ok ? <Notice className="mt-3 text-sm">{look.because}</Notice>
           : (
             <>
               <h3 className="mt-4 mb-1.5 text-sm font-medium text-muted">Open proposals</h3>
@@ -173,7 +173,7 @@ function CheckGroup({ check, now, onTab }: { check: Check | null; now: number; o
         {description.skillVersion ? <> · skill {description.skillVersion}</> : <> · stamped before 1.1</>}
       </p>
       {description.newer ? (
-        <Notice className="text-sm">
+        <Notice className="mt-3 text-sm">
           This description is format {description.format}, newer than this cockpit reads: upgrade the cockpit to see all of it.
         </Notice>
       ) : null}

@@ -57,7 +57,7 @@ export function TriggerFormView({ factory, routes, asked, busy, outcome, as, onC
   const number = Number(asked.issue);
   const ready = Number.isInteger(number) && number > 0 && !busy;
   return (
-    <form className="my-2 grid max-w-lg gap-3" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
+    <form className="grid max-w-lg gap-3" onSubmit={(event) => { event.preventDefault(); if (ready) onSubmit(); }}>
       <Field label="Workflow">
         <select value={route.label} className={control} onChange={(event) => onChange({ ...asked, label: event.target.value })}>
           {routes.routes.map(({ label, workflow }) => (

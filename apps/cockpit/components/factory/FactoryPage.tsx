@@ -115,7 +115,7 @@ export function FactoryPage({ factory }: { factory: string }) {
                                    onRun={(workflow) => run({ factory: page.repo, workflow })} />
                    ),
                    stations: (
-                     <>
+                     <div className="grid gap-4">
                        {problem ? <Notice tone="bad">{problem}</Notice> : null}
                        {released ? <Notice>{released}</Notice> : null}
                        {stations && registrations ? (
@@ -131,7 +131,7 @@ export function FactoryPage({ factory }: { factory: string }) {
                                         void revoke({ factory, station: station.station, signIn }).then(settled("revoked")).catch(failed("revoked"));
                                       }} />
                        ) : <Loading />}
-                     </>
+                     </div>
                    ),
                    config: (
                      <ConfigTab page={page} look={look} drifts={measured} forge={web} now={now} purges={purges} onTab={onTab}

@@ -32,9 +32,9 @@ export function SessionsView({ list, factory, search, onSearch, now, live }: {
   live: (row: Listed) => ReactNode;
 }) {
   return (
-    <>
+    <div className="flex flex-col gap-5">
       <PageHeader title="Sessions" />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <FactoryPills factories={list.factories} active={factory} />
         <input type="search" value={search} onChange={(event) => onSearch(event.target.value)}
                placeholder="Search title, #issue, id…" aria-label="Search sessions"
@@ -46,15 +46,15 @@ export function SessionsView({ list, factory, search, onSearch, now, live }: {
           <code>POST /ingest</code> on this deployment&apos;s site URL with a factory&apos;s ingest token.
         </Notice>
       ) : (
-        <>
-          <p className="mb-2 text-sm text-muted">
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-muted">
             {list.sessions.length} of {plural(list.looked, "session")} looked at, most recently active first
             {list.cut ? "; older ones were not looked at, and may match too" : ""}.
           </p>
           {list.sessions.length ? <SessionsTable rows={list.sessions} now={now} live={live} /> : <p className="text-muted">No session matches.</p>}
-        </>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 

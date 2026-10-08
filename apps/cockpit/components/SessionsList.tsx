@@ -33,14 +33,14 @@ export function SessionsList({ factory }: { factory?: string }) {
   const [last, setLast] = useState(asked);
   if (asked !== undefined && asked !== last) setLast(asked);
   const list = asked ?? last;
-  if (list === undefined) return <><PageHeader title="Sessions" /><Loading /></>;
+  if (list === undefined) return <div className="flex flex-col gap-5"><PageHeader title="Sessions" /><Loading /></div>;
   // Signed out — the shell says so — or a factory the viewer cannot read.
   if (list === null) {
     return !factory ? null : (
-      <>
+      <div className="flex flex-col gap-5">
         <PageHeader title="Sessions" />
         <Notice>{factory} is not a factory you can read. <Link href="/sessions">All sessions</Link></Notice>
-      </>
+      </div>
     );
   }
   return (

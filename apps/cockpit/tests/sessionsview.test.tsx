@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type Listed, type SessionsFound, SessionsView, Where } from "../components/sessions/SessionsTable";
 import { EMPTY_SUMMARY, type Summary } from "../convex/model/session";
+import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 // The Sessions page (#116), rendered to static markup with no backend: the
 // factory pills and the one search box above a table of five columns — a
@@ -167,5 +168,14 @@ describe("a session's where", () => {
 
     expect(text(html)).toContain("plan");
     expect(html).toContain('title="scout"');
+  });
+});
+
+describe("the sessions page, spaced (#154)", () => {
+  it("leaves 20px under its title, by its gap alone", () => {
+    for (const html of [render(), render({ looked: 0, sessions: [] })]) {
+      expect(rootClasses(html)).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-5"]));
+      expect(verticalMargins(classesOf(html, "header")[0])).toEqual([]);
+    }
   });
 });

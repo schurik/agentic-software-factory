@@ -111,7 +111,7 @@ export function Empty({ children }: { children: ReactNode }) {
  */
 export function FoldSection({ title, count, open, children }: { title: string; count: number; open: boolean; children: ReactNode }) {
   return (
-    <Collapsible.Root defaultOpen={open} render={<section className="mt-8" />}>
+    <Collapsible.Root defaultOpen={open} render={<section />}>
       <Collapsible.Trigger className="group flex w-full items-baseline gap-2 text-left">
         <h2>{title}</h2>
         <span className="text-sm text-faint tabular-nums">{count}</span>

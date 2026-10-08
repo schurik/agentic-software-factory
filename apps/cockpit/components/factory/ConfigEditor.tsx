@@ -342,7 +342,7 @@ export function ConfigEditorView({
               {loading !== null ? (
                 <div className="p-4 sm:px-5">
                   {loading.because === null ? <p className="text-sm text-muted">Reading <code>{loading.path}</code> from the forge…</p>
-                    : <Notice className="my-0 text-sm">Cannot edit <code>{loading.path}</code>: {loading.because}.</Notice>}
+                    : <Notice className="text-sm">Cannot edit <code>{loading.path}</code>: {loading.because}.</Notice>}
                 </div>
               ) : null}
               {current !== null ? (
@@ -361,14 +361,14 @@ export function ConfigEditorView({
           ) : null}
         </Tabs.Root>
 
-        <Form className="shrink-0 border-t border-line bg-bg px-4 py-3 sm:px-5"
+        <Form className="grid shrink-0 gap-3 border-t border-line bg-bg px-4 py-3 sm:px-5"
               onFormSubmit={() => { if (because === null && !busy) onSubmit(); }}>
           {outcome?.ok ? (
-            <Notice tone="ok" className="mt-0 text-sm">
+            <Notice tone="ok" className="text-sm">
               Opened <ForgeRef kind="pr" href={outcome.url} state="open" newTab>#{outcome.number}</ForgeRef> from <ForgeRef kind="branch" href={branchHref(forge, repo, outcome.branch)}>{outcome.branch}</ForgeRef>: the
               repository&apos;s CI checks it, and its branch protection governs the merge.
             </Notice>
-          ) : outcome ? <Notice tone="bad" className="mt-0 text-sm">Not opened: {outcome.because}.</Notice> : null}
+          ) : outcome ? <Notice tone="bad" className="text-sm">Not opened: {outcome.because}.</Notice> : null}
           <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] lg:items-end">
             <Field.Root name="title" className="grid min-w-0 gap-1">
               <Field.Label className="text-sm font-medium">Title</Field.Label>
