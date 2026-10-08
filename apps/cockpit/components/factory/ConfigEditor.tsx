@@ -1,12 +1,13 @@
 "use client";
 
+import { Collapsible } from "@base-ui/react/collapsible";
 import { Dialog } from "@base-ui/react/dialog";
 import { Field } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
 import { Popover } from "@base-ui/react/popover";
 import { Tabs } from "@base-ui/react/tabs";
 import { useAction } from "convex/react";
-import { Info, X } from "lucide-react";
+import { ChevronRight, File, FileCode, FileText, Folder, FolderOpen, Info, X } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Proposed } from "@/convex/config";
@@ -16,6 +17,7 @@ import { ForgeRef } from "../icons";
 import { said } from "../said";
 import { unified } from "./diff";
 import { highlight, type Kind } from "./highlight";
+import { type TreeNode, treeOf } from "./tree";
 import { DiffView } from "../diff/DiffView";
 import { Button, control, cx, menuPopup, Notice, Select } from "../ui";
 import { useWho } from "../viewer";
@@ -79,8 +81,65 @@ export function tabbed(drafts: Draft[], shown: string | null): string[] {
 const named = (path: string) => path.replace(/^asf\//, "");
 
 /** The small blue dot on a file with changes, which a screen reader reads as "changed". */
-function Dot() {
-  return <><span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-accent" /><span className="sr-only">changed</span></>;
+function Dot({ className }: { className?: string }) {
+  return <><span aria-hidden="true" className={cx(className, "size-1.5 shrink-0 rounded-full bg-accent")} /><span className="sr-only">changed</span></>;
+}
+
+/** How far a row of the tree is indented: a level is twelve pixels. */
+const indent = (depth: number) => 8 + depth * 12;
+
+/** A file's icon, by what it is written in. */
+function FileIcon({ path }: { path: string }) {
+  const Icon = /\.(md|txt)$/i.test(path) ? FileText : /\.(ya?ml|json|toml)$/i.test(path) ? FileCode : File;
+  return <Icon size={14} aria-hidden="true" className="shrink-0 text-faint" />;
+}
+
+/**
+ * The files as a tree, grouped by folder as a file explorer shows them
+ * (`treeOf`): each folder collapsible, every one open to begin with; the
+ * file open marked, and a blue dot on each file with changes and on every
+ * folder it is in, so a collapsed folder still says it holds one.
+ */
+function FileTree({ nodes, depth, drafts, shown, onOpen }: {
+  nodes: TreeNode[];
+  depth: number;
+  drafts: Draft[];
+  shown: string | null;
+  onOpen: (path: string) => void;
+}) {
+  const rowClass = "flex w-full min-w-0 items-center gap-1.5 rounded-md py-1 pr-2 text-left text-sm";
+  return (
+    <ul className="grid gap-px">
+      {nodes.map((node) => (
+        <li key={node.path}>
+          {node.kind === "folder" ? (
+            <Collapsible.Root defaultOpen>
+              <Collapsible.Trigger data-folder={node.path} title={node.path} style={{ paddingLeft: indent(depth) }}
+                                   className={cx(rowClass, "group text-muted hover:bg-surface-3 hover:text-fg")}>
+                <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-faint transition-transform duration-150 group-data-panel-open:rotate-90" />
+                <Folder size={14} aria-hidden="true" className="shrink-0 group-data-panel-open:hidden" />
+                <FolderOpen size={14} aria-hidden="true" className="hidden shrink-0 group-data-panel-open:block" />
+                <span className="truncate">{node.name}</span>
+                {drafts.some((draft) => draft.path.startsWith(`${node.path}/`) && draft.text !== draft.original) ? <Dot className="ml-auto" /> : null}
+              </Collapsible.Trigger>
+              <Collapsible.Panel>
+                <FileTree nodes={node.children} depth={depth + 1} drafts={drafts} shown={shown} onOpen={onOpen} />
+              </Collapsible.Panel>
+            </Collapsible.Root>
+          ) : (
+            // A file's icon sits under its folder's, past the chevron's width and the gap after it.
+            <button type="button" data-file={node.path} title={node.path} aria-current={node.path === shown ? "true" : undefined}
+                    onClick={() => onOpen(node.path)} style={{ paddingLeft: indent(depth) + 20 }}
+                    className={cx(rowClass, node.path === shown ? "bg-surface text-fg shadow-card" : "text-muted hover:bg-surface-3 hover:text-fg")}>
+              <FileIcon path={node.path} />
+              <span className="truncate">{node.name}</span>
+              {unsaved(drafts, node.path) ? <Dot className="ml-auto" /> : null}
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** Where the files come from, and what proposing them does: behind the editor's info button. */
@@ -192,8 +251,8 @@ function Editor({ path, text, onText }: { path: string; text: string; onText: (t
 
 /**
  * The Config tab's editor (spec #40, #58, #157), the body of its dialog: the
- * factory's config files as a nav down the left — a picker on a phone — a
- * blue dot on each with changes; beside it, Changes, the diff of every
+ * factory's config files as a tree down the left, grouped by folder — a
+ * picker on a phone — a blue dot on each with changes; beside it, Changes, the diff of every
  * changed file the pull request will carry — drawn as the cockpit draws
  * every diff (`DiffView`), each file collapsible, unified or split — then a tab for each file edited,
  * the one open as highlighted text filling the rest, with the YAML check; and
@@ -239,6 +298,7 @@ export function ConfigEditorView({
   const because = blocked(drafts, asked);
   const problem = current && problemOf(current);
   const [navWidth, setNavWidth] = useNavWidth();
+  const tree = useMemo(() => treeOf(files), [files]);
   const front = showing === "changes" || shown === null ? "changes" : shown;
   const tab = cx(
     "relative -mb-px flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-2.5 py-2 text-sm font-medium whitespace-nowrap",
@@ -247,18 +307,7 @@ export function ConfigEditorView({
   return (
     <div className="flex min-h-0 grow">
       <nav aria-label="Files" style={{ width: navWidth }} className="scrollbar-rest hidden shrink-0 overflow-y-auto bg-bg p-2 md:block">
-        <ul className="grid gap-0.5">
-          {files.map((path) => (
-            <li key={path}>
-              <button type="button" aria-current={path === shown ? "true" : undefined} onClick={() => onOpen(path)}
-                      className={cx("flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm break-all",
-                                    path === shown ? "bg-surface text-fg shadow-card" : "text-muted hover:bg-surface-3 hover:text-fg")}>
-                <code className="min-w-0">{named(path)}</code>
-                {unsaved(drafts, path) ? <Dot /> : null}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <FileTree nodes={tree} depth={0} drafts={drafts} shown={shown} onOpen={onOpen} />
       </nav>
       <Splitter width={navWidth} onResize={setNavWidth} />
 
