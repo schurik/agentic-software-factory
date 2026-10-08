@@ -113,15 +113,15 @@ describe("the header", () => {
     expect(read(top)).toContain("success");
   });
 
-  it("links its factory and the sessions list in its breadcrumbs, and names itself last, unlinked", () => {
+  it("links its factory and that factory's sessions in its breadcrumbs, and names itself last, unlinked", () => {
     const top = header(html());
     const crumbs = top.slice(top.indexOf("<nav"), top.indexOf("</nav>") + "</nav>".length);
 
     expect(crumbs).toBe(renderToStaticMarkup(
-      <Crumbs trail={[{ label: "acme/widgets", href: "/factories/acme/widgets" }, { label: "sessions", href: "/sessions" }]}
+      <Crumbs trail={[{ label: "acme/widgets", href: "/factories/acme/widgets" }, { label: "sessions", href: "/sessions?factory=acme%2Fwidgets" }]}
               here={<code>a9f259f0</code>} />));
     expect(crumbs).toMatch(/<a [^>]*href="\/factories\/acme\/widgets"[^>]*>acme\/widgets<\/a>/);
-    expect(crumbs).toMatch(/<a [^>]*href="\/sessions"[^>]*>sessions<\/a>/);
+    expect(crumbs).toMatch(/<a [^>]*href="\/sessions\?factory=acme%2Fwidgets"[^>]*>sessions<\/a>/);
     expect(crumbs).toMatch(/<span aria-current="page"><code>a9f259f0<\/code><\/span>/);
   });
 

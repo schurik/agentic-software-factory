@@ -161,7 +161,7 @@ function Header({ page, action, onCommand, onPurge }: {
   const pr = prNumber(summary.prUrl);
   return (
     <header>
-      <Crumbs trail={[{ label: factory, href: factoryHref(factory) }, { label: "sessions", href: "/sessions" }]} here={<code>{session}</code>} />
+      <Crumbs trail={[{ label: factory, href: factoryHref(factory) }, { label: "sessions", href: `/sessions?factory=${encodeURIComponent(factory)}` }]} here={<code>{session}</code>} />
       <div className="mt-1.5 flex flex-col gap-3 md:flex-row md:items-start">
         <div className="min-w-0 grow">
           <h1>{story.title || `Session ${session}`}</h1>
