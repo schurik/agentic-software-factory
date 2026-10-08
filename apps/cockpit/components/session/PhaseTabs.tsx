@@ -9,7 +9,7 @@ import type { GateItem } from "@/convex/model/story";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { isMarkdown, Markdown } from "../Markdown";
 import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, plural, pretty } from "../format";
-import { cx, Facts, num, Pre, Table, Tabs } from "../ui";
+import { cx, Facts, num, Pre, Table, TabPanel, Tabs } from "../ui";
 import { useWho } from "../viewer";
 import { channelWords } from "./words";
 
@@ -66,13 +66,12 @@ export function PhaseTabs({ item, detail, where, tab, onTab, read, readDiff }: {
   const tabs = tabsFor(detail);
   const shown = tabs.includes(tab as Tab) ? tab as Tab : "overview";
   return (
-    <div>
-      <Tabs label="Phase" selected={shown} onSelect={(next) => onTab?.(next)} tabs={tabs.map((each) => ({
-        id: each,
-        label: <>{TABS[each]}{each === "transcript" && !detail.transcript.on ? <span className="font-normal text-muted"> · off</span>
-          : each === "transcript" && detail.transcript.pruned ? <span className="font-normal text-muted"> · {prunedWord(detail.transcript.pruned.reason)}</span> : null}</>,
-      }))} />
-      <div className="grid gap-2 pt-4 text-sm" role="tabpanel">
+    <Tabs label="Phase" selected={shown} onSelect={(next) => onTab?.(next)} tabs={tabs.map((each) => ({
+      id: each,
+      label: <>{TABS[each]}{each === "transcript" && !detail.transcript.on ? <span className="font-normal text-muted"> · off</span>
+        : each === "transcript" && detail.transcript.pruned ? <span className="font-normal text-muted"> · {prunedWord(detail.transcript.pruned.reason)}</span> : null}</>,
+    }))}>
+      <TabPanel key={shown} value={shown} className="grid gap-2 pt-4 text-sm">
         {shown === "overview" ? <Overview item={item} detail={detail} where={where} /> : null}
         {shown === "diff" ? <CommitDiffs detail={detail} readDiff={readDiff} /> : null}
         {shown === "artifacts" ? <Artifacts detail={detail} where={where} read={read} /> : null}
@@ -80,8 +79,8 @@ export function PhaseTabs({ item, detail, where, tab, onTab, read, readDiff }: {
         {shown === "tools" ? <Tools detail={detail} /> : null}
         {shown === "transcript" ? <Transcript detail={detail} /> : null}
         {shown === "events" ? <Events detail={detail} /> : null}
-      </div>
-    </div>
+      </TabPanel>
+    </Tabs>
   );
 }
 

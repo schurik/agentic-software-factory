@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Look } from "@/convex/factory";
 import type { Drift } from "@/convex/model/drift";
-import { StatusDot, Tabs } from "../ui";
+import { StatusDot, TabPanel, Tabs } from "../ui";
 import { FactoryHeader } from "./FactoryHeader";
 import { dotsOf, FACTORY_TABS, type FactoryTab, type Page } from "./view";
 
@@ -46,19 +46,16 @@ export function FactoryView({ page, look, drifts, forge, now, tab, onTab, trigge
     <div className="flex flex-col gap-5">
       <FactoryHeader page={page} look={look} forge={forge} now={now} triggering={triggering} onTrigger={onTrigger} />
       {trigger}
-      <div className="flex flex-col gap-6">
-        <Tabs label="Factory" selected={tab} onSelect={onTab} tabs={tabs} end={
-          <Link href={`/sessions?factory=${encodeURIComponent(page.repo)}`}
-                className="text-sm whitespace-nowrap text-muted no-underline hover:text-fg">
-            All sessions →
-          </Link>
-        } />
+      <Tabs label="Factory" selected={tab} onSelect={onTab} tabs={tabs} className="flex flex-col gap-6" end={
+        <Link href={`/sessions?factory=${encodeURIComponent(page.repo)}`}
+              className="text-sm whitespace-nowrap text-muted no-underline hover:text-fg">
+          All sessions →
+        </Link>
+      }>
         {(Object.keys(FACTORY_TABS) as FactoryTab[]).map((id) => (
-          <div key={id} id={`factory-${id}`} role="tabpanel" aria-label={FACTORY_TABS[id]} hidden={id !== tab}>
-            {panels[id]}
-          </div>
+          <TabPanel key={id} value={id} keepMounted>{panels[id]}</TabPanel>
         ))}
-      </div>
+      </Tabs>
     </div>
   );
 }

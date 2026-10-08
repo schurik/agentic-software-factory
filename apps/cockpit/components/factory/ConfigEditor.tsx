@@ -5,7 +5,6 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Field } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
 import { Popover } from "@base-ui/react/popover";
-import { Tabs } from "@base-ui/react/tabs";
 import { useAction } from "convex/react";
 import { ChevronRight, File, FileCode, FileText, Folder, FolderOpen, Info, X } from "lucide-react";
 import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +18,7 @@ import { unified } from "./diff";
 import { highlight, type Kind } from "./highlight";
 import { type TreeNode, treeOf } from "./tree";
 import { DiffView } from "../diff/DiffView";
-import { Button, control, cx, menuPopup, Notice, Select } from "../ui";
+import { Button, control, cx, menuPopup, Notice, Select, TabPanel, Tabs } from "../ui";
 import { useWho } from "../viewer";
 import { short } from "./view";
 
@@ -300,10 +299,6 @@ export function ConfigEditorView({
   const [navWidth, setNavWidth] = useNavWidth();
   const tree = useMemo(() => treeOf(files), [files]);
   const front = showing === "changes" || shown === null ? "changes" : shown;
-  const tab = cx(
-    "relative -mb-px flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-2.5 py-2 text-sm font-medium whitespace-nowrap",
-    "text-muted hover:text-fg data-active:border-accent data-active:bg-surface data-active:text-fg",
-  );
   return (
     <div className="flex min-h-0 grow">
       <nav aria-label="Files" style={{ width: navWidth }} className="scrollbar-rest hidden shrink-0 overflow-y-auto bg-bg p-2 md:block">
@@ -312,33 +307,29 @@ export function ConfigEditorView({
       <Splitter width={navWidth} onResize={setNavWidth} />
 
       <div className="flex min-w-0 grow flex-col">
-        <Tabs.Root value={front} onValueChange={(value: string) => (value === "changes" ? onShow() : onOpen(value))}
-                   className="flex min-h-0 grow flex-col">
-          <div className="shrink-0 bg-bg px-4 pt-3 sm:px-5 md:hidden">
-            <Select label="File" items={files} value={shown ?? ""} labelOf={(path) => `${named(path)}${unsaved(drafts, path) ? " •" : ""}`}
-                    onChange={onOpen} />
-          </div>
-          <div className="flex shrink-0 items-center gap-2 border-b border-line bg-bg px-4 sm:px-5">
-            <Tabs.List aria-label="What the pull request changes, and the files being edited"
-                       className="flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none]">
-              <Tabs.Tab value="changes" className={tab}>Changes{changed.length ? ` (${changed.length})` : ""}</Tabs.Tab>
-              {tabbed(drafts, shown).map((path) => (
-                <Tabs.Tab key={path} value={path} className={tab}>
-                  <code>{named(path)}</code>{unsaved(drafts, path) ? <Dot /> : null}
-                </Tabs.Tab>
-              ))}
-            </Tabs.List>
-            {front !== "changes" && current !== null && current.text !== current.original ? (
-              <Button variant="ghost" size="sm" className="ml-auto" onClick={() => onDiscard(current.path)}>Discard these changes</Button>
-            ) : null}
-          </div>
-
-          <Tabs.Panel value="changes" keepMounted className="scrollbar-rest min-h-0 grow overflow-y-auto bg-surface p-4 data-hidden:hidden sm:px-5">
+        <div className="shrink-0 bg-bg px-4 pt-3 sm:px-5 md:hidden">
+          <Select label="File" items={files} value={shown ?? ""} labelOf={(path) => `${named(path)}${unsaved(drafts, path) ? " •" : ""}`}
+                  onChange={onOpen} />
+        </div>
+        <Tabs label="What the pull request changes, and the files being edited" selected={front}
+              onSelect={(value) => (value === "changes" ? onShow() : onOpen(value))}
+              tabs={[
+                { id: "changes", label: `Changes${changed.length ? ` (${changed.length})` : ""}` },
+                ...tabbed(drafts, shown).map((path) => ({
+                  id: path,
+                  label: <span className="inline-flex items-center gap-1.5"><code>{named(path)}</code>{unsaved(drafts, path) ? <Dot /> : null}</span>,
+                })),
+              ]}
+              pinned={front !== "changes" && current !== null && current.text !== current.original ? (
+                <Button variant="ghost" size="sm" onClick={() => onDiscard(current.path)}>Discard these changes</Button>
+              ) : null}
+              className="flex min-h-0 grow flex-col" barClassName="shrink-0 bg-bg px-4 sm:px-5">
+          <TabPanel value="changes" keepMounted className="scrollbar-rest min-h-0 grow overflow-y-auto bg-surface p-4 data-hidden:hidden sm:px-5">
             {changed.length === 0 ? <p className="text-sm text-muted">Nothing changed yet.</p>
               : <DiffView text={changed.map((draft) => unified(draft.path, draft.original, draft.text)).join("")} />}
-          </Tabs.Panel>
+          </TabPanel>
           {shown !== null ? (
-            <Tabs.Panel value={shown} className="flex min-h-0 grow flex-col bg-surface data-hidden:hidden">
+            <TabPanel value={shown} className="flex min-h-0 grow flex-col bg-surface data-hidden:hidden">
               {loading !== null ? (
                 <div className="p-4 sm:px-5">
                   {loading.because === null ? <p className="text-sm text-muted">Reading <code>{loading.path}</code> from the forge…</p>
@@ -357,9 +348,9 @@ export function ConfigEditorView({
                   ) : null}
                 </Field.Root>
               ) : null}
-            </Tabs.Panel>
+            </TabPanel>
           ) : null}
-        </Tabs.Root>
+        </Tabs>
 
         <Form className="grid shrink-0 gap-3 border-t border-line bg-bg px-4 py-3 sm:px-5"
               onFormSubmit={() => { if (because === null && !busy) onSubmit(); }}>
