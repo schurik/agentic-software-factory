@@ -337,7 +337,7 @@ export function Tabs<T extends string>({ tabs, selected, onSelect, label, classN
               {tab.label}
             </BaseTabs.Tab>
           ))}
-          <BaseTabs.Indicator className="absolute bottom-0 left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-accent transition-[translate,width] duration-150 motion-reduce:transition-none" />
+          <BaseTabs.Indicator renderBeforeHydration className="absolute bottom-0 left-0 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-accent transition-[translate,width] duration-150 motion-reduce:transition-none" />
         </BaseTabs.List>
         {end ? <div className="ml-auto flex shrink-0 items-center pl-4">{end}</div> : null}
       </div>
