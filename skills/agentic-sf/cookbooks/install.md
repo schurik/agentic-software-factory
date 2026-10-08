@@ -192,6 +192,19 @@ pointing `ASF_SKILL` at a checkout elsewhere. That works: nothing the factory
 runs writes inside the skill's tree, so it never shows up in the host repo's
 `git status` — or in the `git add -A` a commit stage runs.
 
+The `skills` CLI puts it there, and the same command, from the repository
+root, is how it is updated:
+
+```bash
+npx skills add schurik/agentic-software-factory --skill agentic-sf --agent claude-code pi -y
+```
+
+It writes `.agents/skills/agentic-sf/` and links `.claude/skills/agentic-sf`
+to it. Name two agents, not `claude-code` alone — one agent means a copy, not a
+link — and do not update with `npx skills update` where the CLI sees an Eve
+agent: [upgrade.md](upgrade.md#update-the-skill-first) says why, and how to
+check the copy moved before stamping from it.
+
 ## Issue- and review-triggered runs
 
 On by default, but nothing polls until a watcher is started: `just up` runs

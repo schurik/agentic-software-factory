@@ -15,8 +15,8 @@ missing `asf/.skill-version` means "stamped before 1.1" — older than any
 release that records one.
 
 Stamp **newer** than the skill? Stop. The skill checkout is the one left
-behind: update it, never stamp from it — `--force` from an older skill stamps
-older code over newer.
+behind: [update it](#update-the-skill-first), never stamp from it — `--force`
+from an older skill stamps older code over newer.
 
 ## Why `--force` alone is not the upgrade
 
@@ -36,6 +36,75 @@ do the rest, by design:
 A plain re-run, without `--force`, does none of it: it stamps only the files a
 release added, keeps every one that exists, and so leaves the record saying
 what the rest still is. That is not an upgrade.
+
+## Update the skill first
+
+`--force` stamps whatever `<skill>` holds, so a stale copy stamps the old
+engine back, and nothing says so: between releases a stale copy and the source
+carry the same `.skill-version`, `just doctor` passes, and this cookbook is
+never reached. Update the copy, check that it moved, and only then read on —
+from the updated copy, since this cookbook and the changelog may have changed
+with it.
+
+**Which copy `<skill>` is** — the directory this cookbook sits in, and the
+one `ASF_SKILL` in `.env` names, whichever kind it is:
+
+- **vendored** — `.agents/skills/agentic-sf/` in the repository (with
+  `.claude/skills/agentic-sf` a link to it), or `~/.agents/skills/agentic-sf/`
+  for every project. The `skills` CLI put it there and records it in
+  `skills-lock.json`.
+- **a checkout** — a git clone of this skill's repository, outside the
+  target repository.
+- **the Claude Code plugin** — under `~/.claude/plugins/cache/`.
+
+**Vendored**: from the repository root, and with `-g` added for the copy in
+the home directory —
+
+```bash
+npx skills add schurik/agentic-software-factory --skill agentic-sf --agent claude-code pi -y
+```
+
+Two agents, on purpose. When every agent named shares one skills directory,
+`skills` copies instead of linking: `--agent claude-code` by itself writes a
+real directory over the `.claude/skills/agentic-sf` link, and every agent that
+reads `.agents/skills/` (pi, Codex, Cursor, opencode…) keeps the stale copy.
+pi reads `.agents/skills/` itself, so naming it makes the CLI write there and
+link Claude Code to it. The same command mends a repository whose link was
+already replaced, and it leaves an Eve agent's copy alone.
+
+**Not `npx skills update`** in a repository the CLI sees Eve in — an `agent/`
+directory and `eve` in `package.json`. It re-runs `skills add -y` without
+naming an agent, and `-y` with Eve present installs for Eve alone, into
+`agent/skills/agentic-sf/`. It then writes the new hash into
+`skills-lock.json`, so `.agents/skills/` stays as it was and every `update`
+after it says the skill is up to date.
+
+**A checkout**: `git -C <skill> pull`.
+
+**The plugin**: `claude plugin marketplace update agentic-sf`, then `claude
+plugin update agentic-sf@agentic-sf`, then restart Claude Code — the session
+holds the old copy until then. The update lands in a new directory beside the
+old one, so `<skill>` is now that one: point `ASF_SKILL` in `.env` at it
+(`install.py` never rewrites a value already there).
+
+**Check it moved — by its files, not its version.** `.skill-version` moves at
+a release, not between them.
+
+- Vendored in the repository: `git status --short -- .agents/skills/agentic-sf`
+  lists what the update changed, and `readlink .claude/skills/agentic-sf`
+  prints `../../.agents/skills/agentic-sf` — a link, not a directory. A new
+  `agent/skills/` in `git status` is an `update` that wrote Eve's copy instead.
+- A checkout: `git -C <skill> log -1 --oneline` is the commit you meant to
+  stamp from.
+- Whatever the kind, the change you are upgrading for is in the files: grep
+  `<skill>/templates/` for something it added. Absent, the copy is stale —
+  stamp nothing from it.
+
+A copy vendored in the repository is part of its tree. With the engineer's own
+work committed first, commit the update on its own (the `.agents/skills/`
+directory, the `.claude/skills/` link and `skills-lock.json`) —
+`skills: update agentic-sf` — so the tree is clean for the next step and the
+re-stamp is reviewed as a diff of its own.
 
 ## Before: what is changing, and what is in flight
 
