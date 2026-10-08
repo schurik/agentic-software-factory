@@ -90,6 +90,10 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
     command token that comes back is theirs for this station; asked without an
     ingest token, an ingest token of its own comes back with it, and is kept
     beside it for the station to ship with (`station.configured`).
+
+    When the cockpit says nothing has described the factory yet, the station
+    describes it, once (`describe.first`): the factory is not "unchecked" from
+    the moment it connects, and its CI workflow keeps the description after.
     """
     main_root = git_helper.main_root()
     here = station.identify(main_root, cfg.defaults.data_dir)
@@ -144,6 +148,10 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
             if held.ingest_token:
                 say("  with an ingest token of its own, which this station ships sessions with "
                     "while ASF_COCKPIT_TOKEN is unset")
+            if answer.get("described") is False:   # absent: a cockpit that does not say
+                from . import describe             # here, not above: describe imports this module
+                describe.first(Cockpit(url=cockpit.url, token=held.ingest_token or cockpit.token),
+                               transport, say)
             say(f"  this station now takes commands from {cockpit.url}: "
                 f"{_verbs_line(cfg)}")
             return 0

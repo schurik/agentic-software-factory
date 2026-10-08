@@ -81,7 +81,9 @@ http.route({
 
 // The registering station asks whether a person approved it yet. Approved,
 // it is handed its command token — the only time the token is ever seen —
-// and, when it asked holding no ingest token, one of those too.
+// and, when it asked holding no ingest token, one of those too. `described`
+// says whether anything has described the factory yet: when nothing has, the
+// station pushes its own description once, and the CI workflow keeps it after.
 http.route({
   path: "/station/register/poll",
   method: "POST",
@@ -100,7 +102,8 @@ http.route({
     });
     if (handed.state !== "approved") return reply(handed.state === "pending" ? 200 : 410, { status: handed.state });
     return reply(200, {
-      status: "approved", token, owner: handed.owner, station: handed.station, ...(handed.ingest ? { ingest_token: ingest } : {}),
+      status: "approved", token, owner: handed.owner, station: handed.station, described: handed.described,
+      ...(handed.ingest ? { ingest_token: ingest } : {}),
     });
   }),
 });
@@ -146,7 +149,9 @@ http.route({
 
 // A CI station pushes the factory's self-description here (`asf check --json
 // --ship`, describe.ts): with the factory's ingest token, which can add to its
-// own factory and receive nothing — so the answer names nothing either.
+// own factory and receive nothing — so the answer names nothing either. A
+// local station pushes one once, when it registers a factory nothing has
+// described yet (`describe.keep` says when that is).
 http.route({
   path: "/describe",
   method: "POST",
@@ -156,11 +161,11 @@ http.route({
     const pushed = parseDescribing(await body(request));
     if (isDescribingRefusal(pushed)) return reply(pushed.status, { error: pushed.error });
     const { checked, format, ok } = pushed.description;
-    const kept = await ctx.runMutation(internal.describe.keep, {
+    const refused = await ctx.runMutation(internal.describe.keep, {
       digest: await digest(token), station: pushed.station, text: pushed.text,
       ref: checked.ref, head: checked.head, configHash: checked.configHash, format, ok,
     });
-    if (!kept) return reply(401, { error: "this ingest token is not one the cockpit issued, or it was revoked" });
+    if (refused !== null) return reply(refused.status, { error: refused.error });
     return reply(200, {});
   }),
 });

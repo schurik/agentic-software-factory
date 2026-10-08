@@ -20,14 +20,17 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Callable
 
 from . import commands, factory, git_helper, integration, issues, publish, station, workflow
-from .data_types import (CheckedCheckout, DescribedAgent, DescribedForge, DescribedGate,
+from .data_types import (CheckedCheckout, Cockpit, DescribedAgent, DescribedForge, DescribedGate,
                          DescribedHitl, DescribedIntake, DescribedLabels, DescribedLanding, DescribedLimits,
                          DescribedReviews, DescribedSettings, DescribedStage, DescribedTrigger,
-                         DescribedWorkflow, FactoryConfig, SelfDescription, WorkflowProblem)
+                         DescribedWorkflow, FactoryConfig, SelfDescription, Station,
+                         WorkflowProblem)
 
 VERSION_FILE = Path("asf") / ".skill-version"
+CI_WORKFLOW = Path(".github") / "workflows" / "asf-check.yml"    # what `install.py --ci` stamps
 
 
 def build(config_path: str | Path = factory.DEFAULT_CONFIG) -> SelfDescription:
@@ -195,13 +198,10 @@ def ship(description: SelfDescription, cfg: FactoryConfig,
     here = station.identify(git_helper.main_root(), cfg.defaults.data_dir)
     if here.kind != "ci":
         _say(f"{here.name} is a local station — --ship is the CI workflow's step "
-             f"(.github/workflows/asf-check.yml); the description was not shipped")
+             f"({CI_WORKFLOW}); the description was not shipped")
         return 0
-    body = {"station": here.model_dump(mode="json"),
-            "description": description.model_dump(mode="json")}
     try:
-        status, answer = (transport or station.post)(f"{cockpit.url}/describe", cockpit.token,
-                                                     body)
+        status, answer = _send(description, cockpit, here, transport or station.post)
     except (OSError, ValueError) as error:
         _say(f"could not reach the cockpit at {cockpit.url} ({error}) — not shipped; the next "
              f"check sends a fresh one")
@@ -216,6 +216,43 @@ def ship(description: SelfDescription, cfg: FactoryConfig,
         return 0
     _say(f"shipped to {cockpit.url} as station {here.name} ({here.kind})")
     return 0
+
+
+def first(cockpit: Cockpit, transport: station.Transport,
+          say: Callable[[str], None]) -> None:
+    """Describe a factory nothing has described yet, once: when this station
+    registers it (`commands.register`), with the ingest token it registered by.
+
+    Without it a factory reads "unchecked" in the cockpit until its CI workflow
+    first runs on the default branch — and a factory that never stamped one
+    reads so for good. After this one, describing it is the CI workflow's job:
+    the cockpit refuses a local station's description once it holds any, and
+    one from a branch other than the default — the reason `ship` keeps a local
+    checkout out. Nothing here fails the registration: it says what happened,
+    and what keeps the description current.
+    """
+    main_root = git_helper.main_root()
+    here = station.identify(main_root, factory.load().defaults.data_dir)
+    try:
+        status, answer = _send(build(), cockpit, here, transport)
+    except (OSError, ValueError) as error:
+        status, answer = 0, {"error": f"could not reach the cockpit: {error}"}
+    if status == 200:
+        say("  described the factory to the cockpit: nothing had yet, so this registration did")
+    else:
+        say(f"  the factory was not described: {answer.get('error') or f'HTTP {status}'}")
+    if (main_root / CI_WORKFLOW).is_file():
+        say(f"  from now on {CI_WORKFLOW} keeps the description current, from the default branch")
+    else:
+        say(f"  no {CI_WORKFLOW} here to keep it current — stamp it with the installer's --ci "
+            f"(cookbooks/connect_cockpit.md#ci)")
+
+
+def _send(description: SelfDescription, cockpit: Cockpit, here: Station,
+          transport: station.Transport) -> tuple[int, dict]:
+    body = {"station": here.model_dump(mode="json"),
+            "description": description.model_dump(mode="json")}
+    return transport(f"{cockpit.url}/describe", cockpit.token, body)
 
 
 def _say(text: str) -> None:

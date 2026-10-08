@@ -58,7 +58,7 @@ describe("registering a station", () => {
     expect(await t.mutation(api.stations.approve, { code, signIn: alex })).toEqual({ ok: true });
 
     const answer = await json(await handed(t, device));
-    expect(answer).toMatchObject({ status: "approved", owner: "alex", station: STATION.id });
+    expect(answer).toMatchObject({ status: "approved", owner: "alex", station: STATION.id, described: false });
     expect(answer.token).toMatch(/^asf_station_/);
     expect((await handed(t, device)).status).toBe(410);           // spent
     expect(await t.query(api.stations.mine, { signIn: alex })).toEqual([
@@ -174,7 +174,7 @@ describe("registering a station that holds no ingest token", () => {
     expect(await t.mutation(api.stations.approve, { code, signIn: alex })).toEqual({ ok: true });
 
     const answer = await json(await handed(t, device));
-    expect(answer).toMatchObject({ status: "approved", owner: "alex", station: STATION.id });
+    expect(answer).toMatchObject({ status: "approved", owner: "alex", station: STATION.id, described: false });
     expect(answer.token).toMatch(/^asf_station_/);
     expect(answer.ingest_token).toMatch(/^asf_ingest_/);
     expect((await poll(t, answer.token as string)).status).toBe(200);
@@ -196,8 +196,15 @@ describe("registering a station that holds no ingest token", () => {
 
     expect((await t.query(api.stations.pending, { code, signIn: alex }))?.tokenless).toBe(false);
     await t.mutation(api.stations.approve, { code, signIn: alex });
+    // Its CI workflow described the factory already, so the station has nothing to describe.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("checks", {
+        factory: "acme/widgets", ref: "main", head: "a".repeat(40), configHash: "c0ffee", format: 2, ok: true,
+        description: "{}", station: "st_ci0001", stationName: "runner", stationKind: "ci", at: Date.now(),
+      });
+    });
     const answer = await json(await handed(t, device));
-    expect(answer.status).toBe("approved");
+    expect(answer).toMatchObject({ status: "approved", described: true });
     expect(answer).not.toHaveProperty("ingest_token");
   });
 

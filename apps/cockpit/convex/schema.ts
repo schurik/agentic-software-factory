@@ -428,7 +428,7 @@ export default defineSchema({
     format: v.number(),
     ok: v.boolean(),
     description: v.string(),
-    station: v.string(),              // the CI job's station: its id, and what it called itself
+    station: v.string(),              // the station that pushed it — a CI job, or the first to register — its id, and what it called itself
     stationName: v.string(),
     stationKind: v.string(),
     at: v.number(),

@@ -20,7 +20,11 @@ station again, refused (409) to any other and to a session a writer abandoned; h
 or was aborted — a failure keeps it — and given back by its station only for a
 session that never started. `release` is a writer freeing one in the cockpit.
 DESCRIBING (`/describe`): a factory's self-description, sent with the ingest
-token or 401, kept as it arrived beside the station that sent it.
+token or 401, kept as it arrived beside the station that sent it — from a
+local station only while nothing has described the factory (403 after), and
+only for the default branch when the forge named one (409). A registration's
+hand-over says whether anything has (`described`), unless `says_described` is
+off: a cockpit from before that, which never says.
 
 It is called exactly as `engine.station`'s transport is — `(url, token, body)
 -> (status, body)` — and raises `ConnectionRefusedError` while it is `down`,
@@ -99,6 +103,8 @@ class FakeCockpit:
         self.descriptions: list[dict] = []           # every /describe body, as sent
         self.issued: dict[str, str] = {}             # ingest token handed over -> station id
         self.tokenless = True                        # False: a cockpit older than #175 (401)
+        self.says_described = True                   # False: a hand-over that never says
+        self.default_branch = ""                     # what the forge says it is, when it does
         self.asked = 0                               # registrations ever asked: no code reused
 
     def __call__(self, url: str, token: str, body: dict) -> tuple[int, dict]:
@@ -124,6 +130,14 @@ class FakeCockpit:
             return 401, {"error": NOT_ISSUED}
         if not (isinstance(body.get("description"), dict) and isinstance(body.get("station"), dict)):
             return 400, {"error": "a description names its station and carries the description"}
+        if body["station"].get("kind") != "ci":
+            if self.descriptions:
+                return 403, {"error": "this factory is described already: its CI workflow keeps "
+                                      "the description current, never a local checkout"}
+            ref = body["description"].get("checked", {}).get("ref", "")
+            if self.default_branch and ref != self.default_branch:
+                return 409, {"error": f"a factory is first described from its default branch, "
+                                      f"{self.default_branch}, and this checkout is on {ref}"}
         self.descriptions.append(body)
         return 200, {}
 
@@ -190,6 +204,8 @@ class FakeCockpit:
         self.stations[token] = asked.station["id"]
         answer = {"status": "approved", "token": token, "owner": asked.owner,
                   "station": asked.station["id"]}
+        if self.says_described:
+            answer["described"] = bool(self.descriptions)
         if asked.factory:
             self.revoke_ingest(asked.station["id"])
             answer["ingest_token"] = f"asf_ingest_{asked.device}"

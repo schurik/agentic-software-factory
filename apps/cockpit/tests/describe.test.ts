@@ -162,13 +162,39 @@ describe("a self-description pushed by a CI station", () => {
     expect((await post(t, "/describe", ingestToken, { station: CI })).status).toBe(400);
     expect((await ship(t, ingestToken, { format: "one" })).status).toBe(400);
     expect((await ship(t, ingestToken, described(), { id: "", name: "x", kind: "ci" })).status).toBe(400);
-    // A checkout's own config is what drift measures, never what it is measured against.
-    const local = await ship(t, ingestToken, described(), { id: "st_mine", name: "alex@mbp:widgets", kind: "local" });
-    expect(local.status).toBe(403);
-    expect((await json(local)).error).toMatch(/CI station/);
     const taken = await ship(t, ingestToken, described());
     expect(taken.status).toBe(200);
     expect(await json(taken)).toEqual({});
+  });
+});
+
+// ── the station that registers it first ──────────────────────────────────────
+
+describe("a self-description pushed by a local station", () => {
+  const MINE = { id: "st_mine", name: "alex@mbp:widgets", kind: "local" };
+
+  it("is taken once, for the default branch, while nothing has described the factory", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "read" });
+    const alex = await signIn(t, forge, "alex");
+    await t.action(api.viewer.refresh, { signIn: alex });
+    const ingestToken = await factory(t, "acme/widgets");
+
+    const branch = await ship(t, ingestToken, described({ ref: "feature/x" }), MINE);
+    expect(branch.status).toBe(409);
+    expect((await json(branch)).error).toMatch(/default branch, main/);
+
+    expect((await ship(t, ingestToken, described({ ref: "main", ok: true }), MINE)).status).toBe(200);
+    const page = await t.query(api.factory.page, { factory: "acme/widgets", signIn: alex });
+    expect(page!.check).toMatchObject({ ref: "main", ok: true, station: MINE.name });
+
+    // From then on it is the CI workflow's: a checkout's own edits never become what drift is measured against.
+    const again = await ship(t, ingestToken, described({ ref: "main", head: "c".repeat(40) }), MINE);
+    expect(again.status).toBe(403);
+    expect((await json(again)).error).toMatch(/CI workflow keeps the description current/);
+    expect((await ship(t, ingestToken, described({ ref: "main", head: "d".repeat(40) }))).status).toBe(200);
+    const kept = await t.query(api.factory.page, { factory: "acme/widgets", signIn: alex });
+    expect(kept!.check).toMatchObject({ head: "d".repeat(40), station: CI.name });
   });
 
   it("renders the Factory page's workflows, from the default branch's description", async () => {
