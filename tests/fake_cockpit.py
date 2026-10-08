@@ -36,6 +36,7 @@ import threading
 from dataclasses import dataclass, field
 
 MAX_EVENTS = 500          # apps/cockpit/convex/model/wire.ts
+NOT_ISSUED = "this ingest token is not one the cockpit issued, or it was revoked"
 
 
 @dataclass
@@ -96,9 +97,9 @@ class FakeCockpit:
         self.grants_claims = True                    # False: a cockpit older than claims (404)
         self.abandoned: dict[str, str] = {}          # session -> the writer who released its claim
         self.descriptions: list[dict] = []           # every /describe body, as sent
-        self.issued: dict[str, str] = {}             # ingest token a registration handed -> station id
+        self.issued: dict[str, str] = {}             # ingest token handed over -> station id
         self.tokenless = True                        # False: a cockpit older than #175 (401)
-        self.asked = 0                               # registrations ever asked for: codes are never reused
+        self.asked = 0                               # registrations ever asked: no code reused
 
     def __call__(self, url: str, token: str, body: dict) -> tuple[int, dict]:
         if self.hold is not None:
@@ -120,7 +121,7 @@ class FakeCockpit:
 
     def _describe(self, token: str, body: dict) -> tuple[int, dict]:
         if not self.ingests(token):
-            return 401, {"error": "this ingest token is not one the cockpit issued, or it was revoked"}
+            return 401, {"error": NOT_ISSUED}
         if not (isinstance(body.get("description"), dict) and isinstance(body.get("station"), dict)):
             return 400, {"error": "a description names its station and carries the description"}
         self.descriptions.append(body)
@@ -130,7 +131,7 @@ class FakeCockpit:
 
     def _ingest(self, token: str, body: dict) -> tuple[int, dict]:
         if not self.ingests(token):
-            return 401, {"error": "this ingest token is not one the cockpit issued, or it was revoked"}
+            return 401, {"error": NOT_ISSUED}
         events = body["events"]
         if len(events) > MAX_EVENTS:
             return 413, {"error": f"a batch holds at most {MAX_EVENTS} events"}
@@ -161,7 +162,7 @@ class FakeCockpit:
 
     def _register(self, token: str, body: dict) -> tuple[int, dict]:
         if token and not self.ingests(token):
-            return 401, {"error": "this ingest token is not one the cockpit issued, or it was revoked"}
+            return 401, {"error": NOT_ISSUED}
         if not token and (not self.tokenless or not body.get("factory")):
             return 401, {"error": "registering needs the factory's ingest token"}
         if body["station"].get("kind") == "ci":
@@ -241,7 +242,7 @@ class FakeCockpit:
         if not self.grants_claims:
             return 404, {}
         if not self.ingests(token):
-            return 401, {"error": "this ingest token is not one the cockpit issued, or it was revoked"}
+            return 401, {"error": NOT_ISSUED}
         key = (body.get("repo") or "acme/widgets").lower(), body["kind"], int(body["number"])
         station = body["station"]
         held = self.claims.get(key)

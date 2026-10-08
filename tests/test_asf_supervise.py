@@ -413,8 +413,9 @@ def test_doctor_says_what_a_shared_cockpit_is_shipped_with_and_how_to_get_a_toke
     assert finding.level == "warn" and "no ingest token" in finding.detail
     assert "station-register" in finding.fix and "connect_cockpit" in finding.fix
 
-    station.keep(tmp_path, "data", StationCredential(cockpit=url, station="st_1", token="asf_station_1",
-                                                     owner="alex", ingest_token="asf_ingest_1"))
+    held = StationCredential(cockpit=url, station="st_1", token="asf_station_1", owner="alex",
+                             ingest_token="asf_ingest_1")
+    station.keep(tmp_path, "data", held)
     [finding] = preflight.cockpit(data)
     assert finding.level != "warn" and "alex" in finding.detail and url in finding.detail
 

@@ -467,10 +467,11 @@ def cockpit(data: Path | None = None) -> list[Finding]:
 
     With ASF_COCKPIT_URL set nothing here needs Docker: the question is the
     ingest token, ASF_COCKPIT_TOKEN or the one a registration kept under
-    `data` (the data_dir, anchored), and without either nothing ships. Warn, never fatal — without Docker `up` still
-    runs every watcher, and a run never needed a cockpit at all. The images
-    are asked about so the first `up` is not a surprise: a missing one is
-    pulled then, and that is minutes on a slow line.
+    `data` (the data_dir, anchored), and without either nothing ships.
+    Warn, never fatal — without Docker `up` still runs every watcher, and a
+    run never needed a cockpit at all. The images are asked about so the first
+    `up` is not a surprise: a missing one is pulled then, and that is minutes
+    on a slow line.
     """
     shared = local_cockpit.shared()
     if shared:
@@ -565,5 +566,6 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamped_version(root) + cockpit(anchor(root, cfg.defaults.data_dir))
+            + forge(cfg) + labels(cfg, root) + stamped_version(root)
+            + cockpit(anchor(root, cfg.defaults.data_dir))
             + publishing(cfg, root) + skill())

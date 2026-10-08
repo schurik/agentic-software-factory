@@ -166,8 +166,8 @@ def _ask(transport: station.Transport, cockpit: Cockpit, body: dict,
         return None
     if status == 401 and not cockpit.token:
         say(f"  the cockpit refused to register without an ingest token "
-            f"({answer.get('error') or 'HTTP 401'}) — a cockpit older than registering without one needs the factory's: set "
-            f"ASF_COCKPIT_TOKEN, or upgrade the cockpit")
+            f"({answer.get('error') or 'HTTP 401'}) — a cockpit older than registering "
+            f"without one needs the factory's: set ASF_COCKPIT_TOKEN, or upgrade the cockpit")
         return None
     if status == 401:
         say("  the cockpit refused ASF_COCKPIT_TOKEN — registering with a token needs one that "

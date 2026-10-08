@@ -119,7 +119,7 @@ def test_register_without_a_shared_cockpit_says_a_local_one_needs_none(stamped: 
     assert "local cockpit" in said[0]
 
 
-# ── registering without an ingest token (#175) ───────────────────────────────
+# ── registering without an ingest token (#175) ─────────────────────────────
 
 def no_token(repo: Path, monkeypatch, origin: str = "git@github.com:acme/widgets.git"
              ) -> factory.FactoryConfig:
@@ -174,14 +174,24 @@ def test_a_station_ships_with_the_kept_ingest_token_while_asf_cockpit_token_is_u
 
     assert station.configured(data) == Cockpit(url=URL, token=kept)
     # `just up`'s station loop, and a run's own shipper, ship with it too.
-    assert supervise.destination(cfg, stamped, None).destination.get() == Cockpit(url=URL, token=kept)
+    up = supervise.destination(cfg, stamped, None)
+    assert up.destination.get() == Cockpit(url=URL, token=kept)
     session = a_session(stamped)
     events.emit(session, EVENT_KINDS["process_ended"](pid=2))
     assert station.sync(cfg, cockpit) == 0
     assert cockpit.acked(session.name) == 1
 
+    # A run's own shipper too, which knows only its session's directory.
+    live = a_session(stamped, "11ve5e55")
+    events.emit(live, EVENT_KINDS["process_ended"](pid=3))
+    shipper = station.start(live, transport=cockpit)
+    assert shipper is not None and shipper.destination.get() == Cockpit(url=URL, token=kept)
+    shipper.stop()
+    assert cockpit.acked(live.name) == 1
+
     shown = asf(stamped, "status").stdout
-    assert f"{URL} — ships with the ingest token alex approved for it; takes commands for alex" in shown
+    assert (f"{URL} — ships with the ingest token alex approved for it; "
+            f"takes commands for alex") in shown
 
     # ASF_COCKPIT_TOKEN, once set, still wins: registering changed nothing it decides.
     monkeypatch.setenv("ASF_COCKPIT_TOKEN", COCKPIT.token)
