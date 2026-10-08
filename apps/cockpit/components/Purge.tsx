@@ -24,8 +24,13 @@ interface PurgeProps {
   onPurge: (reason: string) => Promise<Purged>;
 }
 
-/** The purge itself — what it removes, why, and the button — for a page that opens it its own way (a dialog). */
-export function PurgeForm({ label, explains, onPurge, className }: PurgeProps & { className?: string }) {
+/**
+ * The purge itself — what it removes, why, and the button — for a page that
+ * opens it its own way (a dialog). `onPurged` hears of a purge that went
+ * through, so whoever opened it can close it; a refusal or an error stays
+ * here, said in place, for the viewer to read and try again.
+ */
+export function PurgeForm({ label, explains, onPurge, onPurged, className }: PurgeProps & { onPurged?: () => void; className?: string }) {
   const [reason, setReason] = useState("");
   const [said, setSaid] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,7 +38,10 @@ export function PurgeForm({ label, explains, onPurge, className }: PurgeProps & 
     setBusy(true);
     setSaid("");
     void onPurge(reason)
-      .then((done) => setSaid(done.ok ? "Purging: the bodies are going now, and the audit line is written." : `Not purged: ${done.because}`))
+      .then((done) => {
+        setSaid(done.ok ? "Purging: the bodies are going now, and the audit line is written." : `Not purged: ${done.because}`);
+        if (done.ok) onPurged?.();
+      })
       .catch((error: unknown) => setSaid(`Not purged: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => setBusy(false));
   };
