@@ -40,6 +40,15 @@ describe("the places", () => {
     expect(text(now(html(TEAM, "/sessions", 0)))).toBe("Now");
   });
 
+  it("draw that count as the redesign's prototype does (#104): 16px high, 10px text on its own line height, centred (#152)", () => {
+    const badge = html(TEAM, "/sessions", 3).match(/<span aria-label="3 gates waiting on you" class="([^"]+)"/)![1].split(" ");
+    expect(badge).toEqual(expect.arrayContaining(["inline-flex", "h-4", "min-w-4", "items-center", "justify-center", "rounded-full",
+                                                  "bg-wait-soft", "px-1", "text-[10px]", "leading-none", "font-semibold"]));
+    // Nothing that sizes it otherwise at a breakpoint, or lets the link's line height in.
+    expect(badge.filter((name) => /^(sm|md|lg|xl|dark):|^(h|min-w|text|leading)-/.test(name)).sort())
+      .toEqual(["h-4", "leading-none", "min-w-4", "text-[10px]", "text-wait"]);
+  });
+
   it("are not offered to someone a team cockpit does not know yet", () => {
     expect(html({ ...TEAM, viewer: null })).not.toContain("<nav");
     expect(html(undefined)).not.toContain("<nav");
