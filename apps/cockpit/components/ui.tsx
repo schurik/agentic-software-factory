@@ -1,6 +1,7 @@
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Check, ChevronsUpDown } from "lucide-react";
-import type { ComponentProps, MouseEvent, ReactNode } from "react";
+import Link from "next/link";
+import { type ComponentProps, Fragment, type MouseEvent, type ReactNode } from "react";
 import { type Tone, toneOf } from "./session/words";
 
 /**
@@ -123,11 +124,40 @@ export function Loading({ what = "Loading…" }: { what?: string }) {
   return <p className="text-muted">{what}</p>;
 }
 
-/** A page's title row: what it is, a line under it, and anything that acts on the whole page at the right. */
-export function PageHeader({ title, sub, children }: { title: ReactNode; sub?: ReactNode; children?: ReactNode }) {
+/** One step back up a page's breadcrumbs: what it is called, and where it goes. */
+export interface Crumb {
+  label: ReactNode;
+  href: string;
+}
+
+/**
+ * Where a page sits (#153): each place above it, a link back to it, and then
+ * `here` — the page you are on, which is never a link. The one breadcrumb
+ * every page draws, so a session's and a factory's read alike.
+ */
+export function Crumbs({ trail, here }: { trail: Crumb[]; here: ReactNode }) {
+  return (
+    <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
+      {trail.map((crumb) => (
+        <Fragment key={crumb.href}>
+          <Link href={crumb.href} className="text-muted hover:text-fg">{crumb.label}</Link>
+          <span aria-hidden="true" className="text-faint">/</span>
+        </Fragment>
+      ))}
+      <span aria-current="page">{here}</span>
+    </nav>
+  );
+}
+
+/**
+ * A page's title row: its breadcrumbs over what it is, a line under it, and
+ * anything that acts on the whole page at the right.
+ */
+export function PageHeader({ crumbs, title, sub, children }: { crumbs?: ReactNode; title: ReactNode; sub?: ReactNode; children?: ReactNode }) {
   return (
     <header className="mb-6 flex flex-wrap items-start gap-x-4 gap-y-3">
       <div className="min-w-0 grow">
+        {crumbs ? <div className="mb-1.5">{crumbs}</div> : null}
         <h1>{title}</h1>
         {sub ? <div className="mt-1 text-muted">{sub}</div> : null}
       </div>

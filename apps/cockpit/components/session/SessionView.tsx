@@ -15,10 +15,11 @@ import type { Chapter } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
 import { branchHref, formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
+import { factoryHref } from "../factory/view";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
 import { PurgeForm } from "../Purge";
-import { Button, buttonClass, Card, cx, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, Tabs } from "../ui";
+import { Button, buttonClass, Card, Crumbs, cx, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, Tabs } from "../ui";
 import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
@@ -160,7 +161,7 @@ function Header({ page, action, onCommand, onPurge }: {
   const pr = prNumber(summary.prUrl);
   return (
     <header>
-      <div className="text-sm text-muted">{factory} / sessions / <code>{session}</code></div>
+      <Crumbs trail={[{ label: factory, href: factoryHref(factory) }, { label: "sessions", href: "/sessions" }]} here={<code>{session}</code>} />
       <div className="mt-1.5 flex flex-col gap-3 md:flex-row md:items-start">
         <div className="min-w-0 grow">
           <h1>{story.title || `Session ${session}`}</h1>

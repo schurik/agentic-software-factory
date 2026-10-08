@@ -6,6 +6,7 @@ import { DrawerView } from "../components/session/SessionDrawer";
 import { SessionView, sessionMenu, type Page } from "../components/session/SessionView";
 import { readShown, SHOWN, type Shown, writeShown } from "../components/session/shown";
 import { firstLine } from "../components/session/Timeline";
+import { Crumbs } from "../components/ui";
 import { ViewerLogin } from "../components/viewer";
 import type { ClaimView } from "../convex/model/claim";
 import type { SteeringView } from "../convex/model/command";
@@ -110,6 +111,18 @@ describe("the header", () => {
     expect(top).toMatch(/<a [^>]*href="https:\/\/forge\/acme\/widgets\/pull\/9"[^>]*>.*?#9<\/span><\/a>/);
     expect(top).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/tree\/asf\/a9f259f0"[^>]*>.*?asf\/a9f259f0<\/span><\/a>/);
     expect(read(top)).toContain("success");
+  });
+
+  it("links its factory and the sessions list in its breadcrumbs, and names itself last, unlinked", () => {
+    const top = header(html());
+    const crumbs = top.slice(top.indexOf("<nav"), top.indexOf("</nav>") + "</nav>".length);
+
+    expect(crumbs).toBe(renderToStaticMarkup(
+      <Crumbs trail={[{ label: "acme/widgets", href: "/factories/acme/widgets" }, { label: "sessions", href: "/sessions" }]}
+              here={<code>a9f259f0</code>} />));
+    expect(crumbs).toMatch(/<a [^>]*href="\/factories\/acme\/widgets"[^>]*>acme\/widgets<\/a>/);
+    expect(crumbs).toMatch(/<a [^>]*href="\/sessions"[^>]*>sessions<\/a>/);
+    expect(crumbs).toMatch(/<span aria-current="page"><code>a9f259f0<\/code><\/span>/);
   });
 
   it("offers a finished session's pull request as its one action", () => {
