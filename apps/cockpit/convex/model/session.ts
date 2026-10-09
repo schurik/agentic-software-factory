@@ -503,7 +503,7 @@ const READERS: Record<string, Record<number, Reader>> = {
   pull_request_opened: {
     1: { describe: (p) => `opened pull request #${p.num("number")}` },
   },
-  // How its pull request ended, as the PR watcher found it: usually after
+  // How its pull request ended, as the PR watcher (or `asf score`) found it: usually after
   // `session_finished`, so it folds into nothing a finished session shows.
   pull_request_closed: {
     1: {

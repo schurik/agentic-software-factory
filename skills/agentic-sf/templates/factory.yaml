@@ -238,7 +238,8 @@ pull_requests:
   # closed in the session (`pull_request_closed`, what a cockpit's Measure tab
   # counts merges and autonomy from), stops a review run still working that
   # branch and releases its worktree. The BRANCH is never deleted — that
-  # belongs to whoever merged.
+  # belongs to whoever merged. Without a watcher, `asf score` records the
+  # close alone, with or without `enabled`.
   reap_merged: true
   states:
     # The only label this path uses: a run that ends red leaves its threads

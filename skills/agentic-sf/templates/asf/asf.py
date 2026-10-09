@@ -34,6 +34,8 @@ Usage:
     uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--interval 120]
                                                  the station loop, the local cockpit, every watcher
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
+    uv run asf/asf.py score [--since 2026-10-01] record how pull requests no watcher saw close
+                                                 ended, for sessions started since
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
     uv run asf/asf.py station                    the station loop alone: ships, starts no watcher
     uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
@@ -49,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -240,6 +243,19 @@ def cmd_status(args) -> int:
     return supervise.status(factory.load(args.config))
 
 
+def cmd_score(args) -> int:
+    return watch.backfill(factory.load(args.config), args.since)
+
+
+def _since(text: str) -> datetime:
+    """`--since 2026-10-01`, or a whole ISO timestamp; a bare date is its midnight, UTC."""
+    try:
+        return watch.utc(datetime.fromisoformat(text))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a date: give one as 2026-10-01, or 2026-10-01T09:00:00Z") from None
+
+
 def cmd_station(args) -> int:
     cfg = factory.load(args.config)
     if args.action == "sync":
@@ -361,6 +377,12 @@ def build_parser() -> argparse.ArgumentParser:
     up.set_defaults(func=cmd_up)
     _config_on(sub.add_parser("status", help="what is watching, running, waiting, left behind")
                ).set_defaults(func=cmd_status)
+    score = _config_on(sub.add_parser(
+        "score", help="measure past sessions: record how each one's pull request closed, "
+                      "where no PR watcher was running to see it"))
+    score.add_argument("--since", type=_since, default=None, metavar="DATE",
+                       help="only sessions started on or after DATE (2026-10-01); default: all")
+    score.set_defaults(func=cmd_score)
     trees = _config_on(sub.add_parser("worktrees", help="list, prune or remove run worktrees"))
     trees.add_argument("action", choices=["list", "prune", "remove"])
     trees.add_argument("adw_id", nargs="?", help="remove: which run's worktree")

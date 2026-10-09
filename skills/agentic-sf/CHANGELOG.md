@@ -52,6 +52,11 @@ before — `None` when there are none, never omitted.
   not seen closed, not only those with a worktree or a live run, so a session that finished long
   before its merge is reaped too; `run.json`'s new `pr_state` says it was. A 1.3.0 cockpit counts
   them on the factory page's new **Measure** tab: pull requests opened and merged, and autonomy.
+- **A factory that runs no PR watcher still gets its merges.** `asf score [--since 2026-10-01]`
+  (`just score`) walks the sessions started since, asks the forge how each one's unrecorded pull
+  request ended, and records the same `pull_request_closed` the watcher's reap would — so the
+  Measure tab counts it alike. It only records: no worktree, run or label is touched, and
+  `pull_requests.enabled` need not be on. A second run adds nothing.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -169,7 +174,8 @@ before — `None` when there are none, never omitted.
    wants one writes `asf/scorers/<name>/scorer.md` and runs `just check`. `asf/factory.yaml.new`
    carries the `self_improvement:` block; without it the defaults (3 of the last 10) apply. The
    PR watcher's first pass after it (`just prs`, or `just up`) records every pull request the
-   factory opened that has since closed, 20 a pass — what the Measure tab counts merges from. Pull requests opened before the re-stamp said nothing
+   factory opened that has since closed, 20 a pass — what the Measure tab counts merges from;
+   a factory that runs no watcher records them with `just score` instead. Pull requests opened before the re-stamp said nothing
    when they opened, so they count as merged but never as autonomous. A factory with the CI
    workflow ships format 3 on its next default-branch push.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an

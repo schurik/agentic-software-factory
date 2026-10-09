@@ -168,6 +168,10 @@ prs-status:
 prs-watch *ARGS:
     {{asf}} prs loop "$@"
 
+# record how pull requests no watcher saw close ended: just score [--since 2026-10-01]
+score *ARGS:
+    {{asf}} score "$@"
+
 # ── worktrees ───────────────────────────────────────────────────────────────
 # One per run, kept on failure. Branches are never deleted by any of these.
 

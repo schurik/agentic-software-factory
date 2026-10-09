@@ -52,6 +52,7 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -685,28 +686,104 @@ def _unseen(cfg: FactoryConfig, main_root, project: str, unclosed: dict[str, str
     would read the same unreadable ones every pass while the rest waited."""
     if not unclosed:
         return []
-    argv = [*cfg.pull_requests.list_command, "--state", "open", "--json", "number",
-            "--limit", "1000", "--repo", project]
-    still_open = {entry.get("number") for entry in _forge(argv, main_root)}
-    gone = [adw_id for adw_id, url in unclosed.items()
-            if pull_requests.number_of(url) not in still_open]
+    gone = _not_listed_open(cfg, main_root, project, unclosed)
     return sorted(random.sample(gone, min(len(gone), RECORDED_PER_PASS)))
 
 
+def _not_listed_open(cfg: FactoryConfig, main_root, project: str,
+                     unclosed: dict[str, str]) -> list[str]:
+    """The sessions in `unclosed` whose pull request one listing of the open
+    ones does not show — closed, or unknown to a listing that failed."""
+    argv = [*cfg.pull_requests.list_command, "--state", "open", "--json", "number",
+            "--limit", "1000", "--repo", project]
+    still_open = {entry.get("number") for entry in _forge(argv, main_root)}
+    return [adw_id for adw_id, url in unclosed.items()
+            if pull_requests.number_of(url) not in still_open]
+
+
 def _record_closed(cfg: FactoryConfig, main_root, session_dir: Path,
-                   ref: PullRequestRef) -> None:
+                   ref: PullRequestRef) -> bool:
     """Say in the session's own record how its pull request ended — a late
     event, on a session that usually finished long ago, and the only way a
     cockpit learns a merge (ADR 0006). `run.json` remembers it was said, so it
-    is said once."""
+    is said once. False when the forge could not say how it ended."""
     try:
         outcome = pull_requests.outcome_of(main_root, cfg.pull_requests, ref)
     except RuntimeError as error:
         print(f"    could not read how #{ref.number} closed ({error}) — not recorded")
-        return
+        return False
     artifacts.record_pr_closed(session_dir, outcome)
     station.flush(session_dir)
     print(f"    recorded #{ref.number} as {'merged' if outcome.merged else 'closed unmerged'}")
+    return True
+
+
+def backfill(cfg: FactoryConfig, since: Optional[datetime] = None) -> int:
+    """`asf score`: record how a pull request closed for every session since
+    `since` that has one no watcher saw close — the reap's record, without the
+    watcher. A factory nobody ran `asf prs` for still gets its merges and its
+    autonomy, and the event is the very one a reap writes, so a cockpit counts
+    it the same.
+
+    Only the record: a backfill releases no worktree, stops no run and touches
+    no label — that is the watcher's cleanup, and a backfill may run on a
+    machine that is not the one holding them. `pull_requests.enabled` is not
+    asked either: it turns the WATCHER off, and this is for the factory that
+    turned it off. Running it twice changes nothing, because `pr_state` says
+    the close was recorded. 1 when a pull request could not be read.
+    """
+    main_root = git_helper.main_root()
+    sessions = artifacts.sessions_root(main_root, cfg.data_dir)
+    unclosed = {adw_id: state.pr_url for adw_id, state in artifacts.scan(sessions).items()
+                if state.pr_url and not state.pr_state and _started_since(state.started_at, since)}
+    if not unclosed:
+        print("every pull request" + (f" since {since.date()}" if since else "")
+              + " already says how it closed, or is still open")
+        return 0
+    project = pull_requests.resolve_project(cfg.pull_requests, main_root)
+    if not project:
+        print("pull_requests.project is empty and no origin remote could be read — "
+              "set pull_requests.project to name where the pull requests live")
+        return 1
+    recorded = unread = 0
+    for adw_id in sorted(_not_listed_open(cfg, main_root, project, unclosed)):
+        number = pull_requests.number_of(unclosed[adw_id])
+        if not number:
+            continue
+        try:
+            context = pull_requests.describe(main_root, cfg.pull_requests,
+                                             PullRequestRef(number=number, project=project))
+        except RuntimeError as error:
+            print(f"  ~ {adw_id}: could not read #{number} ({error})")
+            unread += 1
+            continue
+        if context.open:
+            continue
+        print(f"  ~ {adw_id}: #{number} is {context.state.lower()}")
+        if _record_closed(cfg, main_root, sessions / adw_id,
+                          PullRequestRef(number=number, project=project)):
+            recorded += 1
+        else:
+            unread += 1
+    print(f"recorded how {recorded} pull request(s) closed; "
+          f"{len(unclosed) - recorded - unread} still open"
+          + (f"; {unread} could not be read — run it again" if unread else ""))
+    return 1 if unread else 0
+
+
+def _started_since(started_at: str, since: Optional[datetime]) -> bool:
+    """A session with no readable start is looked at: nothing says it is older."""
+    if since is None:
+        return True
+    try:
+        return utc(datetime.fromisoformat(started_at)) >= since
+    except ValueError:
+        return True
+
+
+def utc(moment: datetime) -> datetime:
+    """A naive moment read as UTC — what every timestamp the factory writes is."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
 def _terminate(adw_id: str, pid: int) -> None:
