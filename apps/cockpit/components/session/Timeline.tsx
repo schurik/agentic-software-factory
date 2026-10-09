@@ -59,6 +59,7 @@ function Line({ item, chapter, opened, openPhase }: { item: Item; chapter: Chapt
   }
   const { href, onClick } = openPhase(item.phaseId);
   const open = item.phaseId === opened;
+  const stopped = item.type === "agent" ? stoppedWords(item) : "";
   return (
     <a href={href} aria-current={open || undefined}
        onClick={followInPlace(onClick)}
@@ -74,8 +75,8 @@ function Line({ item, chapter, opened, openPhase }: { item: Item; chapter: Chapt
         {item.type === "agent" ? item.notes.map((note) => (
           <span key={`${note.kind}:${note.what}`} className="mt-0.5 block">⚑ {note.kind}: {note.what}</span>
         )) : null}
-        {item.type === "agent" && stoppedWords(item) ? (
-          <span className="mt-0.5 block text-bad">{stoppedMark(item)} {stoppedWords(item)}</span>
+        {item.type === "agent" && stopped ? (
+          <span className="mt-0.5 block text-bad">{stoppedMark(item)} {stopped}</span>
         ) : item.type !== "gate" && item.error ? <span className="mt-0.5 block text-bad">{item.error}</span> : null}
       </span>
       <span className="col-start-4 row-start-1 text-right text-sm text-faint tabular-nums md:col-start-5">

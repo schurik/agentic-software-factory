@@ -150,11 +150,11 @@ before — `None` when there are none, never omitted.
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
    settings in the self-description, registering without a token, the pull request events and
-   the failure events; nothing else changes. The PR watcher's first pass after it (`just prs`, or `just up`) records
-   every pull request the factory opened that has since closed, 20 a pass — what the Measure tab
-   counts merges from. Pull requests opened before the re-stamp said nothing when they opened, so
-   they count as merged but never as autonomous. A
-   factory with the CI workflow ships format 2 on its next default-branch push.
+   the failure events; nothing else changes. The PR watcher's first pass after it (`just prs`, or
+   `just up`) records every pull request the factory opened that has since closed, 20 a pass —
+   what the Measure tab counts merges from. Pull requests opened before the re-stamp said nothing
+   when they opened, so they count as merged but never as autonomous. A factory with the CI
+   workflow ships format 2 on its next default-branch push.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`

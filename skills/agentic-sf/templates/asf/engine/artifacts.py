@@ -143,8 +143,8 @@ def finish_run(session_dir: Path, status: str, reason: str = "",
     and from a watcher aborting a run at its gate, so the file says how the
     session ended even when the ending was not the happy one.
     Whichever of them it is, the chapter the session was in ends with it.
-    `accepted` is the workflow's verdict, which only `run.finish()` has; every
-    other ending never reached one (`WorkflowFinished`).
+    `accepted` is whether the workflow accepted the chapter, which only
+    `run.finish()` is told; every other ending was never judged (`WorkflowFinished`).
     """
     from .utils import now_iso
     state = read_run(session_dir)

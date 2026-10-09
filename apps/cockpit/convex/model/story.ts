@@ -178,7 +178,7 @@ export interface Chapter {
   endedAt: string;
   status: string;
   reason: string;
-  // The workflow's own verdict (`workflow_finished` v2): false when its phases
+  // Whether the workflow accepted it (`workflow_finished` v2): false when its phases
   // passed and it still did not accept the chapter. Null while it runs, and
   // from a factory before v2.
   accepted: boolean | null;
@@ -437,7 +437,7 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     1: (state, p, at) => {
       workflowFinished(state, p, at);
     },
-    // v2: the workflow's verdict, apart from whether its phases passed.
+    // v2: whether the workflow accepted the chapter, apart from whether its phases passed.
     2: (state, p, at) => {
       workflowFinished(state, p, at).accepted = p.bool("accepted");
     },

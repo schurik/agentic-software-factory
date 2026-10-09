@@ -2455,13 +2455,13 @@ class WorkflowFinished(DomainEvent):
     """The chapter's workflow ended, accepted or not. A chapter that failed and
     was resumed finishes again, and the later one is how it stands.
 
-    v2: `accepted`, the workflow's own verdict on the chapter as it handed it to
-    `run.finish(accepted=)` — the second of the two criteria a run ends on, and
+    v2: `accepted`, whether the workflow accepted the chapter, as it handed it to
+    `run.finish(accepted=)` — the second of the two criteria a chapter ends on, and
     the one `status` alone cannot tell apart from the first. False is "the
     phases passed but the chapter was not accepted" (a fix loop that ran out, a
     reviewer who withheld approval), with `reason` saying why. A chapter that
     ended any other way — a phase failed, a person aborted, the process was
-    killed — never reached that verdict, and says True: its `status` says it
+    killed — was never judged, and says True: its `status` says it
     failed, and the phase that failed says why.
     """
 
@@ -2824,6 +2824,9 @@ class PermissionRolledBack(DomainEvent):
     not_undone: list[str] = Field(default_factory=list)
 
 
+LimitKind = Literal["tokens", "cost", "timeout"]
+
+
 class LimitHit(DomainEvent):
     """A limit stopped an agent phase (`limits.py`): a session's `budget:`
     ceiling refused the next send, or one turn ran past `timeout_seconds` and
@@ -2841,7 +2844,7 @@ class LimitHit(DomainEvent):
     phase_id: str
     phase: str
     agent: str
-    kind: Literal["tokens", "cost", "timeout"]
+    kind: LimitKind
     limit: float
     reached: float
 

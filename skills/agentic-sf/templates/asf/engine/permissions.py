@@ -155,7 +155,9 @@ def permitted(path: str, agent: AgentConfig, cfg: FactoryConfig) -> bool:
     return agent.writes is None          # None = unrestricted, [] = no repo writes
 
 
-UNDONE = ("rolled back", "deleted")     # what `_roll_back` says when the breach is gone
+# What `_roll_back` says when the breach is gone; anything else it says leaves it in place.
+ROLLED_BACK, DELETED = "rolled back", "deleted"
+UNDONE = (ROLLED_BACK, DELETED)
 
 
 def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) -> str:
@@ -192,11 +194,11 @@ def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) ->
                               capture_output=True, text=True).returncode == 0
 
     if git("cat-file", "-e", f"HEAD:{path}"):
-        return "rolled back" if git("checkout", "HEAD", "--", path) else "could not roll back"
+        return ROLLED_BACK if git("checkout", "HEAD", "--", path) else "could not roll back"
     git("rm", "--cached", "--force", "--quiet", "--", path)     # a no-op for a path never staged
     try:
         (Path(run.repo_root) / path).unlink()
-        return "deleted"
+        return DELETED
     except OSError as error:
         return f"could not delete ({error})"
 

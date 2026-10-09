@@ -342,7 +342,7 @@ const READERS: Record<string, Record<number, Reader>> = {
       describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} finished: ` +
         p.str("status") + (p.str("reason") ? ` — ${p.str("reason")}` : ""),
     },
-    // v2 adds the workflow's own verdict: false is "its phases passed, and it was still not accepted".
+    // v2 adds whether the workflow accepted the chapter: false is "its phases passed, and it was still not accepted".
     2: {
       describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} finished: ` +
         p.str("status") + (p.bool("accepted") ? "" : ", not accepted") +

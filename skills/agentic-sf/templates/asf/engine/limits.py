@@ -46,9 +46,9 @@ import os
 import selectors
 import subprocess
 import time
-from typing import IO, Iterator, NamedTuple, Optional
+from typing import IO, Iterator, NamedTuple
 
-from .data_types import BudgetConfig
+from .data_types import BudgetConfig, LimitKind
 
 TERM_GRACE_SECONDS = 5.0    # SIGTERM, then this long, then SIGKILL
 POLL_SECONDS = 1.0          # how often the read loop looks up at the clock
@@ -229,13 +229,13 @@ class Overrun(NamedTuple):
     """A `budget:` ceiling the session has met: which one, the ceiling as
     configured, the value that met it, and why that stops it, in a sentence."""
 
-    kind: str                       # tokens | cost
+    kind: LimitKind                 # tokens | cost: a timeout is an AgentTimeout
     limit: float
     reached: float
     reason: str
 
 
-def overrun(tokens: int, cost: float, budget: BudgetConfig) -> Optional[Overrun]:
+def overrun(tokens: int, cost: float, budget: BudgetConfig) -> Overrun | None:
     """The ceiling this session has met, or None while it may still spend.
 
     `reason` reads as a sentence because it becomes the phase's error — the line

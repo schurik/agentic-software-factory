@@ -320,7 +320,7 @@ describe("a failure that is a fact", () => {
     expect(read(chapter(html({ events }), 1))).toContain("not accepted: test still failed after 3 attempt(s)");
     expect(text({ events, shown: { tab: "timeline" } }))
       .toMatch(/Chapter 1 · issue · answering issue #42 · not accepted: test still failed after 3 attempt\(s\)/);
-    // A chapter that said nothing of its verdict, or was accepted, says nothing of it.
+    // A chapter that said nothing of its acceptance, or was accepted, says nothing of it.
     expect(read(chapter(html(), 1))).not.toContain("accepted");
   });
 });
