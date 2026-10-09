@@ -14,14 +14,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-import yaml
-
 from . import (artifacts, git_helper, harnesses, journal, limits, permissions,
                preflight, prompts)
 from .data_types import (BODY_BYTES, RAW_TAIL_CHARS, TRANSCRIPT_CHUNK_CHARS, AgentCall,
                          AgentConfig, AgentRequest, AgentResult, AgentSession,
                          EnvelopeAccepted, EnvelopeBase, EnvelopeRejected,
-                         FactoryConfig, GateCheck, GateReport, GateResult, HarnessOutput, Phase,
+                         FactoryConfig, GateCheck, GateReport, GateResult, HarnessBlock,
+                         HarnessDefaults, HarnessOutput, Phase,
                          PhaseReplayed, PromptRendered, RecordedPhase, ToolCalled,
                          UsageBreakdown)
 from .utils import anchor, clip_utf8, write_atomic
@@ -46,34 +45,78 @@ def harness_for(agent: AgentConfig):
 
 # ── config ───────────────────────────────────────────────────────────────────
 
-def load_config(path: str = "asf/factory.yaml") -> FactoryConfig:
-    """Read a single-file config (defaults + agents list), merging defaults in.
+# The keys a `harness:` block means the same by on every harness. An agent on
+# another harness than the factory's inherits these and nothing else: a model
+# name, a tool name, an option or an extension is written in ONE harness's
+# vocabulary, and inheriting it across is how a pi agent ended up holding
+# claude_code's `tools`.
+NEUTRAL_KEYS = ("thinking", "timeout_seconds", "skills", "context")
 
-    The stamped layout keeps agents in `asf/agents/<name>/` instead, and
-    `engine.factory.load` assembles the same raw shape from those files before
-    handing it to `merge_defaults` — one merge, two ways to write a roster.
+# `HarnessBlock` keys → the flat `AgentConfig` fields the engine reads.
+AGENT_FIELD = {"name": "harness", "options": "harness_options"}
+
+
+def merge_harness(raw: dict) -> FactoryConfig:
+    """Merge each agent's `harness:` block over factory.yaml's, key by key, and
+    build the config. `raw` is factory.yaml with `agents:` assembled from the
+    agent directories (`engine.factory.load`).
+
+    Same harness: the agent's keys win, a list REPLACES the factory's (an
+    agent's `tools` is its whole capability list, not an addition), and
+    `options` merges key by key — overriding `permission_mode` keeps `add_dirs`.
+    Another harness: only `NEUTRAL_KEYS` cross over; the model is that
+    harness's own default unless the agent names one, and tools, options and
+    harness_engineering are the agent's or nothing.
+
+    `AgentConfig` stays flat, so nothing that reads an agent knows the file
+    nests.
     """
-    raw = yaml.safe_load(Path(path).read_text()) or {}
-    return merge_defaults(raw)
-
-
-def merge_defaults(raw: dict) -> FactoryConfig:
-    """Merge each agent over `defaults` key by key and build the config."""
-    defaults = raw.get("defaults", {}) or {}
-    for agent in raw.get("agents", []) or []:
-        for key in ("harness", "model", "thinking", "color", "tools", "writes",
-                    "timeout_seconds"):
-            if key in defaults:
-                agent.setdefault(key, defaults[key])
-        agent.setdefault("harness_engineering", defaults.get("harness_engineering", []))
-        # `defaults.harness_options` is keyed by harness name; an agent's own
-        # block is flat, for the harness it actually runs on. So the inherited
-        # half is looked up by that name, and the agent's keys win INDIVIDUALLY
-        # — overriding `permission_mode` must not silently drop `safe_mode`.
-        inherited = (defaults.get("harness_options") or {}).get(agent.get("harness"), {})
-        agent["harness_options"] = {**(inherited or {}),
-                                    **(agent.get("harness_options") or {})}
+    factory_block = HarnessDefaults(**(raw.get("harness") or {}))
+    raw["harness"] = factory_block
+    for entry in raw.get("agents", []) or []:
+        own = HarnessBlock(**(entry.pop("harness", None) or {})).model_dump(exclude_unset=True)
+        entry.update(harness_settings(factory_block, own))
     return FactoryConfig(**raw)
+
+
+def harness_settings(factory_block: HarnessDefaults, own: dict) -> dict:
+    """One agent's harness block merged over the factory's, as `AgentConfig`
+    fields."""
+    name = own.get("name") or factory_block.name
+    if name == factory_block.name:
+        inherited = factory_block.model_dump()
+    else:
+        inherited = {key: getattr(factory_block, key) for key in NEUTRAL_KEYS}
+        driver = harnesses.HARNESSES.get(name)
+        if driver is not None:
+            inherited["model"] = driver.DEFAULT_MODEL
+    merged = {**inherited, **own, "name": name,
+              "options": {**inherited.get("options", {}), **(own.get("options") or {})}}
+    return {AGENT_FIELD.get(key, key): value for key, value in merged.items()}
+
+
+# Where a skill named in `skills:` is looked for, in this order, in the MAIN
+# checkout — where the roster and its prompts resolve. Never `~/.claude`: a
+# skill on the operator's machine is a run that depends on whose machine it is.
+SKILL_HOMES = (".claude/skills", ".agents/skills")
+
+
+def skill_dir(root: Path, name: str) -> Optional[Path]:
+    """The directory skill `name` resolves to under `root`, or None."""
+    for home in SKILL_HOMES:
+        directory = root / home / name
+        if (directory / "SKILL.md").is_file():
+            return directory
+    return None
+
+
+def skill_tool_refused(tools: Optional[list[str]]) -> str:
+    """Why `tools` may not name `Skill`, or "". The engine grants it with the
+    skills it hands an agent, so there is one place a skill is granted."""
+    if tools and "Skill" in tools:
+        return ("tools names `Skill` — the engine grants it with the agent's skills: "
+                "name them in the harness block (`skills: [<name>]`) and drop `Skill`")
+    return ""
 
 
 def resolve(cfg: FactoryConfig, name: str) -> AgentConfig:
@@ -194,10 +237,11 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     # The roster's prompts live beside the config, in the main checkout. The
     # identity is the roster's file plus whatever the workflow appended; the
     # task is the file the stage resolved for THIS call.
-    system_text = "\n\n".join(
-        prompts.render(anchor(run.main_root, ref), variables).rstrip()
-        for ref in [agent.prompt_engineering.system, *agent.prompt_engineering.system_append]
-    ) + "\n"
+    system_text = "\n\n".join([
+        *(prompts.render(anchor(run.main_root, ref), variables).rstrip()
+          for ref in [agent.prompt_engineering.system, *agent.prompt_engineering.system_append]),
+        *_context(run.main_root, agent.context),
+    ]) + "\n"
     task_ref = _task_ref(call, agent)
     if not task_ref:
         raise RuntimeError(f"agent {agent.name!r}: this call names no task and the agent "
@@ -262,6 +306,8 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
             runtime_dir=str(run.session_dir.resolve()),
             tools=agent.tools,
             extensions=agent.harness_engineering,
+            agent=agent.name,
+            skills=[str(skill_dir(run.main_root, name)) for name in agent.skills],
             cwd=str(run.repo_root),
             native_session_id=session.native_session_id,
             resume=session.started,
@@ -348,6 +394,18 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     if envelope.status != "success":
         raise RuntimeError(f"{agent.name} reported status={envelope.status!r}: {envelope.summary}")
     return envelope
+
+
+def _context(root: Path, refs: list[str]) -> list[str]:
+    """Each `context:` file, under a heading naming it — after the identity and
+    whatever a workflow appended, never in place of either. Read as written:
+    a repository file is not a template, and `{{…}}` in it stays text.
+
+    The engine appends it, on any harness, rather than a CLI discovering it:
+    what an agent is told is then what its harness block says, and nothing that
+    happens to lie in the checkout or the operator's home.
+    """
+    return [f"# Context: {ref}\n\n{anchor(root, ref).read_text().rstrip()}" for ref in refs]
 
 
 # ── internals ────────────────────────────────────────────────────────────────

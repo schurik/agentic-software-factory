@@ -81,7 +81,7 @@ def take(cfg: FactoryConfig, ask: ClaimAsk,
     older `session_finished` late: the cockpit reads only what comes after
     `since` as the end of the run this claim is for.
     """
-    cockpit = station.configured(anchor(git_helper.main_root(), cfg.defaults.data_dir))
+    cockpit = station.configured(anchor(git_helper.main_root(), cfg.data_dir))
     if cockpit is None:
         return ClaimAnswer(outcome="alone")
     body = {"op": "take", **ask.model_dump(mode="json"), "since": _since(cfg, ask),
@@ -140,7 +140,7 @@ def drop(cfg: FactoryConfig, ask: ClaimAsk, transport: station.Transport | None 
     """Give back a claim no session ever used. Never raises; True when the
     cockpit let it go — which it does only for this station's own claim, held
     by exactly this session."""
-    cockpit = station.configured(anchor(git_helper.main_root(), cfg.defaults.data_dir))
+    cockpit = station.configured(anchor(git_helper.main_root(), cfg.data_dir))
     if cockpit is None:
         return False
     status, answer, error = _ask(cfg, cockpit, {"op": "drop", **ask.model_dump(mode="json")},
@@ -150,7 +150,7 @@ def drop(cfg: FactoryConfig, ask: ClaimAsk, transport: station.Transport | None 
 
 def _ask(cfg: FactoryConfig, cockpit, body: dict,
          transport: station.Transport | None) -> tuple[int, dict, str]:
-    here = station.identify(git_helper.main_root(), cfg.defaults.data_dir)
+    here = station.identify(git_helper.main_root(), cfg.data_dir)
     body["station"] = here.model_dump(mode="json")
     try:
         status, answer = (transport or station.post)(f"{cockpit.url}/claims", cockpit.token, body)
@@ -161,7 +161,7 @@ def _ask(cfg: FactoryConfig, cockpit, body: dict,
 
 def _since(cfg: FactoryConfig, ask: ClaimAsk) -> int:
     """The last seq the claim's session has written on this station; 0 for none."""
-    sessions = artifacts.sessions_root(git_helper.main_root(), cfg.defaults.data_dir)
+    sessions = artifacts.sessions_root(git_helper.main_root(), cfg.data_dir)
     return events.last_seq(sessions / Path(ask.session).name) if ask.session else 0
 
 

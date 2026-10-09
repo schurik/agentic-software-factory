@@ -144,7 +144,7 @@ bug already shipped once.
   A default that assumes one makes the exception the assumption (see `hitl.channel_of`, and
   `WaitingFor.channel` defaulting to `issue`).
 - **Prompts are stamped per harness.** `templates/harnesses/{pi,claude_code}/` each carry their own
-  roster, defaults, `env.sample` and prompt set — pi's prompts reference `subagent_*` tools Claude
+  roster, `harness.yaml`, `env.sample` and prompt set — pi's prompts reference `subagent_*` tools Claude
   Code does not have. Moving an agent between harnesses means moving its prose too; validation only
   catches the `tools:` half. Adding a harness = one module in `harnesses/` + one template directory.
 - **The `fake` harness is the development tool.** Put a new workflow's roster on it until the shape

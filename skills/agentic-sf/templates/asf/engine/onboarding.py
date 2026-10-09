@@ -149,7 +149,7 @@ def _published(here: _Here) -> tuple[bool, str, str]:
 
 
 def _cockpit(here: _Here) -> tuple[bool, str, str]:
-    shared = station.configured(anchor(here.root, here.cfg.defaults.data_dir))
+    shared = station.configured(anchor(here.root, here.cfg.data_dir))
     if shared is not None:
         return True, f"the team's: {shared.url}", ""
     chosen = here.mark("cockpit")
@@ -163,12 +163,12 @@ def _cockpit(here: _Here) -> tuple[bool, str, str]:
 
 
 def _connected(here: _Here) -> tuple[bool, str, str]:
-    shared = station.configured(anchor(here.root, here.cfg.defaults.data_dir))
+    shared = station.configured(anchor(here.root, here.cfg.data_dir))
     if shared is None and here.mark("cockpit") == "local":
         return True, "a local cockpit's station is its owner's: nothing to register", ""
     if shared is None:
         return False, "no cockpit chosen yet", "choose one first (the step above)"
-    held = station.credential(here.root, here.cfg.defaults.data_dir)
+    held = station.credential(here.root, here.cfg.data_dir)
     if held is not None and held.cockpit == shared.url:
         return True, f"registered, approved by {held.owner or 'someone'}", ""
     return (False, f"this checkout is not registered with {shared.url}",
@@ -177,7 +177,7 @@ def _connected(here: _Here) -> tuple[bool, str, str]:
 
 
 def _ci(here: _Here) -> tuple[bool, str, str]:
-    team = station.configured(anchor(here.root, here.cfg.defaults.data_dir)) is not None
+    team = station.configured(anchor(here.root, here.cfg.data_dir)) is not None
     if here.on_default(CI_WORKFLOW):
         aside = (" — its two settings are a person's to store: vars.ASF_COCKPIT_URL and "
                  "secrets.ASF_COCKPIT_TOKEN" if team else "")
@@ -207,7 +207,7 @@ def _labels(here: _Here) -> tuple[bool, str, str] | None:
 
 
 def _first_run(here: _Here) -> tuple[bool, str, str]:
-    sessions = anchor(here.root, here.cfg.defaults.data_dir) / "sessions"
+    sessions = anchor(here.root, here.cfg.data_dir) / "sessions"
     ran = [path for path in sessions.glob("*/run.json")] if sessions.is_dir() else []
     if ran:
         return True, f"{len(ran)} session(s) recorded", ""
@@ -231,7 +231,7 @@ STEPS: tuple[tuple[str, str, Callable[[_Here], tuple[bool, str, str] | None]], .
 # ── reading and recording ────────────────────────────────────────────────────
 
 def record_path(cfg: FactoryConfig, root: Path) -> Path:
-    return anchor(root, cfg.defaults.data_dir) / RECORD
+    return anchor(root, cfg.data_dir) / RECORD
 
 
 def recorded(cfg: FactoryConfig, root: Path) -> OnboardingRecord:

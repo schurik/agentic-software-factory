@@ -23,12 +23,13 @@ whose whole roster is fake produces nothing.
 
 ## The script
 
-The agent's `harness_options` block IS the script (see `Options`):
+The agent's `harness.options` block IS the script (see `Options`), in its
+agent.md:
 
-    - name: planner
-      harness: fake
+    harness:
+      name: fake
       model: fake
-      harness_options:
+      options:
         replies:
           - writes: {"docs/asf/spec/plan.md": "# Plan\\n"}
             envelope: {status: success, summary: planned, artifacts: [docs/asf/spec/plan.md]}
@@ -61,6 +62,10 @@ from ..tool_calls import ToolCallLedger
 from ..utils import write_atomic
 
 NAME = "fake"
+# Anything non-empty: no model is ever called.
+DEFAULT_MODEL = "fake"
+# Accepted and ignored, so the suite can exercise how `skills:` merges.
+SKILLS = True
 
 
 class Reply(BaseModel):
@@ -101,7 +106,7 @@ class Reply(BaseModel):
 
 
 class Options(BaseModel):
-    """`harness_options` for a fake agent: the script, and how to run out of it.
+    """`harness.options` for a fake agent: the script, and how to run out of it.
 
     `extra="forbid"` for the reason every harness forbids extras — a key that
     silently does nothing is a test that silently proves nothing.
@@ -163,9 +168,9 @@ def validate_agent(agent: AgentConfig) -> list[str]:
     try:
         options = Options(**agent.harness_options)
     except ValueError as error:
-        return [f"harness_options: {error}"]
+        return [f"harness.options: {error}"]
     if not options.replies and not options.script:
-        return ["harness_options: the fake harness answers from a script, so it "
+        return ["harness.options: the fake harness answers from a script, so it "
                 "needs `replies:` or `script:` — with neither, every send fails"]
     return []
 
@@ -291,7 +296,7 @@ def run(request: AgentRequest, on_event: Optional[Callable[[dict], None]] = None
                                                        total_cost=reply.cost))
             raise AgentTimeout(
                 f"fake agent ran past its {limit}s limit without finishing and was "
-                f"terminated (defaults.timeout_seconds)", partial)
+                f"terminated (harness.timeout_seconds)", partial)
         time.sleep(reply.sleep)
 
     _apply(reply, request.cwd)

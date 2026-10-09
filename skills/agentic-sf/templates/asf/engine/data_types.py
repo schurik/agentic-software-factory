@@ -896,43 +896,78 @@ class AgentConfig(BaseModel):
     #   [...] -> only these. A trailing "/" means a directory prefix; a "*"
     #            makes it a glob; anything else is an exact path.
     writes: Optional[list[str]] = None
-    # This agent's settings for ITS harness, already merged over the defaults
-    # block for that harness. Untyped here on purpose: the shape belongs to the
+    # Repository skills by name and repository files appended to the identity —
+    # see `HarnessBlock`. Resolved against the main checkout when the roster
+    # is loaded, so a name that resolves nowhere never reaches a run.
+    skills: list[str] = Field(default_factory=list)
+    context: list[str] = Field(default_factory=list)
+    # This agent's settings for ITS harness, already merged over factory.yaml's
+    # `harness.options` when it runs on the factory's harness. Untyped here on purpose: the shape belongs to the
     # harness module (`harnesses.<name>.Options`), which parses it during
     # validation and again when it builds the command line — so a harness owns
     # its own options without data_types.py having to know they exist.
     harness_options: dict[str, Any] = Field(default_factory=dict)
     # Wall clock for ONE turn of this agent — a send, a JSON re-prompt, a gate
     # correction — each measured on its own. 0 disables it. Inherited from
-    # `defaults.timeout_seconds` like every other per-agent setting; an agent
+    # `harness.timeout_seconds` like every other per-agent setting; an agent
     # whose work is genuinely long (a builder on a big suite) raises its own.
     # Not a spend limit: that is `budget:`, and it is per session.
     timeout_seconds: int = DEFAULT_AGENT_TIMEOUT_SECONDS
 
 
-class ConfigDefaults(BaseModel):
-    harness: str = "pi"
+class HarnessBlock(BaseModel):
+    """`harness:` as an agent.md writes it: what this agent runs on, each key
+    left out inherited from factory.yaml's block (`agents.merge_harness`).
+
+    One vocabulary wherever the block is written — factory.yaml, an agent.md,
+    a workflow binding — so "give the builder a skill" is one key in one place.
+    `purpose`, `color` and `writes` are not here: they are the engine's, not
+    the harness's, and stay flat in the frontmatter.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None                # the harness: a name in engine/harnesses
+    model: Optional[str] = None
+    thinking: Optional[str] = None
+    timeout_seconds: Optional[int] = None
+    tools: Optional[list[str]] = None         # capability list; `Skill` is the engine's
+    # Repository skills by name, resolved from `.claude/skills/<name>/` then
+    # `.agents/skills/<name>/` in the main checkout — never the operator's home.
+    skills: Optional[list[str]] = None
+    # Repository files appended to the agent's identity, e.g. [CLAUDE.md]:
+    # what reaches an agent is named here, never inherited from the CLI's
+    # discovery of whatever lies around.
+    context: Optional[list[str]] = None
+    harness_engineering: Optional[list[str]] = None
+    # This harness's own, parsed by `harnesses.<name>.Options`.
+    options: Optional[dict[str, Any]] = None
+
+
+class HarnessDefaults(BaseModel):
+    """factory.yaml's `harness:` block — every agent's, unless its agent.md
+    says otherwise. The same keys as `HarnessBlock`, each with its default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "pi"
     model: str = "google/gemini-3.6-flash"
     thinking: str = "medium"
-    color: str = ""
     # Roster-wide wall clock per agent turn; any agent may override with its
     # own, and `0` restores the unbounded behaviour every version before this
     # one had.
     timeout_seconds: int = DEFAULT_AGENT_TIMEOUT_SECONDS
-    harness_engineering: list[str] = Field(default_factory=list)
     tools: Optional[list[str]] = None    # roster-wide allowlist; None = all tools usable
-    # Keyed BY HARNESS NAME here, because a mixed roster needs a block per
-    # harness: {"claude_code": {...}, "pi": {...}}. An agent inherits only the
-    # block for the harness it runs on, key by key — see agents.load_config.
-    harness_options: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    # Off-limits to every agent that has not named them in its own `writes`.
-    # The factory's own code is the default: an agent must not be able to edit
-    # the machinery that decides whether its work passed.
-    protected_files: list[str] = Field(default_factory=lambda: [
-        "asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/",
-        "asf/factory.yaml", "asf/asf.py",
-    ])
-    data_dir: str = "asf/data"
+    skills: list[str] = Field(default_factory=list)
+    context: list[str] = Field(default_factory=list)
+    harness_engineering: list[str] = Field(default_factory=list)
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+def default_protected_files() -> list[str]:
+    return ["asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/", "asf/cockpit/",
+            "asf/factory.yaml", "asf/asf.py", "asf/.skill-version",
+            ".github/workflows/asf-check.yml"]
 
 
 # `none` is refused when the config is loaded — see `integration.none_is_refused`.
@@ -1011,7 +1046,7 @@ class BudgetConfig(BaseModel):
     behaved. A repository that runs the factory unattended (an issue watcher,
     cron) is the one that wants them set.
 
-    Distinct from `harness_options.claude_code.max_budget_usd`, which is one
+    Distinct from `harness.options.max_budget_usd` (claude_code), which is one
     harness's per-CALL ceiling enforced by the CLI itself. This one is
     harness-agnostic, cumulative, and the factory's own.
     """
@@ -1274,7 +1309,12 @@ class PullRequestsConfig(BaseModel):
 
 
 class FactoryConfig(BaseModel):
-    defaults: ConfigDefaults = Field(default_factory=ConfigDefaults)
+    harness: HarnessDefaults = Field(default_factory=HarnessDefaults)
+    # Off-limits to every agent that has not named them in its own `writes`.
+    # The factory's own code is the default: an agent must not be able to edit
+    # the machinery that decides whether its work passed.
+    protected_files: list[str] = Field(default_factory=default_protected_files)
+    data_dir: str = "asf/data"      # runtime home: {data_dir}/sessions/{adw_id}/
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     hitl: HitlConfig = Field(default_factory=HitlConfig)
     cockpit: CockpitConfig = Field(default_factory=CockpitConfig)
@@ -1760,6 +1800,11 @@ class AgentRequest(BaseModel):
     runtime_dir: str = ""
     tools: Optional[list[str]] = None
     extensions: list[str] = Field(default_factory=list)
+    agent: str = ""                 # whose turn — where a harness keeps per-agent files
+    # The agent's skills as the directories they resolved to in the main
+    # checkout (`agents.skill_dir`). Only a harness that can load them is ever
+    # handed any: the loader refuses `skills:` on the others.
+    skills: list[str] = Field(default_factory=list)
     cwd: str = "."                  # set from run.repo_root — the codebase root agents work in
     # Create-vs-resume. pi's --session-id is create-or-continue, so pi needs
     # neither field; Claude Code's is create-ONLY and errors on a second use,
@@ -2072,7 +2117,7 @@ class DescribedAgent(BaseModel):
     """A roster agent as one workflow plays it — a binding's narrowing applied.
 
     `tools` and `writes` keep the roster's meaning: None is unrestricted (for
-    `writes`, everything but `defaults.protected_files`), [] is nothing."""
+    `writes`, everything but factory.yaml's `protected_files`), [] is nothing."""
 
     name: str
     harness: str

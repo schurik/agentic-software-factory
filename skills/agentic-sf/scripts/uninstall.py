@@ -77,6 +77,12 @@ def scalar(text: str, section: str, key: str) -> str | None:
     return found.group(1).strip().strip("\"'") if found else None
 
 
+def top_level(text: str, key: str) -> str | None:
+    """One unindented `key: value` of the config, read the way `scalar` reads."""
+    found = re.search(rf"^{key}:\s*(.+?)\s*(?:#.*)?$", text, re.MULTILINE)
+    return found.group(1).strip().strip("\"'") if found else None
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -402,7 +408,10 @@ def main() -> int:
     wt_dir = scalar(text, "worktree", "dir") or DEFAULT_WORKTREE_DIR
     prefix = scalar(text, "worktree", "branch_prefix") or DEFAULT_BRANCH_PREFIX
     db = root / (scalar(text, "observability", "db") or DEFAULT_DB)
-    data_dir = scalar(text, "defaults", "data_dir") or DEFAULT_DATA_DIR
+    # Top-level since 1.3, under `defaults:` before — and a factory being
+    # removed may well be one that was never upgraded.
+    data_dir = top_level(text, "data_dir") or scalar(text, "defaults", "data_dir") \
+        or DEFAULT_DATA_DIR
 
     for path in run_worktrees(root, wt_dir, prefix):
         if path == root or path in root.parents:

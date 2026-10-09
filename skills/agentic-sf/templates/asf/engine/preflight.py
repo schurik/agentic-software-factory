@@ -169,7 +169,7 @@ def runtime(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
     removed — the same two things the run itself would do a moment later, which
     is the only way to answer honestly. Nothing else is touched.
     """
-    target = anchor(main_root, cfg.defaults.data_dir)
+    target = anchor(main_root, cfg.data_dir)
     try:
         target.mkdir(parents=True, exist_ok=True)
         probe = target / ".asf-write-probe"
@@ -178,7 +178,7 @@ def runtime(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
     except OSError as error:
         return [Finding(check="runtime", level="fatal",
                         detail=f"data_dir {target} cannot be written: {error}",
-                        fix=f"fix the permissions on {target}, or point defaults.data_dir "
+                        fix=f"fix the permissions on {target}, or point data_dir "
                             f"somewhere writable")]
     return [Finding(check="runtime", detail=f"the record is written to {target}")]
 
@@ -567,5 +567,5 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
             + forge(cfg) + labels(cfg, root) + stamped_version(root)
-            + cockpit(anchor(root, cfg.defaults.data_dir))
+            + cockpit(anchor(root, cfg.data_dir))
             + publishing(cfg, root) + skill())

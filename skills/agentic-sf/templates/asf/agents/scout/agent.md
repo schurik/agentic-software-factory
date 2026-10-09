@@ -4,9 +4,10 @@
 # means it may change nothing tracked; its findings go to the run's
 # context_handoff/, which is runtime, not the repo.
 purpose: Find and report where things live; change nothing.
-thinking: medium
 color: "#fbbf24"
 writes: []
+harness:
+  thinking: medium
 ---
 
 # Scout

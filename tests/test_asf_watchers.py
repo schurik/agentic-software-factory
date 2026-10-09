@@ -131,7 +131,7 @@ def test_a_failed_review_is_marked_and_a_label_that_will_not_stick_is_held(track
 
 def test_a_draft_a_marked_or_a_waiting_pull_request_is_skipped(tracked, stamped, monkeypatch):
     cfg, listing = tracked
-    sessions = artifacts.sessions_root(stamped, cfg.defaults.data_dir)
+    sessions = artifacts.sessions_root(stamped, cfg.data_dir)
     (sessions / "cafed00d").mkdir(parents=True)
     artifacts.write_run(sessions / "cafed00d", RunState(
         adw_id="cafed00d", status="waiting", pr_url="https://forge/acme/widgets/pull/74",

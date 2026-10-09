@@ -96,7 +96,7 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
     the moment it connects, and its CI workflow keeps the description after.
     """
     main_root = git_helper.main_root()
-    here = station.identify(main_root, cfg.defaults.data_dir)
+    here = station.identify(main_root, cfg.data_dir)
     if here.kind == "ci":
         say(f"station {here.name} is a CI station: it ships with the ingest token and takes "
             f"no commands, so there is nothing to register")
@@ -143,7 +143,7 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
                                      token=str(answer["token"]), owner=str(answer.get("owner", "")),
                                      issued_at=now_iso(),
                                      ingest_token=str(answer.get("ingest_token") or ""))
-            path = station.keep(main_root, cfg.defaults.data_dir, held)
+            path = station.keep(main_root, cfg.data_dir, held)
             say(f"  approved by {held.owner or 'someone'} — the token is kept in {path}")
             if held.ingest_token:
                 say("  with an ingest token of its own, which this station ships sessions with "
@@ -304,7 +304,7 @@ def carry_out(here: Here, command: Command, now_ms: int | None = None) -> Comman
     """
     if not _ID.fullmatch(command.id):
         return None
-    done = recorded(here.main_root, here.cfg.defaults.data_dir, command.id)
+    done = recorded(here.main_root, here.cfg.data_dir, command.id)
     if done is not None:
         return done
     refused = refusal(here, command, now_ms)
@@ -500,7 +500,7 @@ def _launched(here: Here, command: Command, launch: Launch) -> CommandRecord:
 
 def _beside(here: Here, command_id: str, suffix: str) -> Path:
     """A file kept next to a command's record: its prompt, its launch's output."""
-    return record_path(here.main_root, here.cfg.defaults.data_dir, command_id).with_suffix(suffix)
+    return record_path(here.main_root, here.cfg.data_dir, command_id).with_suffix(suffix)
 
 
 _ACTS: dict[str, Callable[[Here, Command], CommandRecord]] = {
@@ -522,7 +522,7 @@ def _record(here: Here, record: CommandRecord) -> CommandRecord:
 
 def _keep(here: Here, record: CommandRecord) -> None:
     """Write the outcome where a second delivery of the same id finds it."""
-    path = record_path(here.main_root, here.cfg.defaults.data_dir, record.command.id)
+    path = record_path(here.main_root, here.cfg.data_dir, record.command.id)
     ensure_dir(path.parent)
     write_atomic(path, record.model_dump_json(indent=2))
 
@@ -550,7 +550,7 @@ def _result(record: CommandRecord) -> CommandResult:
 
 
 def _session_dir(here: Here, adw_id: str) -> Path:
-    return artifacts.sessions_root(here.main_root, here.cfg.defaults.data_dir) / Path(adw_id).name
+    return artifacts.sessions_root(here.main_root, here.cfg.data_dir) / Path(adw_id).name
 
 
 def _detail(said: list[str]) -> str:
@@ -650,7 +650,7 @@ class Steering:
         if self._report is None or now - self._reported_at > REPORT_EVERY:
             cfg, main_root = self.here.cfg, self.here.main_root
             self._report = StationReport(verbs=obeyed(cfg), head=_head(main_root),
-                                         config_hash=config_hash(main_root, cfg.defaults.data_dir))
+                                         config_hash=config_hash(main_root, cfg.data_dir))
             self._reported_at = now
         watchers = self.watchers() if self.watchers is not None else None
         return self._report.model_copy(update={"watchers": watchers})

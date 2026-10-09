@@ -24,9 +24,9 @@ A breach is NOT a gate violation. Gates are for work an agent can be asked to
 redo; a breach cannot be corrected by re-prompting, because the write already
 happened. It aborts the phase and names every offending path.
 
-Two keys drive it, both in factory.yaml:
-    defaults.protected_files   paths no agent may touch unless it names them itself
-    agents[].writes      None = unrestricted · [] = read-only · [...] = only these
+Two keys drive it:
+    protected_files      factory.yaml: paths no agent may touch unless it names them itself
+    writes               an agent.md: None = unrestricted · [] = read-only · [...] = only these
 """
 
 from __future__ import annotations
@@ -141,7 +141,7 @@ def always_writable(cfg: FactoryConfig) -> list[str]:
     branch from. Delete it and a `writes: []` agent in that configuration loses
     the ability to write its own report.
     """
-    return [cfg.defaults.data_dir.rstrip("/") + "/"]
+    return [cfg.data_dir.rstrip("/") + "/"]
 
 
 def permitted(path: str, agent: AgentConfig, cfg: FactoryConfig) -> bool:
@@ -150,7 +150,7 @@ def permitted(path: str, agent: AgentConfig, cfg: FactoryConfig) -> bool:
         return True
     if any(_matches(path, p) for p in (agent.writes or [])):
         return True                      # naming a path is what unlocks a protected one
-    if any(_matches(path, p) for p in cfg.defaults.protected_files):
+    if any(_matches(path, p) for p in cfg.protected_files):
         return False
     return agent.writes is None          # None = unrestricted, [] = no repo writes
 
@@ -217,7 +217,7 @@ def enforce(run, phase, agent: AgentConfig, before: dict[str, str]) -> list[str]
     outcomes = {p: _roll_back(run, p, before, after) for p in breaches}
     scope = ("read-only" if agent.writes == []
              else f"limited to {agent.writes}" if agent.writes
-             else f"barred from {run.cfg.defaults.protected_files}")
+             else f"barred from {run.cfg.protected_files}")
     detail = "\n".join(f"  - {p} — {outcome}" for p, outcome in outcomes.items())
     raise PermissionBreach(
         f"{agent.name} is {scope} but modified {len(breaches)} path(s):\n{detail}")

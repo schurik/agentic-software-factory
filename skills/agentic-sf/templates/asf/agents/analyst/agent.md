@@ -7,15 +7,16 @@
 # change nothing tracked — its requirements go to the run's context_handoff/,
 # and the block that lands on the issue is written by code, not by it.
 purpose: Turn a request into requirements; ask about what cannot be settled.
-thinking: high
-model: opus                        # overrides factory.yaml defaults.model
 color: "#a78bfa"
 writes: []
-tools:
-  - Read
-  - Glob
-  - Write
-  - WebFetch
+harness:                           # over factory.yaml's `harness:`, key by key
+  model: opus
+  thinking: high
+  tools:
+    - Read
+    - Glob
+    - Write
+    - WebFetch
 ---
 
 # Analyst

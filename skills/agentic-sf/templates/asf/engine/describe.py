@@ -53,7 +53,7 @@ def build(config_path: str | Path = factory.DEFAULT_CONFIG) -> SelfDescription:
         skill_version=_skill_version(main_root),
         checked=CheckedCheckout(head=_head(main_root), ref=_ref(main_root),
                                 config_hash=commands.config_hash(main_root,
-                                                                 cfg.defaults.data_dir)),
+                                                                 cfg.data_dir)),
         ok=not problems, budget=cfg.budget, settings=_settings(cfg, main_root, described),
         workflows=described, problems=problems)
 
@@ -195,7 +195,7 @@ def ship(description: SelfDescription, cfg: FactoryConfig,
         _say("no ASF_COCKPIT_TOKEN — the description was not shipped; a pull request from a "
              "fork is given no secrets, and that is all this is")
         return 0
-    here = station.identify(git_helper.main_root(), cfg.defaults.data_dir)
+    here = station.identify(git_helper.main_root(), cfg.data_dir)
     if here.kind != "ci":
         _say(f"{here.name} is a local station — --ship is the CI workflow's step "
              f"({CI_WORKFLOW}); the description was not shipped")
@@ -232,7 +232,7 @@ def first(cockpit: Cockpit, transport: station.Transport,
     and what keeps the description current.
     """
     main_root = git_helper.main_root()
-    here = station.identify(main_root, factory.load().defaults.data_dir)
+    here = station.identify(main_root, factory.load().data_dir)
     try:
         status, answer = _send(build(), cockpit, here, transport)
     except (OSError, ValueError) as error:

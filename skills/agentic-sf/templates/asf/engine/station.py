@@ -336,14 +336,14 @@ def sync(cfg: FactoryConfig, transport: Transport = post) -> int:
     what a red job is for.
     """
     main_root = git_helper.main_root()
-    cockpit = configured(anchor(main_root, cfg.defaults.data_dir))
+    cockpit = configured(anchor(main_root, cfg.data_dir))
     if cockpit is None:
         print("no cockpit configured — set ASF_COCKPIT_URL in .env, and register this station "
               "(`asf station register`), or set ASF_COCKPIT_TOKEN in a job's environment")
         return 0
-    here = identify(main_root, cfg.defaults.data_dir)
+    here = identify(main_root, cfg.data_dir)
     print(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}")
-    root = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+    root = artifacts.sessions_root(main_root, cfg.data_dir)
     sessions = every_session(root)
     sent = 0
     for directory in sessions:

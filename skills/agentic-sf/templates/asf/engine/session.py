@@ -97,7 +97,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     workspace = worktree.ensure(WorktreeRequest(
         main_root=main_root, adw_id=adw_id, config=cfg.worktree,
         publish_on_create=publish.mode(cfg, main_root) == publish.ON_CREATE))
-    tracer = Tracer(anchor(main_root, f"{cfg.defaults.data_dir}/sessions/{adw_id}"))
+    tracer = Tracer(anchor(main_root, f"{cfg.data_dir}/sessions/{adw_id}"))
     run = Run(RunSpec(cfg=cfg, adw_id=adw_id, engineer=engineer_name(),
                       workspace=workspace, resume=resume, hitl=hitl), tracer)
     # What the session already knows about itself, from its own directory. An
@@ -115,7 +115,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     # built from is also the first line a cockpit reads, which is why the base
     # the branch was cut from — and the station it ran on — ride on it.
     command = [Path(sys.argv[0]).name, *sys.argv[1:]]
-    here = station.identify(main_root, cfg.defaults.data_dir)
+    here = station.identify(main_root, cfg.data_dir)
     artifacts.start_run(run.session_dir, SessionStarted(
         adw_id=adw_id, workflow=workflow, command=command, pid=os.getpid(),
         engineer=run.engineer, started_at=now_iso(), repo_root=str(workspace.repo_root),
@@ -130,7 +130,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     # The same thread asks for the commands that name this session, so a kill
     # from the cockpit reaches the run itself, with no daemon running.
     station.start(run.session_dir, steering=commands.Steering(
-        commands.Here(cfg, main_root), lambda: station.credential(main_root, cfg.defaults.data_dir),
+        commands.Here(cfg, main_root), lambda: station.credential(main_root, cfg.data_dir),
         session=adw_id))
     # This process is the run. Record it before any phase opens, so a run that
     # hangs in its first agent call is still killable by adw_id.

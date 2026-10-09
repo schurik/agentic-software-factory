@@ -26,7 +26,7 @@ def test_a_fresh_repo_is_stamped_and_its_workflows_check(repo: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     for relative in STAMPED:
         assert (repo / relative).is_file(), relative
-    assert "harness: claude_code" in (repo / "asf" / "factory.yaml").read_text()
+    assert "harness:\n  name: claude_code" in (repo / "asf" / "factory.yaml").read_text()
     assert "ASF_SKILL=" in (repo / ".env").read_text()
     # Detected from the fixture's pyproject, written into the stamped quality.py.
     assert '"pytest"' in (repo / "asf" / "engine" / "quality.py").read_text()
@@ -248,6 +248,42 @@ def test_force_over_a_pre_1_1_stamp_names_each_obsolete_key_and_still_stamps(rep
                        "none`" in line)
     assert f"asf/factory.yaml:{line_of(old, 'mode: none')}" in integration
     assert "refused since 1.2" in integration and "`pr`" in integration
+
+
+PRE_1_3_HEAD = """\
+defaults:
+  harness: claude_code
+  model: sonnet
+  tools: [Read, Bash]
+  harness_options:
+    claude_code:
+      safe_mode: false
+      permission_mode: bypassPermissions
+  protected_files: [asf/engine/]
+  data_dir: asf/data
+"""
+
+
+def test_a_pre_1_3_config_is_refused_by_check_with_the_rewrite_and_named_by_force(repo: Path):
+    """`install --force` rewrites the stamped agents but never factory.yaml, so
+    the old `defaults:` is what an upgraded stamp is left holding: `check`
+    refuses it with the block to write instead, and the re-stamp names it."""
+    install(repo, "--harness", "claude_code")
+    config = repo / "asf" / "factory.yaml"
+    rest = config.read_text().split("\nbudget:", 1)[1]
+    config.write_text(PRE_1_3_HEAD + "\nbudget:" + rest)
+
+    checked = asf(repo, "check")
+    assert checked.returncode == 1
+    assert "`defaults:` is the shape before 1.3" in checked.stdout
+    assert "\nharness:\n  name: claude_code\n" in checked.stdout
+    assert "`safe_mode` is gone" in checked.stdout
+
+    forced = install(repo, "--harness", "claude_code", "--force")
+    assert forced.returncode == 0, forced.stdout + forced.stderr
+    named = next(line for line in forced.stdout.splitlines() if "`defaults:`" in line)
+    assert "asf/factory.yaml:1" in named and "refused since 1.3" in named
+    assert "factory.yaml.new" in named
 
 
 def test_the_lint_reads_a_flow_mapping_too(repo: Path):

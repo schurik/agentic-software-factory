@@ -14,10 +14,12 @@ else, and `asf.py run` calls it first.
 
 The rules a binding lives by, and why:
 
-  * `writes` and `tools` may only NARROW the roster's. The roster is reviewed
-    once and is the security boundary; a workflow is edited often. If a
-    workflow could widen either, the file people touch most would be the one
-    where an agent gains write access.
+  * `writes`, and the `tools`, `skills` and `context` of its `harness:` block,
+    may only NARROW the roster's. The roster is reviewed once and is the
+    security boundary; a workflow is edited often. If a workflow could widen
+    any of them, the file people touch most would be the one where an agent
+    gains write access — or a skill nobody reviewed. `model`, `thinking` and
+    `timeout_seconds` replace; options and the harness itself are the roster's.
   * `system_append` is allowed, `system` is not. Identity stays shared, or
     five workflows drift into five builders and the roster means nothing. An
     agent that really is different is a new directory under asf/agents/.
@@ -40,18 +42,34 @@ from .utils import new_id
 from .stage import StageContext, StageModule, StageStop, Step, load_registry
 
 
+class BindingHarness(BaseModel):
+    """A binding's `harness:` block: the keys of the agent.md block a workflow
+    may set. The rest (the harness, its options, its extensions) are the
+    roster's, and naming one is refused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: Optional[str] = None
+    thinking: Optional[str] = None
+    timeout_seconds: Optional[int] = None
+    tools: Optional[list[str]] = None        # narrows only
+    skills: Optional[list[str]] = None       # narrows only
+    context: Optional[list[str]] = None      # may only drop entries
+
+
 class Binding(BaseModel):
     """`agents: {alias: {...}}` — a roster agent as this workflow plays it."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     from_: str = Field(alias="from")
-    model: Optional[str] = None
-    thinking: Optional[str] = None
-    timeout_seconds: Optional[int] = None
+    harness: BindingHarness = Field(default_factory=BindingHarness)
     writes: Optional[list[str]] = None
-    tools: Optional[list[str]] = None
     system_append: list[str] = Field(default_factory=list)   # paths relative to the workflow dir
+
+
+# What a binding said flat before 1.3; each now sits in its `harness:` block.
+BINDING_FLAT = ("model", "thinking", "tools", "timeout_seconds")
 
 
 class Spec(BaseModel):
@@ -106,8 +124,12 @@ def load(name: str, config_path: str | Path = factory.DEFAULT_CONFIG) -> Workflo
         names = ", ".join(n for n, _ in available(config_path)) or "(none)"
         raise SystemExit(f"no workflow {name!r} — {directory} has no workflow.yaml. "
                          f"Available: {names}")
+    raw = yaml.safe_load(spec_path.read_text()) or {}
+    flat = _flat_bindings(raw)
+    if flat:
+        raise SystemExit(f"{spec_path}: " + "; ".join(flat))
     try:
-        spec = Spec(**(yaml.safe_load(spec_path.read_text()) or {}))
+        spec = Spec(**raw)
     except ValidationError as error:
         raise SystemExit(f"{spec_path}: {_flat(error)}") from None
     problems: list[str] = []
@@ -144,16 +166,23 @@ def _bind_agents(cfg: FactoryConfig, spec: Spec, directory: Path,
                             f"({', '.join(sorted(by_name)) or 'empty'})")
             continue
         update: dict[str, Any] = {"name": alias}
+        harness = binding.harness
         for key in ("model", "thinking", "timeout_seconds"):
-            value = getattr(binding, key)
+            value = getattr(harness, key)
             if value is not None:
                 update[key] = value
-        if binding.tools is not None:
-            widened = _widens(binding.tools, base.tools, exact=True)
+        for key in ("tools", "skills", "context"):
+            narrowed = getattr(harness, key)
+            if narrowed is None:
+                continue
+            widened = _widens(narrowed, getattr(base, key), exact=True)
             if widened:
-                problems.append(f"agents.{alias}: tools {widened} are not in {base.name}'s "
-                                f"roster list — a workflow may narrow tools, never widen them")
-            update["tools"] = binding.tools
+                problems.append(f"agents.{alias}: {key} {widened} are not in {base.name}'s "
+                                f"roster list — a workflow may narrow {key}, never widen them")
+            update[key] = narrowed
+        refusal = agents.skill_tool_refused(harness.tools)
+        if refusal:
+            problems.append(f"agents.{alias}: {refusal}")
         if binding.writes is not None:
             widened = _widens(binding.writes, base.writes, exact=False)
             if widened:
@@ -171,6 +200,24 @@ def _bind_agents(cfg: FactoryConfig, spec: Spec, directory: Path,
             "system_append": [*base.prompt_engineering.system_append, *appends]})
         bound[alias] = base.model_copy(update=update)
     return cfg.model_copy(update={"agents": list(bound.values())})
+
+
+def _flat_bindings(raw: dict) -> list[str]:
+    """Each binding that still says a harness key flat, with the block it goes
+    in — read off the YAML, so the refusal is the rewrite and not pydantic's
+    list of what a binding accepts."""
+    found = []
+    for alias, binding in (raw.get("agents") or {}).items():
+        if not isinstance(binding, dict):
+            continue
+        flat = [key for key in BINDING_FLAT if key in binding]
+        if flat:
+            block = {**(binding.get("harness") or {}), **{key: binding[key] for key in flat}}
+            written = yaml.safe_dump(block, default_flow_style=True, sort_keys=False).strip()
+            found.append(f"agents.{alias} sets {', '.join(f'`{key}`' for key in flat)} "
+                         f"flat — since 1.3 they sit in its harness block: "
+                         f"`harness: {written}`")
+    return found
 
 
 def _widens(requested: list[str], allowed: Optional[list[str]], exact: bool) -> list[str]:

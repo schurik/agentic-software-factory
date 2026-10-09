@@ -106,10 +106,10 @@ options and the recommended one named, and wait.
 
 ```
 asf/
-  factory.yaml            the manifest: defaults, budget, gates, cockpit, worktree. No agents in it.
+  factory.yaml            the manifest: harness, budget, gates, cockpit, worktree. No agents in it.
   .skill-version          the skill release that stamped this factory — `--force` rewrites it, never edit it
   asf.py                  the runner: list | check | run
-  agents/<name>/          agent.md: frontmatter (model, thinking, tools, writes, purpose) + identity below it
+  agents/<name>/          agent.md: frontmatter (purpose, writes, harness: model, tools, skills, context) + identity below it
   workflows/<name>/       workflow.yaml (input, agents, stages), optional tasks/<key>.md, optional agents/<x>.md
   stages/<name>/          stage.py (the contract) + its default task files
   engine/                 the machinery: session, worktree, gates, permissions, hitl, tracer, …

@@ -3,10 +3,11 @@
 # the roster sense: `writes: []` means it may change nothing tracked, so a
 # reviewer that cannot fix cannot quietly fix. Findings go back to the builder.
 purpose: Confirm that what was built is what was asked for; change nothing.
-thinking: high
-model: opus
 color: "#fb7185"
 writes: []
+harness:
+  model: opus
+  thinking: high
 ---
 
 # Reviewer

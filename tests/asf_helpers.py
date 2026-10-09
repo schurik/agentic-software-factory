@@ -76,8 +76,7 @@ def fake_roster(repo: Path, **agents: list[dict]) -> None:
     """
     config = repo / "asf" / "factory.yaml"
     raw = yaml.safe_load(config.read_text())
-    raw["defaults"].update({"harness": "fake", "model": "fake", "tools": None,
-                            "harness_options": {"fake": {}}})
+    raw["harness"].update({"name": "fake", "model": "fake", "tools": None, "options": {}})
     config.write_text(yaml.safe_dump(raw))
     for name, replies in agents.items():
         directory = repo / "asf" / "agents" / name
@@ -87,7 +86,8 @@ def fake_roster(repo: Path, **agents: list[dict]) -> None:
             entry, identity = frontmatter.split(spec.read_text())
         else:
             entry, identity = {"purpose": f"{name}, scripted"}, f"# {name.title()}\n\nYou are {name}.\n"
-        entry.update({"harness": "fake", "harness_options": {"replies": replies}})
+        block = entry.setdefault("harness", {})
+        block.update({"name": "fake", "options": {"replies": replies}})
         spec.write_text(f"---\n{yaml.safe_dump(entry)}---\n\n{identity}")
 
 

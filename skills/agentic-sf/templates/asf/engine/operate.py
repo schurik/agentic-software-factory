@@ -37,7 +37,7 @@ MARKS = {"ok": (GREEN, "✓"), "warn": (YELLOW, "~"), "fatal": (RED, "✗")}
 
 
 def sessions_dir(cfg: FactoryConfig) -> Path:
-    return artifacts.sessions_root(git_helper.main_root(), cfg.defaults.data_dir)
+    return artifacts.sessions_root(git_helper.main_root(), cfg.data_dir)
 
 
 def _answer_hint(adw_id: str) -> str:

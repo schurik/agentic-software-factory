@@ -220,11 +220,14 @@ closed vocabulary, each with its options), then `uv run asf/asf.py check
 **"Can I change what an agent does?"** — for one workflow, its task:
 `asf/workflows/<name>/tasks/<key>.md`, keeping the `## Report` block; or its
 identity, appended under `agents:` with `system_append`. For every workflow,
-`asf/agents/<name>/agent.md`: the frontmatter is its boundary (`tools`,
-`writes`), the prose its voice. A workflow can narrow an agent, never widen it.
+`asf/agents/<name>/agent.md`: the frontmatter is its boundary (`writes`, and a
+`harness:` block for its model, `tools`, `skills` and `context`), the prose its
+voice. A skill is one from the repository (`skills: [tdd]`), and `CLAUDE.md`
+reaches an agent only as `context: [CLAUDE.md]` — nothing on the operator's
+machine does. A workflow can narrow an agent, never widen it.
 
 **"Can I change the settings?"** — `asf/factory.yaml` is theirs from the moment
-it is stamped: defaults, budget, gates, worktree and landing, the tracker, the
+it is stamped: the harness, budget, gates, worktree and landing, the tracker, the
 cockpit. `uv run asf/asf.py check --json` shows them as the factory reads
 them, every default resolved. What a cockpit sees
 (`cockpit.transcripts`) and which commands it may send (`cockpit.commands`) are

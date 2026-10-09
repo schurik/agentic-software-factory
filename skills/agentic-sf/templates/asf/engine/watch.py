@@ -103,7 +103,7 @@ def live_runs(cfg: FactoryConfig, main_root) -> dict[str, int]:
     one behind forever, and budgeting on the count would wedge a watcher at
     max_concurrent while looking like a busy factory.
     """
-    sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+    sessions = artifacts.sessions_root(main_root, cfg.data_dir)
     return {adw_id: pid for adw_id, pid in artifacts.running_pids(sessions).items()
             if _alive(pid)}
 
@@ -113,7 +113,7 @@ def beat(cfg: FactoryConfig, main_root, kind: str, status: str, *, project: str 
     """Say that this watcher exists and what it just did — a file `asf status`
     reads. Never raises."""
     artifacts.watcher_beat(
-        artifacts.watchers_dir(main_root, cfg.defaults.data_dir), kind,
+        artifacts.watchers_dir(main_root, cfg.data_dir), kind,
         {"status": status, "pid": os.getpid(), "project": project, "interval_s": interval,
          "note": note, "started_at": now_iso(), "last_poll_at": now_iso()})
 
@@ -124,7 +124,7 @@ def local_lock(cfg: FactoryConfig, main_root, bucket: str, project: str, number:
     yield False. `flock`, non-blocking, held for the whole run and released by
     the OS even if this process dies. Not a claim: that is the shared
     cockpit's, across machines (`engine/claims.py`)."""
-    lock_dir = ensure_dir(anchor(main_root, f"{cfg.defaults.data_dir}/{bucket}"))
+    lock_dir = ensure_dir(anchor(main_root, f"{cfg.data_dir}/{bucket}"))
     handle = open(lock_dir / _slug(project, number), "w")
     try:
         try:
@@ -393,7 +393,7 @@ def _answering(cfg: FactoryConfig, main_root) -> dict:
     treating an unknown channel as this one's would resume a run on an answer
     that never came.
     """
-    sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+    sessions = artifacts.sessions_root(main_root, cfg.data_dir)
     return {adw_id: what for adw_id, what in artifacts.waiting_sessions(sessions).items()
             if what.channel == "issue" and what.issue_number}
 
@@ -486,7 +486,7 @@ def answers_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int
             print(f"  {adw_id}: max_concurrent ({cfg.issues.max_concurrent}) reached — "
                   f"next poll")
             break
-        session_dir = artifacts.sessions_root(main_root, cfg.defaults.data_dir) / adw_id
+        session_dir = artifacts.sessions_root(main_root, cfg.data_dir) / adw_id
         with local_lock(cfg, main_root, "issue-locks", project, what.issue_number) as mine:
             # The SAME lock the issue watcher takes. The two cannot collide
             # today — that one only claims `queued` items and this one's are on
@@ -583,7 +583,7 @@ def waiting_on(cfg: FactoryConfig, main_root, number: int) -> str:
     """The session already stopped at a gate on this pull request, or "". Its
     threads are still unresolved — the condition that launched it — and the
     `failed` label cannot guard a run that did exactly what it was asked."""
-    sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+    sessions = artifacts.sessions_root(main_root, cfg.data_dir)
     urls = artifacts.pr_urls(sessions)
     for adw_id in artifacts.waiting_sessions(sessions):
         if _pr_number(urls.get(adw_id, "")) == number:
@@ -616,7 +616,7 @@ def reap(cfg: FactoryConfig, main_root, project: str) -> int:
     the worktree by the same conservative rule `asf worktrees prune` uses,
     drop the loop-stop label and the lock. Idempotent; never raises.
     """
-    sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+    sessions = artifacts.sessions_root(main_root, cfg.data_dir)
     live = live_runs(cfg, main_root)
     names = artifacts.adw_names(sessions)
     trees = {info.adw_id for info in worktree.inventory(main_root, cfg.worktree, str(sessions))}
@@ -647,7 +647,7 @@ def reap(cfg: FactoryConfig, main_root, project: str) -> int:
         _release(cfg, main_root, adw_id, str(sessions))
         mark(cfg, main_root, project, number, remove=cfg.pull_requests.states.failed)
         try:
-            (anchor(main_root, f"{cfg.defaults.data_dir}/pr-locks")
+            (anchor(main_root, f"{cfg.data_dir}/pr-locks")
              / _slug(project, number)).unlink(missing_ok=True)
         except OSError:
             pass
