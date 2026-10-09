@@ -21,6 +21,14 @@ before — `None` when there are none, never omitted.
 
 ## Unreleased
 
+- **A rollback, a limit and a refused chapter are facts.** `permission_rolled_back` names the
+  paths the factory undid after an agent wrote outside its `writes:`, and the ones it left as they
+  were; `limit_hit` says which limit stopped an agent phase — `tokens` or `cost` from `budget:`,
+  or a turn's `timeout` — with the limit and the value that met it; and `workflow_finished` v2
+  carries `accepted`, false when every phase passed and the workflow still refused the chapter.
+  Each was only the words of an error or a reason before. A 1.3.0 cockpit tells them on the
+  session page as what they are — the limit, the paths, "not accepted" on the chapter — rather
+  than as error text.
 - **A session says what became of its pull request.** The integration that opens a pull request
   records `pull_request_opened`, and the PR watcher, when it reaps a session whose pull request
   merged or closed, records `pull_request_closed` — merged or not, when, when its first review came,
@@ -141,12 +149,12 @@ before — `None` when there are none, never omitted.
    first) — a vendored one with `npx skills add schurik/agentic-software-factory --skill
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
-   settings in the self-description, registering without a token and the pull request events;
-   nothing else changes. The PR watcher's first pass after it (`just prs`, or `just up`) records
-   every pull request the factory opened that has since closed, 20 a pass — what the Measure tab
-   counts merges from. Pull requests opened before the re-stamp said nothing when they opened, so
-   they count as merged but never as autonomous. A
-   factory with the CI workflow ships format 2 on its next default-branch push.
+   settings in the self-description, registering without a token, the pull request events and
+   the failure events; nothing else changes. The PR watcher's first pass after it (`just prs`, or
+   `just up`) records every pull request the factory opened that has since closed, 20 a pass —
+   what the Measure tab counts merges from. Pull requests opened before the re-stamp said nothing
+   when they opened, so they count as merged but never as autonomous. A factory with the CI
+   workflow ships format 2 on its next default-branch push.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`

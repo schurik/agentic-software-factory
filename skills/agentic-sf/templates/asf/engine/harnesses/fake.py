@@ -296,7 +296,8 @@ def run(request: AgentRequest, on_event: Optional[Callable[[dict], None]] = None
                                                        total_cost=reply.cost))
             raise AgentTimeout(
                 f"fake agent ran past its {limit}s limit without finishing and was "
-                f"terminated (harness.timeout_seconds)", partial)
+                f"terminated (harness.timeout_seconds)", partial, limit=limit,
+                elapsed=reply.sleep)
         time.sleep(reply.sleep)
 
     _apply(reply, request.cwd)

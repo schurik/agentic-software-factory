@@ -241,8 +241,8 @@ class Run:
             session_tokens=self._prior_tokens + self.tokens,
             session_cost=self._prior_cost + self.cost))
 
-    def overrun(self) -> str:
-        """Why this session may spend no more, or "" while it still may.
+    def overrun(self) -> limits.Overrun | None:
+        """The ceiling this session has met, or None while it may still spend.
 
         Deliberately a question and not an enforcement point: adding usage must
         not raise, or a phase would die between paying for a turn and recording
@@ -460,7 +460,8 @@ class Run:
             note = reason or "the run's acceptance criterion was not met"
             self.console.note(f"not accepted: {note}")
         # The session's own record says it, and it is the one a resume reads.
-        artifacts.finish_run(self.session_dir, "success" if ok else "fail", reason=note)
+        artifacts.finish_run(self.session_dir, "success" if ok else "fail", reason=note,
+                             accepted=accepted)
         # An accepted run's worktree is a redundant copy of a branch that is
         # kept, so it goes; a failed or killed one is the evidence, so it stays.
         # `release` also keeps anything with uncommitted work in it, whatever

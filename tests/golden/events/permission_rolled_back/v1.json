@@ -1,0 +1,18 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "permission_rolled_back",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_02_scout",
+    "phase": "scout",
+    "agent": "scout",
+    "paths": [
+      "docs/café.md",
+      "notes/résumé.md"
+    ],
+    "not_undone": [
+      "README.md"
+    ]
+  }
+}

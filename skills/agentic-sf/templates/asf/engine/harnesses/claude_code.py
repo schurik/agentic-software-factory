@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..data_types import (AgentConfig, AgentRequest, AgentResult, Finding,
                           UsageBreakdown)
-from ..limits import AgentTimeout, Deadline
+from ..limits import Deadline
 from ..tool_calls import ToolCallLedger
 from ..utils import operator_env, write_atomic
 
@@ -565,7 +565,7 @@ def _stream(cmd: list[str], request: AgentRequest, result: AgentResult,
         # Whatever the agent did emit is already in raw_output.jsonl and in the
         # trace; what is lost is this turn's usage, which Claude Code only
         # reports in the final `result` event that never came.
-        raise AgentTimeout(deadline.reason(NAME, request.raw_output_path), result)
+        raise deadline.expired(NAME, request.raw_output_path, result)
     return returncode, stderr
 
 

@@ -11,7 +11,7 @@ import { buttonClass, Card, cx, followInPlace, type Go } from "../ui";
 import { useWho } from "../viewer";
 import type { OpenPhase } from "../graph/StageGraph";
 import { waitsOn } from "./action";
-import { channelWords, phaseName } from "./words";
+import { channelWords, phaseName, stoppedWords } from "./words";
 
 const EDGE: Record<string, string> = {
   running: "border-l-accent", waiting: "border-l-wait", fail: "border-l-bad", success: "border-l-ok",
@@ -59,7 +59,8 @@ export function NowCard({ summary, states, story, budget, now, viewer, openPhase
   } else if (summary.status === "fail") {
     const failed = here.failed;
     const name = failed ? phaseName({ name: failed.name }) : "";
-    sentence = failed ? <>Failed in <b className="font-semibold">{name}</b>{failed.error ? `: ${failed.error}` : ""}</> : <>Failed</>;
+    const why = failed ? stoppedWords(failed) || failed.error : "";
+    sentence = failed ? <>Failed in <b className="font-semibold">{name}</b>{why ? `: ${why}` : ""}</> : <>Failed</>;
     if (failed) {
       const { href, onClick } = openPhase(failed.phaseId);
       next = (

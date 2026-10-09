@@ -2453,14 +2453,26 @@ class WorkflowStarted(DomainEvent):
 
 class WorkflowFinished(DomainEvent):
     """The chapter's workflow ended, accepted or not. A chapter that failed and
-    was resumed finishes again, and the later one is how it stands."""
+    was resumed finishes again, and the later one is how it stands.
+
+    v2: `accepted`, whether the workflow accepted the chapter, as it handed it to
+    `run.finish(accepted=)` — the second of the two criteria a chapter ends on, and
+    the one `status` alone cannot tell apart from the first. False is "the
+    phases passed but the chapter was not accepted" (a fix loop that ran out, a
+    reviewer who withheld approval), with `reason` saying why. A chapter that
+    ended any other way — a phase failed, a person aborted, the process was
+    killed — was never judged, and says True: its `status` says it
+    failed, and the phase that failed says why.
+    """
 
     KIND: ClassVar[str] = "workflow_finished"
+    VERSION: ClassVar[int] = 2      # v2: accepted
 
     workflow: str
     chapter: int
     status: Literal["success", "fail"]
     reason: str = ""
+    accepted: bool = True
 
 
 class SessionResumed(DomainEvent):
@@ -2791,6 +2803,52 @@ class CommandResult(DomainEvent):
     detail: str = ""
 
 
+class PermissionRolledBack(DomainEvent):
+    """An agent changed paths outside its `writes:`, and the factory undid what
+    it could (`permissions.enforce`) before failing the phase.
+
+    `paths` are the breaches undone — restored from HEAD, or deleted when HEAD
+    never held them. `not_undone` are the breaches left as they are: a path
+    that was already modified before the agent ran, which is the engineer's
+    uncommitted work and not the factory's to discard, or one git refused to
+    restore. The phase's error still says the same in prose, a line per path;
+    this is the fact a reader counts.
+    """
+
+    KIND: ClassVar[str] = "permission_rolled_back"
+
+    phase_id: str
+    phase: str
+    agent: str
+    paths: list[str] = Field(default_factory=list)          # relative to the repository root
+    not_undone: list[str] = Field(default_factory=list)
+
+
+LimitKind = Literal["tokens", "cost", "timeout"]
+
+
+class LimitHit(DomainEvent):
+    """A limit stopped an agent phase (`limits.py`): a session's `budget:`
+    ceiling refused the next send, or one turn ran past `timeout_seconds` and
+    was terminated.
+
+    `limit` is the ceiling as configured and `reached` the value that met it,
+    in the limit's own unit: session tokens for `tokens`, session USD for
+    `cost`, and seconds for `timeout` — the turn's limit, and how long it had
+    run when the factory ended it. A ceiling is checked before a send, so
+    `reached` is at or past `limit`; nothing was spent past it in this phase.
+    """
+
+    KIND: ClassVar[str] = "limit_hit"
+
+    phase_id: str
+    phase: str
+    agent: str
+    kind: LimitKind
+    limit: float
+    reached: float
+
+
 class SessionFinished(DomainEvent):
     KIND: ClassVar[str] = "session_finished"
 
@@ -2897,5 +2955,5 @@ EVENT_KINDS: dict[str, type[DomainEvent]] = {model.KIND: model for model in (
     PhaseStarted, PhaseEnded, PhaseReplayed, EnvelopeAccepted, EnvelopeRejected, GateResult,
     GateOpened, SessionSuspended, DecisionRecorded, JournalNoted, UsageRecorded,
     ArtifactWritten, Committed, ToolCalled, ProcessStarted, ProcessEnded, CommandFinished,
-    CommandResult, SessionFinished, PullRequestOpened, PullRequestClosed, PromptRendered,
-    HarnessOutput)}
+    CommandResult, SessionFinished, PullRequestOpened, PullRequestClosed, PermissionRolledBack,
+    LimitHit, PromptRendered, HarnessOutput)}

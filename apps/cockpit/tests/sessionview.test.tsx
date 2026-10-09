@@ -282,6 +282,49 @@ describe("the Now card", () => {
   });
 });
 
+describe("a failure that is a fact", () => {
+  const IMPLEMENT = "a9f259f0_08_implement";
+  const ERROR = "builder not sent: session has spent $2.0412 of its $2.00 ceiling (budget.max_cost_usd)";
+  const at = (seq: number) => ({ seq, ts: "2026-10-04T22:41:40.000+00:00" });
+  const stopped = (fact: WireEvent) => failedIn([...upTo(BUILDING), fact, {
+    ...at(BUILDING + 2), kind: "phase_ended", v: 1,
+    payload: { phase_id: IMPLEMENT, name: "implement", status: "fail", attempt: 0, error: ERROR, gate: "", round: 0 },
+  }]);
+  const limit: WireEvent = { ...at(BUILDING + 1), kind: "limit_hit", v: 1,
+    payload: { phase_id: IMPLEMENT, phase: "implement", agent: "builder", kind: "cost", limit: 2, reached: 2.0412 } };
+  const nowCard = (markup: string) => markup.slice(markup.indexOf('data-now=""'), markup.indexOf("</section>", markup.indexOf('data-now=""')));
+  const rollback: WireEvent = { ...at(BUILDING + 1), kind: "permission_rolled_back", v: 1,
+    payload: { phase_id: IMPLEMENT, phase: "implement", agent: "builder", paths: ["asf/engine/gates.py"], not_undone: ["README.md"] } };
+
+  it("tells a limit hit as the limit it was, on the Timeline, the Now card and the phase's Overview", () => {
+    const events = stopped(limit);
+    const timeline = text({ events, shown: { tab: "timeline" } });
+    expect(timeline).toContain("⏹ stopped at the cost limit: $2.04 spent of $2.00");
+    expect(timeline).not.toContain(ERROR);
+    expect(read(nowCard(html({ events })))).toMatch(/Failed in implement ?: stopped at the cost limit: \$2\.04 spent of \$2\.00/);
+    const overview = read(html({ events, shown: { phase: IMPLEMENT } }).split("data-drawer=").at(-1)!);
+    expect(overview).toContain("⏹ stopped at the cost limit: $2.04 spent of $2.00");
+    expect(overview).toMatch(/the phase's error .*builder not sent/);
+  });
+
+  it("tells a rollback as the paths it undid, and the ones it left as they were", () => {
+    const timeline = text({ events: stopped(rollback), shown: { tab: "timeline" } });
+    expect(timeline).toContain("↺ wrote outside its boundary: asf/engine/gates.py rolled back; README.md not undone");
+    expect(timeline).not.toContain(ERROR);
+  });
+
+  it("says a chapter whose phases passed was not accepted, and why", () => {
+    const finished: WireEvent = { ...at(BUILDING + 1), kind: "workflow_finished", v: 2,
+      payload: { workflow: "issue", chapter: 1, status: "fail", reason: "test still failed after 3 attempt(s)", accepted: false } };
+    const events = failedIn([...upTo(BUILDING), finished]);
+    expect(read(chapter(html({ events }), 1))).toContain("not accepted: test still failed after 3 attempt(s)");
+    expect(text({ events, shown: { tab: "timeline" } }))
+      .toMatch(/Chapter 1 · issue · answering issue #42 · not accepted: test still failed after 3 attempt\(s\)/);
+    // A chapter that said nothing of its acceptance, or was accepted, says nothing of it.
+    expect(read(chapter(html(), 1))).not.toContain("accepted");
+  });
+});
+
 describe("the tabs", () => {
   it("open on Details, which holds only what the page shows nowhere else", () => {
     const markup = html({ claims: [], extra: { budget: { maxCostUsd: 2.5, maxTokens: 2_000_000 } } });

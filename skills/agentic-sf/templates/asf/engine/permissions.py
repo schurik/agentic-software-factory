@@ -35,7 +35,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .data_types import AgentConfig, FactoryConfig
+from .data_types import AgentConfig, FactoryConfig, PermissionRolledBack
 
 
 class PermissionBreach(RuntimeError):
@@ -155,6 +155,11 @@ def permitted(path: str, agent: AgentConfig, cfg: FactoryConfig) -> bool:
     return agent.writes is None          # None = unrestricted, [] = no repo writes
 
 
+# What `_roll_back` says when the breach is gone; anything else it says leaves it in place.
+ROLLED_BACK, DELETED = "rolled back", "deleted"
+UNDONE = (ROLLED_BACK, DELETED)
+
+
 def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) -> str:
     """Undo one unauthorized change. Returns a word describing what happened.
 
@@ -189,11 +194,11 @@ def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) ->
                               capture_output=True, text=True).returncode == 0
 
     if git("cat-file", "-e", f"HEAD:{path}"):
-        return "rolled back" if git("checkout", "HEAD", "--", path) else "could not roll back"
+        return ROLLED_BACK if git("checkout", "HEAD", "--", path) else "could not roll back"
     git("rm", "--cached", "--force", "--quiet", "--", path)     # a no-op for a path never staged
     try:
         (Path(run.repo_root) / path).unlink()
-        return "deleted"
+        return DELETED
     except OSError as error:
         return f"could not delete ({error})"
 
@@ -206,7 +211,9 @@ def enforce(run, phase, agent: AgentConfig, before: dict[str, str]) -> list[str]
 
     Detection alone would leave the repo holding the unauthorized change while
     reporting a failure, so anything the agent introduced outside its allowlist
-    is rolled back before the phase dies. What it cannot undo, it names.
+    is rolled back before the phase dies. What it cannot undo, it names — in
+    the error, for a person, and in a `permission_rolled_back`, for anything
+    that counts.
     """
     after = snapshot(run)
     touched = changed_paths(before, after)
@@ -215,6 +222,10 @@ def enforce(run, phase, agent: AgentConfig, before: dict[str, str]) -> list[str]
         return touched
 
     outcomes = {p: _roll_back(run, p, before, after) for p in breaches}
+    run.tracer.event(PermissionRolledBack(
+        phase_id=phase.phase_id, phase=phase.params.name, agent=agent.name,
+        paths=[p for p, outcome in outcomes.items() if outcome in UNDONE],
+        not_undone=[p for p, outcome in outcomes.items() if outcome not in UNDONE]))
     scope = ("read-only" if agent.writes == []
              else f"limited to {agent.writes}" if agent.writes
              else f"barred from {run.cfg.protected_files}")

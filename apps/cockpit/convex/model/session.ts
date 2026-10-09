@@ -342,6 +342,12 @@ const READERS: Record<string, Record<number, Reader>> = {
       describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} finished: ` +
         p.str("status") + (p.str("reason") ? ` — ${p.str("reason")}` : ""),
     },
+    // v2 adds whether the workflow accepted the chapter: false is "its phases passed, and it was still not accepted".
+    2: {
+      describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} finished: ` +
+        p.str("status") + (p.bool("accepted") ? "" : ", not accepted") +
+        (p.str("reason") ? ` — ${p.str("reason")}` : ""),
+    },
   },
   session_resumed: {
     1: {
@@ -505,6 +511,26 @@ const READERS: Record<string, Record<number, Reader>> = {
         const commits = p.strs("head_shas").length;
         return `pull request #${p.num("number")} ${p.bool("merged") ? "merged" : "closed unmerged"}` +
           ` with ${commits} commit${commits === 1 ? "" : "s"}`;
+      },
+    },
+  },
+  // An agent wrote outside its `writes:`, and the factory undid what it could before failing the phase.
+  permission_rolled_back: {
+    1: {
+      describe: (p) => `${p.str("agent")} wrote outside its boundary: ` +
+        [p.strs("paths").length ? `${p.strs("paths").join(", ")} rolled back` : "",
+         p.strs("not_undone").length ? `${p.strs("not_undone").join(", ")} not undone` : ""]
+          .filter(Boolean).join("; "),
+    },
+  },
+  // A budget ceiling refused an agent's next send, or a turn ran past its wall clock.
+  limit_hit: {
+    1: {
+      describe: (p) => {
+        const unit = (value: number) => p.str("kind") === "cost" ? money(value)
+          : p.str("kind") === "timeout" ? `${value}s` : `${value} tokens`;
+        return `${p.str("phase")} (${p.str("agent")}) stopped at the ${p.str("kind")} limit: ` +
+          `${unit(p.num("reached"))} of ${unit(p.num("limit"))}`;
       },
     },
   },

@@ -11,7 +11,7 @@ import { isMarkdown, Markdown } from "../Markdown";
 import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, plural, pretty } from "../format";
 import { cx, Facts, num, Pre, Table, TabPanel, Tabs } from "../ui";
 import { useWho } from "../viewer";
-import { channelWords } from "./words";
+import { channelWords, stoppedMark, stoppedWords } from "./words";
 
 /** Which session a phase is of, and the forge's web origin its links go to ("" when unknown). */
 export interface Where {
@@ -214,6 +214,8 @@ const quiet = "px-3 py-2 text-muted";
 function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; where: Where }) {
   const { envelope } = detail;
   const error = (item.type === "gate" ? "" : item.error) || detail.error;
+  // A limit or a rollback is told as the fact it is; the error's prose stays one click away.
+  const stopped = item.type === "agent" ? stoppedWords(item) : "";
   return (
     <div className="flex flex-col gap-4">
       {detail.description ? <p className="text-muted">{detail.description}</p> : null}
@@ -229,7 +231,17 @@ function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; w
           ) : null}
         </div>
       ) : detail.status === "running" ? <p className="text-lg text-muted">Still running.</p> : null}
-      {error ? <div className="rounded-lg border border-bad/40 bg-bad-soft px-3 py-2 text-bad">{error}</div> : null}
+      {stopped && item.type === "agent" ? (
+        <div className="rounded-lg border border-bad/40 bg-bad-soft px-3 py-2 text-bad">
+          {stoppedMark(item)} {stopped}
+          {error ? (
+            <details className="mt-1 text-sm">
+              <summary>the phase&apos;s error</summary>
+              <Pre className="mt-1">{error}</Pre>
+            </details>
+          ) : null}
+        </div>
+      ) : error ? <div className="rounded-lg border border-bad/40 bg-bad-soft px-3 py-2 text-bad">{error}</div> : null}
       {item.type === "gate" ? <GateRemark gate={item} /> : null}
       {item.type === "agent" ? item.notes.map((note) => (
         <div key={`${note.kind}:${note.what}`} className="rounded-lg border border-line bg-surface-2 px-3 py-2.5">

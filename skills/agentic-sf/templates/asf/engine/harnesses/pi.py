@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..data_types import (AgentConfig, AgentRequest, AgentResult, Finding,
                           UsageBreakdown)
-from ..limits import AgentTimeout, Deadline
+from ..limits import Deadline
 from ..tool_calls import ToolCallLedger
 from ..utils import new_id, operator_env
 
@@ -417,7 +417,7 @@ def run(request: AgentRequest, on_event: Optional[Callable[[dict], None]] = None
         # emit is already in raw_output.jsonl, and the partial result rides
         # along on the exception: pi reports usage per message, so a turn that
         # hung after real work has already been billed for it.
-        raise AgentTimeout(deadline.reason(NAME, request.raw_output_path), result)
+        raise deadline.expired(NAME, request.raw_output_path, result)
     if result.returncode != 0 and not result.text:
         raise RuntimeError(f"pi exited {result.returncode}: {stderr.strip()[-800:]}")
     return result
