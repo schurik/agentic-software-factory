@@ -43,9 +43,12 @@ def no_one_s_gh(tmp_path_factory, monkeypatch):
     started by hand records the login `gh` is logged in as (`station.operator`),
     and a suite that recorded whoever ran it would differ from machine to
     machine — and put their login into a recorded golden session. A test that
-    wants a login puts a `gh` of its own on PATH."""
+    wants a login puts a `gh` of its own on PATH. Nor is the job's branch: the
+    description names `GITHUB_HEAD_REF`/`GITHUB_REF_NAME` over the checkout's
+    own, and a push to main would have every test describe `main`."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path_factory.mktemp("gh-config")))
-    monkeypatch.delenv("GITHUB_ACTOR", raising=False)          # ...nor whose CI job
+    for name in ("GITHUB_ACTOR", "GITHUB_HEAD_REF", "GITHUB_REF_NAME"):   # ...nor CI's
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
