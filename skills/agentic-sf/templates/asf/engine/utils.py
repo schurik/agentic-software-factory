@@ -48,6 +48,11 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def utc(moment: datetime) -> datetime:
+    """A naive moment read as UTC — what every timestamp the factory writes is."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
 def ensure_dir(path: str | Path) -> Path:
     p = Path(path)
     p.mkdir(parents=True, exist_ok=True)

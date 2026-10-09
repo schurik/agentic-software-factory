@@ -46,7 +46,7 @@ from . import artifacts, commands, git_helper, issues, station, worktree
 from . import cockpit as local_cockpit
 from .data_types import FactoryConfig, Station, StationCredential
 from .station import Destination
-from .utils import anchor
+from .utils import anchor, utc
 
 RUNNER = "asf/asf.py"
 WATCHERS = ("issues", "answers", "prs")
@@ -388,9 +388,7 @@ def _age(iso: str | None) -> str:
         then = datetime.fromisoformat(iso)
     except ValueError:
         return iso
-    if then.tzinfo is None:
-        then = then.replace(tzinfo=timezone.utc)
-    seconds = int((datetime.now(timezone.utc) - then).total_seconds())
+    seconds = int((datetime.now(timezone.utc) - utc(then)).total_seconds())
     if seconds < 60:
         return f"{seconds}s ago"
     if seconds < 3600:

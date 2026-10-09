@@ -250,7 +250,7 @@ def cmd_score(args) -> int:
 def _since(text: str) -> datetime:
     """`--since 2026-10-01`, or a whole ISO timestamp; a bare date is its midnight, UTC."""
     try:
-        return watch.utc(datetime.fromisoformat(text))
+        return utils.utc(datetime.fromisoformat(text))
     except ValueError:
         raise argparse.ArgumentTypeError(
             f"{text!r} is not a date: give one as 2026-10-01, or 2026-10-01T09:00:00Z") from None

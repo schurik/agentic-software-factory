@@ -49,6 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from . import events
@@ -58,7 +59,7 @@ from .data_types import (BODY_BYTES, ArtifactRole, ArtifactWritten, DomainEvent,
                          RunState, SessionFinished, SessionResumed, SessionSpec, SessionStarted,
                          SessionSuspended, UsageRecorded, WaitingFor, WorkflowFinished,
                          WorkflowStarted)
-from .utils import anchor, clip_utf8, ensure_dir, sweep_temps, write_atomic
+from .utils import anchor, clip_utf8, ensure_dir, sweep_temps, utc, write_atomic
 
 RUN_FILE = "run.json"
 ENVELOPES_DIR = "envelopes"
@@ -591,11 +592,22 @@ def pr_urls(sessions_dir: Path) -> dict[str, str]:
             if state.pr_url}
 
 
-def unclosed_pr_urls(sessions_dir: Path) -> dict[str, str]:
+def unclosed_pr_urls(sessions_dir: Path, since: datetime | None = None) -> dict[str, str]:
     """{adw_id: pr_url} for every session whose pull request has not been seen
-    closed — open still, or closed while nothing was watching."""
+    closed — open still, or closed while nothing was watching — of those started
+    on or after `since`. A session with no readable start counts as started
+    since: nothing says it is older."""
     return {adw_id: state.pr_url for adw_id, state in scan(sessions_dir).items()
-            if state.pr_url and not state.pr_state}
+            if state.pr_url and not state.pr_state and _started_since(state.started_at, since)}
+
+
+def _started_since(started_at: str, since: datetime | None) -> bool:
+    if since is None:
+        return True
+    try:
+        return utc(datetime.fromisoformat(started_at)) >= since
+    except ValueError:
+        return True
 
 
 def adw_names(sessions_dir: Path) -> dict[str, str]:
