@@ -91,6 +91,15 @@ def fake_roster(repo: Path, **agents: list[dict]) -> None:
         spec.write_text(f"---\n{yaml.safe_dump(entry)}---\n\n{identity}")
 
 
+def scorer(repo: Path, name: str, meta: dict, prose: str = "") -> Path:
+    """A scorer the way an operator writes one: `asf/scorers/<name>/scorer.md`."""
+    directory = repo / "asf" / "scorers" / name
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "scorer.md"
+    path.write_text(f"---\n{yaml.safe_dump(meta, sort_keys=False)}---\n\n{prose or f'# {name}'}\n")
+    return path
+
+
 def wire(repo: Path, block: str, argv: list[str]) -> None:
     """Replace one quality block's argv in the stamped quality.py."""
     quality = repo / "asf" / "engine" / "quality.py"

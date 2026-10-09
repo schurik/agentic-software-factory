@@ -1,0 +1,1004 @@
+{
+  "format": 3,
+  "skill_version": "1.3.0",
+  "checked": {
+    "head": "3f1c2a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a39",
+    "ref": "main",
+    "config_hash": "9b2f6e1d0c4a8b7e6f5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a2918070"
+  },
+  "ok": false,
+  "budget": {
+    "max_cost_usd": 2.5,
+    "max_tokens": 2000000
+  },
+  "settings": {
+    "intake": {
+      "issues": true,
+      "routes": {
+        "asf:ship": "issue",
+        "asf:refine": "refine",
+        "asf:refine-ship": "refine-ship"
+      },
+      "queued_label": "asf:queued",
+      "trusted_authors": [
+        "alex",
+        "sam"
+      ],
+      "max_concurrent": 2,
+      "reviews": {
+        "watched": true,
+        "workflow": "pr-review",
+        "trusted_reviewers": [],
+        "ignore_authors": [
+          "codecov[bot]"
+        ],
+        "reply_to_threads": true,
+        "resolve_threads": true,
+        "max_threads": 20,
+        "max_concurrent": 2,
+        "reap_merged": true
+      },
+      "prompt_workflows": [
+        "quick",
+        "sdlc",
+        "ship"
+      ]
+    },
+    "hitl": {
+      "default": false,
+      "gates": {
+        "integrate": false,
+        "plan": false
+      },
+      "wait_seconds": 900,
+      "when_unattended": "suspend",
+      "max_rounds": 3,
+      "notify_command": [
+        "scripts/notify.sh"
+      ]
+    },
+    "landing": {
+      "mode": "pr",
+      "issue_mode": "pr",
+      "open_pr": true,
+      "remote": "origin",
+      "branch_prefix": "asf/",
+      "base_ref": "",
+      "publish": "on_create",
+      "worktrees": true,
+      "worktree_dir": ".asf-worktrees",
+      "keep_on_success": false
+    },
+    "limits": {
+      "transcripts": true,
+      "transcript_retention_days": 14,
+      "commands": [
+        "answer",
+        "abort",
+        "kill",
+        "resume"
+      ]
+    },
+    "forge": {
+      "project": "acme/widgets",
+      "review_project": "acme/widgets",
+      "labels": {
+        "queued": "asf:queued",
+        "running": "asf:running",
+        "done": "asf:done",
+        "failed": "asf:failed",
+        "refined": "asf:refined",
+        "pr_failed": "asf:pr-failed"
+      }
+    },
+    "measure": {
+      "self_improvement": {
+        "failures": 3,
+        "of_last": 10
+      }
+    }
+  },
+  "workflows": [
+    {
+      "name": "issue",
+      "description": "a tracked work item, scouted, planned, built, verified, reviewed, documented and proposed as a pull request",
+      "input": "issue",
+      "trigger": {
+        "labels": [
+          "asf:ship"
+        ],
+        "watched": true
+      },
+      "stages": [
+        {
+          "stage": "scout",
+          "kind": "agent",
+          "agents": [
+            "scout"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "plan",
+          "kind": "agent",
+          "agents": [
+            "planner"
+          ],
+          "gate": "plan"
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "implement",
+          "kind": "agent",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "verify",
+          "kind": "code",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "review",
+          "kind": "agent",
+          "agents": [
+            "reviewer",
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "document",
+          "kind": "agent",
+          "agents": [
+            "documenter"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "integrate",
+          "kind": "code",
+          "agents": [],
+          "gate": "integrate"
+        }
+      ],
+      "agents": [
+        {
+          "name": "builder",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Implement the plan exactly; report every changed file in the envelope.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": null
+        },
+        {
+          "name": "documenter",
+          "harness": "claude_code",
+          "model": "sonnet",
+          "thinking": "medium",
+          "purpose": "Write up the change that was just made, from the diff; document only.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": [
+            "docs/",
+            "**/*.md",
+            "*.md"
+          ]
+        },
+        {
+          "name": "planner",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Turn a request into a plan the builder can implement without asking questions.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": [
+            "docs/asf/spec/"
+          ]
+        },
+        {
+          "name": "reviewer",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Confirm that what was built is what was asked for; change nothing.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": []
+        },
+        {
+          "name": "scout",
+          "harness": "claude_code",
+          "model": "sonnet",
+          "thinking": "medium",
+          "purpose": "Find and report where things live; change nothing.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": []
+        }
+      ],
+      "gates": [
+        {
+          "name": "plan",
+          "stage": "plan",
+          "kind": "gate",
+          "on": true
+        },
+        {
+          "name": "integrate",
+          "stage": "integrate",
+          "kind": "gate",
+          "on": false
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "pr-review",
+      "description": "answer the open review threads on one of this factory's pull requests, in the session that opened it",
+      "input": "pr",
+      "trigger": {
+        "labels": [],
+        "watched": true
+      },
+      "stages": [
+        {
+          "stage": "implement",
+          "kind": "agent",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "verify",
+          "kind": "code",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        }
+      ],
+      "agents": [
+        {
+          "name": "builder",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Implement the plan exactly; report every changed file in the envelope.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": null
+        }
+      ],
+      "gates": [],
+      "warnings": []
+    },
+    {
+      "name": "quick",
+      "description": "implement straight from the prompt, verify, commit — for a change one sentence describes",
+      "input": "prompt",
+      "trigger": {
+        "labels": [],
+        "watched": false
+      },
+      "stages": [
+        {
+          "stage": "implement",
+          "kind": "agent",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "verify",
+          "kind": "code",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        }
+      ],
+      "agents": [
+        {
+          "name": "builder",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Implement the plan exactly; report every changed file in the envelope.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": null
+        }
+      ],
+      "gates": [],
+      "warnings": []
+    },
+    {
+      "name": "refine",
+      "description": "read the item and the code, ask what cannot be decided, and write the agreed requirements back onto it",
+      "input": "issue",
+      "trigger": {
+        "labels": [
+          "asf:refine"
+        ],
+        "watched": true
+      },
+      "stages": [
+        {
+          "stage": "refine",
+          "kind": "agent",
+          "agents": [
+            "analyst",
+            "scout"
+          ],
+          "gate": "requirements"
+        }
+      ],
+      "agents": [
+        {
+          "name": "analyst",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Turn a request into requirements; ask about what cannot be settled.",
+          "tools": [
+            "Read",
+            "Glob",
+            "Write",
+            "WebFetch"
+          ],
+          "writes": []
+        },
+        {
+          "name": "scout",
+          "harness": "claude_code",
+          "model": "sonnet",
+          "thinking": "medium",
+          "purpose": "Find and report where things live; change nothing.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": []
+        }
+      ],
+      "gates": [
+        {
+          "name": "requirements",
+          "stage": "refine",
+          "kind": "questions",
+          "on": true
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "refine-ship",
+      "description": "settle the requirements with a person, then plan, build, verify, review and propose a pull request",
+      "input": "issue",
+      "trigger": {
+        "labels": [
+          "asf:refine-ship"
+        ],
+        "watched": true
+      },
+      "stages": [
+        {
+          "stage": "refine",
+          "kind": "agent",
+          "agents": [
+            "analyst",
+            "scout"
+          ],
+          "gate": "requirements"
+        },
+        {
+          "stage": "plan",
+          "kind": "agent",
+          "agents": [
+            "planner"
+          ],
+          "gate": "plan"
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "implement",
+          "kind": "agent",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "verify",
+          "kind": "code",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "review",
+          "kind": "agent",
+          "agents": [
+            "reviewer",
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "document",
+          "kind": "agent",
+          "agents": [
+            "documenter"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "integrate",
+          "kind": "code",
+          "agents": [],
+          "gate": "integrate"
+        }
+      ],
+      "agents": [
+        {
+          "name": "analyst",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Turn a request into requirements; ask about what cannot be settled.",
+          "tools": [
+            "Read",
+            "Glob",
+            "Write",
+            "WebFetch"
+          ],
+          "writes": []
+        },
+        {
+          "name": "builder",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Implement the plan exactly; report every changed file in the envelope.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": null
+        },
+        {
+          "name": "documenter",
+          "harness": "claude_code",
+          "model": "sonnet",
+          "thinking": "medium",
+          "purpose": "Write up the change that was just made, from the diff; document only.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": [
+            "docs/",
+            "**/*.md",
+            "*.md"
+          ]
+        },
+        {
+          "name": "planner",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Turn a request into a plan the builder can implement without asking questions.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": [
+            "docs/asf/spec/"
+          ]
+        },
+        {
+          "name": "reviewer",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Confirm that what was built is what was asked for; change nothing.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": []
+        },
+        {
+          "name": "scout",
+          "harness": "claude_code",
+          "model": "sonnet",
+          "thinking": "medium",
+          "purpose": "Find and report where things live; change nothing.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": []
+        }
+      ],
+      "gates": [
+        {
+          "name": "requirements",
+          "stage": "refine",
+          "kind": "questions",
+          "on": true
+        },
+        {
+          "name": "plan",
+          "stage": "plan",
+          "kind": "gate",
+          "on": false
+        },
+        {
+          "name": "integrate",
+          "stage": "integrate",
+          "kind": "gate",
+          "on": false
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "sdlc",
+      "description": "plan, implement, verify, commit — for work whose shape is clear enough to plan in one pass",
+      "input": "prompt",
+      "trigger": {
+        "labels": [],
+        "watched": false
+      },
+      "stages": [
+        {
+          "stage": "plan",
+          "kind": "agent",
+          "agents": [
+            "planner"
+          ],
+          "gate": "plan"
+        },
+        {
+          "stage": "implement",
+          "kind": "agent",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "verify",
+          "kind": "code",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        }
+      ],
+      "agents": [
+        {
+          "name": "builder",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Implement the plan exactly; report every changed file in the envelope.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": null
+        },
+        {
+          "name": "planner",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Turn a request into a plan the builder can implement without asking questions.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": [
+            "docs/asf/spec/"
+          ]
+        }
+      ],
+      "gates": [
+        {
+          "name": "plan",
+          "stage": "plan",
+          "kind": "gate",
+          "on": false
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "ship",
+      "description": "scout, plan, implement, verify, review, document, integrate — three commits, for work whose shape is not obvious",
+      "input": "prompt",
+      "trigger": {
+        "labels": [],
+        "watched": false
+      },
+      "stages": [
+        {
+          "stage": "scout",
+          "kind": "agent",
+          "agents": [
+            "scout"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "plan",
+          "kind": "agent",
+          "agents": [
+            "planner"
+          ],
+          "gate": "plan"
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "implement",
+          "kind": "agent",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "verify",
+          "kind": "code",
+          "agents": [
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "review",
+          "kind": "agent",
+          "agents": [
+            "reviewer",
+            "builder"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "document",
+          "kind": "agent",
+          "agents": [
+            "documenter"
+          ],
+          "gate": ""
+        },
+        {
+          "stage": "commit",
+          "kind": "code",
+          "agents": [],
+          "gate": ""
+        },
+        {
+          "stage": "integrate",
+          "kind": "code",
+          "agents": [],
+          "gate": "integrate"
+        }
+      ],
+      "agents": [
+        {
+          "name": "builder",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Implement the plan exactly; report every changed file in the envelope.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": null
+        },
+        {
+          "name": "documenter",
+          "harness": "claude_code",
+          "model": "sonnet",
+          "thinking": "medium",
+          "purpose": "Write up the change that was just made, from the diff; document only.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": [
+            "docs/",
+            "**/*.md",
+            "*.md"
+          ]
+        },
+        {
+          "name": "planner",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Turn a request into a plan the builder can implement without asking questions.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": [
+            "docs/asf/spec/"
+          ]
+        },
+        {
+          "name": "reviewer",
+          "harness": "claude_code",
+          "model": "opus",
+          "thinking": "high",
+          "purpose": "Confirm that what was built is what was asked for; change nothing.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": []
+        },
+        {
+          "name": "scout",
+          "harness": "claude_code",
+          "model": "sonnet",
+          "thinking": "medium",
+          "purpose": "Find and report where things live; change nothing.",
+          "tools": [
+            "Read",
+            "Bash",
+            "Edit",
+            "Write",
+            "Grep",
+            "Glob"
+          ],
+          "writes": []
+        }
+      ],
+      "gates": [
+        {
+          "name": "plan",
+          "stage": "plan",
+          "kind": "gate",
+          "on": false
+        },
+        {
+          "name": "integrate",
+          "stage": "integrate",
+          "kind": "gate",
+          "on": false
+        }
+      ],
+      "warnings": []
+    }
+  ],
+  "problems": [
+    {
+      "workflow": "nightly",
+      "error": "workflow 'nightly' (asf/workflows/nightly/workflow.yaml) is not runnable:\n- stages[1] implement: agent 'nobody' is neither in the roster nor bound under agents: (analyst, builder, documenter, planner, reviewer, scout)"
+    }
+  ],
+  "scorers": [
+    {
+      "name": "corrections",
+      "workflow": "issue",
+      "focus": "builder",
+      "kind": "code",
+      "predicate": "corrections_above(2)",
+      "classes": [
+        {
+          "name": "above",
+          "fail": true
+        },
+        {
+          "name": "within",
+          "fail": false
+        }
+      ],
+      "sample_rate": 1.0,
+      "model": "",
+      "improve_after": {
+        "failures": 3,
+        "of_last": 10
+      }
+    },
+    {
+      "name": "reviewer-scope",
+      "workflow": "issue",
+      "focus": "reviewer",
+      "kind": "judge",
+      "predicate": "",
+      "classes": [
+        {
+          "name": "checked_both",
+          "fail": false
+        },
+        {
+          "name": "plan_only",
+          "fail": true
+        }
+      ],
+      "sample_rate": 0.2,
+      "model": "sonnet",
+      "improve_after": {
+        "failures": 2,
+        "of_last": 5
+      }
+    }
+  ],
+  "scorer_problems": [
+    {
+      "scorer": "orphan",
+      "error": "workflow 'gone' is not one this factory loads (it has: issue, pr-review, quick, refine, refine-ship, sdlc, ship)"
+    }
+  ]
+}

@@ -192,6 +192,56 @@ Rules, enforced at load:
    correction re-enters the same session wherever the field exists rather than
    only where a stage remembered to list a gate.
 
+### Scorers
+
+A scorer is a team's judgement of a finished **chapter** of one workflow (`CONTEXT.md`): one
+`asf/scorers/<name>/scorer.md`, frontmatter for the engine and prose for the criteria, the way an
+agent is one `agent.md`. Its name is the directory's.
+
+```yaml
+---
+workflow: issue                    # required: the one workflow whose chapters it judges
+focus: builder                     # optional: one of that workflow's agents; else the whole chapter
+kind: code                         # code | judge
+predicate: corrections_above(2)    # code: one predicate from the closed set
+improve_after: {failures: 3, of_last: 10}   # optional: this scorer's own threshold
+---
+# Corrections
+
+A builder that needs more than two corrections a chapter is guessing at its task.
+```
+
+A **code** scorer names a predicate, a pure function over the chapter's domain events whose
+classes are fixed; it costs nothing. `corrections_above(n)` counts the times an agent's answer
+was refused and sent back to the same session — an envelope that did not parse
+(`envelope_rejected`), or a round of its gates that failed (`gate_result`, one per gate, so a
+round counts once) — and is `above` (failing) past `n`, `within` otherwise; with `focus`, only that
+agent's. A **judge** declares its own `classes`, each `{name, fail}`, how often it judges
+(`sample_rate`, 0 to 1) and optionally a `model`; its prose is the criteria. A judge is checked
+today and not yet run.
+
+When a chapter ends — accepted, refused, or a phase failed — the station scores it with every
+code scorer bound to its workflow, after its `workflow_finished` (`scorers.after_chapter`, from
+`workflow.run`). Each score is a `chapter_scored` on the judged session's own record: the scorer,
+its class, whether that class is failing, and the seqs of the events it rests on, every one in
+that chapter. **A score never changes how the chapter ended** — a scorer measures, a gate decides
+(ADR 0006) — and a scorer that cannot run is said on the console and skipped. A criterion that
+must block work is not a scorer; it is a gate, in Python. A chapter stopped at a gate has not
+ended, and is scored by the process that ends it.
+
+`asf check` refuses a scorer before it costs anything: a workflow the factory does not load, a
+focus that is not one of its agents, a predicate outside the closed set, a judge with no failing
+class or a `sample_rate` outside 0..1, a judge's key on a code scorer, a threshold that can never
+be met. A run reads its scorers through the same `scorers.load`, so a scorer `check` accepts is
+one a run scores with. The self-description (format 3) lists each scorer with what it left
+unsaid resolved — a predicate's classes, the share of chapters it judges, the threshold that
+applies to it — and the factory-wide threshold under `settings.measure`.
+
+The threshold is when one scorer's failing scores stop being a bad day: `self_improvement:
+{failures: 3, of_last: 10}` in `factory.yaml` for every scorer, and a scorer's own
+`improve_after:` for a stricter or looser one. A scorer is **the operator's**: `install.py
+--force` never rewrites anything under `asf/scorers/`.
+
 ## The engine
 
 `asf/engine/` is the run machinery: session, worktree, permissions, gates,

@@ -21,6 +21,21 @@ before — `None` when there are none, never omitted.
 
 ## Unreleased
 
+- **A workflow's chapters are scored.** A scorer is one `asf/scorers/<name>/scorer.md` —
+  frontmatter naming the workflow it judges, optionally one of its agents, its kind and its
+  predicate; prose for the criteria — and once a chapter of that workflow ends, accepted or not,
+  the station records its score as `chapter_scored` on the session: the class, whether it is
+  failing, and the seqs of the events it rests on. The score never changes how the chapter ended.
+  The first predicate is `corrections_above(n)`: the times an agent's answer was refused and sent
+  back (an envelope that did not parse, a round of gates that failed). `asf check` refuses a
+  malformed scorer — an unknown workflow, agent or predicate, a judge with no failing class or a
+  `sample_rate` outside 0..1 — and `install.py --force` never rewrites one. `self_improvement:
+  {failures: 3, of_last: 10}` in factory.yaml, or a scorer's own `improve_after:`, is when its
+  failing scores count as a pattern. `asf check --json` is format 3: it lists the scorers with
+  their classes and thresholds resolved, and the threshold under `settings.measure`. A 1.3.0
+  cockpit shows each chapter's scores under it on the session page, each citing the phases its
+  evidence is in; an older one shows `chapter_scored` as an event it cannot read, and format 3 as
+  newer.
 - **A rollback, a limit and a refused chapter are facts.** `permission_rolled_back` names the
   paths the factory undid after an agent wrote outside its `writes:`, and the ones it left as they
   were; `limit_hit` says which limit stopped an agent phase — `tokens` or `cost` from `budget:`,
@@ -150,11 +165,13 @@ before — `None` when there are none, never omitted.
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
    settings in the self-description, registering without a token, the pull request events and
-   the failure events; nothing else changes. The PR watcher's first pass after it (`just prs`, or
-   `just up`) records every pull request the factory opened that has since closed, 20 a pass —
-   what the Measure tab counts merges from. Pull requests opened before the re-stamp said nothing
+   the failure events, and scoring; nothing else changes. No scorer ships yet: a factory that
+   wants one writes `asf/scorers/<name>/scorer.md` and runs `just check`. `asf/factory.yaml.new`
+   carries the `self_improvement:` block; without it the defaults (3 of the last 10) apply. The
+   PR watcher's first pass after it (`just prs`, or `just up`) records every pull request the
+   factory opened that has since closed, 20 a pass — what the Measure tab counts merges from. Pull requests opened before the re-stamp said nothing
    when they opened, so they count as merged but never as autonomous. A factory with the CI
-   workflow ships format 2 on its next default-branch push.
+   workflow ships format 3 on its next default-branch push.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`

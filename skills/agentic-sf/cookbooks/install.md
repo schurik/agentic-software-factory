@@ -110,6 +110,7 @@ is the answer: it comes with connecting, and you say why
 | `asf/stages/<name>/` | `templates/asf/stages/` | yes — the closed vocabulary: scout, plan, implement, verify, review, document, commit, integrate. Each is `stage.py` plus its default task files |
 | `asf/agents/<name>/agent.md` | `templates/asf/agents/` | yes — **the user-owned home for identity**: frontmatter for the engine, prose for the model |
 | `asf/workflows/<name>/` | `templates/asf/workflows/` | yes — `sdlc`, `quick`, `ship`, `issue`, `pr-review` |
+| `asf/scorers/<name>/scorer.md` | written by the team (none ship yet) | yes — what a workflow's finished chapters are judged by; **never rewritten, even by `--force`** ([design.md](../references/design.md#scorers)) |
 | `asf/.skill-version` | `templates/asf/.skill-version` | yes — the skill release that stamped it; `doctor` compares it with the skill's own. Never edit it: `--force` rewrites it, and a factory without one was stamped before 1.1 |
 | `.env.sample` | `templates/harnesses/<harness>/env.sample` | yes — only the keys that harness needs |
 | `.env` | copied from `.env.sample`, with `ASF_SKILL=` written in | **no** — gitignored, and the reason a clone needs `install.py` re-run |
@@ -143,8 +144,9 @@ in.
 workflows and agents, `asf/.skill-version`) to the skill's current version.
 **It does not overwrite `asf/factory.yaml`**: a fresh render lands beside it as
 `asf/factory.yaml.new` and the installer prints `YOUR CONFIG WAS NOT TOUCHED`,
-leaving the diff to you. Everything else stamped *is* replaced, including agent
-prose you edited, so commit before you force.
+leaving the diff to you. **Nor anything under `asf/scorers/`**: a scorer is the
+team's criteria, kept as written. Everything else stamped *is* replaced,
+including agent prose you edited, so commit before you force.
 
 Every re-run also **lints the config it kept**: each key a release dropped is
 printed under `YOUR CONFIG NAMES OBSOLETE KEYS`, with its line and what to say

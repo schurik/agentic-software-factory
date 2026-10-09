@@ -325,6 +325,29 @@ describe("a failure that is a fact", () => {
   });
 });
 
+describe("a chapter's scores", () => {
+  const IMPLEMENT = "a9f259f0_08_implement";
+  const last = STAGED.at(-1)!.seq;
+  const scored = (seq: number, payload: Record<string, unknown>): WireEvent =>
+    ({ ...fixture("chapter_scored", seq), payload: { ...(fixture("chapter_scored", seq).payload as object), ...payload } });
+
+  it("are said under the chapter they judged, a failing one as failing, each opening the phase it cites", () => {
+    const cited = STAGED.find((event) => (event.payload as { phase_id?: string }).phase_id === IMPLEMENT)!.seq;
+    const events = [...STAGED,
+      scored(last + 1, { chapter: 1, scorer: "corrections", class: "above", failing: true, evidence: [cited] }),
+      scored(last + 2, { chapter: 1, scorer: "lenient", class: "within", failing: false, evidence: [] })];
+    const row = chapter(html({ events }), 1);
+
+    expect(read(row)).toContain("Scores corrections: above, failing — cites implement lenient: within");
+    expect(row).toMatch(new RegExp(`<a [^>]*href="\\?phase=${IMPLEMENT}"[^>]*>implement</a>`));
+    expect(read(chapter(html({ events }), 2))).not.toContain("corrections");
+  });
+
+  it("are not mentioned on a chapter no scorer judged", () => {
+    expect(html()).not.toContain("data-scores");
+  });
+});
+
 describe("the tabs", () => {
   it("open on Details, which holds only what the page shows nowhere else", () => {
     const markup = html({ claims: [], extra: { budget: { maxCostUsd: 2.5, maxTokens: 2_000_000 } } });

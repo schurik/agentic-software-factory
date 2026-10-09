@@ -1142,6 +1142,64 @@ class CockpitConfig(BaseModel):
     commands: list[CommandVerb] = Field(default_factory=list)
 
 
+class ImproveAfter(BaseModel):
+    """When one scorer's failing scores are a pattern rather than a bad day: at
+    `failures` of the last `of_last` distinct sessions it judged (`CONTEXT.md`,
+    Self-improvement). Several failing chapters of one session count once.
+
+    `self_improvement:` in factory.yaml sets it for every scorer, and a
+    scorer's own `improve_after:` holds that one to another bar. Both the
+    Scorers view and self-improvement read it from the self-description, where
+    each scorer carries the one that applies to it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    failures: int = Field(default=3, ge=1)
+    of_last: int = Field(default=10, ge=1)
+
+    @model_validator(mode="after")
+    def _a_window_holds_its_failures(self) -> "ImproveAfter":
+        if self.failures > self.of_last:
+            raise ValueError(f"{self.failures} failures of the last {self.of_last} sessions "
+                             f"can never happen — of_last is at least failures")
+        return self
+
+
+ScorerKind = Literal["judge", "code"]
+
+
+class ScorerClass(BaseModel):
+    """One class a scorer may give a chapter, and whether it counts as failing.
+    A score is a class, never a number (`CONTEXT.md`, Score)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    fail: bool
+
+
+class ScorerSpec(BaseModel):
+    """A scorer's frontmatter (`asf/scorers/<name>/scorer.md`), as written.
+
+    The prose below it is the criteria. A CODE scorer names one predicate from
+    the closed set in `engine/scorers.py`, whose classes are fixed; a JUDGE
+    declares its own classes, how often it runs, and optionally its model. What
+    belongs to the other kind is refused by `scorers.load`, not ignored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow: str = Field(min_length=1)
+    focus: str = ""                 # one of the workflow's agents; "" for the whole chapter
+    kind: ScorerKind
+    predicate: str = ""             # code only: `corrections_above(2)`
+    classes: list[ScorerClass] = Field(default_factory=list)     # judge only
+    sample_rate: Optional[float] = None                          # judge only, 0..1
+    model: str = ""                                              # judge only
+    improve_after: Optional[ImproveAfter] = None
+
+
 class IssueStates(BaseModel):
     """The label state machine: what a person sees of a work item's progress.
 
@@ -1321,6 +1379,7 @@ class FactoryConfig(BaseModel):
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
     issues: IssuesConfig = Field(default_factory=IssuesConfig)
     pull_requests: PullRequestsConfig = Field(default_factory=PullRequestsConfig)
+    self_improvement: ImproveAfter = Field(default_factory=ImproveAfter)
     agents: list[AgentConfig] = Field(default_factory=list)
 
 
@@ -2300,6 +2359,13 @@ class DescribedForge(BaseModel):
     labels: DescribedLabels
 
 
+class DescribedMeasure(BaseModel):
+    """Measuring the factory's own work (`self_improvement:`): the threshold a
+    scorer without an `improve_after:` of its own is held to."""
+
+    self_improvement: ImproveAfter
+
+
 class DescribedSettings(BaseModel):
     """factory.yaml as the factory's code reads it, one group per question a
     person asks of a factory."""
@@ -2309,19 +2375,46 @@ class DescribedSettings(BaseModel):
     landing: DescribedLanding
     limits: DescribedLimits
     forge: DescribedForge
+    measure: DescribedMeasure
+
+
+class DescribedScorer(BaseModel):
+    """One scorer `check` accepted, with what it left unsaid resolved: a code
+    predicate's fixed classes, the share of chapters it judges (every one, for
+    code), and the threshold that applies to it — its own `improve_after:`, or
+    factory.yaml's `self_improvement:`."""
+
+    name: str
+    workflow: str
+    focus: str                      # "" = the whole chapter
+    kind: ScorerKind
+    predicate: str                  # code only; "" for a judge
+    classes: list[ScorerClass]
+    sample_rate: float
+    model: str                      # judge only; "" = the judge agent's own
+    improve_after: ImproveAfter
+
+
+class ScorerProblem(BaseModel):
+    """A scorer `check` refused, and every reason it gave."""
+
+    scorer: str
+    error: str
 
 
 class SelfDescription(BaseModel):
-    FORMAT: ClassVar[int] = 2       # v2: settings
+    FORMAT: ClassVar[int] = 3       # v2: settings; v3: scorers, settings.measure
 
-    format: int = 2
+    format: int = 3
     skill_version: str = ""         # asf/.skill-version; "" from a stamp before 1.1
     checked: CheckedCheckout
-    ok: bool                        # every workflow loaded: what `check` exits 0 on
+    ok: bool                        # every workflow and scorer loaded: what `check` exits 0 on
     budget: BudgetConfig            # per session — the only ceiling the factory enforces
     settings: DescribedSettings
     workflows: list[DescribedWorkflow]
     problems: list[WorkflowProblem] = Field(default_factory=list)
+    scorers: list[DescribedScorer] = Field(default_factory=list)
+    scorer_problems: list[ScorerProblem] = Field(default_factory=list)
 
 
 # ── Domain events (engine/events.py) ─────────────────────────────────────────
@@ -2849,6 +2942,36 @@ class LimitHit(DomainEvent):
     reached: float
 
 
+class ChapterScored(DomainEvent):
+    """One scorer's score of a finished chapter (`engine/scorers.py`): its class,
+    whether that class is failing, and the seqs of the events it rests on — the
+    evidence a reader checks it against, every one in this session and in this
+    chapter.
+
+    LATE BY NATURE: a chapter is scored once it has ended, so the score follows
+    its `workflow_finished` and usually its `session_finished` too, and a past
+    chapter can be scored long after (ADR 0006). A chapter scored twice —
+    resumed and finished again — is read by its latest score. A score never
+    changes how the chapter ended; it is not a gate. A chapter a scorer did not
+    judge has no event at all.
+
+    `usage` is what scoring it cost, which is measurement cost and never the
+    work's: nothing for a code predicate.
+    """
+
+    KIND: ClassVar[str] = "chapter_scored"
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    chapter: int
+    scorer: str
+    kind: ScorerKind
+    class_: str = Field(alias="class")
+    failing: bool
+    evidence: list[int] = Field(default_factory=list)       # seqs, oldest first
+    usage: UsageBreakdown = Field(default_factory=UsageBreakdown)
+
+
 class SessionFinished(DomainEvent):
     KIND: ClassVar[str] = "session_finished"
 
@@ -2956,4 +3079,4 @@ EVENT_KINDS: dict[str, type[DomainEvent]] = {model.KIND: model for model in (
     GateOpened, SessionSuspended, DecisionRecorded, JournalNoted, UsageRecorded,
     ArtifactWritten, Committed, ToolCalled, ProcessStarted, ProcessEnded, CommandFinished,
     CommandResult, SessionFinished, PullRequestOpened, PullRequestClosed, PermissionRolledBack,
-    LimitHit, PromptRendered, HarnessOutput)}
+    LimitHit, ChapterScored, PromptRendered, HarnessOutput)}

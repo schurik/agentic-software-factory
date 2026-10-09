@@ -3,7 +3,7 @@
  *
  * The cockpit never interprets a workflow file. What it shows of a factory's
  * workflows — purpose, trigger, stages, agents, gates — its per-session
- * budget and, from format 2, its settings are what the factory's own
+ * budget, from format 2 its settings and from format 3 its scorers are what the factory's own
  * `asf check --json` printed (`engine/describe.py`), shipped by the optional
  * CI workflow as a CI station with the factory's ingest token. It carries its own format version, and the
  * golden corpus holds one fixture per version (`tests/golden/self-description/
@@ -17,7 +17,7 @@ import { Payload } from "./payload";
 import { isRecord } from "./wire";
 
 /** The newest format this cockpit was written against. */
-export const KNOWN_FORMAT = 2;
+export const KNOWN_FORMAT = 3;
 /** The most a description may weigh as it arrives: it is kept whole, in one document. */
 export const MAX_DESCRIPTION_BYTES = 900_000;
 
@@ -134,6 +134,11 @@ export interface Settings {
     /** What a cockpit may ask a station to do. */
     commands: string[];
   };
+  /** Measuring the factory's own work, from format 3: null before it. */
+  measure: {
+    /** The threshold a scorer without its own `improve_after:` is held to. */
+    selfImprovement: Threshold;
+  } | null;
   /** The forge and tracker; the remote a branch goes to is `landing.remote`. */
   forge: {
     /** "": neither set nor resolvable from the origin remote. */
@@ -142,6 +147,35 @@ export interface Settings {
     /** Every label the factory writes: an issue's four states, the refined mark, a failed review run's. */
     labels: { queued: string; running: string; done: string; failed: string; refined: string; prFailed: string };
   };
+}
+
+/** When one scorer's failing scores are a pattern: `failures` of its last `ofLast` distinct sessions judged. */
+export interface Threshold {
+  failures: number;
+  ofLast: number;
+}
+
+/**
+ * A scorer `check` accepted (format 3): one workflow's chapters, judged by a
+ * code predicate or a model, with what it left unsaid resolved by the factory —
+ * a predicate's fixed classes, the share of chapters it judges, the threshold
+ * that applies to it.
+ */
+export interface DescribedScorer {
+  name: string;
+  workflow: string;
+  /** "": the whole chapter. */
+  focus: string;
+  /** code | judge */
+  kind: string;
+  /** A code scorer's, as written: `corrections_above(2)`; "" for a judge. */
+  predicate: string;
+  classes: { name: string; fail: boolean }[];
+  /** The share of chapters it judges, 0 to 1: every one, for code. */
+  sampleRate: number;
+  /** A judge's own model; "" otherwise. */
+  model: string;
+  improveAfter: Threshold;
 }
 
 export interface Description {
@@ -156,6 +190,9 @@ export interface Description {
   settings: Settings | null;
   workflows: DescribedWorkflow[];
   problems: { workflow: string; error: string }[];
+  /** [] before format 3, which described none. */
+  scorers: DescribedScorer[];
+  scorerProblems: { scorer: string; error: string }[];
 }
 
 export function readDescription(text: string): Description {
@@ -175,7 +212,23 @@ export function readDescription(text: string): Description {
     settings: settings === null ? null : readSettings(settings, ceiling),
     workflows: raw.list("workflows").map(readWorkflow),
     problems: raw.list("problems").map((problem) => ({ workflow: problem.str("workflow"), error: problem.str("error") })),
+    scorers: raw.list("scorers").map(readScorer),
+    scorerProblems: raw.list("scorer_problems").map((problem) => ({ scorer: problem.str("scorer"), error: problem.str("error") })),
   };
+}
+
+function readScorer(raw: Payload): DescribedScorer {
+  return {
+    name: raw.str("name"), workflow: raw.str("workflow"), focus: raw.str("focus"), kind: raw.str("kind"),
+    predicate: raw.str("predicate"),
+    classes: raw.list("classes").map((each) => ({ name: each.str("name"), fail: each.bool("fail") })),
+    sampleRate: raw.num("sample_rate"), model: raw.str("model"),
+    improveAfter: readThreshold(raw.obj("improve_after") ?? new Payload({})),
+  };
+}
+
+function readThreshold(raw: Payload): Threshold {
+  return { failures: raw.num("failures"), ofLast: raw.num("of_last") };
 }
 
 function readWorkflow(raw: Payload): DescribedWorkflow {
@@ -209,6 +262,7 @@ function readSettings(raw: Payload, budget: Budget): Settings {
   const limits = part(raw, "limits");
   const forge = part(raw, "forge");
   const labels = part(forge, "labels");
+  const measure = raw.obj("measure");
   return {
     intake: {
       issues: intake.bool("issues"), routes: mapOf(intake, "routes", "string"),
@@ -245,6 +299,7 @@ function readSettings(raw: Payload, budget: Budget): Settings {
         failed: labels.str("failed"), refined: labels.str("refined"), prFailed: labels.str("pr_failed"),
       },
     },
+    measure: measure === null ? null : { selfImprovement: readThreshold(part(measure, "self_improvement")) },
   };
 }
 

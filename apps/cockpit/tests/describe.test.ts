@@ -118,6 +118,28 @@ describe("the golden self-descriptions", () => {
     });
   });
 
+  it("reads the scorers from format 3, with what they left unsaid resolved, and the ones check refused", () => {
+    const read = readDescription(corpus["v3.json"]);
+
+    expect(read.settings!.measure).toEqual({ selfImprovement: { failures: 3, ofLast: 10 } });
+    expect(read.scorers).toEqual([
+      { name: "corrections", workflow: "issue", focus: "builder", kind: "code", predicate: "corrections_above(2)",
+        classes: [{ name: "above", fail: true }, { name: "within", fail: false }],
+        sampleRate: 1, model: "", improveAfter: { failures: 3, ofLast: 10 } },
+      { name: "reviewer-scope", workflow: "issue", focus: "reviewer", kind: "judge", predicate: "",
+        classes: [{ name: "checked_both", fail: false }, { name: "plan_only", fail: true }],
+        sampleRate: 0.2, model: "sonnet", improveAfter: { failures: 2, ofLast: 5 } },
+    ]);
+    expect(read.scorerProblems).toEqual([{ scorer: "orphan", error: expect.stringMatching(/^workflow 'gone' is not one/) }]);
+  });
+
+  it("reads no scorers and no measure out of a format before 3", () => {
+    const read = readDescription(corpus["v2.json"]);
+
+    expect(read.settings!.measure).toBeNull();
+    expect([read.scorers, read.scorerProblems]).toEqual([[], []]);
+  });
+
   it("reads no settings out of format 1, which had none, and the rest of it as before", () => {
     const read = readDescription(corpus["v1.json"]);
 

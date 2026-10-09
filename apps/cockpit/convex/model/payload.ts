@@ -59,4 +59,12 @@ export class Payload {
     const value = this.raw[key];
     return Array.isArray(value) ? value.filter((each): each is string => typeof each === "string") : [];
   }
+
+  /** The finite numbers in a list, skipping whatever is not one. */
+  nums(key: string): number[] {
+    const value = this.raw[key];
+    return Array.isArray(value)
+      ? value.filter((each): each is number => typeof each === "number" && Number.isFinite(each))
+      : [];
+  }
 }

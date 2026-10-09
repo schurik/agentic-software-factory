@@ -48,8 +48,9 @@ def emit(session_dir: str | Path, event: DomainEvent) -> int:
         fcntl.flock(stream, fcntl.LOCK_EX)
         try:
             seq, torn = _last_seq(stream)
+            # By the names on the wire: a score's `class` is a keyword in Python.
             line = EventLine(seq=seq + 1, ts=now_iso(), kind=event.KIND, v=event.VERSION,
-                             payload=event.model_dump(mode="json"))
+                             payload=event.model_dump(mode="json", by_alias=True))
             text = line.model_dump_json() + "\n"
             stream.write((("\n" if torn else "") + text).encode())
             stream.flush()

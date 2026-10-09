@@ -534,6 +534,16 @@ const READERS: Record<string, Record<number, Reader>> = {
       },
     },
   },
+  // A scorer's score of a chapter that has ended: late by nature, usually after `session_finished`.
+  chapter_scored: {
+    1: {
+      describe: (p) => {
+        const cited = p.nums("evidence").length;
+        return `chapter ${p.num("chapter")} scored by ${p.str("scorer")}: ${p.str("class")}` +
+          (p.bool("failing") ? ", failing" : "") + `, citing ${cited} event${cited === 1 ? "" : "s"}`;
+      },
+    },
+  },
   // Transcript events: present only for a factory that opted in. Nothing but a
   // transcript view may be built from them — their bodies age out.
   prompt_rendered: {

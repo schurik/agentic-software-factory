@@ -1,0 +1,31 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "chapter_scored",
+  "v": 1,
+  "payload": {
+    "chapter": 1,
+    "scorer": "corrections",
+    "kind": "code",
+    "class": "above",
+    "failing": true,
+    "evidence": [
+      14,
+      22,
+      23
+    ],
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 0,
+      "total_tokens": 0,
+      "input_cost": 0.0,
+      "output_cost": 0.0,
+      "cache_read_cost": 0.0,
+      "cache_write_cost": 0.0,
+      "total_cost": 0.0
+    }
+  }
+}

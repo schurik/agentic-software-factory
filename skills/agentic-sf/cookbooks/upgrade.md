@@ -152,7 +152,8 @@ From the **target repo root**. Read three things in what it prints:
   release may have changed a task's `## Report` block, and `just check` refuses
   a report block that drifted from its envelope.
 - A workflow, agent or stage of the repository's own (a name the skill does not
-  ship) was never touched.
+  ship) was never touched, and nor was any scorer under `asf/scorers/` — the
+  re-stamp keeps every one as written.
 
 ## The config: one decision at a time
 

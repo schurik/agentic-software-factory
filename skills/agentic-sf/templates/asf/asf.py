@@ -54,7 +54,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from engine import (commands, describe, factory, git_helper, onboarding, operate,  # noqa: E402
-                    station, supervise, utils, watch, workflow)
+                    scorers, station, supervise, utils, watch, workflow)
 from engine.data_types import Invocation  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
@@ -86,6 +86,7 @@ def cmd_check(args) -> int:
         print(f"no workflows under {workflow.workflows_dir(args.config)}")
         return 1
     failed = False
+    bound: dict[str, list[str]] = {}
     for name in names:
         try:
             loaded = workflow.load(name, args.config)
@@ -93,11 +94,20 @@ def cmd_check(args) -> int:
             print(f"✗ {name}\n  {error}")
             failed = True
             continue
+        bound[name] = loaded.required_agents
         chain = " -> ".join(step.stage.name for step in loaded.steps)
         print(f"✓ {name}: {chain}   agents: {', '.join(loaded.required_agents)}")
         for warning in loaded.warnings:
             print(f"  ~ {warning}")
-    return 1 if failed else 0
+    # A scorer is checked against the workflows that loaded: one naming a
+    # workflow that did not is refused with it, before either costs anything.
+    found, refused = scorers.load(factory.root_of(args.config), bound,
+                                  only=args.workflow or "")
+    for each in found:
+        print(f"✓ scorer {each.name}: {scorers.said(each)}")
+    for each in refused:
+        print(f"✗ scorer {each.name}\n  {each.path}: {each.error}")
+    return 1 if failed or refused else 0
 
 
 def cmd_describe(args) -> int:

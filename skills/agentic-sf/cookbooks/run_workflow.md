@@ -192,3 +192,10 @@ work is. Then the cost if they asked. If it failed, the phase that failed and
 what stopped it — a `limit_hit` or a `permission_rolled_back` when there is one,
 else the error it ended with (its `phase_ended` event, or the run's closing
 lines) — not a transcript.
+
+A chapter that ended is scored by every scorer bound to its workflow: the run's
+last lines say `scored by <scorer>: <class>`, `(failing)` where that class is,
+and the session holds each as a `chapter_scored`. A score is a measurement, not
+the outcome — never report a run accepted as failed, or the reverse, because of
+one. A scorer that could not run says so (`scorer <name> did not score: …`);
+`just check` names what is wrong with it.

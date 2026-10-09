@@ -196,6 +196,14 @@ def open_chapter(session_dir: Path, workflow: str, spec: SessionSpec) -> None:
         events.emit(session_dir, SessionResumed(workflow=workflow, chapter=number))
 
 
+def ended_chapter(session_dir: Path) -> int:
+    """The chapter the session's latest process took up, once it has ended —
+    what a scorer judges (`engine/scorers.py`). 0 while it is still open, and
+    for a session that has none."""
+    chapters = _chapters(session_dir)
+    return 0 if chapters.open else chapters.active
+
+
 @dataclass
 class _Chapters:
     """A session's chapters, as its events tell them."""

@@ -76,7 +76,9 @@ A workflow is a **directory** (`asf/workflows/<name>/workflow.yaml` + optional `
 agent bindings) built from a **closed stage vocabulary** (`asf/stages/<name>/stage.py`); one entry
 point, `asf/asf.py` (`list | check | run | doctor | resume | kill | up | status | …`). An agent is
 one `agent.md`: frontmatter for the engine, prose for the model. Manifest is `asf/factory.yaml`
-(no agents in it). The engine is `session`, `worktree`, `gates`, `permissions`, `limits`, `hitl`,
+(no agents in it). A scorer is one `asf/scorers/<name>/scorer.md` (`engine/scorers.py`): it
+judges a finished chapter of one workflow and records a `chapter_scored` that never changes how
+the chapter ended (ADR 0006). The engine is `session`, `worktree`, `gates`, `permissions`, `limits`, `hitl`,
 `tracer`, `harnesses/{pi,claude_code,fake}`.
 
 ## Invariants the code (and the tests) enforce
@@ -150,10 +152,11 @@ bug already shipped once.
 - **The `fake` harness is the development tool.** Put a new workflow's roster on it until the shape
   holds; it is never offered by the installer.
 - **Installers are idempotent.** A second run skips what exists and reports it (a drift check).
-  `--force` overwrites everything stamped, prompts and agent prose included — with one
-  deliberate exception: the assembled config (`factory.yaml`) is never rewritten. A fresh render
+  `--force` overwrites everything stamped, prompts and agent prose included — with two
+  deliberate exceptions: the assembled config (`factory.yaml`) is never rewritten. A fresh render
   that differs lands beside it as `.new` and is named loudly, because the file the installer told
-  the operator to own is the one `--force` must not eat.
+  the operator to own is the one `--force` must not eat. And nothing under `asf/scorers/` is
+  (`install.USER_OWNED`): a scorer is the team's criteria, like the config.
 - **A release is a semver tag, `vX.Y.Z`, and `.claude-plugin/plugin.json` is its one version
   source**, bumped in the PR that cuts it along with its mirrors — `marketplace.json` and
   `templates/asf/.skill-version`, the file a stamp records the release in (a mirror because
