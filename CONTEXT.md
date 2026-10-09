@@ -26,6 +26,24 @@ resuming the workflow continues its chapter. A session reads as its chapters in 
 workflow, then one for each round of pull-request review.
 _Avoid_: run, round, stage, step
 
+**Gate**:
+A check, made while a phase runs, of what that phase claimed against what actually happened. A
+failed gate sends the same agent back to correct itself; it decides whether the phase is accepted.
+_Avoid_: check, validator, scorer
+
+**Scorer**:
+A team-written judgement of a finished chapter of one workflow, optionally focused on one of its
+agents. It runs on a station after the chapter ends and records a verdict that never changes that
+chapter's outcome: a scorer measures, a gate decides. A criterion that must block work stops being a
+scorer and becomes a gate.
+_Avoid_: evaluator, judge, grader, metric
+
+**Autonomous pull request**:
+A merged pull request that a session opened itself and whose every commit at merge, other than
+merges from the base branch, was made by that session. Rounds of review driven by human comments
+keep it autonomous; a single human push does not.
+_Avoid_: hands-off PR, unattended PR
+
 **Artifact**:
 A file a phase writes and declares as its output, or code writes as the request a workflow answers.
 It either lives in the repository and is committed on the session's branch, or is handed off inside
