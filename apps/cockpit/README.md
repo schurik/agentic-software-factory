@@ -561,9 +561,29 @@ the session's `committed` events name, or a merge from the base branch. Review r
 people's comments are the session's own commits, so they keep it autonomous; a single push by a
 person does not, and a pull request the factory did not open never is. A merge reaches the cockpit
 only as the `pull_request_closed` a station's PR watcher sends when it reaps the session — usually
-long after `session_finished`, which is why ingest takes events on a finished session. Ingest folds
-the three kinds into one row a session (`convex/model/pulls.ts`), so the tab reads no event and
-never asks the forge (ADR 0006). With nothing opened or merged in the period it says so, and why.
+long after `session_finished`, which is why ingest takes events on a finished session.
+
+Of the pull requests that merged in the period, Metrics goes on to the rest of the work numbers
+(#188). **PR cycle time** is a median for each leg — kickoff (the session's start) → PR → first
+review → merge — and for the whole, each leg over the pull requests whose both ends are known, so
+the legs need not add up to the whole. **Cost per PR** is the median of what each one's session
+spent on agent calls, list-price equivalent and split evenly when the session opened more than one,
+by component (input, output, cache reads and writes, and what a harness never itemized) and by
+size: S, M, L and XL at 100, 500 and 1,000 changed lines, as `pull_request_closed` v2 counts them —
+a v1 close never said, and is in no size. Measurement cost is never in it: a scorer's judge spends
+inside its `chapter_scored`, never as a `usage` event, so nothing a measurement costs reaches the
+row. The five dearest are listed, each linking to its session. Last, the chapters that started in
+the period are **counted by trigger** — a prompt, an issue, a pull request's review, as each
+chapter's `workflow_started` says it answers — with a link to the Overview, whose split by workflow
+it does not repeat.
+
+Ingest folds the five kinds a pull request is made of into one row a session
+(`convex/model/pulls.ts`), and each `workflow_started` into a row a chapter
+(`convex/model/chapters.ts`), so the tab reads no event and never asks the forge (ADR 0006). A
+pull request's row an older cockpit wrote is folded again from the session's first event on its
+next batch; its chapters are written by `chapters:backfill`, which `docker/start.sh` (and a Vercel
+production build) runs after each deploy, or by its next batch if it comes first. With nothing
+measured in the period it says so, and why.
 
 **Stations** has the stations asking to join on top (`stations:registrations`), each approved by
 typing the code its `asf station register` printed — never shown here, because typing it is what

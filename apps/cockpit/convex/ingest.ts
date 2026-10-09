@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
+import { chapter } from "./chapters";
 import { settleClaims } from "./claims";
 import { settle } from "./commands";
 import { retained } from "./model/retention";
@@ -80,13 +81,16 @@ export const append = internalMutation({
     // Its phases' rows, the same way — from its first event, for a session an older cockpit stored without them.
     if (record === null || record.phased) await phase(ctx, { factory, session }, fresh, folded);
     else await phase(ctx, { factory, session }, await all(), null);
+    // Its chapters' rows, the same way: what the Measure tab counts by trigger (model/chapters.ts).
+    if (record === null || record.chaptered) await chapter(ctx, { factory, session }, fresh);
+    else await chapter(ctx, { factory, session }, await all());
     // Its pull request's row: what the Measure tab counts (model/pulls.ts).
     await pull(ctx, { factory, session }, fresh, all);
     const waiting = summary.waitingFor !== null;
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);
-    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting, phased: true, ...transcript });
-    else await ctx.db.patch(record._id, { acked, summary, activity, waiting, phased: true, ...transcript });
+    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting, phased: true, chaptered: true, ...transcript });
+    else await ctx.db.patch(record._id, { acked, summary, activity, waiting, phased: true, chaptered: true, ...transcript });
     return { acked };
   },
 });

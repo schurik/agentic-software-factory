@@ -90,7 +90,7 @@ _CLOSED_QUERY = """
 query($owner:String!, $name:String!, $number:Int!) {
   repository(owner:$owner, name:$name) {
     pullRequest(number:$number) {
-      number url state mergedAt
+      number url state mergedAt additions deletions
       reviews(first:1) { nodes { submittedAt } }
       commits(first:250) {
         nodes { commit { oid parents(first:2) { nodes { oid } } } }
@@ -253,7 +253,8 @@ def outcome_of(tree, config: PullRequestsConfig, ref: PullRequestRef) -> PullReq
         merged=str(payload.get("state") or "").upper() == "MERGED",
         merged_at=payload.get("mergedAt") or "",
         first_review_at=(reviews[0].get("submittedAt") or "") if reviews else "",
-        head_shas=shas, base_merges=merges)
+        head_shas=shas, base_merges=merges,
+        additions=int(payload.get("additions") or 0), deletions=int(payload.get("deletions") or 0))
 
 
 def fetch(run, config: PullRequestsConfig, ref: PullRequestRef) -> PullRequestContext:

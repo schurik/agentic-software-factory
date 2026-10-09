@@ -266,6 +266,13 @@ function travelled(p: Payload): string {
   return p.str("content") === "" ? "not text, not sent" : "inline, cut at the cap";
 }
 
+/** "pull request #43 merged with 2 commits": how a `pull_request_closed` of any version says it ended. */
+function closedWith(p: Payload): string {
+  const commits = p.strs("head_shas").length;
+  return `pull request #${p.num("number")} ${p.bool("merged") ? "merged" : "closed unmerged"}` +
+    ` with ${commits} commit${commits === 1 ? "" : "s"}`;
+}
+
 const ANSWERING: Record<string, string> = { issue: "an issue", pr: "a pull request's review" };
 const describeWorkflowStarted = (p: Payload) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
   (ANSWERING[p.str("input")] ? `, answering ${ANSWERING[p.str("input")]}` : "");
@@ -506,13 +513,9 @@ const READERS: Record<string, Record<number, Reader>> = {
   // How its pull request ended, as the PR watcher (or `asf score`) found it: usually after
   // `session_finished`, so it folds into nothing a finished session shows.
   pull_request_closed: {
-    1: {
-      describe: (p) => {
-        const commits = p.strs("head_shas").length;
-        return `pull request #${p.num("number")} ${p.bool("merged") ? "merged" : "closed unmerged"}` +
-          ` with ${commits} commit${commits === 1 ? "" : "s"}`;
-      },
-    },
+    1: { describe: (p) => closedWith(p) },
+    // v2: its changed lines, as the forge counted them at close.
+    2: { describe: (p) => `${closedWith(p)}, +${p.num("additions")} −${p.num("deletions")} lines` },
   },
   // An agent wrote outside its `writes:`, and the factory undid what it could before failing the phase.
   permission_rolled_back: {

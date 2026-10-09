@@ -11,6 +11,7 @@
 import type * as activity from "../activity.js";
 import type * as artifacts from "../artifacts.js";
 import type * as auth from "../auth.js";
+import type * as chapters from "../chapters.js";
 import type * as claims from "../claims.js";
 import type * as commands from "../commands.js";
 import type * as config from "../config.js";
@@ -35,6 +36,7 @@ import type * as items from "../items.js";
 import type * as measure from "../measure.js";
 import type * as model_answer from "../model/answer.js";
 import type * as model_attention from "../model/attention.js";
+import type * as model_chapters from "../model/chapters.js";
 import type * as model_claim from "../model/claim.js";
 import type * as model_command from "../model/command.js";
 import type * as model_config from "../model/config.js";
@@ -47,6 +49,7 @@ import type * as model_gate from "../model/gate.js";
 import type * as model_graph from "../model/graph.js";
 import type * as model_inbox from "../model/inbox.js";
 import type * as model_journal from "../model/journal.js";
+import type * as model_measure from "../model/measure.js";
 import type * as model_mode from "../model/mode.js";
 import type * as model_overview from "../model/overview.js";
 import type * as model_payload from "../model/payload.js";
@@ -87,6 +90,7 @@ declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   artifacts: typeof artifacts;
   auth: typeof auth;
+  chapters: typeof chapters;
   claims: typeof claims;
   commands: typeof commands;
   config: typeof config;
@@ -111,6 +115,7 @@ declare const fullApi: ApiFromModules<{
   measure: typeof measure;
   "model/answer": typeof model_answer;
   "model/attention": typeof model_attention;
+  "model/chapters": typeof model_chapters;
   "model/claim": typeof model_claim;
   "model/command": typeof model_command;
   "model/config": typeof model_config;
@@ -123,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   "model/graph": typeof model_graph;
   "model/inbox": typeof model_inbox;
   "model/journal": typeof model_journal;
+  "model/measure": typeof model_measure;
   "model/mode": typeof model_mode;
   "model/overview": typeof model_overview;
   "model/payload": typeof model_payload;

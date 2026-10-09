@@ -118,7 +118,7 @@ export function FactoryPage({ factory }: { factory: string }) {
                  panels={{
                    overview: <OverviewTab overview={overview} days={days} midnights={midnights} now={now} timeZone={timeZone} onDays={setDays} />,
                    measure: (
-                     <MeasureTab metrics={metrics} view={measure} onView={setMeasure} days={days} midnights={midnights}
+                     <MeasureTab factory={page.repo} metrics={metrics} view={measure} onView={setMeasure} days={days} midnights={midnights}
                                  timeZone={timeZone} onDays={setDays} />
                    ),
                    workflows: (

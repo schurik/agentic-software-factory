@@ -45,6 +45,9 @@ done
 # factory's Overview counts gates by; this writes them from each one's events.
 ./convex.sh run phases:backfill > /dev/null 2>&1 || echo "start: the phases' backfill did not run; older sessions' gates are missing from the Overview"
 
+# ...and none for their chapters, which the Measure tab counts by trigger.
+./convex.sh run chapters:backfill > /dev/null 2>&1 || echo "start: the chapters' backfill did not run; older sessions' chapters are missing from Measure"
+
 # The forge catch-up poll, once as the deployment starts: a cockpit that was
 # down missed whatever GitHub delivered meanwhile, and GitHub does not send it
 # again. The cron (convex/crons.ts) takes it from here. Not worth failing a

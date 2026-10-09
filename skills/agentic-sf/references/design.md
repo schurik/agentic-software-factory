@@ -308,7 +308,8 @@ request the factory opened from one a person did. `pull_request_closed` is said 
 watcher's reap once the forge shows it merged or closed (`asf prs`), or by `asf score`, which
 asks the forge the same for a factory no watcher ran for — one event, whoever saw the close, so a
 cockpit counts both alike: merged or not, when, when its
-first review came, its commits at close and which of them merged the base branch in. It is the first
+first review came, its commits at close and which of them merged the base branch in, and (v2) its
+changed lines, added and deleted, which a cockpit sizes its cost per PR by. It is the first
 event that can arrive after `session_finished`, and a cockpit takes it on a finished session. With
 the session's own `committed` shas it decides whether the pull request was autonomous (CONTEXT.md),
 so a merge and autonomy reach a cockpit as events and never by a cockpit asking the forge (ADR

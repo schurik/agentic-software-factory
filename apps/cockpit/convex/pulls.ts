@@ -11,16 +11,17 @@ import type { StoredEvent } from "./model/wire";
 import type { Where } from "./phases";
 
 /**
- * Fold `events` into the session's row. A session the cockpit stored before it
- * kept these rows has none when its pull request closes, so its commits are
- * read off its events once then — `all` — rather than taken as never made.
+ * Fold `events` into the session's row. A session with no row yet — new, or
+ * stored before the cockpit kept these rows — and a row an older cockpit
+ * wrote, before it kept what a pull request took, are folded from the
+ * session's every event (`all`) instead: what came before is not nothing.
  */
 export async function pull(ctx: MutationCtx, { factory, session }: Where, events: StoredEvent[],
                            all: () => Promise<StoredEvent[]>): Promise<void> {
   const stored = await ctx.db.query("pulls")
     .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session)).unique();
-  const closes = events.some((event) => event.kind === "pull_request_closed");
-  const row = stored === null && closes ? pulledIn(null, await all()) : pulledIn(stored && rowOf(stored), events);
+  const whole = stored === null || stored.spent === undefined;
+  const row = whole ? pulledIn(null, await all()) : pulledIn(rowOf(stored), events);
   if (row === null) return;
   if (stored === null) await ctx.db.insert("pulls", { factory, session, ...row });
   else await ctx.db.replace(stored._id, { factory, session, ...row });

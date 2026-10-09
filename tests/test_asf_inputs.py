@@ -322,7 +322,7 @@ def test_reaping_a_merged_pull_request_records_how_it_closed(stamped: Path):
     forge_data(stamped, "pr.json", pr_json(
         9, f"asf/{ID}", state="MERGED", merged_at="2026-10-02T09:00:00Z",
         commits=[(made, ["a" * 40]), (update, [made, "c" * 40])],
-        reviews=["2026-10-01T15:00:00Z", "2026-10-01T18:00:00Z"]))
+        reviews=["2026-10-01T15:00:00Z", "2026-10-01T18:00:00Z"], additions=120, deletions=30))
     finished = [line.seq for line in events.read(session_dir(stamped, ID))
                 if line.kind == "session_finished"][-1]
 
@@ -334,7 +334,7 @@ def test_reaping_a_merged_pull_request_records_how_it_closed(stamped: Path):
     assert closed.payload == {
         "url": "https://forge/acme/widgets/pull/9", "number": 9, "merged": True,
         "merged_at": "2026-10-02T09:00:00Z", "first_review_at": "2026-10-01T15:00:00Z",
-        "head_shas": [made, update], "base_merges": [update]}
+        "head_shas": [made, update], "base_merges": [update], "additions": 120, "deletions": 30}
     # run.json says it beside the event, and the events alone still rebuild run.json.
     assert run_state(stamped, ID)["pr_state"] == "merged"
     rebuilt = projection.replay(session_dir(stamped, ID))
@@ -386,14 +386,14 @@ def test_score_since_backfills_a_close_no_watcher_saw(stamped: Path):
     forge_data(stamped, "pr.json", pr_json(
         9, f"asf/{ID}", state="MERGED", merged_at="2026-10-02T09:00:00Z",
         commits=[(made, ["a" * 40]), (update, [made, "c" * 40])],
-        reviews=["2026-10-01T15:00:00Z"]))
+        reviews=["2026-10-01T15:00:00Z"], additions=120, deletions=30))
     merged = asf(stamped, "score", "--since", "2020-01-01")
     assert merged.returncode == 0, merged.stdout + merged.stderr
     [closed] = closes()
     assert closed.payload == {
         "url": "https://forge/acme/widgets/pull/9", "number": 9, "merged": True,
         "merged_at": "2026-10-02T09:00:00Z", "first_review_at": "2026-10-01T15:00:00Z",
-        "head_shas": [made, update], "base_merges": [update]}
+        "head_shas": [made, update], "base_merges": [update], "additions": 120, "deletions": 30}
     assert run_state(stamped, ID)["pr_state"] == "merged"
     assert "merged" in merged.stdout
     rebuilt = projection.replay(session_dir(stamped, ID))
