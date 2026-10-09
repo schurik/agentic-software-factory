@@ -8,7 +8,7 @@ import { KindIcon, StatusIcon } from "../icons";
 import { cx, followInPlace } from "../ui";
 import { useWho } from "../viewer";
 import type { OpenPhase } from "../graph/StageGraph";
-import { answeringWords, phaseName } from "./words";
+import { answeringWords, notAccepted, phaseName, stoppedMark, stoppedWords } from "./words";
 
 /**
  * The session in order: every phase of every chapter, a row each — when, its
@@ -31,6 +31,7 @@ export function Timeline({ chapters, opened, openPhase }: {
           <h4 className="mb-2">
             {chapter.number ? `Chapter ${chapter.number} · ` : ""}{chapter.title}
             {chapter.answering ? ` · ${answeringWords(chapter.answering)}` : ""}
+            {chapter.accepted === false ? <span className="text-bad"> · {notAccepted(chapter)}</span> : null}
           </h4>
           <ol className="grid">
             {[...(chapter.reader ? [chapter.reader] : []), ...chapter.items].map((item) => (
@@ -73,7 +74,9 @@ function Line({ item, chapter, opened, openPhase }: { item: Item; chapter: Chapt
         {item.type === "agent" ? item.notes.map((note) => (
           <span key={`${note.kind}:${note.what}`} className="mt-0.5 block">⚑ {note.kind}: {note.what}</span>
         )) : null}
-        {item.type !== "gate" && item.error ? <span className="mt-0.5 block text-bad">{item.error}</span> : null}
+        {item.type === "agent" && stoppedWords(item) ? (
+          <span className="mt-0.5 block text-bad">{stoppedMark(item)} {stoppedWords(item)}</span>
+        ) : item.type !== "gate" && item.error ? <span className="mt-0.5 block text-bad">{item.error}</span> : null}
       </span>
       <span className="col-start-4 row-start-1 text-right text-sm text-faint tabular-nums md:col-start-5">
         {item.type === "gate" ? "" : formatDuration(item.duration)}

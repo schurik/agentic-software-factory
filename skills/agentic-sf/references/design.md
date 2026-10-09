@@ -242,6 +242,16 @@ holds wherever the session's events go. Aging out replaces an event's body
 with a `pruned` marker and keeps the event — which is why no view but the
 cockpit's Transcript tab may be built from a transcript body.
 
+Three failures are facts, not only prose, so a cockpit — and a scorer — can count them.
+`permission_rolled_back` is said by `permissions.enforce` when it undoes an agent's writes outside
+its boundary: the paths it rolled back, and the ones it left as they were. `limit_hit` is said by
+`agents.execute` where a limit stops a phase: a `budget:` ceiling refusing the next send (tokens
+or cost, the ceiling, the session's total that met it) or a turn's wall clock (`timeout`, its
+seconds and how long it ran). And `workflow_finished` (v2) carries `accepted`, the verdict the
+workflow handed `run.finish(accepted=)`: false is "the phases passed but the chapter was not
+accepted", which `status` alone cannot tell from a phase that failed. Each phase's error still says
+the same in words; the event is what is counted.
+
 A session's pull request is two events of its own. `pull_request_opened` is said by the
 integration that opened it — never for one it found open, which is why a cockpit can tell a pull
 request the factory opened from one a person did. `pull_request_closed` is said by the PR

@@ -26,6 +26,9 @@ const DESCRIBED: Record<string, string> = {
   "gate_result/v1.json": "gate artifacts_exist failed (attempt 1)",
   "harness_output/v1.json": "planner's harness output, chunk 2",
   "journal_noted/v1.json": "journal: deviation — used httpx",
+  "limit_hit/v1.json": "implement (builder) stopped at the cost limit: $2.0412 of $2.0000",
+  "permission_rolled_back/v1.json":
+    "scout wrote outside its boundary: docs/café.md, notes/résumé.md rolled back; README.md not undone",
   "phase_ended/v1.json": "approve_plan ended: waiting at plan round 2",
   "phase_replayed/v1.json": "plan replayed from the record, planner not called",
   "phase_started/v1.json": "plan started · agent planner",
@@ -49,6 +52,8 @@ const DESCRIBED: Record<string, string> = {
   "usage/v1.json": "planner · sonnet: 1200 tokens, $0.0185",
   "workflow_finished/v1.json":
     "chapter 1: ship finished: fail — the run's acceptance criterion was not met",
+  "workflow_finished/v2.json":
+    "chapter 1: ship finished: fail, not accepted — test still failed after 2 attempt(s)",
   "workflow_started/v1.json": "chapter 1: ship started, answering an issue",
   "workflow_started/v2.json":
     "chapter 1: ship started, answering an issue · scout → plan → commit → implement → verify → commit",

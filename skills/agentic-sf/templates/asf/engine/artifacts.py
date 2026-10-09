@@ -135,13 +135,16 @@ def start_run(session_dir: Path, started: SessionStarted) -> RunState:
     return state
 
 
-def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
+def finish_run(session_dir: Path, status: str, reason: str = "",
+               accepted: bool = True) -> None:
     """Close the session's record. Never raises: a run must not die reporting.
 
     Called from `run.finish()`, from a failed phase, from the SIGTERM handler
     and from a watcher aborting a run at its gate, so the file says how the
     session ended even when the ending was not the happy one.
     Whichever of them it is, the chapter the session was in ends with it.
+    `accepted` is the workflow's verdict, which only `run.finish()` has; every
+    other ending never reached one (`WorkflowFinished`).
     """
     from .utils import now_iso
     state = read_run(session_dir)
@@ -158,7 +161,7 @@ def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
         if chapters.open:
             events.emit(session_dir, WorkflowFinished(
                 workflow=chapters.workflows[chapters.active], chapter=chapters.active,
-                status=status, reason=reason))
+                status=status, reason=reason, accepted=accepted))
         events.emit(session_dir, SessionFinished(status=status, ended_at=state.ended_at,
                                                  reason=reason))
     except OSError:

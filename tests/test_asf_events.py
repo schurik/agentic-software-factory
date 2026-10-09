@@ -274,3 +274,88 @@ def test_replaying_a_session_s_events_rebuilds_its_files_exactly(stamped: Path, 
                  and line.payload["path"] == "context_handoff/answers_1.md"]
     assert answers["role"] == "request" and "the refresh path" in answers["content"]
     assert answers["content"] == Path(handoff(stamped, "answers_1.md")).read_text()
+
+
+# ── failures, as facts ───────────────────────────────────────────────────────
+#
+# A rollback, a limit and a chapter its workflow refused were once only the
+# words of an error or a reason. Each is now a fact a cockpit — and later a
+# scorer — can count without reading prose.
+
+def kinds_of(repo: Path, adw_id: str, kind: str) -> list[dict]:
+    return [line.payload for line in events.read(session_dir(repo, adw_id)) if line.kind == kind]
+
+
+def test_a_spend_ceiling_reached_leaves_a_limit_hit_on_the_phase_it_refused(stamped: Path):
+    fake_roster(stamped, planner=[plan_reply()], builder=[build_reply("ok = 1\n", "feat: app")])
+    wire(stamped, "test", PY_CHECK)
+    set_config(stamped, budget={"max_tokens": 100})          # the planner spends exactly that
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "sdlc", "add app.py")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    adw_id = adw_id_of(result)
+    [hit] = kinds_of(stamped, adw_id, "limit_hit")
+    assert hit == {"phase_id": f"{adw_id}_03_implement", "phase": "implement",
+                   "agent": "builder", "kind": "tokens", "limit": 100, "reached": 100}
+
+
+def test_a_cost_ceiling_reached_says_cost_and_the_money(stamped: Path):
+    fake_roster(stamped, planner=[plan_reply()], builder=[build_reply("ok = 1\n", "feat: app")])
+    wire(stamped, "test", PY_CHECK)
+    set_config(stamped, budget={"max_cost_usd": 0.01})
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "sdlc", "add app.py")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    [hit] = kinds_of(stamped, adw_id_of(result), "limit_hit")
+    assert (hit["kind"], hit["limit"], hit["reached"]) == ("cost", 0.01, 0.01)
+
+
+def test_a_turn_past_its_wall_clock_leaves_a_limit_hit_saying_how_long_it_ran(stamped: Path):
+    fake_roster(stamped, planner=[plan_reply()],
+                builder=[{**build_reply("ok = 1\n", "feat: app"), "sleep": 5}])
+    wire(stamped, "test", PY_CHECK)
+    set_config(stamped, harness={"timeout_seconds": 2})
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "sdlc", "add app.py")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    adw_id = adw_id_of(result)
+    [hit] = kinds_of(stamped, adw_id, "limit_hit")
+    assert hit == {"phase_id": f"{adw_id}_03_implement", "phase": "implement",
+                   "agent": "builder", "kind": "timeout", "limit": 2, "reached": 5}
+    # Before the phase says how it ended, so a reader has the fact when it tells the end.
+    kinds = [line.kind for line in events.read(session_dir(stamped, adw_id))]
+    assert kinds.index("limit_hit") < max(i for i, k in enumerate(kinds) if k == "phase_ended")
+
+
+def test_a_chapter_whose_phases_passed_but_its_workflow_refused_says_not_accepted(
+        stamped: Path):
+    fake_roster(stamped, builder=[build_reply("1/0\n", "feat: broken"),
+                                  build_reply("2/0\n", "feat: still broken")])
+    wire(stamped, "test", PY_CHECK)
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "quick", "add app.py")      # quick: max_fix_loops 2
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    [finished] = kinds_of(stamped, adw_id_of(result), "workflow_finished")
+    assert finished == {"workflow": "quick", "chapter": 1, "status": "fail",
+                        "reason": "test still failed after 2 attempt(s)", "accepted": False}
+
+
+def test_an_accepted_chapter_says_accepted(stamped: Path):
+    fake_roster(stamped, planner=[plan_reply()], builder=[build_reply("ok = 1\n", "feat: app")])
+    wire(stamped, "test", PY_CHECK)
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "sdlc", "add app.py")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    [finished] = kinds_of(stamped, adw_id_of(result), "workflow_finished")
+    assert (finished["status"], finished["accepted"]) == ("success", True)
+    assert kinds_of(stamped, adw_id_of(result), "limit_hit") == []

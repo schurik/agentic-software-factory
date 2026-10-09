@@ -63,6 +63,19 @@ export interface Command {
   pruned: Pruned | null;  // its output tail purged
 }
 
+/** An agent's writes outside its boundary: the ones the factory undid, and the ones it left as they were. */
+export interface Rollback {
+  paths: string[];
+  notUndone: string[];
+}
+
+/** The limit that stopped an agent phase, in its own unit: tokens, USD, or seconds. */
+export interface Limit {
+  kind: string;           // tokens | cost | timeout
+  limit: number;
+  reached: number;
+}
+
 export interface Decision {
   verdict: string;
   by: string;
@@ -103,6 +116,9 @@ export interface AgentItem extends PhaseFacts {
   artifacts: Chip[];
   notes: Note[];
   replayed: boolean;
+  // What stopped it, when a fact says so: the page tells these rather than the error's prose.
+  rollback: Rollback | null;
+  limit: Limit | null;
 }
 
 export interface CodeItem extends PhaseFacts {
@@ -162,6 +178,10 @@ export interface Chapter {
   endedAt: string;
   status: string;
   reason: string;
+  // The workflow's own verdict (`workflow_finished` v2): false when its phases
+  // passed and it still did not accept the chapter. Null while it runs, and
+  // from a factory before v2.
+  accepted: boolean | null;
   cost: number;
   asked: Asked | null;
   // The code phase that read what was asked — the issue, or the threads. Its
@@ -178,7 +198,7 @@ export interface Now {
   // `since` is when its latest run started: a phase resumed starts its clock again.
   phase: { name: string; owner: string; kind: string; since: string } | null;
   waiting: { gate: string; round: number; kind: string; channel: string; issueNumber: number } | null;
-  failed: { phaseId: string; name: string; error: string } | null;
+  failed: { phaseId: string; name: string; error: string; rollback: Rollback | null; limit: Limit | null } | null;
   prUrl: string;
   chapters: number;
 }
@@ -235,6 +255,8 @@ interface PhaseState {
   request: Asked | null;
   commits: Commit[];
   commands: Command[];
+  rollback: Rollback | null;
+  limit: Limit | null;
   gate: string;
   round: number;
   gateKind: string;
@@ -255,6 +277,7 @@ interface ChapterState {
   endedAt: string;
   status: string;
   reason: string;
+  accepted: boolean | null;
   issueNumber: number;
   issueUrl: string;
   prUrl: string;
@@ -308,7 +331,7 @@ function chapter(state: StoryState, number: number, workflow = ""): ChapterState
   let found = state.chapters.find((each) => each.number === number);
   if (found === undefined) {
     found = { number, workflow: workflow || state.workflow, input: "", stages: [], startedAt: "", endedAt: "",
-              status: "running", reason: "", issueNumber: 0, issueUrl: "", prUrl: "" };
+              status: "running", reason: "", accepted: null, issueNumber: 0, issueUrl: "", prUrl: "" };
     state.chapters.push(found);
   }
   return found;
@@ -340,7 +363,7 @@ function phaseStarted(state: StoryState, p: Payload, { seq, ts }: At): void {
       stageIndex: null, name: "", kind: "", owner: "", description: "", task: "", status: "", error: "", runs: [],
       replayed: false, outputType: "", summary: "", corrections: 0, model: "", toolCalls: 0, toolFailures: 0,
       cost: 0, tokens: 0, changedFiles: [], artifacts: [], request: null, commits: [], commands: [],
-      gate: "", round: 0, gateKind: "gate", channel: "", issueNumber: 0, headSha: "",
+      rollback: null, limit: null, gate: "", round: 0, gateKind: "gate", channel: "", issueNumber: 0, headSha: "",
       gateSummary: "", askedAt: "", decision: null,
     };
     state.phases.push(found);
@@ -348,7 +371,7 @@ function phaseStarted(state: StoryState, p: Payload, { seq, ts }: At): void {
   Object.assign(found, {
     name: p.str("name") || found.name, kind: p.str("kind") || found.kind,
     owner: p.str("owner") || found.owner, description: p.str("description") || found.description,
-    task: p.str("task") || found.task, status: "running", error: "",
+    task: p.str("task") || found.task, status: "running", error: "", rollback: null, limit: null,
   });
   found.runs.push({ started: ts, ended: "", replay: false });
   state.open = found;
@@ -378,9 +401,15 @@ function withPhase(fold: (phase: PhaseState, p: Payload, at: At) => void): Telle
 function workflowStarted(state: StoryState, p: Payload, { ts }: At): ChapterState {
   const opened = chapter(state, p.num("chapter"), p.str("workflow"));
   Object.assign(opened, { workflow: p.str("workflow") || opened.workflow, input: p.str("input"),
-                          startedAt: ts, status: "running" });
+                          startedAt: ts, status: "running", accepted: null });
   state.current = opened.number;
   return opened;
+}
+
+function workflowFinished(state: StoryState, p: Payload, { ts }: At): ChapterState {
+  const closed = chapter(state, p.num("chapter"), p.str("workflow"));
+  Object.assign(closed, { status: p.str("status"), reason: p.str("reason"), endedAt: ts });
+  return closed;
 }
 
 const tellStarted: Teller = (state, p) => {
@@ -405,15 +434,18 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     },
   },
   workflow_finished: {
-    1: (state, p, { ts }) => {
-      const closed = chapter(state, p.num("chapter"), p.str("workflow"));
-      Object.assign(closed, { status: p.str("status"), reason: p.str("reason"), endedAt: ts });
+    1: (state, p, at) => {
+      workflowFinished(state, p, at);
+    },
+    // v2: the workflow's verdict, apart from whether its phases passed.
+    2: (state, p, at) => {
+      workflowFinished(state, p, at).accepted = p.bool("accepted");
     },
   },
   session_resumed: {
     1: (state, p, { seq, ts }) => {
       const resumed = chapter(state, p.num("chapter"), p.str("workflow"));
-      Object.assign(resumed, { status: "running", reason: "", endedAt: "" });
+      Object.assign(resumed, { status: "running", reason: "", accepted: null, endedAt: "" });
       state.current = resumed.number;
       state.resumed = { type: "resumed", seq, at: ts, replayed: [] };
       state.extras.push({ chapter: resumed.number, item: state.resumed });
@@ -497,6 +529,16 @@ const TELLERS: Record<string, Record<number, Teller>> = {
       phase.commands.push({ name: p.str("name"), argv: p.strs("argv"), exitCode: p.num("exit_code"),
                             durationSeconds: p.num("duration_seconds"), outputTail: p.str("output_tail"),
                             pruned: prunedOf(p) });
+    }),
+  },
+  permission_rolled_back: {
+    1: withPhase((phase, p) => {
+      phase.rollback = { paths: p.strs("paths"), notUndone: p.strs("not_undone") };
+    }),
+  },
+  limit_hit: {
+    1: withPhase((phase, p) => {
+      phase.limit = { kind: p.str("kind"), limit: p.num("limit"), reached: p.num("reached") };
     }),
   },
   gate_opened: { 1: (state, p, at) => asked(state, p.obj("waiting_for"), at) },
@@ -615,7 +657,7 @@ function item(phase: PhaseState, journal: Entry[]): Item {
     return { ...facts, type: "agent", task: phase.task, outputType: phase.outputType, summary: phase.summary,
              corrections: phase.corrections, model: phase.model, toolCalls: phase.toolCalls, toolFailures: phase.toolFailures,
              cost: phase.cost, tokens: phase.tokens, changedFiles: phase.changedFiles,
-             artifacts: phase.artifacts, notes, replayed: phase.replayed };
+             artifacts: phase.artifacts, notes, replayed: phase.replayed, rollback: phase.rollback, limit: phase.limit };
   }
   return codeItem(phase);
 }
@@ -668,7 +710,7 @@ export function finish(state: StoryState, summary: Summary): Story {
       ...told, graph: graphOf(told, standing(each)), number: each.number, workflow: each.workflow, input: each.input,
       title: each.input === "pr" ? `${each.workflow}, round ${round}` : each.workflow,
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
-      endedAt: each.endedAt, status: each.status, reason: each.reason,
+      endedAt: each.endedAt, status: each.status, reason: each.reason, accepted: each.accepted,
       cost: mine.reduce((total, phase) => total + phase.cost, 0),
       asked: requester?.request ?? null,
     };
@@ -687,7 +729,9 @@ export function finish(state: StoryState, summary: Summary): Story {
       phase: open && { name: open.name, owner: open.owner, kind: open.kind, since: open.runs.at(-1)?.started ?? open.at },
       waiting: waiting && { gate: waiting.gate, round: waiting.round, kind: waiting.kind,
                             channel: waiting.channel, issueNumber: state.issueNumber },
-      failed: summary.status === "fail" && failed ? { phaseId: failed.phaseId, name: failed.name, error: failed.error } : null,
+      failed: summary.status === "fail" && failed
+        ? { phaseId: failed.phaseId, name: failed.name, error: failed.error, rollback: failed.rollback, limit: failed.limit }
+        : null,
       prUrl: summary.prUrl,
       chapters: chapters.length,
     },

@@ -71,6 +71,11 @@ def test_a_read_only_agent_s_changes_to_files_with_non_ascii_names_are_undone(st
     assert ended["error"] == ("scout is read-only but modified 2 path(s):\n"
                               "  - docs/café.md — rolled back\n"
                               "  - notes/résumé.md — deleted")
+    # ...and the rollback is a fact of its own, not only the words of that error.
+    [rolled_back] = [line.payload for line in events.read(session_dir(stamped, adw_id))
+                     if line.kind == "permission_rolled_back"]
+    assert rolled_back == {"phase_id": f"{adw_id}_02_scout", "phase": "scout", "agent": "scout",
+                           "paths": ["docs/café.md", "notes/résumé.md"], "not_undone": []}
 
 
 # ── what an agent STAGED ─────────────────────────────────────────────────────
@@ -80,11 +85,17 @@ def test_a_read_only_agent_s_changes_to_files_with_non_ascii_names_are_undone(st
 # repository, the way `agents.execute` does around a call.
 
 def boundary(repo: Path, writes: list[str]) -> tuple[SimpleNamespace, AgentConfig]:
-    """The two things `enforce` reads: where the tree is, and what may be written."""
-    run = SimpleNamespace(repo_root=repo, cfg=FactoryConfig())
+    """What `enforce` reads — where the tree is, and what may be written — and
+    the tracer it says a rollback to, which keeps what it was told in `said`."""
+    said: list = []
+    run = SimpleNamespace(repo_root=repo, cfg=FactoryConfig(), said=said,
+                          tracer=SimpleNamespace(event=said.append))
     agent = AgentConfig(name="scout", writes=writes,
                         prompt_engineering=PromptEngineering(system="agent.md"))
     return run, agent
+
+
+PHASE = SimpleNamespace(phase_id="x_02_scout", params=SimpleNamespace(name="scout"))
 
 
 def test_a_new_file_an_agent_staged_outside_its_boundary_leaves_the_tree_and_the_index(
@@ -95,7 +106,7 @@ def test_a_new_file_an_agent_staged_outside_its_boundary_leaves_the_tree_and_the
     git(repo, "add", "naïve.py")
 
     with pytest.raises(permissions.PermissionBreach) as breach:
-        permissions.enforce(run, None, scout, before)
+        permissions.enforce(run, PHASE, scout, before)
 
     assert str(breach.value) == ("scout is read-only but modified 1 path(s):\n"
                                  "  - naïve.py — deleted")
@@ -115,7 +126,7 @@ def test_a_staged_edit_and_a_staged_deletion_of_tracked_files_are_restored_from_
     git(repo, "rm", "-q", "gone.md")
 
     with pytest.raises(permissions.PermissionBreach) as breach:
-        permissions.enforce(run, None, scout, before)
+        permissions.enforce(run, PHASE, scout, before)
 
     assert str(breach.value) == ("scout is read-only but modified 2 path(s):\n"
                                  "  - gone.md — rolled back\n"
@@ -140,7 +151,7 @@ def test_a_file_moved_out_of_an_agent_s_boundary_is_a_breach_at_the_path_it_land
     # One record naming both paths would start with the directory the planner
     # may write, and pass. Two records do not: leaving is allowed, arriving is not.
     with pytest.raises(permissions.PermissionBreach) as breach:
-        permissions.enforce(run, None, planner, before)
+        permissions.enforce(run, PHASE, planner, before)
     assert str(breach.value) == ("scout is limited to ['docs/asf/spec/'] but modified "
                                  "1 path(s):\n  - asf/engine/plän.py — deleted")
     assert not (repo / "asf" / "engine" / "plän.py").exists()
@@ -148,3 +159,32 @@ def test_a_file_moved_out_of_an_agent_s_boundary_is_a_breach_at_the_path_it_land
     # to do: that half stands, and the plan is still what HEAD says it is.
     assert git(repo, "status", "--porcelain") == "D  docs/asf/spec/plan.md"
     assert git(repo, "show", "HEAD:docs/asf/spec/plan.md").startswith("# Plan")
+
+
+def test_a_rollback_says_which_breaches_it_undid_and_which_it_left_as_they_were(repo: Path):
+    (repo / "dirty.md").write_text("as committed\n")
+    commit_all(repo)
+    (repo / "dirty.md").write_text("the engineer's uncommitted work\n")
+    run, scout = boundary(repo, writes=[])
+    before = permissions.snapshot(run)
+    (repo / "dirty.md").write_text("the engineer's uncommitted work\nand the agent's on top\n")
+    (repo / "stray.py").write_text("x = 1\n")
+
+    with pytest.raises(permissions.PermissionBreach):
+        permissions.enforce(run, PHASE, scout, before)
+
+    [rolled_back] = run.said
+    assert (rolled_back.KIND, rolled_back.phase_id, rolled_back.phase, rolled_back.agent) == (
+        "permission_rolled_back", "x_02_scout", "scout", "scout")
+    # The engineer's file is theirs: left alone, and named as a breach nothing undid.
+    assert (rolled_back.paths, rolled_back.not_undone) == (["stray.py"], ["dirty.md"])
+
+
+def test_an_agent_inside_its_boundary_leaves_no_rollback(repo: Path):
+    run, planner = boundary(repo, writes=["docs/"])
+    before = permissions.snapshot(run)
+    (repo / "docs").mkdir()
+    (repo / "docs" / "plan.md").write_text("# Plan\n")
+
+    assert permissions.enforce(run, PHASE, planner, before) == ["docs/plan.md"]
+    assert run.said == []

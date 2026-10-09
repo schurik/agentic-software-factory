@@ -6,6 +6,9 @@
  * links to.
  */
 
+import type { Limit, Rollback } from "@/convex/model/story";
+import { formatDollars, formatDuration, formatTokenCount, formatTokens } from "../format";
+
 /** The colour a status is drawn in; `none` for one that says nothing about how things went. */
 export type Tone = "ok" | "bad" | "wait" | "run" | "none";
 
@@ -73,3 +76,40 @@ const PURPOSES: Record<string, string> = {
 };
 
 export const stagePurpose = (stage: string): string => PURPOSES[stage] ?? "";
+
+/**
+ * What stopped a phase, when the factory said so as a fact rather than only as
+ * its error: the limit it met, or the writes it made outside its boundary.
+ * Told in place of the error's prose wherever a phase says how it ended. ""
+ * when neither stopped it.
+ */
+export function stoppedWords({ rollback, limit }: { rollback: Rollback | null; limit: Limit | null }): string {
+  if (limit) return limitWords(limit);
+  if (rollback) return rollbackWords(rollback);
+  return "";
+}
+
+/** "stopped at the cost limit: $2.04 spent of $2.00", in the limit's own unit. */
+export function limitWords({ kind, limit, reached }: Limit): string {
+  if (kind === "cost") return `stopped at the cost limit: ${formatDollars(reached)} spent of ${formatDollars(limit)}`;
+  if (kind === "tokens") return `stopped at the token limit: ${formatTokenCount(reached)} of ${formatTokens(limit)} used`;
+  return `stopped at the time limit: a turn ran ${formatDuration(reached)} of the ${formatDuration(limit)} it may take`;
+}
+
+/** "wrote outside its boundary: a.py rolled back; README.md not undone". */
+export function rollbackWords({ paths, notUndone }: Rollback): string {
+  return "wrote outside its boundary: " + [
+    paths.length ? `${paths.join(", ")} rolled back` : "",
+    notUndone.length ? `${notUndone.join(", ")} not undone` : "",
+  ].filter(Boolean).join("; ");
+}
+
+/** The mark a stopped phase's fact is told with: a limit is a stop, a rollback an undo. */
+export function stoppedMark({ limit }: { limit: Limit | null }): string {
+  return limit ? "⏹" : "↺";
+}
+
+/** "not accepted: test still failed after 3 attempt(s)" — a chapter whose phases passed, refused by its workflow. */
+export function notAccepted({ reason }: { reason: string }): string {
+  return `not accepted${reason ? `: ${reason}` : ""}`;
+}

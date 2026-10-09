@@ -349,6 +349,43 @@ describe("edges a recording does not reach", () => {
     ]);
   });
 
+  it("tells a rollback and a limit hit as facts of the phase they stopped, not as its error", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const said = (kind: string, seq: number, payload: Record<string, unknown>) => ({ ...fixture(kind, seq), payload });
+    await ship(t, token, [
+      fixture("session_started", 1), chapter(2, 1),
+      started(3, "x_01_scout", "scout"),
+      said("permission_rolled_back", 4, { phase_id: "x_01_scout", phase: "scout", agent: "scout",
+                                          paths: ["notes/a.md"], not_undone: ["README.md"] }),
+      ended(5, "x_01_scout", "scout", "fail", { error: "scout is read-only but modified 2 path(s)" }),
+      started(6, "x_02_build", "build"),
+      said("limit_hit", 7, { phase_id: "x_02_build", phase: "build", agent: "builder", kind: "timeout",
+                             limit: 1800, reached: 1800.4 }),
+      ended(8, "x_02_build", "build", "fail", { error: "agent ran past its 1800s limit" }),
+    ]);
+
+    const [scout, build] = (await story(t)).chapters[0].items;
+    expect(scout).toMatchObject({ type: "agent", rollback: { paths: ["notes/a.md"], notUndone: ["README.md"] }, limit: null });
+    expect(build).toMatchObject({ type: "agent", rollback: null, limit: { kind: "timeout", limit: 1800, reached: 1800.4 } });
+  });
+
+  it("says a chapter whose phases passed was not accepted, and nothing for a factory that did not say", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const finished = (seq: number, number: number, v: number, payload: Record<string, unknown>) => ({
+      ...fixture("workflow_finished", seq, v), payload: { workflow: "gated", chapter: number, ...payload } });
+    await ship(t, token, [
+      fixture("session_started", 1),
+      chapter(2, 1), finished(3, 1, 1, { status: "fail", reason: "the run's acceptance criterion was not met" }),
+      chapter(4, 2), finished(5, 2, 2, { status: "fail", reason: "test still failed", accepted: false }),
+      chapter(6, 3), finished(7, 3, 2, { status: "success", reason: "", accepted: true }),
+    ]);
+
+    expect((await story(t)).chapters.map(({ status, accepted }) => [status, accepted]))
+      .toEqual([["fail", null], ["fail", false], ["success", true]]);
+  });
+
   it("keeps an agent phase's card though it wrote the chapter's request", async () => {
     const t = cockpit();
     const token = await factory(t);

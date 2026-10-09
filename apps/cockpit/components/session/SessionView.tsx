@@ -30,7 +30,7 @@ import {
   chapterOpen, goTo, type SessionTab, type Shown, SHOWN, stageKey, withChapter, withGate, withPhase, withStage,
 } from "./shown";
 import { Timeline } from "./Timeline";
-import { answeringWords } from "./words";
+import { answeringWords, notAccepted } from "./words";
 
 export type Page = View & {
   factory: string; session: string; acked: number; forge: string;
@@ -274,6 +274,7 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, childre
         <span className="text-sm text-muted">
           {chapter.answering ? answeringWords(chapter.answering) : chapter.input === "prompt" ? "from a prompt" : ""}
         </span>
+        {chapter.accepted === false ? <span className="text-sm text-bad">{notAccepted(chapter)}</span> : null}
         {open ? null : <MiniGraph mini={miniOf(chapter.graph)} />}
         <span className="grow" />
         <span className="flex items-center gap-3 text-sm text-muted tabular-nums">

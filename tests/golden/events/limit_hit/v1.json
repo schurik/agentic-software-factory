@@ -1,0 +1,14 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "limit_hit",
+  "v": 1,
+  "payload": {
+    "phase_id": "5c0075aa_04_implement",
+    "phase": "implement",
+    "agent": "builder",
+    "kind": "cost",
+    "limit": 2.0,
+    "reached": 2.0412
+  }
+}

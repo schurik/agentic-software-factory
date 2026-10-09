@@ -46,7 +46,7 @@ import os
 import selectors
 import subprocess
 import time
-from typing import IO, Iterator
+from typing import IO, Iterator, NamedTuple, Optional
 
 from .data_types import BudgetConfig
 
@@ -65,11 +65,17 @@ class AgentTimeout(RuntimeError):
     ceiling that ignored timed-out turns would undercount exactly the runs it
     exists to stop. `None` when the harness had nothing (Claude Code reports
     usage only in the final `result` event, which a hang never reaches).
+
+    `limit` and `elapsed` are the turn's clock in seconds — what it was allowed
+    and how long it had run when it was ended — which `agents.execute` records
+    as a `limit_hit`.
     """
 
-    def __init__(self, message: str, result=None):
+    def __init__(self, message: str, result=None, limit: float = 0, elapsed: float = 0):
         super().__init__(message)
         self.result = result            # partial AgentResult, or None
+        self.limit = limit
+        self.elapsed = elapsed
 
 
 class BudgetExceeded(RuntimeError):
@@ -102,12 +108,17 @@ class Deadline:
         self.seconds = max(0, int(seconds or 0))
         self.grace = grace
         self.fired = False
-        self._expires_at = time.monotonic() + self.seconds if self.seconds else 0.0
+        self._started = time.monotonic()
+        self._expires_at = self._started + self.seconds if self.seconds else 0.0
 
     # ── the clock ───────────────────────────────────────────────────────────
     def _remaining(self) -> float:
         """Seconds left in this turn. `inf` when nothing is limited."""
         return self._expires_at - time.monotonic() if self.seconds else float("inf")
+
+    def elapsed(self) -> float:
+        """Seconds since the turn started."""
+        return time.monotonic() - self._started
 
     def _kill(self) -> None:
         self.fired = True               # before the signal, never after
@@ -208,18 +219,36 @@ class Deadline:
                 f"finishing and was terminated (harness.timeout_seconds)")
         return f"{note}; partial output: {raw_output_path}" if raw_output_path else note
 
+    def expired(self, harness: str, raw_output_path: str = "", result=None) -> AgentTimeout:
+        """The AgentTimeout this expiry earns, with the clock it ran on."""
+        return AgentTimeout(self.reason(harness, raw_output_path), result,
+                            limit=self.seconds, elapsed=self.elapsed())
 
-def overrun(tokens: int, cost: float, budget: BudgetConfig) -> str:
-    """Why this session may spend no more, or "" while it still may.
 
-    Reads as a sentence because it becomes the phase's error — the line an
-    engineer sees in the console, in the trace and on the run's card. A ceiling
-    that fires without naming itself is a run that looks broken.
+class Overrun(NamedTuple):
+    """A `budget:` ceiling the session has met: which one, the ceiling as
+    configured, the value that met it, and why that stops it, in a sentence."""
+
+    kind: str                       # tokens | cost
+    limit: float
+    reached: float
+    reason: str
+
+
+def overrun(tokens: int, cost: float, budget: BudgetConfig) -> Optional[Overrun]:
+    """The ceiling this session has met, or None while it may still spend.
+
+    `reason` reads as a sentence because it becomes the phase's error — the line
+    an engineer sees in the console, in the trace and on the run's card. A
+    ceiling that fires without naming itself is a run that looks broken. The
+    rest is the same fact for a reader that counts (`limit_hit`).
     """
     if budget.max_cost_usd and cost >= budget.max_cost_usd:
-        return (f"session has spent ${cost:.4f} of its ${budget.max_cost_usd:.2f} "
-                f"ceiling (budget.max_cost_usd)")
+        return Overrun("cost", budget.max_cost_usd, cost,
+                       f"session has spent ${cost:.4f} of its ${budget.max_cost_usd:.2f} "
+                       f"ceiling (budget.max_cost_usd)")
     if budget.max_tokens and tokens >= budget.max_tokens:
-        return (f"session has used {tokens:,} of its {budget.max_tokens:,} token "
-                f"ceiling (budget.max_tokens)")
-    return ""
+        return Overrun("tokens", budget.max_tokens, tokens,
+                       f"session has used {tokens:,} of its {budget.max_tokens:,} token "
+                       f"ceiling (budget.max_tokens)")
+    return None

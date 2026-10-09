@@ -1,0 +1,13 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "workflow_finished",
+  "v": 2,
+  "payload": {
+    "workflow": "ship",
+    "chapter": 1,
+    "status": "fail",
+    "reason": "test still failed after 2 attempt(s)",
+    "accepted": false
+  }
+}

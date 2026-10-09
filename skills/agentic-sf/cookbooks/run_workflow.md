@@ -147,7 +147,24 @@ To stop a run: `just kill <adw_id>` — its agents first, then the workflow;
 
 A phase failing is not the same as the run being unacceptable, and neither is
 every phase passing: a run ends through its own acceptance, so read the final
-line rather than the last phase.
+line rather than the last phase. The session's events say which it was:
+`workflow_finished` carries `accepted` — `false` only when every phase passed
+and the workflow still refused the chapter (a fix loop that ran out, a reviewer
+who withheld approval), with `reason` saying why.
+
+Two failures are facts of their own, and resuming does not cure either:
+
+- **`limit_hit`** — a `budget:` ceiling refused the next agent turn (`tokens`
+  or `cost`, the ceiling, and the session's total that met it), or a turn ran
+  past `harness.timeout_seconds` and was terminated (`timeout`, in seconds).
+  `just resume` meets the same ceiling: the spend is the session's. Raising
+  the ceiling (or an agent's `timeout_seconds`) is the engineer's decision in a
+  reviewed `factory.yaml` — never raise it for them.
+- **`permission_rolled_back`** — an agent wrote outside its `writes:`, and the
+  factory undid it before failing the phase: `paths` were rolled back,
+  `not_undone` were left as they were (the engineer's own uncommitted work, or
+  a path git would not restore). Name both; a resume re-asks the same agent
+  with the same boundary, so the fix is the task or the binding.
 
 ## Where the work went
 
@@ -172,5 +189,6 @@ whose run "succeeded" still needs to know where to look.
 
 Three things, short: what the run did, whether it was accepted, and where the
 work is. Then the cost if they asked. If it failed, the phase that failed and
-the error it ended with (its `phase_ended` event, or the run's closing lines) —
-not a transcript.
+what stopped it — a `limit_hit` or a `permission_rolled_back` when there is one,
+else the error it ended with (its `phase_ended` event, or the run's closing
+lines) — not a transcript.

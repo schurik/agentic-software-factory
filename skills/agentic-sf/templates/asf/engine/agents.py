@@ -20,7 +20,7 @@ from .data_types import (BODY_BYTES, RAW_TAIL_CHARS, TRANSCRIPT_CHUNK_CHARS, Age
                          AgentConfig, AgentRequest, AgentResult, AgentSession,
                          EnvelopeAccepted, EnvelopeBase, EnvelopeRejected,
                          FactoryConfig, GateCheck, GateReport, GateResult, HarnessBlock,
-                         HarnessDefaults, HarnessOutput, Phase,
+                         HarnessDefaults, HarnessOutput, LimitHit, Phase,
                          PhaseReplayed, PromptRendered, RecordedPhase, ToolCalled,
                          UsageBreakdown)
 from .utils import anchor, clip_utf8, write_atomic
@@ -327,6 +327,9 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
             if expiry.result:
                 run.add_usage(phase, agent, expiry.result)
                 spent.merge(expiry.result.usage)
+            run.tracer.event(LimitHit(phase_id=phase.phase_id, phase=phase.params.name,
+                                      agent=agent.name, kind="timeout", limit=expiry.limit,
+                                      reached=round(expiry.elapsed, 1)))
             run.console.note(f"agent_timeout: {expiry}")
             raise
         finally:
@@ -419,11 +422,14 @@ def _refuse_if_over_budget(run, phase: Phase, agent: AgentConfig) -> None:
     is kept: the work bought so far is on its branch, and `just integrate`
     still lands it.
     """
-    reason = run.overrun()
-    if not reason:
+    over = run.overrun()
+    if over is None:
         return
-    run.console.note(f"budget_exceeded: {reason}")
-    raise limits.BudgetExceeded(f"{agent.name} not sent: {reason}")
+    run.tracer.event(LimitHit(phase_id=phase.phase_id, phase=phase.params.name,
+                              agent=agent.name, kind=over.kind, limit=over.limit,
+                              reached=over.reached))
+    run.console.note(f"budget_exceeded: {over.reason}")
+    raise limits.BudgetExceeded(f"{agent.name} not sent: {over.reason}")
 
 
 def _spawned(run, agent: AgentConfig, pid: int) -> None:
