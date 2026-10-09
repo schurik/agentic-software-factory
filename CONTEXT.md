@@ -33,10 +33,25 @@ _Avoid_: check, validator, scorer
 
 **Scorer**:
 A team-written judgement of a finished chapter of one workflow, optionally focused on one of its
-agents. It runs on a station after the chapter ends and records a verdict that never changes that
-chapter's outcome: a scorer measures, a gate decides. A criterion that must block work stops being a
-scorer and becomes a gate.
+agents. It is either a model judging against prose criteria or a fixed predicate over the chapter's
+domain events. It runs on a station after the chapter ends and records a score that never changes
+that chapter's outcome: a scorer measures, a gate decides. A criterion that must block work stops
+being a scorer and becomes a gate.
 _Avoid_: evaluator, judge, grader, metric
+
+**Score**:
+One scorer's class for one finished chapter, with the domain events it cites as evidence. Each of a
+scorer's classes is declared failing or not; a score is never a number. A chapter can be scored
+long after it ended, and its score joins that session's record.
+_Avoid_: verdict (a person's answer at a gate), grade, rating, evaluation
+
+**Self-improvement**:
+A factory turning one scorer's repeated failing scores, across distinct sessions, into an issue
+on its own tracker: the evidence, the scorer's criteria and a diagnosis of what to change in the
+factory or the application. The issue is then worked like any other; nothing is changed without a
+person accepting its plan and merging its pull request. There is at most one open such issue per
+scorer.
+_Avoid_: auto-tuning, self-healing, learning, retrospective
 
 **Autonomous pull request**:
 A merged pull request that a session opened itself and whose every commit at merge, other than
