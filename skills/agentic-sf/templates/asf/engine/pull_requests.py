@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 
 from . import artifacts
-from .data_types import (PullRequestContext, PullRequestOutput,
+from .data_types import (PullRequestClosed, PullRequestContext, PullRequestOutput,
                          PullRequestRef, PullRequestResult, PullRequestsConfig,
                          PullRequestUpdate, ReviewComment, ReviewThread)
 from .issues import _aim, _run, resolve_project
@@ -76,6 +76,24 @@ query($owner:String!, $name:String!, $number:Int!) {
           id isResolved isOutdated path line
           comments(first:50) { nodes { databaseId body createdAt author { login } } }
         }
+      }
+    }
+  }
+}
+"""
+
+# What a pull request that closed is read for, and only then — one query more
+# per pull request reaped, never one per poll. `commits` is capped where the
+# forge caps a pull request's commits anyway; `parents` is how a merge commit
+# is told from the commits around it. Reviews come oldest first.
+_CLOSED_QUERY = """
+query($owner:String!, $name:String!, $number:Int!) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      number url state mergedAt
+      reviews(first:1) { nodes { submittedAt } }
+      commits(first:250) {
+        nodes { commit { oid parents(first:2) { nodes { oid } } } }
       }
     }
   }
@@ -194,6 +212,48 @@ def describe(tree, config: PullRequestsConfig, ref: PullRequestRef) -> PullReque
         review_decision=payload.get("reviewDecision") or "",
         threads=_threads_of(payload),
     )
+
+
+def number_of(url: str) -> int:
+    """A pull request's number, off its forge url; 0 for a url that names none."""
+    tail = (url or "").rstrip("/").rsplit("/", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+
+def outcome_of(tree, config: PullRequestsConfig, ref: PullRequestRef) -> PullRequestClosed:
+    """How a pull request that is no longer open ended: what `pull_request_closed`
+    says of it. Raises on failure, as `describe` does — the caller records it,
+    and a record made of a network blip would say the pull request had no
+    commits.
+
+    A BASE MERGE is a commit with a parent outside the pull request's own
+    commits other than its first: it brought history from elsewhere in, and on
+    a session's branch that is the base branch — "Update branch", or a person
+    merging it by hand. The first commit's own parent is outside too, which is
+    why only a second parent counts.
+    """
+    project = ref.project or resolve_project(config, tree)
+    owner, name = _split(project)
+    data, error = _graphql(config, tree, _CLOSED_QUERY,
+                           owner=owner, name=name, number=int(ref.number))
+    payload = ((data.get("repository") or {}).get("pullRequest") or {})
+    if error or not payload:
+        raise RuntimeError(f"could not read how #{ref.number} in {project} closed: "
+                           f"{error or 'there is no such pull request'}")
+    commits = [node.get("commit") or {}
+               for node in (payload.get("commits") or {}).get("nodes") or []]
+    shas = [commit.get("oid") or "" for commit in commits]
+    ours = set(shas)
+    merges = [commit.get("oid") or "" for commit in commits
+              if any(parent.get("oid") not in ours
+                     for parent in ((commit.get("parents") or {}).get("nodes") or [])[1:])]
+    reviews = (payload.get("reviews") or {}).get("nodes") or []
+    return PullRequestClosed(
+        url=payload.get("url") or "", number=int(payload.get("number") or ref.number),
+        merged=str(payload.get("state") or "").upper() == "MERGED",
+        merged_at=payload.get("mergedAt") or "",
+        first_review_at=(reviews[0].get("submittedAt") or "") if reviews else "",
+        head_shas=shas, base_merges=merges)
 
 
 def fetch(run, config: PullRequestsConfig, ref: PullRequestRef) -> PullRequestContext:

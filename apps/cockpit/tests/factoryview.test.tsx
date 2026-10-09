@@ -355,7 +355,10 @@ describe("the Config tab", () => {
 
 // ── the page's shell and its Stations tab (#118) ─────────────────────────────
 
-const PANELS = { overview: <p>the overview</p>, workflows: <p>the workflows</p>, stations: <p>the stations</p>, config: <p>the config</p> };
+const PANELS = {
+  overview: <p>the overview</p>, workflows: <p>the workflows</p>, measure: <p>the measure</p>, stations: <p>the stations</p>,
+  config: <p>the config</p>,
+};
 
 function factoryView(shown: Page, tab: FactoryTab, look: Look | null = LOOK) {
   return renderToStaticMarkup(
@@ -381,10 +384,11 @@ describe("the factory page", () => {
     expect(html).toContain("$2.50 · 2M tokens per session");
   });
 
-  it("has four tabs, opens on the one its address names, and links to the factory's sessions", () => {
+  it("has five tabs, opens on the one its address names, and links to the factory's sessions", () => {
     const html = factoryView(page(), "stations");
 
-    expect(html.match(/role="tab"/g)).toHaveLength(4);
+    expect([...html.matchAll(/role="tab"[^>]*><span[^>]*>(\w+)/g)].map((found) => found[1]))
+      .toEqual(["Overview", "Workflows", "Measure", "Stations", "Config"]);
     expect(html).toMatch(/aria-selected="true"[^>]*><span[^>]*>Stations/);
     expect(panel(html, "stations")).not.toContain("hidden");
     expect(panel(html, "overview")).toContain("hidden");

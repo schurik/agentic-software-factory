@@ -279,6 +279,13 @@ is not. `issues.route` decides which label launches which workflow (`asf:ship`
 → `issue` as stamped); `issues.enabled` and `pull_requests.enabled` in
 `asf/factory.yaml` turn a path off.
 
+The review watcher is also what tells a cockpit that a pull request merged.
+Each pass it reaps the sessions whose pull request closed and records how
+(`pull_request_closed` in the session, `pr_state` in its `run.json`), so a
+factory nobody runs `just prs` or `just up` for shows nothing merged on the
+cockpit's Measure tab. Its first pass after an upgrade finds every pull request
+the factory opened that has since closed, and records 20 a pass.
+
 The labels themselves are a separate job from routing them: run
 `just labels --create` once, and again after any upgrade or any edit that names
 a new one. On a tracker that is not the forge, clear `issues.labels_list_command`

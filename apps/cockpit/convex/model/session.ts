@@ -493,6 +493,21 @@ const READERS: Record<string, Record<number, Reader>> = {
         (p.bool("ok") ? "done" : "refused") + (p.str("detail") ? ` — ${p.str("detail")}` : ""),
     },
   },
+  // A pull request the session's own integration opened — not one it found open.
+  pull_request_opened: {
+    1: { describe: (p) => `opened pull request #${p.num("number")}` },
+  },
+  // How its pull request ended, as the PR watcher found it: usually after
+  // `session_finished`, so it folds into nothing a finished session shows.
+  pull_request_closed: {
+    1: {
+      describe: (p) => {
+        const commits = p.strs("head_shas").length;
+        return `pull request #${p.num("number")} ${p.bool("merged") ? "merged" : "closed unmerged"}` +
+          ` with ${commits} commit${commits === 1 ? "" : "s"}`;
+      },
+    },
+  },
   // Transcript events: present only for a factory that opted in. Nothing but a
   // transcript view may be built from them — their bodies age out.
   prompt_rendered: {

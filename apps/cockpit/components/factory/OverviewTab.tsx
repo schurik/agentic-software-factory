@@ -33,22 +33,40 @@ export function OverviewTab({ overview, days, midnights, now, timeZone, onDays }
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm text-muted tabular-nums">{day(midnights[0])} – {day(midnights.at(-2) ?? midnights[0])}</span>
-        <span className="grow" />
-        <div role="radiogroup" aria-label="Period" className="flex rounded-md border border-line p-0.5 text-xs">
-          {(Object.keys(OVERVIEW_DAYS).map(Number) as OverviewDays[]).map((each) => (
-            <button key={each} type="button" role="radio" aria-checked={days === each} onClick={() => onDays(each)}
-                    className={cx("h-6 cursor-pointer rounded px-2", days === each ? "bg-surface-3 text-fg" : "text-muted hover:text-fg")}>
-              {OVERVIEW_DAYS[each]}
-            </button>
-          ))}
-        </div>
+        <PeriodFilter days={days} midnights={midnights} timeZone={timeZone} onDays={onDays} />
       </div>
       {overview === undefined ? <Loading />
         : overview === null ? <Notice>This is not a factory you can read.</Notice>
         : overview.cut ? <Notice>More happened in the {period} than the cockpit sums at once: pick a shorter period.</Notice>
         : <Figures overview={overview} period={period} days={days} now={now} day={day} />}
     </div>
+  );
+}
+
+/**
+ * The period a tab is over, as one filter row ends: the days it spans, then
+ * the choice of the last 7 or 30. The Overview's, and the Measure tab's.
+ */
+export function PeriodFilter({ days, midnights, timeZone, onDays }: {
+  days: OverviewDays;
+  midnights: number[];
+  timeZone: string;
+  onDays: (days: OverviewDays) => void;
+}) {
+  const day = dayIn(timeZone);
+  return (
+    <>
+      <span className="text-sm text-muted tabular-nums">{day(midnights[0])} – {day(midnights.at(-2) ?? midnights[0])}</span>
+      <span className="grow" />
+      <div role="radiogroup" aria-label="Period" className="flex rounded-md border border-line p-0.5 text-xs">
+        {(Object.keys(OVERVIEW_DAYS).map(Number) as OverviewDays[]).map((each) => (
+          <button key={each} type="button" role="radio" aria-checked={days === each} onClick={() => onDays(each)}
+                  className={cx("h-6 cursor-pointer rounded px-2", days === each ? "bg-surface-3 text-fg" : "text-muted hover:text-fg")}>
+            {OVERVIEW_DAYS[each]}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -143,10 +161,11 @@ function Finished({ ended, always = false }: { ended: Ended; always?: boolean })
   return <>{parts.map((part, index) => <span key={index}>{index ? " · " : ""}{part}</span>)}</>;
 }
 
-function Stat({ label, value, sub }: { label: string; value: ReactNode; sub: ReactNode }) {
+/** One figure on a card: what it is, the figure, and a line saying what it is of. */
+export function Stat({ label, value, sub, title }: { label: string; value: ReactNode; sub: ReactNode; title?: string }) {
   return (
     <Card className="px-4 py-3">
-      <div className="text-xs text-muted">{label}</div>
+      <div className="text-xs text-muted" title={title}>{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
       <div className="mt-0.5 text-xs text-muted">{sub}</div>
     </Card>

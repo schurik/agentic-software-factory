@@ -7,6 +7,7 @@ import { advance, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
 import { phase } from "./phases";
+import { pull } from "./pulls";
 import { liveToken } from "./tokens";
 
 /**
@@ -71,15 +72,16 @@ export const append = internalMutation({
       if (bucket === null) await ctx.db.insert("spend", { factory, session, ...spent });
       else await ctx.db.patch(bucket._id, { cost: bucket.cost + spent.cost, tokens: bucket.tokens + spent.tokens });
     }
+    // Every event of it up to `acked`: what a row an older cockpit never wrote is folded from.
+    const all = () => ctx.db
+      .query("events")
+      .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).lte("seq", acked))
+      .collect();
     // Its phases' rows, the same way — from its first event, for a session an older cockpit stored without them.
     if (record === null || record.phased) await phase(ctx, { factory, session }, fresh, folded);
-    else {
-      const all = await ctx.db
-        .query("events")
-        .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).lte("seq", acked))
-        .collect();
-      await phase(ctx, { factory, session }, all, null);
-    }
+    else await phase(ctx, { factory, session }, await all(), null);
+    // Its pull request's row: what the Measure tab counts (model/pulls.ts).
+    await pull(ctx, { factory, session }, fresh, all);
     const waiting = summary.waitingFor !== null;
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);

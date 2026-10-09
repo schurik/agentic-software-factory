@@ -53,7 +53,8 @@ from pathlib import Path
 
 from . import events
 from .data_types import (BODY_BYTES, ArtifactRole, ArtifactWritten, DomainEvent, GateOpened,
-                         ProcessEnded, ProcessStarted, ProvenanceRecorded, RecordedPhase,
+                         ProcessEnded, ProcessStarted, ProvenanceRecorded, PullRequestClosed,
+                         RecordedPhase,
                          RunState, SessionFinished, SessionResumed, SessionSpec, SessionStarted,
                          SessionSuspended, UsageRecorded, WaitingFor, WorkflowFinished,
                          WorkflowStarted)
@@ -119,6 +120,7 @@ def start_run(session_dir: Path, started: SessionStarted) -> RunState:
         state.issue_number = state.issue_number or previous.issue_number
         state.issue_project = state.issue_project or previous.issue_project
         state.pr_url = state.pr_url or previous.pr_url
+        state.pr_state = previous.pr_state
         # A session stopped at a gate is picked up by the process that answers
         # it, and that process has to reach the gate knowing what was asked.
         state.waiting_for = state.waiting_for or previous.waiting_for
@@ -248,6 +250,11 @@ def record_provenance(session_dir: Path, learned: ProvenanceRecorded) -> None:
     _patch(session_dir, learned, trigger=learned.trigger, issue_url=learned.issue_url,
            issue_number=learned.issue_number, issue_project=learned.issue_project,
            pr_url=learned.pr_url)
+
+
+def record_pr_closed(session_dir: Path, closed: PullRequestClosed) -> None:
+    """How the session's pull request ended, learned after the session did."""
+    _patch(session_dir, closed, pr_state="merged" if closed.merged else "closed")
 
 
 def record_usage(session_dir: Path, usage: UsageRecorded) -> None:
@@ -571,6 +578,13 @@ def pr_urls(sessions_dir: Path) -> dict[str, str]:
     """{adw_id: pr_url} for every session that became a pull request."""
     return {adw_id: state.pr_url for adw_id, state in scan(sessions_dir).items()
             if state.pr_url}
+
+
+def unclosed_pr_urls(sessions_dir: Path) -> dict[str, str]:
+    """{adw_id: pr_url} for every session whose pull request has not been seen
+    closed — open still, or closed while nothing was watching."""
+    return {adw_id: state.pr_url for adw_id, state in scan(sessions_dir).items()
+            if state.pr_url and not state.pr_state}
 
 
 def adw_names(sessions_dir: Path) -> dict[str, str]:

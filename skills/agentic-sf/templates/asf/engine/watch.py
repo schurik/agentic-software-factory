@@ -46,6 +46,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import random
 import signal
 import subprocess
 import sys
@@ -62,6 +63,12 @@ from .utils import anchor, ensure_dir, new_id, now_iso, operator_env
 
 RUNNER = "asf/asf.py"
 EXIT_WAITING = hitl.EXIT_WAITING
+
+# How many sessions one pass reads the close of, beyond the ones it reaps anyway.
+# The first pass after an upgrade finds every pull request the factory ever
+# opened unrecorded; this spreads them over passes instead of one burst at the
+# forge's rate limit.
+RECORDED_PER_PASS = 20
 
 # (project, number) this process will not launch again, because a run failed on
 # it and the label that would have said so could not be applied. Process-local
@@ -551,11 +558,6 @@ def answers_status(cfg: FactoryConfig) -> int:
 
 # ── pull requests ────────────────────────────────────────────────────────────
 
-def _pr_number(pr_url: str) -> int:
-    tail = (pr_url or "").rstrip("/").rsplit("/", 1)[-1]
-    return int(tail) if tail.isdigit() else 0
-
-
 def mark(cfg: FactoryConfig, main_root, project: str, number: int, add: str = "",
          remove: str = "") -> bool:
     result = pull_requests.set_state(main_root, cfg.pull_requests, PullRequestUpdate(
@@ -586,7 +588,7 @@ def waiting_on(cfg: FactoryConfig, main_root, number: int) -> str:
     sessions = artifacts.sessions_root(main_root, cfg.data_dir)
     urls = artifacts.pr_urls(sessions)
     for adw_id in artifacts.waiting_sessions(sessions):
-        if _pr_number(urls.get(adw_id, "")) == number:
+        if pull_requests.number_of(urls.get(adw_id, "")) == number:
             return adw_id
     return ""
 
@@ -608,10 +610,19 @@ def has_work(cfg: FactoryConfig, main_root, project: str, number: int) -> bool:
 def reap(cfg: FactoryConfig, main_root, project: str) -> int:
     """Close out sessions whose pull request has been merged or closed.
 
-    Only the factory's own open state is examined — worktrees on disk and
-    sessions that believe they run — so the pass costs less the tidier the
-    factory is. For each such session on a pull request no longer open: stop a
-    REVIEW run still working it (SIGTERM; any other workflow is left running
+    Two kinds of session are looked at. The factory's own open state —
+    worktrees on disk and sessions that believe they run — so the cleanup
+    costs less the tidier the factory is. And every session whose pull
+    request has not been SEEN closed yet, which is most of them: a session
+    that opened one finished, and released its worktree, long before anybody
+    merged it. One listing of the open pull requests rules out those still
+    open without a read each, and at most `RECORDED_PER_PASS` of the rest are
+    read per pass — the first pass after an upgrade finds every pull request
+    the factory ever opened.
+
+    For each such session on a pull request no longer open: record how it
+    ended (`pull_request_closed`, the only way a cockpit learns a merge), stop
+    a REVIEW run still working it (SIGTERM; any other workflow is left running
     and told), abort a run waiting at a gate nobody is left to answer, release
     the worktree by the same conservative rule `asf worktrees prune` uses,
     drop the loop-stop label and the lock. Idempotent; never raises.
@@ -620,11 +631,14 @@ def reap(cfg: FactoryConfig, main_root, project: str) -> int:
     live = live_runs(cfg, main_root)
     names = artifacts.adw_names(sessions)
     trees = {info.adw_id for info in worktree.inventory(main_root, cfg.worktree, str(sessions))}
-    candidates = sorted(trees | set(live))
     urls = artifacts.pr_urls(sessions)
+    unclosed = artifacts.unclosed_pr_urls(sessions)
+    candidates = sorted(trees | set(live))
+    candidates += _unseen(cfg, main_root, project, {adw_id: url for adw_id, url in unclosed.items()
+                                                    if adw_id not in candidates})
     reaped = 0
     for adw_id in candidates:
-        number = _pr_number(urls.get(adw_id, ""))
+        number = pull_requests.number_of(urls.get(adw_id, ""))
         if not number:
             continue
         try:
@@ -643,9 +657,15 @@ def reap(cfg: FactoryConfig, main_root, project: str) -> int:
                 print(f"    {names.get(adw_id) or 'a run'} is still working it (pid "
                       f"{live[adw_id]}) — left running; its commits would now push onto "
                       f"a landed branch. `asf kill {adw_id}` to stop it")
+        if adw_id in unclosed:
+            _record_closed(cfg, main_root, sessions / adw_id,
+                           PullRequestRef(number=number, project=project))
         _abort_if_waiting(sessions / adw_id, number, context.state.lower())
         _release(cfg, main_root, adw_id, str(sessions))
-        mark(cfg, main_root, project, number, remove=cfg.pull_requests.states.failed)
+        if adw_id in trees or adw_id in live:
+            # Only a session still holding something can hold the loop-stop label too;
+            # one visited only to record its close is not worth a write to the forge.
+            mark(cfg, main_root, project, number, remove=cfg.pull_requests.states.failed)
         try:
             (anchor(main_root, f"{cfg.data_dir}/pr-locks")
              / _slug(project, number)).unlink(missing_ok=True)
@@ -653,6 +673,40 @@ def reap(cfg: FactoryConfig, main_root, project: str) -> int:
             pass
         reaped += 1
     return reaped
+
+
+def _unseen(cfg: FactoryConfig, main_root, project: str, unclosed: dict[str, str]) -> list[str]:
+    """The sessions in `unclosed` the open listing does not show, at most
+    `RECORDED_PER_PASS` of them. A listing that fails rules nothing out: each
+    is read on its own then, and the read says whether it is open.
+
+    A SAMPLE, not the first ones in order: a pull request the forge will not
+    show (deleted, its repository moved) stays unrecorded, and a fixed order
+    would read the same unreadable ones every pass while the rest waited."""
+    if not unclosed:
+        return []
+    argv = [*cfg.pull_requests.list_command, "--state", "open", "--json", "number",
+            "--limit", "1000", "--repo", project]
+    still_open = {entry.get("number") for entry in _forge(argv, main_root)}
+    gone = [adw_id for adw_id, url in unclosed.items()
+            if pull_requests.number_of(url) not in still_open]
+    return sorted(random.sample(gone, min(len(gone), RECORDED_PER_PASS)))
+
+
+def _record_closed(cfg: FactoryConfig, main_root, session_dir: Path,
+                   ref: PullRequestRef) -> None:
+    """Say in the session's own record how its pull request ended — a late
+    event, on a session that usually finished long ago, and the only way a
+    cockpit learns a merge (ADR 0006). `run.json` remembers it was said, so it
+    is said once."""
+    try:
+        outcome = pull_requests.outcome_of(main_root, cfg.pull_requests, ref)
+    except RuntimeError as error:
+        print(f"    could not read how #{ref.number} closed ({error}) — not recorded")
+        return
+    artifacts.record_pr_closed(session_dir, outcome)
+    station.flush(session_dir)
+    print(f"    recorded #{ref.number} as {'merged' if outcome.merged else 'closed unmerged'}")
 
 
 def _terminate(adw_id: str, pid: int) -> None:

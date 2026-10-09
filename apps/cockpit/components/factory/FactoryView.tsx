@@ -7,8 +7,8 @@ import { FactoryHeader } from "./FactoryHeader";
 import { dotsOf, FACTORY_TABS, type FactoryTab, type Page } from "./view";
 
 /**
- * One factory's page (#118): its header, and four tabs — Overview, Workflows,
- * Stations and Config — the one open being the address's (`?tab=`), each
+ * One factory's page (#118): its header, and five tabs — Overview, Workflows,
+ * Measure, Stations and Config — the one open being the address's (`?tab=`), each
  * marked with a dot when it holds a problem, and the factory's sessions one
  * link away on the Sessions page. Every panel stays mounted, so a draft — the
  * config editor's — outlives a look at another tab. Pure: the panels come in

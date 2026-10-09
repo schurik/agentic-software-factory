@@ -21,6 +21,14 @@ before — `None` when there are none, never omitted.
 
 ## Unreleased
 
+- **A session says what became of its pull request.** The integration that opens a pull request
+  records `pull_request_opened`, and the PR watcher, when it reaps a session whose pull request
+  merged or closed, records `pull_request_closed` — merged or not, when, when its first review came,
+  and its commits at close with the base-branch merges among them. It is the first event that can
+  arrive after `session_finished`. The watcher now looks at every session whose pull request it has
+  not seen closed, not only those with a worktree or a live run, so a session that finished long
+  before its merge is reaped too; `run.json`'s new `pr_state` says it was. A 1.3.0 cockpit counts
+  them on the factory page's new **Measure** tab: pull requests opened and merged, and autonomy.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -133,7 +141,11 @@ before — `None` when there are none, never omitted.
    first) — a vendored one with `npx skills add schurik/agentic-software-factory --skill
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
-   settings in the self-description and registering without a token; nothing else changes. A
+   settings in the self-description, registering without a token and the pull request events;
+   nothing else changes. The PR watcher's first pass after it (`just prs`, or `just up`) records
+   every pull request the factory opened that has since closed, 20 a pass — what the Measure tab
+   counts merges from. Pull requests opened before the re-stamp said nothing when they opened, so
+   they count as merged but never as autonomous. A
    factory with the CI workflow ships format 2 on its next default-branch push.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
    older one refuses a registration that holds none, and `just station-register` says so. Then

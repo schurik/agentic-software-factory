@@ -1432,6 +1432,10 @@ class RunState(BaseModel):
     triggered_by: str = ""
     issue_url: str = ""
     pr_url: str = ""
+    # How the session's pull request ended — merged | closed — once the PR
+    # watcher recorded it (`pull_request_closed`); "" while it is open, or
+    # nothing has looked. What keeps the watcher from reading it twice.
+    pr_state: Literal["", "merged", "closed"] = ""
     # The issue this run answers, as the TRACKER addresses it. `issue_url` is
     # for humans and for the PR body; these two are what a label move needs,
     # and deriving them by parsing the url would be a guess about a forge whose
@@ -2795,6 +2799,50 @@ class SessionFinished(DomainEvent):
     reason: str = ""
 
 
+class PullRequestOpened(DomainEvent):
+    """The session's own integration opened a pull request (`integration._open_pr`).
+
+    Only an opening: a pull request the session found already open — one a
+    person opened from its branch, or the one a review run entered by — says
+    nothing here. That is the first of the three things an autonomous pull
+    request is (`CONTEXT.md`), and an event is how a cockpit knows it without
+    asking the forge (ADR 0006).
+    """
+
+    KIND: ClassVar[str] = "pull_request_opened"
+
+    url: str
+    number: int = 0
+
+
+class PullRequestClosed(DomainEvent):
+    """The session's pull request closed, merged or not, as the PR watcher read
+    it when it reaped the session (`watch.reap`).
+
+    THE FIRST EVENT THAT CAN ARRIVE AFTER `session_finished`: the work ended
+    when the pull request was opened, and the forge decided its fate later. A
+    cockpit accepts it on a finished session (ADR 0006).
+
+    `head_shas` is every commit of the pull request when it closed, oldest
+    first, and `base_merges` the ones among them that merged history from
+    outside it in — a person pressing "Update branch". With the session's own
+    `committed` shas they decide whether it was autonomous; a cockpit cannot
+    tell a merge from a push by a sha alone. `first_review_at` is when its
+    first review was submitted, "" when nobody reviewed it: where its cycle
+    time splits.
+    """
+
+    KIND: ClassVar[str] = "pull_request_closed"
+
+    url: str
+    number: int = 0
+    merged: bool
+    merged_at: str = ""
+    first_review_at: str = ""
+    head_shas: list[str] = Field(default_factory=list)
+    base_merges: list[str] = Field(default_factory=list)
+
+
 # ── transcript events: written only when `cockpit.transcripts` is on ─────────
 #
 # Through `Run.transcript`, the one door they are written through — so no caller
@@ -2849,4 +2897,5 @@ EVENT_KINDS: dict[str, type[DomainEvent]] = {model.KIND: model for model in (
     PhaseStarted, PhaseEnded, PhaseReplayed, EnvelopeAccepted, EnvelopeRejected, GateResult,
     GateOpened, SessionSuspended, DecisionRecorded, JournalNoted, UsageRecorded,
     ArtifactWritten, Committed, ToolCalled, ProcessStarted, ProcessEnded, CommandFinished,
-    CommandResult, SessionFinished, PromptRendered, HarnessOutput)}
+    CommandResult, SessionFinished, PullRequestOpened, PullRequestClosed, PromptRendered,
+    HarnessOutput)}
