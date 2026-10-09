@@ -86,9 +86,13 @@ export default defineSchema({
     // Unset on a session stored before they existed: the backfill, or its next
     // batch, writes them from the start (phases.ts).
     phased: v.optional(v.boolean()),
+    // Whether its chapters' rows (`chapters`) were written from its first
+    // event, the same way: unset on a session stored before they existed.
+    chaptered: v.optional(v.boolean()),
   })
     .index("by_session", ["factory", "session"])
     .index("by_phased", ["phased"])
+    .index("by_chaptered", ["chaptered"])
     .index("by_transcripts", ["transcripts"])
     .index("by_transcripts_due", ["transcriptsDue"])
     .index("by_activity", ["activity"])
@@ -151,10 +155,29 @@ export default defineSchema({
     .index("by_session", ["factory", "session", "phase"])
     .index("by_factory_at", ["factory", "at"]),
 
+  // A chapter of a session (model/chapters.ts): its workflow, what started it
+  // — a prompt, an issue, a pull request's review — and when. Written by
+  // ingest as each `workflow_started` arrives, so Metrics counts chapters by
+  // trigger without reading events.
+  chapters: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    chapter: v.number(),
+    workflow: v.string(),
+    trigger: v.string(),
+    at: v.number(),
+  })
+    .index("by_session", ["factory", "session", "chapter"])
+    .index("by_factory_at", ["factory", "at"]),
+
   // A session's pull request, as the Measure tab counts it (model/pulls.ts):
   // when its own integration opened it, how and when it closed, whether it was
-  // autonomous — and the commits the session made, which decide that. Written by ingest as the events arrive, the way phases are,
-  // so Metrics counts pull requests without reading events.
+  // autonomous — and the commits the session made, which decide that — and
+  // what it took: when the session started, how big it was, what it cost.
+  // Written by ingest as the events arrive, the way phases are, so Metrics
+  // counts pull requests without reading events. The fields after `commits`
+  // are absent from a row an older cockpit wrote, until its session's next
+  // batch folds it again from its first event (pulls.ts).
   pulls: defineTable({
     factory: v.string(),
     session: v.string(),
@@ -166,6 +189,12 @@ export default defineSchema({
     firstReviewAt: v.union(v.null(), v.number()),
     autonomous: v.boolean(),
     commits: v.array(v.string()),
+    kickoff: v.optional(v.union(v.null(), v.number())),
+    prs: v.optional(v.number()),
+    lines: v.optional(v.union(v.null(), v.number())),
+    spent: v.optional(v.object({
+      input: v.number(), output: v.number(), cacheRead: v.number(), cacheWrite: v.number(), other: v.number(),
+    })),
   })
     .index("by_session", ["factory", "session"])
     .index("by_factory_opened", ["factory", "opened"])

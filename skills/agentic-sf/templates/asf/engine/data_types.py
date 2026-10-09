@@ -3011,9 +3011,14 @@ class PullRequestClosed(DomainEvent):
     tell a merge from a push by a sha alone. `first_review_at` is when its
     first review was submitted, "" when nobody reviewed it: where its cycle
     time splits.
+
+    v2: `additions` and `deletions`, its changed lines as the forge counted
+    them at close — the size a cockpit sorts its cost per PR by. A v1 close
+    said nothing of its size, which is not the same as a size of 0.
     """
 
     KIND: ClassVar[str] = "pull_request_closed"
+    VERSION: ClassVar[int] = 2      # v2: additions, deletions
 
     url: str
     number: int = 0
@@ -3022,6 +3027,8 @@ class PullRequestClosed(DomainEvent):
     first_review_at: str = ""
     head_shas: list[str] = Field(default_factory=list)
     base_merges: list[str] = Field(default_factory=list)
+    additions: int = 0
+    deletions: int = 0
 
 
 # ── transcript events: written only when `cockpit.transcripts` is on ─────────

@@ -52,6 +52,12 @@ before — `None` when there are none, never omitted.
   not seen closed, not only those with a worktree or a live run, so a session that finished long
   before its merge is reaped too; `run.json`'s new `pr_state` says it was. A 1.3.0 cockpit counts
   them on the factory page's new **Measure** tab: pull requests opened and merged, and autonomy.
+- **A closed pull request says how big it was.** `pull_request_closed` v2 carries its changed
+  lines at close, `additions` and `deletions`, as the forge counts them — recorded alike by the PR
+  watcher's reap and `asf score`. A 1.3.0 cockpit's Measure tab sizes cost per PR by them (S, M,
+  L, XL at 100, 500 and 1,000 lines), beside the median PR cycle time per leg (kickoff → PR →
+  first review → merge), cost per PR by component, the five most expensive pull requests, and the
+  period's chapters counted by trigger. What measuring costs is never in cost per PR.
 - **A factory that runs no PR watcher still gets its merges.** `asf score [--since 2026-10-01]`
   (`just score`) walks the sessions started since, asks the forge how each one's unrecorded pull
   request ended, and records the same `pull_request_closed` the watcher's reap would — so the
@@ -176,7 +182,8 @@ before — `None` when there are none, never omitted.
    PR watcher's first pass after it (`just prs`, or `just up`) records every pull request the
    factory opened that has since closed, 20 a pass — what the Measure tab counts merges from;
    a factory that runs no watcher records them with `just score` instead. Pull requests opened before the re-stamp said nothing
-   when they opened, so they count as merged but never as autonomous. A factory with the CI
+   when they opened, so they count as merged but never as autonomous. Pull requests that closed before
+   the re-stamp have no size, and are counted in no size. A factory with the CI
    workflow ships format 3 on its next default-branch push.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
    older one refuses a registration that holds none, and `just station-register` says so. Then

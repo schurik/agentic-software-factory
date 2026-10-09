@@ -282,10 +282,11 @@ is not. `issues.route` decides which label launches which workflow (`asf:ship`
 `asf/factory.yaml` turn a path off.
 
 The review watcher is also what tells a cockpit that a pull request merged.
-Each pass it reaps the sessions whose pull request closed and records how
+Each pass it reaps the sessions whose pull request closed and records how —
+merged or not, when its first review came, its commits and its changed lines —
 (`pull_request_closed` in the session, `pr_state` in its `run.json`), so a
 factory nobody runs `just prs` or `just up` for shows nothing merged on the
-cockpit's Measure tab. Its first pass after an upgrade finds every pull request
+cockpit's Measure tab, and no cycle time or cost per PR. Its first pass after an upgrade finds every pull request
 the factory opened that has since closed, and records 20 a pass.
 
 A factory that runs no review watcher catches up with `just score`

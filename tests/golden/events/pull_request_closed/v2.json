@@ -1,0 +1,22 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "pull_request_closed",
+  "v": 2,
+  "payload": {
+    "url": "https://github.com/acme/widgets/pull/43",
+    "number": 43,
+    "merged": true,
+    "merged_at": "2026-09-29T11:40:00Z",
+    "first_review_at": "2026-09-29T10:15:00Z",
+    "head_shas": [
+      "3e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f",
+      "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
+    ],
+    "base_merges": [
+      "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b"
+    ],
+    "additions": 120,
+    "deletions": 30
+  }
+}

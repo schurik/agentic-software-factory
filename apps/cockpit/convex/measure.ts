@@ -15,6 +15,8 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { SUMMED } from "./cost";
+import { byTrigger, type TriggerLine } from "./model/chapters";
+import { type CostPerPr, costPerPrOf, type Costed, type Cycle, cycleOf, type Dear, dearestOf } from "./model/measure";
 import type { Period } from "./model/period";
 import { spellingsOf } from "./spelling";
 import { readable, viewing } from "./viewer";
@@ -28,9 +30,19 @@ export interface Metrics {
   autonomous: number;
   /** `autonomous / merged`; null when nothing merged, which is no share at all. */
   autonomy: number | null;
+  /** PR cycle time of the merged ones, by stage. */
+  cycle: Cycle;
+  /** Cost per PR of the merged ones whose cost the cockpit kept. */
+  cost: CostPerPr;
+  /** The merged ones that cost the most, dearest first. */
+  expensive: Dear[];
+  /** The chapters that started in the period, by trigger. The split by workflow is the Overview's. */
+  chapters: TriggerLine[];
 }
 
-const NONE: Metrics = { cut: false, opened: 0, merged: 0, autonomous: 0, autonomy: null };
+const NONE: Metrics = {
+  cut: false, opened: 0, merged: 0, autonomous: 0, autonomy: null, cycle: cycleOf([]), cost: costPerPrOf([]), expensive: [], chapters: byTrigger([]),
+};
 
 /**
  * `factory`'s Metrics over `days` — the midnights that start each day, and the
@@ -49,14 +61,26 @@ export const metrics = query({
 
     const opened = await pullsIn(ctx, factory, period, "opened");
     const merged = await pullsIn(ctx, factory, period, "mergedAt");
-    if (opened === null || merged === null) return { ...NONE, cut: true };
+    const chapters = await chaptersStartedIn(ctx, factory, period);
+    if (opened === null || merged === null || chapters === null) return { ...NONE, cut: true };
     const autonomous = merged.filter((row) => row.autonomous).length;
+    const costed = merged.flatMap(costedOf);
     return {
       cut: false, opened: opened.length, merged: merged.length, autonomous,
       autonomy: merged.length ? autonomous / merged.length : null,
+      cycle: cycleOf(merged.map((row) => ({ ...row, kickoff: row.kickoff ?? null }))),
+      cost: costPerPrOf(costed),
+      expensive: dearestOf(costed),
+      chapters: byTrigger(chapters),
     };
   },
 });
+
+/** A row with its cost, or none for one an older cockpit wrote before it kept what a pull request cost. */
+function costedOf(row: Doc<"pulls">): Costed[] {
+  const { spent } = row;
+  return spent === undefined ? [] : [{ ...row, prs: row.prs ?? 1, lines: row.lines ?? null, spent }];
+}
 
 /** The index each of a pull request's moments is read by. */
 const BY = { opened: "by_factory_opened", mergedAt: "by_factory_merged" } as const;
@@ -67,6 +91,19 @@ async function pullsIn(ctx: QueryCtx, factory: string, period: Period,
   const found: Doc<"pulls">[] = [];
   for (const spelling of await spellingsOf(ctx, factory)) {
     const rows = ctx.db.query("pulls").withIndex(BY[field], (q) => q.eq("factory", spelling).gte(field, period.from).lt(field, period.to));
+    for await (const row of rows) {
+      if (found.length === SUMMED) return null;
+      found.push(row);
+    }
+  }
+  return found;
+}
+
+/** `factory`'s chapters that started in `period`; null past `SUMMED`. */
+async function chaptersStartedIn(ctx: QueryCtx, factory: string, period: Period): Promise<Doc<"chapters">[] | null> {
+  const found: Doc<"chapters">[] = [];
+  for (const spelling of await spellingsOf(ctx, factory)) {
+    const rows = ctx.db.query("chapters").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", period.from).lt("at", period.to));
     for await (const row of rows) {
       if (found.length === SUMMED) return null;
       found.push(row);
