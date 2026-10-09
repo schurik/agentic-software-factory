@@ -6,7 +6,8 @@
  *
  * Read off the rows ingest keeps of each session's pull request, never an
  * event and never the forge (ADR 0006): a merge reaches the cockpit as the
- * `pull_request_closed` a station's PR watcher sends. A pull request is the
+ * `pull_request_closed` a station sends — its PR watcher's, or the same event
+ * backfilled by `asf score`, counted alike. A pull request is the
  * period's OPENED when the session opened it in the period, and its MERGED
  * when it merged in it — the two need not be the same pull requests.
  */

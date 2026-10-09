@@ -357,3 +357,55 @@ def test_a_pull_request_closed_unmerged_is_recorded_as_such(stamped: Path):
                 if line.kind == "pull_request_closed"]
     assert (closed["merged"], closed["merged_at"], closed["first_review_at"]) == (False, "", "")
     assert closed["head_shas"] == [made] and closed["base_merges"] == []
+
+
+def test_score_since_backfills_a_close_no_watcher_saw(stamped: Path):
+    [made] = landed(stamped)
+    reviewed(stamped, enabled=False, reap_merged=False)       # nothing ever watched
+    forge_data(stamped, "listing.json", [])
+
+    def closes() -> list:
+        return [line for line in events.read(session_dir(stamped, ID))
+                if line.kind == "pull_request_closed"]
+
+    # A session older than --since is not looked at: the forge is not even asked.
+    forge_data(stamped, "refuse.json", ["graphql", "list"])
+    later = asf(stamped, "score", "--since", "2999-01-01")
+    assert later.returncode == 0, later.stdout + later.stderr
+    assert closes() == []
+    (stamped / ".forge" / "refuse.json").unlink()
+
+    # Still open: nothing to say yet.
+    forge_data(stamped, "pr.json", pr_json(9, f"asf/{ID}", commits=[(made, ["a" * 40])]))
+    still_open = asf(stamped, "score", "--since", "2020-01-01")
+    assert still_open.returncode == 0, still_open.stdout + still_open.stderr
+    assert closes() == [] and run_state(stamped, ID)["pr_state"] == ""
+
+    # Merged while nothing watched: recorded exactly as the watcher's reap would.
+    update = "b" * 40
+    forge_data(stamped, "pr.json", pr_json(
+        9, f"asf/{ID}", state="MERGED", merged_at="2026-10-02T09:00:00Z",
+        commits=[(made, ["a" * 40]), (update, [made, "c" * 40])],
+        reviews=["2026-10-01T15:00:00Z"]))
+    merged = asf(stamped, "score", "--since", "2020-01-01")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    [closed] = closes()
+    assert closed.payload == {
+        "url": "https://forge/acme/widgets/pull/9", "number": 9, "merged": True,
+        "merged_at": "2026-10-02T09:00:00Z", "first_review_at": "2026-10-01T15:00:00Z",
+        "head_shas": [made, update], "base_merges": [update]}
+    assert run_state(stamped, ID)["pr_state"] == "merged"
+    assert "merged" in merged.stdout
+    rebuilt = projection.replay(session_dir(stamped, ID))
+    assert rebuilt.run == projection.on_disk(session_dir(stamped, ID)).run
+
+    # A second run has nothing left to ask the forge, and says nothing twice.
+    forge_data(stamped, "refuse.json", ["graphql", "list"])
+    again = asf(stamped, "score", "--since", "2020-01-01")
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert len(closes()) == 1
+
+
+def test_score_refuses_a_since_that_is_not_a_date(stamped: Path):
+    result = asf(stamped, "score", "--since", "last tuesday")
+    assert result.returncode == 2 and "last tuesday" in result.stderr

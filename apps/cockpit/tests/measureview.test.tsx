@@ -55,6 +55,7 @@ describe("the factory page's Measure tab", () => {
 
     expect(said).toContain("No pull request was opened or merged in the last 7 days.");
     expect(said).toContain("asf prs");
+    expect(said).toContain("asf score");
     expect(said).not.toContain("Autonomy");
   });
 

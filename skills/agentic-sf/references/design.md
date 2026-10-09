@@ -305,7 +305,9 @@ the same in words; the event is what is counted.
 A session's pull request is two events of its own. `pull_request_opened` is said by the
 integration that opened it — never for one it found open, which is why a cockpit can tell a pull
 request the factory opened from one a person did. `pull_request_closed` is said by the PR
-watcher's reap once the forge shows it merged or closed (`asf prs`): merged or not, when, when its
+watcher's reap once the forge shows it merged or closed (`asf prs`), or by `asf score`, which
+asks the forge the same for a factory no watcher ran for — one event, whoever saw the close, so a
+cockpit counts both alike: merged or not, when, when its
 first review came, its commits at close and which of them merged the base branch in. It is the first
 event that can arrive after `session_finished`, and a cockpit takes it on a finished session. With
 the session's own `committed` shas it decides whether the pull request was autonomous (CONTEXT.md),

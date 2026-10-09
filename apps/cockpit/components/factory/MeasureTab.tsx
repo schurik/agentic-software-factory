@@ -56,7 +56,8 @@ function MetricsView({ metrics: { opened, merged, autonomous, autonomy }, period
     return (
       <Notice>
         No pull request was opened or merged in the {period}. A merge reaches the cockpit when a
-        station&apos;s pull request watcher (<code>asf prs</code>) sees the pull request closed.
+        station&apos;s pull request watcher (<code>asf prs</code>) sees the pull request closed, or
+        when <code>asf score</code> asks the forge for a factory no watcher ran for.
       </Notice>
     );
   }

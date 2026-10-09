@@ -288,6 +288,14 @@ factory nobody runs `just prs` or `just up` for shows nothing merged on the
 cockpit's Measure tab. Its first pass after an upgrade finds every pull request
 the factory opened that has since closed, and records 20 a pass.
 
+A factory that runs no review watcher catches up with `just score`
+(`--since 2026-10-01` for the sessions started since): for every session whose
+pull request has not been recorded closed, it asks the forge and records the
+same `pull_request_closed` the watcher would, so the Measure tab counts it
+alike. It needs the forge CLI and `pull_requests.project` (or an origin
+remote), not `pull_requests.enabled`; it only records — no worktree, run or
+label is touched — and a second run adds nothing.
+
 The labels themselves are a separate job from routing them: run
 `just labels --create` once, and again after any upgrade or any edit that names
 a new one. On a tracker that is not the forge, clear `issues.labels_list_command`
