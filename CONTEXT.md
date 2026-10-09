@@ -37,6 +37,52 @@ resuming the workflow continues its chapter. A session reads as its chapters in 
 workflow, then one for each round of pull-request review.
 _Avoid_: run, round, stage, step
 
+**Gate**:
+A check, made while a phase runs, of what that phase claimed against what actually happened. A
+failed gate sends the same agent back to correct itself; it decides whether the phase is accepted.
+_Avoid_: check, validator, scorer
+
+**Scorer**:
+A team-written judgement of a finished chapter of one workflow, optionally focused on one of its
+agents. It is either a model judging against prose criteria or a fixed predicate over the chapter's
+domain events. It runs on a station after the chapter ends and records a score that never changes
+that chapter's outcome: a scorer measures, a gate decides. A criterion that must block work stops
+being a scorer and becomes a gate.
+_Avoid_: evaluator, judge, grader, metric
+
+**Score**:
+One scorer's class for one finished chapter, with the domain events it cites as evidence. Each of a
+scorer's classes is declared failing or not; a score is never a number. A chapter can be scored
+long after it ended, and its score joins that session's record.
+_Avoid_: verdict (a person's answer at a gate), grade, rating, evaluation
+
+**Self-improvement**:
+A factory turning one scorer's repeated failing scores, across distinct sessions, into an issue
+on its own tracker: the evidence, the scorer's criteria and a diagnosis of what to change in the
+factory or the application. The issue is then worked like any other; nothing is changed without a
+person accepting its plan and merging its pull request. There is at most one open such issue per
+scorer.
+_Avoid_: auto-tuning, self-healing, learning, retrospective
+
+**Benchmark**:
+A named list of past sessions' requests, each pinned at the commit it started from, worked again
+under two or more variants so their scores, cost and duration can be compared. Its sessions are
+never published, integrated or reported on the tracker, count toward no metric and no
+self-improvement, and name no winner: a person reads the difference against the noise and decides.
+_Avoid_: eval, test suite, experiment, A/B test
+
+**Variant**:
+One configuration of a factory under benchmark, named by a git ref of its files: the default branch,
+or a branch such as a self-improvement pull request's. Models, prose, task files and workflow
+options all vary the same way, by being committed.
+_Avoid_: config, candidate, arm, profile
+
+**Autonomous pull request**:
+A merged pull request that a session opened itself and whose every commit at merge, other than
+merges from the base branch, was made by that session. Rounds of review driven by human comments
+keep it autonomous; a single human push does not.
+_Avoid_: hands-off PR, unattended PR
+
 **Artifact**:
 A file a phase writes and declares as its output, or code writes as the request a workflow answers.
 It either lives in the repository and is committed on the session's branch, or is handed off inside
