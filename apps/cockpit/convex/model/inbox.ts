@@ -9,7 +9,7 @@
  * everyone else; the factory's answers watcher is still what checks it, so a
  * row offered wrongly is a comment the factory ignores, never a decision.
  */
-import type { Role } from "../forge/forge";
+import type { ItemState, Role } from "../forge/forge";
 import { commandRefusal, type CommandState, liveness, type StationFacts } from "./command";
 import { Payload } from "./payload";
 import type { Summary, WaitingFor } from "./session";
@@ -110,6 +110,17 @@ export function blocked(summary: Summary, sent: Sent | null, ready: boolean, com
   return null;
 }
 
+/**
+ * Why a viewer the wait's trust list does not name cannot answer it here: whom
+ * it is on. Not on the issue either — the factory's answers watcher hears a
+ * comment only from its own trust list, and an answer the cockpit pointed
+ * someone else to would be one the factory ignores.
+ */
+export function waitsOnOthers(waiting: WaitingFor): string {
+  const on = `waiting on ${(waiting.trusted ?? []).join(", ")}: the factory hears only them`;
+  return waiting.channel === "issue" && waiting.issueNumber ? `${on}, here or on issue #${waiting.issueNumber}` : on;
+}
+
 /** What became of the last answer by command, when the station turned it down or never took it: "" otherwise. */
 export function lastWord(commanding: Commanding | null): string {
   const last = commanding?.last;
@@ -132,6 +143,8 @@ export interface Row {
   channel: string;
   issueNumber: number;
   issueUrl: string;
+  /** Where that issue stands on the forge; null when not known. */
+  issueState: ItemState | null;
   workItem: string;               // what asked for the session: `#42 title`, or the prompt
   workflow: string;
   station: string;
@@ -185,8 +198,9 @@ export function forYou(summary: Summary, login: string | null): ForYou[] {
   return reasons;
 }
 
+/** A wait's row, but for where its issue stands: that is the forge's, not the summary's. */
 export function row({ factory, session }: { factory: string; session: string }, summary: Summary,
-                    login: string | null, judged: Judged): Row {
+                    login: string | null, judged: Judged): Omit<Row, "issueState"> {
   const waiting: WaitingFor = summary.waitingFor!;
   const { commanding } = judged;
   const last = commanding?.last;
@@ -267,11 +281,21 @@ export interface Earlier {
   channel: string;
 }
 
+/**
+ * The round before this one, as a plan gate's "Changes since" compares it
+ * (#114): the commit it was asked about — or why the forge holds none, and
+ * there is nothing to compare. Each round's subject is committed and pushed
+ * before the session suspends, under `worktree.publish: on_create` alone.
+ */
+export type LastRound = { round: number; headSha: string } | { round: number; because: string };
+
 export interface Asked {
   notes: string;                  // the producing agent's notes for the next agent
   subject: Subject;
   questions: Question[];
   earlier: Earlier[];
+  /** Null in a first round. */
+  lastRound: LastRound | null;
 }
 
 /** What the session's events say the current wait asks, off its latest `suspended`. */
@@ -279,11 +303,19 @@ export function asked(events: StoredEvent[], acked: number, waiting: WaitingFor)
   let root = "";
   let suspended: Payload | null = null;
   const decided = new Map<number, Earlier>();
+  // This chapter's earlier rounds of the gate, each by its latest suspend: a resumed session may
+  // have asked one twice, and a chapter numbers its rounds from 1 again.
+  const rounds = new Map<number, Payload>();
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     if (event.seq > acked) break;
     const p = Payload.parse(event.payload);
     if (event.kind === "session_started") root = p.str("repo_root") || root;
-    if (event.kind === "suspended") suspended = p;
+    if (event.kind === "workflow_started") rounds.clear();
+    if (event.kind === "suspended") {
+      suspended = p;
+      const round = p.obj("waiting_for")?.num("round") || 1;
+      if (p.obj("waiting_for")?.str("gate") === waiting.gate && round < waiting.round) rounds.set(round, p);
+    }
     if (event.kind === "decision_recorded" && p.bool("consumed")) {
       const d = p.obj("decision");
       const round = d?.num("round") || 1;
@@ -306,7 +338,22 @@ export function asked(events: StoredEvent[], acked: number, waiting: WaitingFor)
     subject: { headSha: suspended?.str("head_sha") ?? "", baseCommit: suspended?.str("base_commit") ?? "", files, outside },
     questions: (suspended?.list("questions") ?? []).map(readQuestion),
     earlier: [...decided.values()].sort((a, b) => a.round - b.round),
+    lastRound: waiting.round > 1 ? lastRoundOf(waiting.round - 1, rounds.get(waiting.round - 1), suspended) : null,
   };
+}
+
+/** Round `round`'s commit, if both it and the round now asking (`now`) are on the forge. */
+function lastRoundOf(round: number, then: Payload | undefined, now: Payload | null): LastRound {
+  if (then === undefined) {
+    return { round, because: `round ${round} was answered at the station's terminal before the session suspended, so no commit holds it` };
+  }
+  // A `suspended` v1 says nothing of it, and is taken as not published: nothing is compared on a guess.
+  const unpublished = !then.bool("published") || !then.str("head_sha") ? round : !now?.bool("published") ? round + 1 : null;
+  if (unpublished !== null) {
+    return { round, because: `the forge holds no commit of round ${unpublished} to compare with: a round is published ` +
+                             "as it suspends only under worktree.publish: on_create, and only when the push went through" };
+  }
+  return { round, headSha: then.str("head_sha") };
 }
 
 function readQuestion(p: Payload): Question {

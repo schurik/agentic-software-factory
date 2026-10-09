@@ -28,6 +28,25 @@ export async function register(t: Cockpit, ingestToken: string, station = STATIO
   return await json(response) as { device: string; code: string; url: string; interval: number; expires_in: number };
 }
 
+/**
+ * `asf station register` without an ingest token: the request names its
+ * factory itself, and the host it runs on. `from` is the address a proxy in
+ * front of the deployment says it came from.
+ */
+export async function registerNamed(t: Cockpit, factory: string, station = STATION, from?: string) {
+  const response = await asking(t, factory, station, from);
+  expect(response.status).toBe(200);
+  return await json(response) as { device: string; code: string; url: string; interval: number; expires_in: number };
+}
+
+export async function asking(t: Cockpit, factory: string, station = STATION, from?: string): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (from) headers["X-Forwarded-For"] = `${from}, 10.0.0.1`;
+  return await t.fetch("/station/register", {
+    method: "POST", headers, body: JSON.stringify({ station, factory, host: "mbp" }),
+  });
+}
+
 export async function handed(t: Cockpit, device: string) {
   return await post(t, "/station/register/poll", null, { device });
 }

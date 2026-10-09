@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
+import { type Entry, numbered, render } from "../convex/model/journal";
 import { toldVersions } from "../convex/model/story";
 import { cockpit, corpus, factory, fixture, ingest, recorded, type Cockpit, type WireEvent } from "./helpers";
 
@@ -184,6 +185,62 @@ describe("the journal", () => {
     expect((await story(t)).journal).toBe(JOURNAL);
   });
 
+  it("is that journal byte for byte for a factory that records its stages too", async () => {
+    const t = cockpit();
+    const { events, journal } = recorded["issue-then-two-reviews-in-stages"];
+    await ship(t, await factory(t), events);
+    expect((await story(t)).journal).toBe(journal);
+  });
+
+  it("comes in entries under the journal's own numbers, which are phase sequences and skip", async () => {
+    const { t } = await told();
+    const { journalEntries } = await story(t);
+    // Read off the recorded journal.md: a numbered line opens each entry, whatever number it says.
+    const numbers = [...JOURNAL.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
+    expect(journalEntries.map((entry) => entry.seq)).toEqual(numbers);
+    expect(numbers.join(" ")).toContain("7 10 12");
+  });
+
+  it("comes in entries that are the journal's own lines, each once and in its order", async () => {
+    const { t } = await told();
+    const { journalEntries } = await story(t);
+    const lines = journalEntries.flatMap(({ seq, head, marks }) => [`${seq}. ${head}`, ...marks.map((mark) => mark.text)]);
+    // Only the indentation that sets a mark under its phase is the entries' to drop.
+    const body = JOURNAL.slice(JOURNAL.search(/^1\. /m)).trimEnd().split("\n").map((each) => each.trimStart());
+    expect(lines.join("\n").split("\n")).toEqual(body);
+  });
+
+  it("keeps each marked line under the numbered line it follows in the text, without the indent that put it there", async () => {
+    const { t } = await told();
+    const byNumber = new Map((await story(t)).journalEntries.map((entry) => [entry.seq, entry]));
+    expect(byNumber.get(3)).toMatchObject({
+      head: "plan · planner · success — a required meeting date, and a test for its format",
+      marks: [{ kind: "note", text: "⚑ risk (planner, in plan): the date is local midnight\nbecause: converted in UTC it is the previous day" }],
+    });
+    expect(byNumber.get(4)?.marks).toEqual([
+      { kind: "remark", text: "✎ asf tests said, reject at the plan gate (round 1): name the module the date is converted in" },
+    ]);
+    // The builder's deviation was filed under a phase that wrote no line of its
+    // own, so the text puts it under commit_plan, and so does the entry.
+    expect(byNumber.get(7)?.marks.map((mark) => mark.text)).toEqual([expect.stringContaining("⚑ deviation (builder, in implement)")]);
+    expect(byNumber.get(10)?.marks).toEqual([]);
+  });
+
+  it("puts a mark filed before any numbered line under no number, where the text has it", () => {
+    // What a person typed keeps its own indentation; only the journal's goes.
+    const remark = { gate: "plan", round: 1, kind: "gate", verdict: "reject", text: "say *why*:\n  - the date" };
+    const entries: Entry[] = [
+      { seq: 2, kind: "remark", phase: "approve_plan", by: "ana", status: "", summary: "", note: null, remark },
+      { seq: 3, kind: "phase", phase: "plan", by: "planner", status: "success", summary: "", note: null, remark: null },
+    ];
+    expect(numbered(entries)).toEqual([
+      { seq: null, head: "", marks: [{ kind: "remark", text: "✎ ana said, reject at the plan gate (round 1): say *why*:\n  - the date" }] },
+      { seq: 3, head: "plan · planner · success", marks: [] },
+    ]);
+    expect(render(entries).split("\n").slice(-4)).toEqual([
+      "   ✎ ana said, reject at the plan gate (round 1): say *why*:", "  - the date", "3. plan · planner · success", ""]);
+  });
+
   it("is, at every task the factory sent an agent, the journal that prompt ended with", async () => {
     // Send 1 is the task; a later send in the same session is a correction,
     // which the agent reads with the task (and its journal) still in context.
@@ -302,6 +359,55 @@ describe("edges a recording does not reach", () => {
     const [first] = (await story(t)).chapters;
     expect(first.asked).not.toBeNull();
     expect(first.items).toMatchObject([{ type: "agent", name: "ask" }]);
+  });
+});
+
+describe("a session whose factory records its stages", () => {
+  // The same story, recorded by a factory whose chapters name their stages
+  // (`workflow_started` v2) and whose phases say which one they belong to
+  // (`phase_started` v3).
+  async function staged() {
+    const t = cockpit();
+    const token = await factory(t);
+    await ship(t, token, recorded["issue-then-two-reviews-in-stages"].events);
+    return story(t);
+  }
+
+  it("names each chapter's stages, in order, as its workflow listed them", async () => {
+    const { chapters } = await staged();
+
+    expect(chapters.map((chapter) => chapter.stages)).toEqual([
+      ["scout", "plan", "commit", "implement", "verify", "review", "commit", "document", "commit", "integrate"],
+      ["implement", "verify", "commit"],
+      ["implement", "verify", "commit"],
+    ]);
+  });
+
+  it("puts every phase in the stage that opened it, gates and revisions included, and the work item and report in none", async () => {
+    const { chapters } = await staged();
+    const [first, review] = chapters;
+    const stageOf = (items: typeof first.items) => items.flatMap((item) =>
+      item.type === "automatic" || item.type === "resumed" ? [] : [`${item.name} ${item.stageIndex}`]);
+
+    expect(first.reader).toMatchObject({ name: "issue", stageIndex: null });
+    expect(stageOf(first.items)).toEqual([
+      "scout 0", "plan 1", "approve_plan 1", "plan_revise_1 1", "approve_plan_2 1", "commit_plan 2",
+      "implement 3", "verify_1 4", "review_1 5", "commit_implement 6", "changes 7", "document 7",
+      "commit_document 8", "integrate 9", "report null"]);
+    expect(review.reader).toMatchObject({ name: "pr", stageIndex: null });
+    expect(stageOf(review.items)).toEqual(["implement 0", "verify_1 1", "commit_implement 2", "report null"]);
+  });
+
+  it("tells a session recorded before stages were with none, and no stage guessed from a phase's name", async () => {
+    const { t } = await told();
+    const { chapters } = await story(t);
+
+    expect(chapters.map((chapter) => chapter.stages)).toEqual([[], [], []]);
+    for (const chapter of chapters) {
+      for (const item of chapter.items) {
+        if ("stageIndex" in item) expect(item.stageIndex, `${item.type} ${item.name}`).toBeNull();
+      }
+    }
   });
 });
 

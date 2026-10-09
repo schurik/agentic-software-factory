@@ -3,7 +3,10 @@
 import { useState } from "react";
 import type { ClaimView } from "@/convex/model/claim";
 import { ONLINE_FOR } from "@/convex/model/command";
-import { formatSpan } from "./format";
+import { formatSpan, workItemHref } from "./format";
+import { ForgeRef } from "./icons";
+import { Button, LinkButton } from "./ui";
+import { useWho } from "./viewer";
 
 const RELEASED_WHY: Record<string, string> = {
   finished: "freed: the run finished", aborted: "freed: the run was aborted", "never started": "given back: the run never started",
@@ -21,27 +24,32 @@ function awayWords(claim: Pick<ClaimView, "heardAt">, now: number): string {
  * weekend is not a dead one, and nothing releases a claim by the clock. A
  * writer may release it, in two steps, the second saying what that does.
  * Shown on the session page, under its station and in Needs attention.
+ * `forge` is the forge's web origin, which the work item is linked on.
  */
-export function ClaimRow({ claim, now, onRelease }: { claim: ClaimView; now: number; onRelease?: (claim: ClaimView) => void }) {
+export function ClaimRow({ claim, now, forge, onRelease }: {
+  claim: ClaimView; now: number; forge: string; onRelease?: (claim: ClaimView) => void;
+}) {
   const [asking, setAsking] = useState(false);
-  const item = `${claim.kind === "pr" ? "pull request" : "issue"} #${claim.number}`;
+  const who = useWho();
+  const href = workItemHref(forge, claim.repo, claim.kind, claim.number);
+  const item = <ForgeRef kind={claim.kind} href={href} state={claim.state}>#{claim.number}</ForgeRef>;
   const consequence = claim.consequence.charAt(0).toUpperCase() + claim.consequence.slice(1);
   if (claim.released !== null) {
     const { by, why } = claim.released;
-    return <div className="small muted">{item} {why === "released" ? `released by ${by || "someone"}: session abandoned` : RELEASED_WHY[why] ?? why}</div>;
+    return <div className="text-sm text-muted">{item} {why === "released" ? `released by ${who(by) || "someone"}: session abandoned` : RELEASED_WHY[why] ?? why}</div>;
   }
   return (
-    <div className="claim">
-      <div className="small">{item} held by <code>{claim.stationName}</code>, {awayWords(claim, now)}</div>
-      {claim.refused !== null ? <div className="muted small">{claim.refused}</div>
+    <div className="mb-1.5 grid justify-items-start gap-1.5">
+      <div className="text-sm">{item} held by <code>{claim.stationName}</code>, {awayWords(claim, now)}</div>
+      {claim.refused !== null ? <div className="text-sm text-muted">{claim.refused}</div>
         : asking ? (
-          <div className="confirm small">
-            {consequence}.{" "}
-            <button className="button small danger" onClick={() => { setAsking(false); onRelease?.(claim); }}>Release</button>{" "}
-            <button className="link small" onClick={() => setAsking(false)}>Cancel</button>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {consequence}.
+            <Button size="sm" variant="danger" onClick={() => { setAsking(false); onRelease?.(claim); }}>Release</Button>
+            <LinkButton onClick={() => setAsking(false)}>Cancel</LinkButton>
           </div>
         ) : (
-          <button className="button small" title={consequence} disabled={!onRelease} onClick={() => setAsking(true)}>Release claim</button>
+          <Button size="sm" title={consequence} disabled={!onRelease} onClick={() => setAsking(true)}>Release claim</Button>
         )}
     </div>
   );

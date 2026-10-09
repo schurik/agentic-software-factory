@@ -3,7 +3,9 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { signed } from "./forge/app";
 import { parseClaim } from "./model/claim";
-import { isRefusal as isCommandRefusal, parsePoll, parseRegistration, REGISTRATION_FOR, REGISTRATION_POLL, approvalCode } from "./model/command";
+import {
+  approvalCode, isRefusal as isCommandRefusal, parseNaming, parsePoll, parseRegistration, REGISTRATION_FOR, REGISTRATION_POLL,
+} from "./model/command";
 import { isRefusal as isDescribingRefusal, parseDescribing } from "./model/description";
 import { digest, secret } from "./model/digest";
 import { asks } from "./model/webhook";
@@ -35,29 +37,40 @@ http.route({
       session: batch.session,
       events: batch.events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) })),
     });
-    if (result === null) return reply(401, { error: "this ingest token is not one the cockpit issued" });
+    if (result === null) return reply(401, { error: "this ingest token is not one the cockpit issued, or it was revoked" });
     return reply(200, result);
   }),
 });
 
 // A station asks to take commands (`asf station register`, stations.ts): with
-// the factory's ingest token, which says whose station it is. The answer is a
-// code for a person to approve and a secret to poll with — and where to
-// approve it, when this deployment was told where its pages are.
+// the factory's ingest token, which says whose station it is, or holding none
+// and naming the factory itself, for a person with write on it to approve.
+// The answer is a code for a person to approve and a secret to poll with —
+// and where to approve it, when this deployment was told where its pages are.
+// A request holding no token is counted by the address it came from, when a
+// proxy in front of the deployment said so (`X-Forwarded-For`, whose first
+// hop is the client's); the counts by factory and in all hold without one.
 http.route({
   path: "/station/register",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const token = bearer(request);
-    if (!token) return reply(401, { error: "registering needs the factory's ingest token" });
-    const station = parseRegistration(await body(request));
+    const asked = await body(request);
+    const naming = parseNaming(asked);
+    if (isCommandRefusal(naming)) return reply(naming.status, { error: naming.error });
+    if (!token && naming.factory === null) {
+      return reply(401, { error: "registering needs the factory's ingest token, or names the factory: {factory: \"owner/name\"}" });
+    }
+    const station = parseRegistration(asked);
     if (isCommandRefusal(station)) return reply(station.status, { error: station.error });
     const device = secret("asf_device_");
     const code = approvalCode(crypto.getRandomValues(new Uint8Array(8)));
-    const asked = await ctx.runMutation(internal.stations.request, {
-      ingest: await digest(token), device: await digest(device), code, station,
+    const source = (request.headers.get("X-Forwarded-For") ?? "").split(",")[0].trim().slice(0, 100);
+    const kept = await ctx.runMutation(internal.stations.request, {
+      ingest: token ? await digest(token) : null, named: token ? null : naming.factory,
+      device: await digest(device), code, station, host: naming.host, source,
     });
-    if (asked === null) return reply(401, { error: "this ingest token is not one the cockpit issued" });
+    if (!kept.ok) return reply(kept.status, { error: kept.error });
     const app = (process.env.COCKPIT_APP_URL ?? "").trim().replace(/\/+$/, "");
     return reply(200, {
       device, code, interval: REGISTRATION_POLL, expires_in: REGISTRATION_FOR / 1000,
@@ -67,7 +80,10 @@ http.route({
 });
 
 // The registering station asks whether a person approved it yet. Approved,
-// it is handed its command token — the only time the token is ever seen.
+// it is handed its command token — the only time the token is ever seen —
+// and, when it asked holding no ingest token, one of those too. `described`
+// says whether anything has described the factory yet: when nothing has, the
+// station pushes its own description once, and the CI workflow keeps it after.
 http.route({
   path: "/station/register/poll",
   method: "POST",
@@ -80,9 +96,15 @@ http.route({
     if (state === "expired") return reply(410, { status: "expired", error: "this code expired, or was never asked for" });
     if (state === "pending") return reply(200, { status: "pending" });
     const token = secret("asf_station_");
-    const handed = await ctx.runMutation(internal.stations.handOver, { device: held, token: await digest(token) });
+    const ingest = secret("asf_ingest_");
+    const handed = await ctx.runMutation(internal.stations.handOver, {
+      device: held, token: await digest(token), ingest: await digest(ingest),
+    });
     if (handed.state !== "approved") return reply(handed.state === "pending" ? 200 : 410, { status: handed.state });
-    return reply(200, { status: "approved", token, owner: handed.owner, station: handed.station });
+    return reply(200, {
+      status: "approved", token, owner: handed.owner, station: handed.station, described: handed.described,
+      ...(handed.ingest ? { ingest_token: ingest } : {}),
+    });
   }),
 });
 
@@ -116,7 +138,7 @@ http.route({
     const token = bearer(request);
     if (!token) return reply(401, { error: "a claim is asked with the factory's ingest token" });
     const factory = await ctx.runQuery(internal.tokens.factoryOf, { digest: await digest(token) });
-    if (factory === null) return reply(401, { error: "this ingest token is not one the cockpit issued" });
+    if (factory === null) return reply(401, { error: "this ingest token is not one the cockpit issued, or it was revoked" });
     const parsed = parseClaim(await body(request), factory);
     if (isCommandRefusal(parsed)) return reply(parsed.status, { error: parsed.error });
     if (parsed.op === "drop") return reply(200, await ctx.runMutation(internal.claims.drop, { factory, asked: parsed.asked }));
@@ -127,7 +149,9 @@ http.route({
 
 // A CI station pushes the factory's self-description here (`asf check --json
 // --ship`, describe.ts): with the factory's ingest token, which can add to its
-// own factory and receive nothing — so the answer names nothing either.
+// own factory and receive nothing — so the answer names nothing either. A
+// local station pushes one once, when it registers a factory nothing has
+// described yet (`describe.keep` says when that is).
 http.route({
   path: "/describe",
   method: "POST",
@@ -137,11 +161,11 @@ http.route({
     const pushed = parseDescribing(await body(request));
     if (isDescribingRefusal(pushed)) return reply(pushed.status, { error: pushed.error });
     const { checked, format, ok } = pushed.description;
-    const kept = await ctx.runMutation(internal.describe.keep, {
+    const refused = await ctx.runMutation(internal.describe.keep, {
       digest: await digest(token), station: pushed.station, text: pushed.text,
       ref: checked.ref, head: checked.head, configHash: checked.configHash, format, ok,
     });
-    if (!kept) return reply(401, { error: "this ingest token is not one the cockpit issued" });
+    if (refused !== null) return reply(refused.status, { error: refused.error });
     return reply(200, {});
   }),
 });

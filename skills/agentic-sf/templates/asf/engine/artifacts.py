@@ -52,11 +52,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import events
-from .data_types import (BODY_BYTES, ArtifactRole, ArtifactWritten, ChapterInput, DomainEvent,
-                         GateOpened, ProcessEnded, ProcessStarted, ProvenanceRecorded,
-                         RecordedPhase, RunState, SessionFinished, SessionResumed,
-                         SessionStarted, SessionSuspended, UsageRecorded, WaitingFor,
-                         WorkflowFinished, WorkflowStarted)
+from .data_types import (BODY_BYTES, ArtifactRole, ArtifactWritten, DomainEvent, GateOpened,
+                         ProcessEnded, ProcessStarted, ProvenanceRecorded, RecordedPhase,
+                         RunState, SessionFinished, SessionResumed, SessionSpec, SessionStarted,
+                         SessionSuspended, UsageRecorded, WaitingFor, WorkflowFinished,
+                         WorkflowStarted)
 from .utils import anchor, clip_utf8, ensure_dir, sweep_temps, write_atomic
 
 RUN_FILE = "run.json"
@@ -165,8 +165,8 @@ def finish_run(session_dir: Path, status: str, reason: str = "") -> None:
 
 # ── chapters: one per workflow the session passes through ────────────────────
 
-def open_chapter(session_dir: Path, workflow: str, input: ChapterInput, resume: bool) -> None:
-    """Say which chapter of the session this process works on.
+def open_chapter(session_dir: Path, workflow: str, spec: SessionSpec) -> None:
+    """Say which chapter of the session this process works on, as `spec` opens it.
 
     A process that RESUMES a workflow continues that workflow's latest chapter
     (`session_resumed`) — the latest of ITS workflow, which need not be the
@@ -182,12 +182,12 @@ def open_chapter(session_dir: Path, workflow: str, input: ChapterInput, resume: 
     process, including one that never opened it.
     """
     chapters = _chapters(session_dir)
-    number = chapters.latest_of(workflow) if resume else 0
+    number = chapters.latest_of(workflow) if spec.resume else 0
     if not number:
         number = max(chapters.workflows, default=0) + 1
         events.emit(session_dir, WorkflowStarted(workflow=workflow, chapter=number,
-                                                 input=input))
-    if resume:
+                                                 input=spec.input, stages=spec.stages))
+    if spec.resume:
         events.emit(session_dir, SessionResumed(workflow=workflow, chapter=number))
 
 

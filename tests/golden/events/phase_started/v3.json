@@ -1,0 +1,17 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "phase_started",
+  "v": 3,
+  "payload": {
+    "phase_id": "5c0075aa_03_plan",
+    "seq": 3,
+    "name": "plan",
+    "kind": "agent",
+    "owner": "planner",
+    "description": "Write the plan the builder will follow",
+    "task": "asf/stages/plan/task.md",
+    "prompt_digest": "967c790b762fbe17e1363dba86b2923548f2093b2123a23e89a068f48d26ff93",
+    "stage_index": 1
+  }
+}

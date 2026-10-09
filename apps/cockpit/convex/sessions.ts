@@ -6,9 +6,13 @@ import { periodValidator } from "./model/period";
 import type { StoredEvent } from "./model/wire";
 import { roleOf } from "./commands";
 import { defaultCheck, repoOf } from "./factory";
+import { readableFactories } from "./factories";
 import { forgeWeb } from "./forge/memory";
+import { statesOf } from "./items";
 import { readDescription } from "./model/description";
+import { miniOf } from "./model/graph";
 import { phaseView, readSummary, view } from "./model/session";
+import { phaseType } from "./model/story";
 import { canRead, readable, viewing } from "./viewer";
 
 // Who sees a session is the forge's call, not the cockpit's: in a team
@@ -24,13 +28,15 @@ const filterValidator = v.object({
   station: v.optional(v.string()),
   status: v.optional(v.union(...STATUSES.map((status) => v.literal(status)))),
   period: v.optional(periodValidator),
+  search: v.optional(v.string()),
 });
 
 /**
  * The sessions the viewer may see, most recently active first, that `filter`
  * keeps (model/filter.ts): of one factory — its Sessions tab — or, without
- * one, of every factory they can read. Null for someone who has not signed
- * in to a team's cockpit, and for a factory they cannot read.
+ * one, of every factory they can read. With them, every factory they can
+ * read, by name, for the page to narrow to. Null for someone who has not
+ * signed in to a team's cockpit, and for a factory they cannot read.
  */
 export const list = query({
   args: { signIn: v.optional(v.string()), factory: v.optional(v.string()), filter: v.optional(filterValidator) },
@@ -48,9 +54,14 @@ export const list = query({
       return readability.get(each)!;
     };
     const found = await find(withSummaries(records), canSee, filter, LIMITS);
+    // As their stations spell them: what the sessions are stored under, and what the page links to.
+    const factories = (await readableFactories(ctx, who, true)).map(({ names: [name] }) => name);
     return {
       ...found,
-      sessions: found.sessions.map(({ factory: from, session, acked, summary }) => ({ factory: from, session, acked, summary })),
+      factories,
+      sessions: await Promise.all(found.sessions.map(async ({ factory: from, session, acked, summary }) => ({
+        factory: from, session, acked, summary, states: await statesOf(ctx, from, summary),
+      }))),
     };
   },
 });
@@ -76,7 +87,8 @@ export const get = query({
     const budget = check && readDescription(check.description).budget;
     // Whether the viewer may purge its bodies (retention.ts): an admin of its repository.
     const mayPurge = (await roleOf(ctx, await viewing(ctx, signIn), stored.factory)) === "admin";
-    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), budget, mayPurge, ...page };
+    const states = await statesOf(ctx, stored.factory, page.summary);
+    return { factory: stored.factory, session, acked: stored.acked, forge: await forgeWeb(ctx), budget, mayPurge, states, ...page };
   },
 });
 
@@ -90,6 +102,30 @@ export const phase = query({
   handler: async (ctx, { factory, session, phaseId, signIn }) => {
     const stored = await storedSession(ctx, factory, session, signIn);
     return stored && phaseView(stored.events, stored.acked, phaseId);
+  },
+});
+
+/**
+ * Where a session is now, for a list's row (Now's Running): the chapter it is
+ * in as a mini graph, the stage it is in — null in a chapter drawn without
+ * stages — and the phase running, since when. Null for a session the viewer
+ * may not see. A query of its own per row, so one session's long record
+ * weighs on its own row and nothing else.
+ */
+export const progress = query({
+  args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory, session, signIn }) => {
+    const stored = await storedSession(ctx, factory, session, signIn);
+    if (stored === null) return null;
+    const { story } = view(stored.events, stored.acked);
+    const here = story.chapters.find((chapter) => chapter.graph.current !== null) ?? story.chapters.at(-1);
+    const graph = here?.graph ?? null;
+    const phase = story.now.phase;
+    return {
+      mini: graph ? miniOf(graph) : { blocks: [], current: null },
+      stage: graph?.kind === "stages" && graph.current !== null ? graph.stages[graph.current].name : null,
+      phase: phase && { name: phase.name, type: phaseType(phase.kind), since: phase.since },
+    };
   },
 });
 

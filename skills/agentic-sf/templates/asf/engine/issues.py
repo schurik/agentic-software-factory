@@ -114,6 +114,13 @@ def resolve_project(config: IssuesConfig | PullRequestsConfig, main_root) -> str
     """
     if config.project:
         return config.project
+    return origin_slug(main_root)
+
+
+def origin_slug(main_root) -> str:
+    """The checkout's origin remote as `owner/name`, or "" when it has none
+    this can read. What a cockpit knows the factory by: the repository that
+    holds `asf/factory.yaml`, whatever project its issues are tracked in."""
     if not git_helper.is_repo(main_root):
         return ""
     url = _run(["git", "remote", "get-url", "origin"], main_root)

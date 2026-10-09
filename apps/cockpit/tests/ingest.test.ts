@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../convex/_generated/api";
-import { cockpit, factory, ingest, type WireEvent } from "./helpers";
+import { api, internal } from "../convex/_generated/api";
+import { cockpit, type Cockpit, factory, ingest, recorded, type WireEvent } from "./helpers";
 
 function line(seq: number, kind = "journal_noted"): WireEvent {
   return { seq, ts: "2026-09-29T12:00:00.000+00:00", kind, v: 1, payload: { n: seq } };
@@ -97,5 +97,81 @@ describe("ingest", () => {
     await ingest(t, widgets, { session: "5c0075aa", events: [line(1), line(2)] });
     const other = await ingest(t, gadgets, { session: "5c0075aa", events: [line(1)] });
     expect(await other.json()).toEqual({ acked: 1 });
+  });
+});
+
+// A phase's row (#119): written as its events become contiguous, the way spend
+// is, so a factory's pages count phases without reading an event.
+
+describe("a phase's rows, written at ingest", () => {
+  const SESSION = "a9f259f0";
+  const { events: STAGED } = recorded["issue-then-two-reviews-in-stages"];
+
+  async function rows(t: Cockpit) {
+    return (await t.run((ctx) => ctx.db.query("phases")
+      .withIndex("by_session", (q) => q.eq("factory", "acme/widgets").eq("session", SESSION)).collect()))
+      .sort((a, b) => a.at - b.at);
+  }
+
+  it("is one row a phase of a recorded session, with its stage when its events carry one", async () => {
+    const t = cockpit();
+    await ingest(t, await factory(t), { session: SESSION, events: STAGED });
+
+    const written = await rows(t);
+    expect(written).toHaveLength(26);
+    expect(written.slice(0, 4).map((row) => [row.name, row.stage])).toEqual([
+      ["issue", null], ["scout", "scout"], ["plan", "plan"], ["approve_plan", "plan"],
+    ]);
+    expect(written.find((row) => row.name === "approve_plan")).toMatchObject({ kind: "gate", verdict: "reject" });
+  });
+
+  it("folds each batch onto the rows before it, and nothing past a gap until it is filled", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const batch = (from: number, to: number) => STAGED.filter(({ seq }) => seq > from && seq <= to);
+
+    await ingest(t, token, { session: SESSION, events: batch(0, 37) });
+    await ingest(t, token, { session: SESSION, events: batch(80, 245) });        // 38–80 not here yet
+    expect((await rows(t)).map((row) => row.name)).toEqual(["issue", "scout", "plan", "approve_plan"]);
+    expect((await rows(t))[3]).toMatchObject({ status: "waiting", verdict: "" });
+
+    await ingest(t, token, { session: SESSION, events: batch(37, 80) });
+    const once = cockpit();
+    await ingest(once, await factory(once), { session: SESSION, events: STAGED });
+    const plain = (written: Awaited<ReturnType<typeof rows>>) => written.map((row) => ({ ...row, _id: undefined, _creationTime: undefined }));
+    expect(plain(await rows(t))).toEqual(plain(await rows(once)));
+  });
+
+  it("writes a session an older cockpit stored whole, from its first event, when the backfill comes to it", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    await ingest(t, token, { session: SESSION, events: STAGED.filter(({ seq }) => seq <= 190) });
+    // As an older cockpit left it: the session, and no row of its phases.
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("phases").collect()) await ctx.db.delete(row._id);
+      const record = (await ctx.db.query("sessions").first())!;
+      await ctx.db.patch(record._id, { phased: undefined });
+    });
+
+    await t.mutation(internal.phases.backfill, {});
+    expect(await rows(t)).toHaveLength(17);
+
+    await ingest(t, token, { session: SESSION, events: STAGED.filter(({ seq }) => seq > 190) });
+    expect(await rows(t)).toHaveLength(26);
+  });
+
+  it("writes a session an older cockpit stored whole when its next batch comes before the backfill does", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    await ingest(t, token, { session: SESSION, events: STAGED.filter(({ seq }) => seq <= 190) });
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("phases").collect()) await ctx.db.delete(row._id);
+      const record = (await ctx.db.query("sessions").first())!;
+      await ctx.db.patch(record._id, { phased: undefined });
+    });
+
+    await ingest(t, token, { session: SESSION, events: STAGED.filter(({ seq }) => seq > 190) });
+    expect(await rows(t)).toHaveLength(26);
+    expect((await rows(t)).find((row) => row.name === "approve_plan_2")).toMatchObject({ verdict: "approve" });
   });
 });

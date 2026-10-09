@@ -19,6 +19,113 @@ Every entry has the same shape: `## X.Y.Z — YYYY-MM-DD`, the date its tag was 
 `## Unreleased`), what changed, and an `### Upgrade` section naming the steps from the release
 before — `None` when there are none, never omitted.
 
+## Unreleased
+
+- **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
+  checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
+  next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
+  traceback. The run now stops before it touches anything, names where the branch is checked out
+  and how to free it, and `asf doctor` — and every run's preflight — warns when the main checkout
+  is on a session's branch.
+- **A phase says which stage it belongs to.** `workflow_started` v2 carries the workflow's stages
+  in order, and `phase_started` v3 the index of the stage a phase belongs to — a gate, a revision,
+  a verify or a commit the stage that opened it, the work item's phase and `report` none. A
+  session's shape is read off its own record, not off a self-description the workflow may have
+  outgrown since. `asf/cockpit/min-version` is **1.3.0**, the first cockpit that reads them.
+- **The self-description carries the factory's settings.** `asf check --json` is format 2: beside
+  the workflows and the budget, `settings` holds factory.yaml as the factory's own code reads it,
+  every default resolved there — where work comes from, people at gates, how work lands (an issue
+  run's mode under `issues.force_pr`, when a branch is published), limits and data, and the
+  tracker's project and labels — so a cockpit shows them without parsing factory.yaml. The
+  tracker's raw command arrays are left out. A 1.3.0 cockpit reads both formats; an older one
+  reads format 2 as far as it can and says it is newer.
+- **A repository connects to a team cockpit without the cockpit's admin key.** `just
+  station-register` with only `ASF_COCKPIT_URL` set names the factory by the checkout's origin
+  remote; a person with write on that repository approves its code in the cockpit, and the
+  station is handed an ingest token of its own beside its command token — both the approver's,
+  kept in `asf/data/station-token.json`. Every run, `up` and `station-sync` ship with it while
+  `ASF_COCKPIT_TOKEN` is unset, and `ASF_COCKPIT_TOKEN` still wins when set: a checkout that has
+  one registers and ships exactly as before. A CI job's token is issued by a repository admin on
+  the factory's Stations tab, shown once and revocable there; `tokens:issue` stays the operator's
+  route. `/setup` shows the Convex dashboard route to `setup:code` on a Convex Cloud deployment.
+  `just doctor` and `just status` say what the station ships with. The whole path, and every way
+  it fails, is the new `cookbooks/connect_cockpit.md`, which `install.md`, `upgrade.md` and
+  `SKILL.md` now point to. `asf/cockpit/min-version` does not rise: a local cockpit registers
+  nothing.
+- **Onboarding is a sequence the factory keeps track of.** `asf onboard` (`just onboard`) prints
+  the steps from stamped to running — installed, ready, settings decided, committed, **published
+  on the default branch**, a cockpit chosen, this checkout connected, the CI check, labels, a
+  first run — each judged by evidence (git, the forge, `.env`, the kept station token, the session
+  directory), and the first one not done as `next`; `--json` for an agent. The three decisions
+  that leave no trace are recorded with `--mark` (`settings`, `cockpit=local`, `ci=declined`) in
+  the gitignored `asf/data/onboarding.json`, which also says when onboarding started and finished,
+  so the skill offers to continue one left halfway. `cookbooks/onboard.md` is now those steps in
+  order, and the factory is committed and on the default branch **before** any cockpit is chosen:
+  a cockpit lists only factories whose default branch holds `asf/factory.yaml`, so a station
+  registered earlier printed a code whose approval nobody could find.
+- **A station that registers again is listed once.** Each `asf station register` added a pending
+  request, so running it twice showed the same station twice on the Stations tab; asking again now
+  withdraws the station's earlier, unapproved code, and only the newest can be approved.
+- **The first registration describes the factory; after that it is CI's job.** When a team
+  cockpit holds no self-description of the factory yet, `asf station register` sends one once the
+  person approves it — what `asf check --json` prints, with the token it registered by — so the
+  Factory page shows the workflows and settings from the moment the repository connects, not
+  "unchecked". The cockpit's hand-over says whether anything has (`described`); it takes a local
+  station's description only while nothing has, and only for the default branch, and refuses one
+  after (403), because the default branch's description is what every station's config drift is
+  measured against. Registering never fails on it: it says what happened and which workflow keeps
+  the description current. And **choosing a team cockpit adds the CI check**: the cookbooks
+  (`connect_cockpit.md`, `onboard.md`, `install.md`, `upgrade.md`, `SKILL.md`) have the agent stamp
+  `.github/workflows/asf-check.yml` as part of connecting and say why, rather than ask; with only
+  the local cockpit it stays the repository's call.
+- **Every question to the person goes through the question tool.** `SKILL.md` § Asking the
+  person: wherever the person has to answer — the install questions, a `factory.yaml` decision on
+  upgrade, a gate's verdict, uninstalling, which cockpit, the next step — the agent asks with its
+  harness's question tool (`AskUserQuestion` in Claude Code), all of that point's questions in one
+  call, the default first and marked, never a question left in prose. Each cookbook names the
+  options at its own stopping points; a harness without the tool asks in one numbered message.
+  After a first install the agent walks the stamped `asf/factory.yaml` the same way — what a
+  session may spend, which model, where a run stops for a person, whose issues and reviews may
+  start one, transcripts, which commands a cockpit may send, and what a gate does unattended
+  (`install.md` § The factory's settings).
+- **`/agentic-sf onboard`.** A new cookbook, `cookbooks/onboard.md`, finds where a repository
+  stands (not installed, behind, not ready, ready) and answers a new user's questions — install,
+  setup, the first run, the tracker, the cockpit and stations, updating, workflows and agents,
+  removing it — each pointing to the cookbook that holds the rest. It is the skill's first
+  argument hint, and the hints and description now name what the skill does today (upgrade,
+  doctor, issues, `up`, connecting a cockpit, registering a station, uninstall) instead of the
+  run trace it no longer has.
+- **The upgrade says how to update the skill itself, and `npx skills update` is not it.** In a
+  repository the `skills` CLI sees an Eve agent in, `update` installs for Eve alone and then calls
+  the skill current, and `--agent claude-code -y` alone copies the skill over the
+  `.claude/skills/` link — so a re-stamp from the copy left behind brought the old engine back,
+  and between releases the version could not tell. `cookbooks/upgrade.md` now updates each kind
+  of copy first and checks its files moved; the README and the install cookbook give the one
+  command that links: `npx skills add … --skill agentic-sf --agent claude-code pi -y`.
+
+### Upgrade
+
+1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
+   new factory, or a cockpit older than that shows each chapter's and phase's start as an event it
+   cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
+2. Update the skill copy before stamping from it (`cookbooks/upgrade.md` § Update the skill
+   first) — a vendored one with `npx skills add schurik/agentic-software-factory --skill
+   agentic-sf --agent claude-code pi -y`, not `npx skills update`.
+3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
+   settings in the self-description and registering without a token; nothing else changes. A
+   factory with the CI workflow ships format 2 on its next default-branch push.
+4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
+   older one refuses a registration that holds none, and `just station-register` says so. Then
+   leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`
+   (`cookbooks/connect_cockpit.md`). A checkout that keeps its token needs nothing.
+5. `just onboard` comes with the re-stamp's justfile; a justfile that was kept (the repository's
+   own, or a stamped one that diverged) needs its `onboard` recipe copied from the fresh one, or
+   run `uv run asf/asf.py onboard`. The duplicate-station fix is the cockpit's: upgrade it.
+6. A factory connected to a team cockpit without the CI workflow: stamp it, `install.py --harness
+   <harness> --ci`, and set `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN`
+   (`cookbooks/connect_cockpit.md` § CI). A cockpit older than this release never says whether the
+   factory is described, so registering against one describes nothing — as before.
+
 ## 1.2.0 — 2026-10-02
 
 The first tagged release, and the first to publish the cockpit images (`asf-cockpit` and

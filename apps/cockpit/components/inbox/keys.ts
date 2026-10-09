@@ -1,10 +1,11 @@
 /**
- * The inbox's keyboard flow: `j`/`k` (or the arrows) move through the list,
- * `a` approves — at a question round, takes every recommendation — and `r`
- * opens the notes a reject needs. A key typed into a field is the person's
+ * The inbox's keyboard flow: `j`/`k` (or the arrows) move through the list
+ * and Enter opens the gate in the drawer; there, `j`/`k` step to the gate
+ * either side, `a` approves — at a question round, takes every
+ * recommendation — and `r` rejects, or says the note a reject needs. A key typed into a field is the person's
  * text, and a key held with a modifier is the browser's.
  */
-export type Keyed = "next" | "previous" | "approve" | "reject";
+export type Keyed = "next" | "previous" | "open" | "approve" | "reject";
 
 /**
  * What `keyed` reads off a key press: a `KeyboardEvent` as it is. Pass the
@@ -20,7 +21,7 @@ export interface Press {
 }
 
 const KEYS: Record<string, Keyed> = {
-  j: "next", ArrowDown: "next", k: "previous", ArrowUp: "previous", a: "approve", r: "reject",
+  j: "next", ArrowDown: "next", k: "previous", ArrowUp: "previous", Enter: "open", a: "approve", r: "reject",
 };
 
 export function keyed({ key, target, metaKey, ctrlKey, altKey }: Press): Keyed | null {

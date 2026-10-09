@@ -24,6 +24,10 @@ default:
 doctor:
     @{{asf}} doctor
 
+# where onboarding stands, and the next step: just onboard [--mark settings]
+onboard *ARGS:
+    @{{asf}} onboard "$@"
+
 # the forge labels this config names: just labels [--create]
 labels *ARGS:
     @{{asf}} labels "$@"
@@ -181,14 +185,15 @@ worktrees-remove ADW_ID *ARGS:
 
 # ── the cockpit ─────────────────────────────────────────────────────────────
 # `just up` ships every session; runs ship their own when ASF_COCKPIT_URL is
-# set; this is the catch-up. A shared cockpit sends a station commands once a
-# person approved it there.
+# set; this is the catch-up. Against a shared cockpit, `station-register` is
+# the one step after setting the URL: a person with write approves its code
+# there, and the station gets its ingest token and takes commands for them.
 
 # ship every session the cockpit has not acknowledged — a CI job's last step
 station-sync:
     {{asf}} station sync
 
-# let a shared cockpit send this station commands: prints a code to approve there
+# connect this checkout to a shared cockpit: prints a code a person approves there
 station-register:
     {{asf}} station register
 

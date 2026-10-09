@@ -26,8 +26,21 @@ file that already exists and writes only what is missing.
 
 `install.py` stamps ONE set of defaults. Four of them are decisions the
 repository owns, not the factory, and each is cheap to answer now and annoying
-to discover later. **Put them to the engineer in one message**, with the
-defaults named so they can say "all defaults" and be done.
+to discover later. **Put them to the engineer in one question-tool call**
+([SKILL.md § Asking the person](../SKILL.md#asking-the-person)) — four
+questions, the default of each first and marked `(Recommended)`, so taking
+every first option is "all defaults" and done:
+
+| Question | Options, default first |
+|---|---|
+| Which harness? | `claude_code` — their Claude Code login, no API key · `pi` — a provider key in `.env` |
+| Test, lint, typecheck and build commands? | Use what the installer detects, and confirm it after · Leave placeholders, I'll write them (`--no-detect-quality`) |
+| How should a run's branch land? | `pr`, opened with `gh pr create` · `merge` into the base branch |
+| May issues and reviews start runs? | Both · Issues only · Reviews only · Neither |
+
+Then, unless they are connecting a team cockpit (which brings it), the CI
+check in a call of its own: **Not now** · **Stamp it (`--ci`)** — see
+[Run it](#run-it).
 
 The first has no default: **which harness**. It decides which roster, which
 prompts and which `.env.sample` get stamped, so the installer asks rather than
@@ -78,9 +91,14 @@ it was broken — and it ships the factory's self-description to a cockpit as a
 CI station, which is how the cockpit's Factory page knows the workflows and
 measures each station's config drift. It needs `vars.ASF_COCKPIT_URL` and
 `secrets.ASF_COCKPIT_TOKEN` (the factory's ingest token, which can add and never
-receive) on the repository to ship; without them it checks and ships nothing.
+receive — a repository admin issues one on the factory's Stations tab, see
+[connect_cockpit.md](connect_cockpit.md#ci)) on the repository to ship; without
+them it checks and ships nothing.
 On a terminal the installer asks; `--no-ci` neither asks nor stamps. A
-repository's CI is its own, so ask the engineer rather than passing `--ci` for them.
+repository's CI is its own, so ask the engineer with the question tool rather
+than passing `--ci` for them — unless they connect a **team cockpit**, which
+is the answer: it comes with connecting, and you say why
+([connect_cockpit.md](connect_cockpit.md#ci)).
 
 ## What gets stamped
 
@@ -143,20 +161,24 @@ without.
 1. **`just doctor`** — first, always. Every check with its fix, then every
    workflow loaded and validated. It spawns nothing and costs nothing, and it is
    the designated answer to "is this repo ready to run anything?".
-2. **`ASF_SKILL` in `.env`** — already written by the installer, and worth
+2. **The factory's settings** — after a **first** install, walk the stamped
+   `asf/factory.yaml` with them, one question-tool call at a time:
+   [The factory's settings](#the-factorys-settings). Not after a re-run over a
+   stamp they already own.
+3. **`ASF_SKILL` in `.env`** — already written by the installer, and worth
    knowing about. Two things need it: `just uninstall` runs the uninstaller out
    of the skill, and `doctor` reads the skill's release through it to say
    whether this stamp is older. `install.py` never overwrites a value that is
    already there; if the path came from another machine it says so and leaves
    it. Unset, `doctor` warns on `ASF_SKILL`.
-3. **The harness's own steps** — `install.py` printed them after stamping, out
+4. **The harness's own steps** — `install.py` printed them after stamping, out
    of that harness's `about.md`: the CLI on PATH, how it authenticates, and the
    sharp edges (`safe_mode`, running as root, how a model id is resolved).
    Re-read them there rather than guessing which apply.
-4. **The quality blocks** — `doctor` names every block still unwired. Write the
+5. **The quality blocks** — `doctor` names every block still unwired. Write the
    real argv into `asf/engine/quality.py` as a **list**, calling binaries by
    bare name. A `verify` stage that names an unwired block fails the run.
-5. **Docker, for the local cockpit** — `just up` starts a cockpit on this
+6. **Docker, for the local cockpit** — `just up` starts a cockpit on this
    machine when `.env` names no shared one (`ASF_COCKPIT_URL`): the same
    published images a team deploys, through the stamped
    `asf/cockpit/compose.yaml`, at `http://localhost:3000`. That needs Docker
@@ -167,10 +189,11 @@ without.
    token`, which `up` hands to it as it starts: `doctor`'s `cockpit forge`
    line says whether there is one. Without a `gh` login the cockpit still
    shows every session this checkout ships, and lists no factory beyond those.
-   With a **shared** cockpit instead, `just station-register` lets it send
-   this checkout commands (kill, resume, answering a prompt run's gate): it prints a code the
-   engineer approves there, signed in — theirs to approve, not yours.
-6. **`just labels --create`** — only if either watcher is on. Every label in
+   With a **shared** cockpit instead, connecting this checkout is
+   [connect_cockpit.md](connect_cockpit.md): `ASF_COCKPIT_URL`, then `just
+   station-register`, whose code a person with write approves — theirs to
+   approve, not yours.
+7. **`just labels --create`** — only if either watcher is on. Every label in
    `issues.route`, `issues.states`, `issues.refined_label` and
    `pull_requests.states.failed` has to EXIST at the forge before anything can
    apply it, and a fresh repository defines none of them. A route label nobody
@@ -182,8 +205,48 @@ without.
    question on every run, so an **upgrade** that adds a label is caught too —
    `install.py` never rewrites the `factory.yaml` you own, so a new label
    reference arrives in the code with no way for the name to exist.
-7. **`just list`** — the workflows, one line each. Then a first run:
+8. **`just list`** — the workflows, one line each. Then a first run:
    [run_workflow.md](run_workflow.md).
+
+## The factory's settings
+
+`install.py` stamped one set of defaults into `asf/factory.yaml`, and the
+file is theirs from that moment. After a **first** install — and again
+whenever they ask to "go through the config" — walk it with them: read the
+file, and put each setting below to them with the question tool
+([SKILL.md § Asking the person](../SKILL.md#asking-the-person)), in the calls
+below, each question naming the value the file holds now. Skip a question
+whose setting they already changed, and one whose subsystem is off (no
+tracker questions when issues and reviews start nothing). The four install
+decisions were asked before stamping: do not ask them again.
+
+Each option's `preview` shows the lines it writes. Nothing is written until
+they have answered, and only what they chose.
+
+**First call — what a run may spend, and where it stops for a person.**
+
+| Setting | Question | Options |
+|---|---|---|
+| `budget.max_cost_usd` | What may one session spend? | **No ceiling** (stamped `0`) · **$2** · **$5** · **$10**, or an amount through Other. Recommend a ceiling when issues or reviews start runs: those run with nobody watching. A ceiling stops the next agent turn, never the one in flight |
+| `defaults.model` | Which model do the agents run? | `claude_code`: **`sonnet`** (stamped) · **`opus`** — slower and dearer, for hard work · **`haiku`** — cheap, for small changes. `pi`: the stamped `provider/id`, or theirs through Other |
+| `hitl.gates` | Where should a run stop for a person? (`multiSelect`) | **At the plan** (`plan: on`) — read what it will build before it builds · **Before it lands** (`integrate: on`) — the whole diff before the pull request or merge · **Nowhere** (stamped) — runs go straight through; ticked with another, ask again. The `issue` workflow stops at its plan either way: its `workflow.yaml` says so, and a workflow outranks this block |
+| `issues.trusted_authors`, `pull_requests.trusted_reviewers` | Whose issues and reviews may start a run? | **Anyone who can label or review** (stamped `[]`) — the forge's permissions are the gate · **Only the people I name** — logins through Other. Recommend naming them on a repository outsiders can file issues on |
+
+**Second call — the cockpit.**
+
+| Setting | Question | Options |
+|---|---|---|
+| `cockpit.transcripts` | Send the cockpit every prompt and the harness's raw output? | **Leave it off** `(Recommended)` · **Send transcripts** — the description says it carries tool arguments and results, so whatever an agent read |
+| `cockpit.commands` | Which commands may a cockpit send this factory's stations? | **`answer`, `abort`, `kill`, `resume`** `(Recommended)`, as stamped · **Those four and `run`** — anyone the station trusts can start a prompt workflow on their own station from the cockpit · **None** — the cockpit only watches |
+| `hitl.when_unattended` — only when issues or reviews start runs | A gate fires on a run the tracker started — the `issue` workflow's plan, say: | **Suspend and wait** `(Recommended)`, as stamped — answered on the issue or in the cockpit · **Approve it and go on** — recorded as the policy's approval, with nobody looking. A run the engineer starts always stops |
+
+Then edit `asf/factory.yaml` with the answers, run `uv run asf/asf.py check`,
+show them `git diff asf/factory.yaml`, and record it: `just onboard --mark
+settings`. Committing it, with the rest of the stamp, is the next step of
+onboarding and has its own question
+([onboard.md § 3](onboard.md#3-commit-and-publish-the-factory)). Anything else in the file — limits, worktrees, the
+tracker's commands — keeps its stamped value; its comment says what it does,
+and they can ask.
 
 ## If the skill is vendored inside the repo
 
@@ -191,6 +254,19 @@ Some repos keep the skill in-tree (`.agents/skills/agentic-sf/`) rather than
 pointing `ASF_SKILL` at a checkout elsewhere. That works: nothing the factory
 runs writes inside the skill's tree, so it never shows up in the host repo's
 `git status` — or in the `git add -A` a commit stage runs.
+
+The `skills` CLI puts it there, and the same command, from the repository
+root, is how it is updated:
+
+```bash
+npx skills add schurik/agentic-software-factory --skill agentic-sf --agent claude-code pi -y
+```
+
+It writes `.agents/skills/agentic-sf/` and links `.claude/skills/agentic-sf`
+to it. Name two agents, not `claude-code` alone — one agent means a copy, not a
+link — and do not update with `npx skills update` where the CLI sees an Eve
+agent: [upgrade.md](upgrade.md#update-the-skill-first) says why, and how to
+check the copy moved before stamping from it.
 
 ## Issue- and review-triggered runs
 

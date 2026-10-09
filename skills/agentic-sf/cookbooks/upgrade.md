@@ -7,7 +7,9 @@ Startup, when `asf/.skill-version` is missing or older than
 
 **An old stamp is never refused.** It keeps running exactly as it did, so
 nothing here is urgent and nothing here is yours to do unasked: say what the
-two versions are, offer the upgrade, and do it when the engineer says so. The
+two versions are, offer the upgrade with the question tool (**Upgrade now** ·
+**Not now**; [SKILL.md § Asking the person](../SKILL.md#asking-the-person)),
+and do it when the engineer says so. The
 one thing a re-stamp can refuse is its own config: from 1.2 a config saying
 `worktree.integration.mode: none` stops every command until it says something
 else — so settle that one (below) in the same change. A
@@ -15,8 +17,8 @@ missing `asf/.skill-version` means "stamped before 1.1" — older than any
 release that records one.
 
 Stamp **newer** than the skill? Stop. The skill checkout is the one left
-behind: update it, never stamp from it — `--force` from an older skill stamps
-older code over newer.
+behind: [update it](#update-the-skill-first), never stamp from it — `--force`
+from an older skill stamps older code over newer.
 
 ## Why `--force` alone is not the upgrade
 
@@ -37,6 +39,75 @@ A plain re-run, without `--force`, does none of it: it stamps only the files a
 release added, keeps every one that exists, and so leaves the record saying
 what the rest still is. That is not an upgrade.
 
+## Update the skill first
+
+`--force` stamps whatever `<skill>` holds, so a stale copy stamps the old
+engine back, and nothing says so: between releases a stale copy and the source
+carry the same `.skill-version`, `just doctor` passes, and this cookbook is
+never reached. Update the copy, check that it moved, and only then read on —
+from the updated copy, since this cookbook and the changelog may have changed
+with it.
+
+**Which copy `<skill>` is** — the directory this cookbook sits in, and the
+one `ASF_SKILL` in `.env` names, whichever kind it is:
+
+- **vendored** — `.agents/skills/agentic-sf/` in the repository (with
+  `.claude/skills/agentic-sf` a link to it), or `~/.agents/skills/agentic-sf/`
+  for every project. The `skills` CLI put it there and records it in
+  `skills-lock.json`.
+- **a checkout** — a git clone of this skill's repository, outside the
+  target repository.
+- **the Claude Code plugin** — under `~/.claude/plugins/cache/`.
+
+**Vendored**: from the repository root, and with `-g` added for the copy in
+the home directory —
+
+```bash
+npx skills add schurik/agentic-software-factory --skill agentic-sf --agent claude-code pi -y
+```
+
+Two agents, on purpose. When every agent named shares one skills directory,
+`skills` copies instead of linking: `--agent claude-code` by itself writes a
+real directory over the `.claude/skills/agentic-sf` link, and every agent that
+reads `.agents/skills/` (pi, Codex, Cursor, opencode…) keeps the stale copy.
+pi reads `.agents/skills/` itself, so naming it makes the CLI write there and
+link Claude Code to it. The same command mends a repository whose link was
+already replaced, and it leaves an Eve agent's copy alone.
+
+**Not `npx skills update`** in a repository the CLI sees Eve in — an `agent/`
+directory and `eve` in `package.json`. It re-runs `skills add -y` without
+naming an agent, and `-y` with Eve present installs for Eve alone, into
+`agent/skills/agentic-sf/`. It then writes the new hash into
+`skills-lock.json`, so `.agents/skills/` stays as it was and every `update`
+after it says the skill is up to date.
+
+**A checkout**: `git -C <skill> pull`.
+
+**The plugin**: `claude plugin marketplace update agentic-sf`, then `claude
+plugin update agentic-sf@agentic-sf`, then restart Claude Code — the session
+holds the old copy until then. The update lands in a new directory beside the
+old one, so `<skill>` is now that one: point `ASF_SKILL` in `.env` at it
+(`install.py` never rewrites a value already there).
+
+**Check it moved — by its files, not its version.** `.skill-version` moves at
+a release, not between them.
+
+- Vendored in the repository: `git status --short -- .agents/skills/agentic-sf`
+  lists what the update changed, and `readlink .claude/skills/agentic-sf`
+  prints `../../.agents/skills/agentic-sf` — a link, not a directory. A new
+  `agent/skills/` in `git status` is an `update` that wrote Eve's copy instead.
+- A checkout: `git -C <skill> log -1 --oneline` is the commit you meant to
+  stamp from.
+- Whatever the kind, the change you are upgrading for is in the files: grep
+  `<skill>/templates/` for something it added. Absent, the copy is stale —
+  stamp nothing from it.
+
+A copy vendored in the repository is part of its tree. With the engineer's own
+work committed first, commit the update on its own (the `.agents/skills/`
+directory, the `.claude/skills/` link and `skills-lock.json`) —
+`skills: update agentic-sf` — so the tree is clean for the next step and the
+re-stamp is reviewed as a diff of its own.
+
 ## Before: what is changing, and what is in flight
 
 1. **Read the steps.** `<skill>/CHANGELOG.md` — every `### Upgrade` section
@@ -49,8 +120,8 @@ what the rest still is. That is not an upgrade.
    to `--harness`; another would stamp another roster's prompts.
 4. **Nothing mid-flight.** `just status` and `just pending`. Stop `just up`
    (ctrl-c where it runs). A run still working would carry on in code that
-   changed under it: let it finish, or `just kill <id>` with the engineer's
-   say-so. A session waiting at a gate is fine — it resumes in the new code.
+   changed under it: let it finish, or `just kill <id>` — ask first, with the
+   question tool: **Wait for it** · **Kill it**. A session waiting at a gate is fine — it resumes in the new code.
 
 ## Re-stamp
 
@@ -86,8 +157,10 @@ From the **target repo root**. Read three things in what it prints:
 
 `diff asf/factory.yaml asf/factory.yaml.new` shows what a fresh stamp would say.
 Most new keys have defaults that apply without them — the `.new` shows them, and
-nothing needs copying. These do not, and each is the repository's call: put each
-to the engineer with what it does, and edit `asf/factory.yaml` with their answer.
+nothing needs copying. These do not, and each is the repository's call: put the
+ones that apply to the engineer in one question-tool call (up to four; the rest
+in the next), each option saying what it does, and edit `asf/factory.yaml` with
+their answer. The options are below each.
 
 1. **`observability:`** — obsolete and ignored since 1.2: delete it. The
    database it placed is no longer written; the file it names (by default
@@ -100,22 +173,26 @@ to the engineer with what it does, and edit `asf/factory.yaml` with their answer
    - *push nothing* → `mode: pr` and `worktree.publish: on_integrate`;
    - *push, open no pull request* → `mode: pr` and `open_pr: false`.
    A workflow's own `integrate: {mode: none}` is the same question; `just check`
-   names each one.
+   names each one. One option per meaning; none `(Recommended)`.
 3. **`worktree.publish`** — unset, it follows the cockpit: `on_create` once one
    is configured (a session's branch is pushed as it starts and before every
    gate, so the cockpit can show what the gate asks about, and deleted from the
    remote when the session finishes unintegrated), `on_integrate` without one.
    Leaving it unset is a fine answer; `on_integrate` keeps branches local at the
-   price of gates the cockpit cannot show.
+   price of gates the cockpit cannot show. Options: **Leave it unset**
+   `(Recommended)` · **`on_integrate`** · **`on_create`**.
 4. **`cockpit.commands`** — without it a station obeys **no** command a cockpit
    sends: no kill, no resume, no answering a prompt run's gate from the inbox.
    A fresh stamp lists `commands: [answer, abort, kill, resume]` under
    `cockpit:`; `run` (starting prompt workflows from the cockpit) is off unless
    listed. Opting a verb in is the repository's decision, made in this reviewed
-   file — never add one on the engineer's behalf.
+   file — never add one on the engineer's behalf. Ask with `multiSelect`:
+   **`answer` + `abort`** (a prompt run's gate, from the inbox) · **`kill`** ·
+   **`resume`** · **`run`**; what they tick is the list.
 5. **`cockpit.transcripts`** — off unless the file says `true`. It sends every
    prompt and the harness's raw output, tool arguments and results included:
-   say so before they choose, and never turn it on for them.
+   say so in the options' descriptions, and never turn it on for them: **Leave
+   it off** `(Recommended)` · **Send transcripts**.
 
 Then delete `asf/factory.yaml.new` — it was a proposal, and leaving it is how
 the next `--force` writes over the one they read.
@@ -123,22 +200,26 @@ the next `--force` writes over the one they read.
 ## Outside the config
 
 - **`.env`** is never rewritten: compare it with the re-stamped `.env.sample`.
-  A shared cockpit needs `ASF_COCKPIT_URL` and `ASF_COCKPIT_TOKEN` (the
-  factory's ingest token) added by hand; a local cockpit needs neither.
+  A shared cockpit needs `ASF_COCKPIT_URL` added by hand, and the station
+  registered ([connect_cockpit.md](connect_cockpit.md)); a local cockpit needs
+  neither.
 - **A local cockpit** (no `ASF_COCKPIT_URL`) needs Docker with compose; `just
   up` starts it and warns without it. It asks the forge with the engineer's
   `gh auth token`, which `up` hands to the container — say so before the first
   `up`.
 - **Station registration** — only against a **shared** cockpit, once per
-  checkout: `just station-register` prints a code and a link, and a person
-  approves it there, signed in. It is theirs to approve, never yours. A local
-  cockpit's station is its owner's already; a CI station takes no commands.
+  checkout: `just station-register`, as [connect_cockpit.md](connect_cockpit.md)
+  walks it. It is theirs to approve, never yours. A local cockpit's station is its owner's already; a CI station
+  takes no commands.
 - **Labels** — `just labels`, then `just labels --create` for any a release
   added. It creates only missing labels; a route or queued label made by hand
   needs its description set on the forge for the cockpit's Trigger button to
   find it (`just labels` shows the text).
 - **The optional CI check** — `install.py --harness <harness> --force --ci`
-  stamps `.github/workflows/asf-check.yml`. A repository's CI is its own: ask.
+  stamps `.github/workflows/asf-check.yml`. A repository's CI is its own: ask
+  with the question tool — unless it ships to a **team cockpit** (`ASF_COCKPIT_URL` set), where it
+  comes with the cockpit and you say why
+  ([connect_cockpit.md](connect_cockpit.md#ci)).
 - **A justfile that was kept** (the repository's own, or a stamped one that
   diverged) may still carry `obs`, `phases` and a `sessions` or `tail` that
   read the old database. They are gone since 1.2: `just sessions` and `just

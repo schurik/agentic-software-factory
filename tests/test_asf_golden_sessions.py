@@ -15,9 +15,7 @@ fake harness by the code that ships, under `tests/golden/sessions/<name>/`:
     frontmatter for a test and prose for a person): when, from which tree and
     release, on which harness, whether the factory that recorded it kept a
     second copy beside the events (only one before 1.2 did), and what was
-    changed to make it portable. The parity test
-    (`apps/cockpit/tests/parity.test.tsx`) holds the cockpit to a session
-    recorded under that older factory; this file is what says one was.
+    changed to make it portable.
 
 Like an event fixture, a recording is never edited once checked in: a cockpit
 reads sessions written by every factory there ever was, so an old recording is
@@ -53,10 +51,11 @@ from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forg
 THIS_REPO = Path(__file__).resolve().parent.parent
 SESSIONS = Path(__file__).resolve().parent / "golden" / "sessions"
 EVENT_FIXTURES = Path(__file__).resolve().parent / "golden" / "events"
-RECORDING = "issue-then-two-reviews"
-# The recording apps/cockpit/tests/parity.test.tsx reads: the one made under the old factory.
+RECORDING = "issue-then-two-reviews-in-stages"
+# The recording made before a phase said which stage it belongs to: the cockpit's session page
+# draws it as a flat chain of phases (apps/cockpit/tests/graph.test.ts), never a guessed grouping.
 # RECORDING moves on when a new story is recorded; this one stays.
-PARITY = "issue-then-two-reviews"
+BEFORE_STAGES = "issue-then-two-reviews"
 RECORDER = "tests/test_asf_golden_sessions.py"
 ID = "a9f259f0"
 PR = 9
@@ -230,8 +229,8 @@ class Provenance:
     The frontmatter is what a test reads; the prose under it is the same
     facts for a person. Its `trace_db` says whether the factory that recorded it
     still kept a second copy beside the events — true only of a recording made
-    before 1.2, which is what the parity test needs one of. A recording made now
-    says false, and the key stays because a recording is never edited.
+    before 1.2. A recording made now says false, and the key stays because a
+    recording is never edited.
     """
     recording: str
     recorded_on: str            # YYYY-MM-DD
@@ -289,6 +288,17 @@ def test_the_recorded_story_still_runs_and_is_written_only_when_asked(tmp_path: 
     chapters = [(line.payload["workflow"], line.payload["chapter"])
                 for line in lines if line.kind == "workflow_started"]
     assert chapters == [("issue", 1), ("pr-review", 2), ("pr-review", 3)]
+    # A gate, a revision, a verify and a commit belong to the stage that opened them.
+    second = next(at for at, line in enumerate(lines)
+                  if line.kind == "workflow_started" and line.payload["chapter"] == 2)
+    stage_of = {line.payload["name"]: line.payload["stage_index"]
+                for line in lines[:second] if line.kind == "phase_started"}
+    assert {name: stage_of[name] for name in (
+        "issue", "plan", "approve_plan", "plan_revise_1", "approve_plan_2", "commit_plan",
+        "verify_1", "review_1", "commit_implement", "integrate", "report")} == {
+        "issue": None, "plan": 1, "approve_plan": 1, "plan_revise_1": 1, "approve_plan_2": 1,
+        "commit_plan": 2, "verify_1": 4, "review_1": 5, "commit_implement": 6, "integrate": 9,
+        "report": None}
     assert json.loads((session_dir(repo, ID) / "run.json").read_text())["status"] == "success"
     assert git(repo, "log", "-1", "--format=%s", f"asf/{ID}") == "fix: one date format throughout"
 
@@ -321,10 +331,13 @@ def test_the_corpus_holds_a_recorded_session():
     assert RECORDING in RECORDINGS
 
 
-def test_the_parity_test_has_a_session_from_the_old_factory():
-    """The parity test holds the cockpit to a session recorded under the old
-    factory, the one whose record had a second copy — and it keeps that one."""
-    assert facts_of((SESSIONS / PARITY / "provenance.md").read_text(), PARITY)["trace_db"] is True
+def test_the_cockpit_keeps_a_session_from_before_stages():
+    """The cockpit draws a session recorded before stages as a flat chain of
+    its phases, and is tested over one: its chapters name no stages, and no
+    phase says which stage it belongs to."""
+    lines = [json.loads(text) for text in (SESSIONS / BEFORE_STAGES / "events.jsonl").read_text().splitlines()]
+    assert {line["v"] for line in lines if line["kind"] == "workflow_started"} == {1}
+    assert all("stage_index" not in line["payload"] for line in lines if line["kind"] == "phase_started")
 
 
 @pytest.mark.parametrize("name", RECORDINGS)

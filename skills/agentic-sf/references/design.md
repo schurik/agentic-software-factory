@@ -199,7 +199,10 @@ Those events are also what a cockpit's session page is told, so they say more
 than the files do. A session reads in chapters (`workflow_started` /
 `workflow_finished`, one per workflow it passes through; a `--resume`
 continues its workflow's chapter with `session_resumed`, and an agent phase
-answered from the record says `phase_replayed`). An agent phase names the task file it
+answered from the record says `phase_replayed`). A chapter names its workflow's stages in
+order, and every phase the stage it belongs to, by its index in that list — held by the runner
+(`run.stage`), so a gate, a revision or a checkpoint belongs to the stage running when it opened,
+and the work item's phase and `report` to none. An agent phase names the task file it
 rendered and the digest of the prompt it was sent. An artifact is
 `artifact_written`: a handoff file whole, up to 256 KB, a repo file as a path
 the `committed` after it says where to read — whether a phase declared it or

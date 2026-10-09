@@ -8,7 +8,7 @@
  */
 import type { Forge, Reach, Repository } from "./forge";
 import {
-  branch, commit, compare, distance, type GitHub, items, paths, pull, readPerson, readRepository, readRole, tip,
+  branch, commit, commitDiff, compare, distance, type GitHub, items, paths, pull, readPerson, readRepository, readRole, tip,
 } from "./github";
 
 export function tokenForge(github: GitHub, token: string): Forge {
@@ -30,12 +30,15 @@ export function tokenForge(github: GitHub, token: string): Forge {
     reach: async () => (await listed()).flatMap(({ reach }) => (reach ? [reach] : [])),
     file: (repo, path, ref) => github.file(as, repo, path, ref),
     compare: (repo, base, head) => compare(github, as, repo, base, head),
+    commitDiff: (repo, sha) => commitDiff(github, as, repo, sha),
     tip: (repo, branch) => tip(github, as, repo, branch),
     paths: (repo, ref, dir) => paths(github, as, repo, ref, dir),
     distance: (repo, base, head) => distance(github, as, repo, base, head),
     comment: (repo, number, body) => github.comment(as, repo, number, body),
     labels: (repo) => github.labels(as, repo),
     labelled: (repo, label) => github.labelled(as, repo, label),
+    pulls: (repo) => github.pulls(as, repo),
+    touched: (repo, since) => github.touched(as, repo, since),
     issue: (repo, number) => github.issue(as, repo, number),
     label: (repo, number, labels) => github.label(as, repo, number, labels),
     unlabel: (repo, number, label) => github.unlabel(as, repo, number, label),

@@ -11,7 +11,7 @@
  * the issue's — spends in both, and a chapter another person triggered is
  * theirs.
  */
-import { advance, type Summary } from "./session";
+import { advance, type Summary, workflowOf } from "./session";
 import { Payload } from "./payload";
 import type { StoredEvent } from "./wire";
 
@@ -44,7 +44,7 @@ export interface Spent extends Spend, Charge {
 export function chargeOf(summary: Summary): Charge {
   return {
     // A summary folded before it kept the workflow running now names the workflows it passed through.
-    workflow: summary.workflow || (summary.workflows.at(-1) ?? ""),
+    workflow: workflowOf(summary),
     station: summary.stationId,
     stationName: summary.stationName,
     person: summary.triggeredBy,

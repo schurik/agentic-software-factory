@@ -402,6 +402,28 @@ def test_doctor_with_a_shared_cockpit_asks_nothing_of_docker(stamped: Path, tmp_
     assert "https://cockpit.example.com:3211" in line and "Docker" not in line
 
 
+def test_doctor_says_what_a_shared_cockpit_is_shipped_with_and_how_to_get_a_token(
+        tmp_path: Path, monkeypatch):
+    url = "https://happy-otter-123.convex.site"
+    monkeypatch.setenv("ASF_COCKPIT_URL", url)
+    monkeypatch.delenv("ASF_COCKPIT_TOKEN", raising=False)
+    data = tmp_path / "data"
+
+    [finding] = preflight.cockpit(data)
+    assert finding.level == "warn" and "no ingest token" in finding.detail
+    assert "station-register" in finding.fix and "connect_cockpit" in finding.fix
+
+    held = StationCredential(cockpit=url, station="st_1", token="asf_station_1", owner="alex",
+                             ingest_token="asf_ingest_1")
+    station.keep(tmp_path, "data", held)
+    [finding] = preflight.cockpit(data)
+    assert finding.level != "warn" and "alex" in finding.detail and url in finding.detail
+
+    monkeypatch.setenv("ASF_COCKPIT_TOKEN", "asf_ingest_env")
+    [finding] = preflight.cockpit(data)
+    assert "ASF_COCKPIT_TOKEN" in finding.detail
+
+
 # ── what a release publishes, and what a stamp pulls ─────────────────────────
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

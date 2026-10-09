@@ -12,9 +12,13 @@ artifact and no conversation, so the prompt has to carry what you would have
 answered a follow-up question with: which files or area, what "done" means, and
 any constraint that is not obvious from the repo.
 
-Ask for what is genuinely missing — once, in one message — then say the prompt
-back before launching. Long prompts belong in a file: `run` takes **inline text
-or a path to a prompt file**, so `just do plan.md` works.
+Ask for what is genuinely missing — once, in one question-tool call
+([SKILL.md § Asking the person](../SKILL.md#asking-the-person)), each missing
+piece a question whose options are the likely answers you read in the repo,
+with Other for theirs. Then say the prompt back and ask once more: **Launch**
+`(Recommended)` · **Change it** · **Pick another workflow**. Long prompts
+belong in a file: `run` takes **inline text or a path to a prompt file**, so
+`just do plan.md` works.
 
 ## Pick the workflow
 
@@ -103,8 +107,15 @@ just abort <adw_id> [-m "why"]    # end it here, not accepted
 ```
 
 **Never approve or reject on the engineer's behalf.** Show them what `just show`
-printed and let them answer. `reject` requires `-m` — the notes are what the
-agent revises against. `--no-resume` records the decision without relaunching.
+printed, then ask with the question tool: at a **gate** — **Approve** ·
+**Reject** · **Abort** · **Leave it waiting**; at a **question round** —
+**Answer** (their answer, typed through Other) · **Approve every
+recommendation** · **Abort** · **Leave it waiting**. No option is
+`(Recommended)`: the verdict is theirs, and so is any default. Run the verb
+they chose with what they typed as its `-m`. `reject` requires `-m` — the
+notes are what the agent revises against, so a Reject without typed notes gets
+one more question asking what should change. `--no-resume` records the
+decision without relaunching.
 
 A run on a tracked issue (`channel: issue` in `just show`) can also be answered
 on the issue: a reply whose first line is `/approve`, `/reject <what should

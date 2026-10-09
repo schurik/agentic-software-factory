@@ -54,7 +54,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, get_args
 
-from . import artifacts, events, git_helper, hitl, operate, station
+from . import artifacts, events, git_helper, hitl, issues, operate, station
 from .data_types import (Cockpit, Command, CommandRecord, CommandResult, CommandVerb,
                          FactoryConfig, Reply, StationCredential, StationReport)
 from .factory import DEFAULT_CONFIG
@@ -82,10 +82,18 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
     """Ask the configured cockpit for a code, say where to approve it, and wait.
 
     The device flow: no secret is copy-pasted, and no forge credential reaches
-    the cockpit from here. The request is made with the factory's ingest token,
-    which tells the cockpit which factory the station belongs to; the person
-    who approves becomes the station's owner, and the token that comes back is
-    theirs for this station.
+    the cockpit from here. The request is made with the factory's ingest token
+    (ASF_COCKPIT_TOKEN), which tells the cockpit which factory the station
+    belongs to — or, with none set, names the factory itself: this checkout's
+    origin remote, as `owner/name`, which a person with write on it then
+    approves. The person who approves becomes the station's owner, and the
+    command token that comes back is theirs for this station; asked without an
+    ingest token, an ingest token of its own comes back with it, and is kept
+    beside it for the station to ship with (`station.configured`).
+
+    When the cockpit says nothing has described the factory yet, the station
+    describes it, once (`describe.first`): the factory is not "unchecked" from
+    the moment it connects, and its CI workflow keeps the description after.
     """
     main_root = git_helper.main_root()
     here = station.identify(main_root, cfg.defaults.data_dir)
@@ -93,14 +101,23 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
         say(f"station {here.name} is a CI station: it ships with the ingest token and takes "
             f"no commands, so there is nothing to register")
         return 1
-    cockpit = station.configured()
+    cockpit = station.configured()          # ASF_COCKPIT_TOKEN alone: a kept token is renewed
     if cockpit is None:
-        say("no shared cockpit configured — set ASF_COCKPIT_URL and ASF_COCKPIT_TOKEN to "
-            "register with one. A local cockpit (`asf up` without them) needs no "
+        say("no shared cockpit configured — set ASF_COCKPIT_URL to register with one "
+            "(cookbooks/connect_cockpit.md). A local cockpit (`asf up` without it) needs no "
             "registering: it is yours, and owns this station by itself")
         return 1
-    say(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}")
-    asked = _ask(transport, cockpit, {"station": here.model_dump(mode="json")}, say)
+    body = {"station": here.model_dump(mode="json"), "host": station.host()}
+    if not cockpit.token:
+        body["factory"] = issues.origin_slug(main_root)
+        if not body["factory"]:
+            say("no ASF_COCKPIT_TOKEN, and no origin remote to name the factory by — add the "
+                "repository's origin (`git remote add origin …`), or set ASF_COCKPIT_TOKEN to "
+                "the factory's ingest token")
+            return 1
+    names = f"as {body['factory']}" if not cockpit.token else "with ASF_COCKPIT_TOKEN"
+    say(f"station {here.name} ({here.kind}, {here.id}) -> {cockpit.url}, {names}")
+    asked = _ask(transport, cockpit, body, say)
     if asked is None:
         return 1
     device, code = str(asked.get("device", "")), str(asked.get("code", ""))
@@ -124,9 +141,17 @@ def register(cfg: FactoryConfig, transport: station.Transport = station.post,
         if status == 200 and state == "approved" and answer.get("token"):
             held = StationCredential(cockpit=cockpit.url, station=here.id,
                                      token=str(answer["token"]), owner=str(answer.get("owner", "")),
-                                     issued_at=now_iso())
+                                     issued_at=now_iso(),
+                                     ingest_token=str(answer.get("ingest_token") or ""))
             path = station.keep(main_root, cfg.defaults.data_dir, held)
             say(f"  approved by {held.owner or 'someone'} — the token is kept in {path}")
+            if held.ingest_token:
+                say("  with an ingest token of its own, which this station ships sessions with "
+                    "while ASF_COCKPIT_TOKEN is unset")
+            if answer.get("described") is False:   # absent: a cockpit that does not say
+                from . import describe             # here, not above: describe imports this module
+                describe.first(Cockpit(url=cockpit.url, token=held.ingest_token or cockpit.token),
+                               transport, say)
             say(f"  this station now takes commands from {cockpit.url}: "
                 f"{_verbs_line(cfg)}")
             return 0
@@ -147,9 +172,19 @@ def _ask(transport: station.Transport, cockpit: Cockpit, body: dict,
     except (OSError, ValueError) as error:
         say(f"  could not reach the cockpit: {error}")
         return None
+    if status == 401 and not cockpit.token:
+        say(f"  the cockpit refused to register without an ingest token "
+            f"({answer.get('error') or 'HTTP 401'}) — a cockpit older than registering "
+            f"without one needs the factory's: set ASF_COCKPIT_TOKEN, or upgrade the cockpit")
+        return None
     if status == 401:
-        say("  the cockpit refused ASF_COCKPIT_TOKEN — registering needs the factory's ingest "
-            "token, so the cockpit knows which factory this station is")
+        say("  the cockpit refused ASF_COCKPIT_TOKEN — registering with a token needs one that "
+            "cockpit issued for this factory and has not revoked; unset it to register without "
+            "one, for a person with write on the repository to approve")
+        return None
+    if status == 429:
+        say(f"  the cockpit is holding too many registrations: "
+            f"{answer.get('error') or 'HTTP 429'}")
         return None
     if status != 200:
         say(f"  the cockpit refused: HTTP {status}: {answer.get('error') or 'no reason given'}")

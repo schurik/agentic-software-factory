@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { keyed } from "../components/inbox/keys";
-import { renderToStaticMarkup } from "react-dom/server";
-import { AnswerView, type Gate } from "../components/inbox/AnswerView";
-import { InboxList, onlyOf } from "../components/inbox/InboxList";
+import { nowAddress, stepOf } from "../components/now/Now";
+import { onlyOf } from "../components/inbox/waits";
 import type { Row } from "../convex/model/inbox";
 
-// The inbox's pages, rendered to static markup with no backend: the list, the
-// answer view, and the keyboard flow (spec #40) — next and previous through
-// the list, approve and reject on the wait that is open, never while typing.
+// The inbox's workings, with no backend: the address a row opens its gate in
+// the drawer at (#113; the gate itself is gateview.test.tsx's, the rows on Now
+// nowview.test.tsx's), and the keyboard flow (spec #40) — next and previous
+// through the list, Enter to open, approve and reject on the gate that is
+// open, never while typing.
 
 describe("the inbox's keys", () => {
   const plain = { target: null, metaKey: false, ctrlKey: false, altKey: false };
@@ -17,6 +18,7 @@ describe("the inbox's keys", () => {
     expect(keyed({ ...plain, key: "ArrowDown" })).toBe("next");
     expect(keyed({ ...plain, key: "k" })).toBe("previous");
     expect(keyed({ ...plain, key: "ArrowUp" })).toBe("previous");
+    expect(keyed({ ...plain, key: "Enter" })).toBe("open");
     expect(keyed({ ...plain, key: "a" })).toBe("approve");
     expect(keyed({ ...plain, key: "r" })).toBe("reject");
     expect(keyed({ ...plain, key: "x" })).toBeNull();
@@ -31,82 +33,32 @@ describe("the inbox's keys", () => {
 });
 
 
-const NOW = Date.parse("2026-10-01T12:00:00.000Z");
 const ROW: Row = {
   factory: "acme/widgets", session: "a9f259f0", gate: "plan", round: 2, kind: "gate", questions: 0,
   since: "2026-10-01T11:30:00.000Z", summary: "the plan now names the module", channel: "issue", issueNumber: 42,
-  issueUrl: "https://github.com/acme/widgets/issues/42", workItem: "#42 Resolve relative due dates",
+  issueUrl: "https://github.com/acme/widgets/issues/42", issueState: null, workItem: "#42 Resolve relative due dates",
   workflow: "issue", station: "schurik@mbp:widgets", forYou: [], blocked: null,
   via: "comment", refused: null, queued: null, stationSeenAt: 0, attendedAt: null, note: "",
 };
-const GATE: Gate = {
-  row: ROW, subjectDigest: "6151fe4319d06427379e4ef96b3898549880d60e220f8868b7376e5cecfe3a78", notes: "",
-  subject: { headSha: "89abcdef0123456789abcdef0123456789abcdef", baseCommit: "", outside: [],
-             files: [{ path: "docs/asf/spec/plan.md", absolute: "/w/docs/asf/spec/plan.md" }] },
-  questions: [], earlier: [{ round: 1, verdict: "reject", by: "schurik", notes: "name the module", channel: "issue" }],
-  journal: "## This run so far\n", forge: "https://github.com", as: "alex", cost: 0.42, tokens: 12000,
-};
-const READ = { ok: true as const, headSha: GATE.subject.headSha, diff: null, current: true,
-               files: [{ path: "docs/asf/spec/plan.md", content: "# Plan\n", truncated: false, binary: false }] };
+describe("the inbox's drawer", () => {
+  const rows = [ROW, { ...ROW, session: "b1", blocked: "answered by alex in the cockpit (approve)" }, { ...ROW, session: "c1" }];
+  const link = (key: string) => ({ href: `/?open=${key}`, onClick: () => {} });
 
-function answerView(gate: Gate, read: Parameters<typeof AnswerView>[0]["read"]): string {
-  return renderToStaticMarkup(<AnswerView gate={gate} read={read} now={NOW} posting={false} problem="" onAnswer={() => undefined} />);
-}
-
-describe("the inbox list", () => {
-  it("shows what each wait asks, how long it waited, and why one cannot be answered here", () => {
-    const html = renderToStaticMarkup(<InboxList now={NOW} selected="acme/widgets/a9f259f0" onSelect={() => undefined} rows={[
-      ROW,
-      { ...ROW, session: "c2c2c2c2", kind: "questions", questions: 3, round: 1, since: "2026-09-29T12:00:00.000Z",
-        channel: "terminal", blocked: "started from a prompt, with no work item to answer on" },
-    ]} />);
-    expect(html).toContain("plan gate");
-    expect(html).toContain("round 2");
-    expect(html).toContain("30m ago");
-    expect(html).toContain("3 questions");
-    expect(html).toContain("waiting 2d");                       // stale: flagged
-    expect(html).toContain("started from a prompt, with no work item to answer on");
-    expect(html).toMatch(/<li role="option" aria-selected="true" class="inbox-row open">/);
-    expect(html).not.toContain("for you");
+  it("opens the gate a row names, from the address, so a link opens exactly that gate", () => {
+    expect(nowAddress({ open: "acme/widgets/a9f259f0" })).toBe("/?open=acme%2Fwidgets%2Fa9f259f0");
+    expect(nowAddress({ factory: "acme/widgets", open: "acme/widgets/c1", tab: "issue" }))
+      .toBe("/?factory=acme%2Fwidgets&open=acme%2Fwidgets%2Fc1&tab=issue");
+    expect(nowAddress({})).toBe("/");
   });
 
-  it("says why a row is the viewer's own", () => {
-    const html = renderToStaticMarkup(<InboxList now={NOW} selected={null} onSelect={() => undefined} rows={[
-      { ...ROW, forYou: ["triggered", "assigned"] },
-    ]} />);
-    expect(html).toContain("for you: you triggered it, assigned to you");
-  });
-});
-
-describe("the answer view", () => {
-  it("says what it asks, shows the subject at the pinned commit and where the answer will land", () => {
-    const html = answerView(GATE, READ);
-    expect(html).toContain("Approve the plan?");
-    expect(html).toContain("<code>docs/asf/spec/plan.md</code> <span class=\"muted\">at 89abcde</span>");
-    expect(html).toContain("Posts a comment on issue #42 as alex");
-    expect(html).toContain("Round 1: <strong>reject</strong> by schurik");
-    expect(html).toContain("current");
-    expect(html).not.toContain("disabled");
-  });
-
-  it("offers no verdict on a subject that is not what the factory asked about", () => {
-    const html = answerView(GATE, { ...READ, current: false });
-    expect(html).toContain("Cannot be answered here: digest changed");
-    for (const button of html.match(/<button[^>]*>/g) ?? []) expect(button).toContain("disabled");
-  });
-
-  it("puts each question with its recommendation and a box to answer it, and one action to take them all", () => {
-    const html = answerView({
-      ...GATE, row: { ...ROW, kind: "questions", gate: "requirements", questions: 1, round: 1 }, earlier: [],
-      questions: [{ topic: "scope", question: "Which endpoint?", why: "", blocking: true, options: [
-        { answer: "/health", because: "it is the one that 500s", recommended: true },
-        { answer: "every endpoint", because: "", recommended: false }] }],
-    }, { ...READ, files: [] });
-    expect(html).toContain("1 question before the requirements");
-    expect(html).toContain("/health<em> — recommended</em>");
-    expect(html).toContain("leave empty to take “/health”");
-    expect(html).toContain("Take all recommendations");
-    expect(html).not.toContain("Reject");
+  it("steps through the gates that can still be answered: n of m, and the ones either side", () => {
+    expect(stepOf(rows, "acme/widgets/a9f259f0", link)).toMatchObject({
+      at: 1, of: 2, previous: null, next: { href: "/?open=acme/widgets/c1" },
+    });
+    expect(stepOf(rows, "acme/widgets/c1", link)).toMatchObject({ at: 2, of: 2, next: null });
+    // The one just answered still counts while it is open, saying so.
+    expect(stepOf(rows, "acme/widgets/b1", link)).toMatchObject({ at: 2, of: 3 });
+    expect(stepOf(rows, "acme/gadgets/zz", link)).toBeNull();
   });
 });
 

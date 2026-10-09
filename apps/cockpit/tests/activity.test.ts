@@ -5,9 +5,9 @@ import { fakeForge, type FakeForge } from "./forge";
 import { catchUp, factory, fixture, ingest, signIn, type WireEvent } from "./helpers";
 import { approved, poll, post, REPORT, STATION, teamOf } from "./station";
 
-// A factory's Activity (spec #40): what needs attention — gates waiting, failed
+// What needs attention on a factory (spec #40) — gates waiting, failed
 // sessions, claims whose station has been away a day, drift, a failing check,
-// and nobody watching — what is running now, and what finished last. The query
+// and nobody watching — as Now reads it, and the factory's Stations. The query
 // is what the cockpit was told; whether each thing is worth a person's
 // attention is read against the page's clock (`needsAttention`), so a failure
 // stops being news without anything new arriving.
@@ -23,6 +23,12 @@ interface Shipped {
   status?: "running" | "waiting" | "success" | "fail";
   endedAt?: number;
   trusted?: string[];
+  /** The release the station ran it on: its `skill_version`. */
+  release?: string;
+  /** When it started, epoch ms: two hours before NOW unless said. */
+  startedAt?: number;
+  /** What one agent call in it cost, an hour before NOW unless the session ended earlier. */
+  cost?: number;
 }
 
 const ALEX = STATION;
@@ -66,18 +72,28 @@ function shipped(given: Shipped): WireEvent[] {
   const started = fixture("session_started", 1, 2);
   Object.assign(started.payload, {
     adw_id: given.session, workflow: given.workflow ?? "issue", station_id: station.id, station_name: station.name,
-    station_kind: station.kind ?? "local", started_at: new Date(NOW - 2 * HOUR).toISOString(),
+    station_kind: station.kind ?? "local", started_at: new Date(given.startedAt ?? NOW - 2 * HOUR).toISOString(),
+    ...(given.release ? { skill_version: given.release } : {}),
   });
-  const status = given.status ?? "running";
-  if (status === "running") return [started];
-  if (status === "waiting") {
-    const suspended = fixture("suspended", 2, 2);
-    Object.assign(suspended.payload, { trusted: given.trusted ?? [] });
-    return [started, suspended];
+  const spent: WireEvent[] = [];
+  if (given.cost !== undefined) {
+    const usage = fixture("usage", 2);
+    usage.ts = new Date(Math.min(NOW - HOUR, given.endedAt ?? NOW)).toISOString();
+    Object.assign(usage.payload, { cost: given.cost });
+    spent.push(usage);
   }
-  const finished = fixture("session_finished", 2);
-  Object.assign(finished.payload, { status, ended_at: new Date(given.endedAt ?? NOW - HOUR).toISOString() });
-  return [started, finished];
+  const next = 2 + spent.length;
+  const status = given.status ?? "running";
+  if (status === "running") return [started, ...spent];
+  if (status === "waiting") {
+    const suspended = fixture("suspended", next, 2);
+    Object.assign(suspended.payload, { trusted: given.trusted ?? [] });
+    return [started, ...spent, suspended];
+  }
+  const finished = fixture("session_finished", next);
+  finished.ts = new Date(given.endedAt ?? NOW - HOUR).toISOString();
+  Object.assign(finished.payload, { status, ended_at: finished.ts });
+  return [started, ...spent, finished];
 }
 
 async function ship(t: Awaited<ReturnType<typeof teamOf>>, token: string, ...sessions: Shipped[]): Promise<void> {
@@ -86,10 +102,15 @@ async function ship(t: Awaited<ReturnType<typeof teamOf>>, token: string, ...ses
   }
 }
 
-/** What needs attention on acme/widgets for `holding`, as the page would read it at `now`. */
+/** The facts Now reads of acme/widgets for `holding`; undefined when it shows them none. */
+async function factsOf(t: Awaited<ReturnType<typeof teamOf>>, holding: string) {
+  return (await t.query(api.now.page, { signIn: holding }))?.attention.find((each) => each.factory === "acme/widgets")?.facts;
+}
+
+/** What needs attention on acme/widgets for `holding`, as Now would read it at `now`. */
 async function attention(t: Awaited<ReturnType<typeof teamOf>>, holding: string, now = NOW): Promise<Attention[]> {
-  const facts = await t.query(api.activity.attention, { factory: "acme/widgets", signIn: holding });
-  expect(facts).not.toBeNull();
+  const facts = await factsOf(t, holding);
+  expect(facts).toBeDefined();
   return needsAttention(facts!, now);
 }
 
@@ -153,8 +174,8 @@ describe("needs attention", () => {
     expect(await attention(t, alex)).toEqual([{
       kind: "failed",
       sessions: [
-        { session: "f2", workflow: "pr-review", station: ALEX.name, endedAt: NOW - HOUR },
-        { session: "f1", workflow: "issue", station: ALEX.name, endedAt: NOW - 3 * HOUR },
+        { session: "f2", title: "add a health check", workflow: "pr-review", station: ALEX.name, endedAt: NOW - HOUR },
+        { session: "f1", title: "add a health check", workflow: "issue", station: ALEX.name, endedAt: NOW - 3 * HOUR },
       ],
     }]);
     // A day on, the same facts are no longer news.
@@ -246,19 +267,6 @@ describe("needs attention", () => {
     ]);
   });
 
-  it("goes by the drift a page measured against the forge's tip, when it has one, over the last check's", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    const token = await factory(t, "acme/widgets");
-    const alex = await signIn(t, forge, "alex");
-    await poll(t, await approved(t, token, alex), { report: { ...REPORT, config_hash: "beef" } });
-    const facts = (await t.query(api.activity.attention, { factory: "acme/widgets", signIn: alex }))!;
-    expect(needsAttention(facts, NOW)).toEqual([]);                       // no check: nothing to measure by here
-
-    const measured = [{ station: ALEX.id, name: ALEX.name, badges: ["3 commits behind"] }];
-    expect(needsAttention(facts, NOW, measured)).toEqual([{ kind: "drift", stations: measured }]);
-    expect(needsAttention(facts, NOW, [])).toEqual([]);
-  });
-
   it("says nobody is watching when issues are queued for a route and no station runs an issues watcher", async () => {
     const t = await teamOf(forge, { alex: "write" });
     const token = await factory(t, "acme/widgets");
@@ -290,103 +298,91 @@ describe("needs attention", () => {
   it("is nothing at all to someone the forge does not let read the repository", async () => {
     const t = await teamOf(forge, { alex: "write" });
     forge.person("eve");
-    expect(await t.query(api.activity.attention, { factory: "acme/widgets", signIn: await signIn(t, forge, "eve") })).toBeNull();
-  });
-});
-
-describe("running now and recent", () => {
-  const BOB = { id: "st_bob", name: "bob@desk:widgets", kind: "local" };
-
-  it("groups live and suspended sessions by the workflow they are in, each naming its station", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    const token = await factory(t, "acme/widgets");
-    await ship(t, token,
-      { session: "r1", workflow: "issue" },
-      { session: "r2", workflow: "pr-review", station: BOB },
-      { session: "r3", workflow: "issue", status: "waiting", station: BOB },
-      { session: "done", workflow: "issue", status: "success" });
-
-    const page = await t.query(api.activity.page, { factory: "acme/widgets", signIn: await signIn(t, forge, "alex") });
-
-    expect(page!.running.map((group) => ({
-      workflow: group.workflow,
-      sessions: group.sessions.map(({ session, status, station, gate }) => ({ session, status, station, gate })),
-    }))).toEqual([
-      { workflow: "issue", sessions: [
-        { session: "r3", status: "waiting", station: BOB.name, gate: "requirements round 1" },
-        { session: "r1", status: "running", station: ALEX.name, gate: "" },
-      ] },
-      { workflow: "pr-review", sessions: [{ session: "r2", status: "running", station: BOB.name, gate: "" }] },
-    ]);
-  });
-
-  it("lists the last finished sessions, newest first, however they ended", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    const token = await factory(t, "acme/widgets");
-    await ship(t, token,
-      ...Array.from({ length: 12 }, (_, at) => ({
-        session: `s${at}`, status: at % 3 ? "success" as const : "fail" as const, endedAt: NOW - (12 - at) * HOUR,
-      })),
-      { session: "live" });
-
-    const page = await t.query(api.activity.page, { factory: "acme/widgets", signIn: await signIn(t, forge, "alex") });
-
-    expect(page!.recent.map(({ session, status }) => [session, status])).toEqual([
-      ["s11", "success"], ["s10", "success"], ["s9", "fail"], ["s8", "success"], ["s7", "success"],
-      ["s6", "fail"], ["s5", "success"], ["s4", "success"], ["s3", "fail"], ["s2", "success"],
-    ]);
-    expect(page!.recent[0]).toMatchObject({ workflow: "issue", station: ALEX.name, endedAt: NOW - HOUR });
-  });
-
-  it("is nothing to someone who may not read the factory", async () => {
-    const t = await teamOf(forge, { alex: "write" });
-    expect(await t.query(api.activity.page, { factory: "acme/widgets" })).toBeNull();
+    expect(await factsOf(t, await signIn(t, forge, "eve"))).toBeUndefined();
   });
 });
 
 describe("the stations of a factory", () => {
   const BOB = { id: "st_bob", name: "bob@desk:widgets", kind: "local" };
+  const DAY = 24 * HOUR;
+  /** The last 30 days, as the page asks for them: to the end of today. */
+  const PERIOD = { from: NOW - 30 * DAY, to: NOW + DAY };
 
   async function seeded() {
-    const t = await teamOf(forge, { alex: "write" });
+    forge.person("sam");
+    const t = await teamOf(forge, { alex: "write", sam: "read" });
     const token = await factory(t, "acme/widgets");
     const alex = await signIn(t, forge, "alex");
-    await poll(t, await approved(t, token, alex), { report: { ...REPORT, watchers: ["issues", "answers"] } });
+    await poll(t, await approved(t, token, alex), { report: { ...REPORT, verbs: ["kill", "resume"], watchers: ["issues", "answers"] } });
     await ship(t, token,
-      { session: "f1", status: "fail", endedAt: NOW - 3 * HOUR },
-      { session: "s1", status: "success" },
-      { session: "w1", status: "waiting" },
-      { session: "r1" },
-      { session: "b1", station: BOB },                                   // a station that never registered
+      { session: "old", status: "success", endedAt: NOW - 40 * DAY, cost: 9 },     // before the period
+      { session: "f1", status: "fail", endedAt: NOW - 3 * HOUR, cost: 0.25 },
+      { session: "s1", status: "success", cost: 0.5 },
+      { session: "r1", release: "1.2.0", startedAt: NOW - HOUR },                 // started last, on the newest release
+      { session: "w1", status: "waiting" },                                        // active since, on an older one
+      { session: "b1", station: BOB, cost: 1 },                                     // a station that never registered
       { session: "ci1", workflow: "pr-review", station: CI, status: "success" });
     await claimed(t, token, "b1", 42, BOB);
     await checked(t, token, true);
-    return { t, alex };
+    return { t, alex, sam: await signIn(t, forge, "sam") };
   }
+
+  const stationsOf = (t: Awaited<ReturnType<typeof teamOf>>, holding?: string) =>
+    t.query(api.activity.stations, { factory: "acme/widgets", signIn: holding, period: PERIOD });
 
   it("lists every station that holds anything, each with its watchers, the sessions it holds and its claims", async () => {
     const { t, alex } = await seeded();
 
-    const shown = await t.query(api.activity.stations, { factory: "acme/widgets", signIn: alex });
+    const shown = await stationsOf(t, alex);
 
     expect(shown!.stations.map(({ station, name, owner, kind, registered, report, sessions, claims }) => ({
       station, name, owner, kind, registered, watchers: report?.watchers ?? null,
       sessions: sessions.map((row) => [row.session, row.status]), claims: claims.map((claim) => claim.number),
     }))).toEqual([
       { station: ALEX.id, name: ALEX.name, owner: "alex", kind: "local", registered: true, watchers: ["issues", "answers"],
-        sessions: [["r1", "running"], ["w1", "waiting"], ["f1", "fail"]], claims: [] },
+        sessions: [["w1", "waiting"], ["r1", "running"], ["f1", "fail"]], claims: [] },
       { station: BOB.id, name: BOB.name, owner: "", kind: "local", registered: false, watchers: null,
         sessions: [["b1", "running"]], claims: [42] },
     ]);
     expect(shown!.stations[0].seenAt).toBe(NOW);
-    expect(shown!.stations[0].report).toMatchObject({ verbs: REPORT.verbs, head: REPORT.head });
+    expect(shown!.stations[0].report).toMatchObject({ verbs: ["kill", "resume"], head: REPORT.head });
     expect(shown!.stations[1].claims[0]).toMatchObject({ stationName: BOB.name, session: "b1", refused: null });
+  });
+
+  it("says each station's release, by the session it started last, and what it ran and spent in the period", async () => {
+    const { t, alex } = await seeded();
+
+    const shown = await stationsOf(t, alex);
+
+    expect(shown!.stations.map(({ name, release, period }) => ({ name, release, period }))).toEqual([
+      { name: ALEX.name, release: "1.2.0", period: { sessions: 4, failed: 1, cost: 0.75 } },
+      { name: BOB.name, release: "1.1.0", period: { sessions: 1, failed: 0, cost: 1 } },
+    ]);
+  });
+
+  it("lists the commands waiting for each station, with when each expires", async () => {
+    const { t, alex } = await seeded();
+    expect(await t.mutation(api.commands.resume, { factory: "acme/widgets", session: "f1", signIn: alex })).toMatchObject({ ok: true });
+
+    const shown = await stationsOf(t, alex);
+
+    expect(shown!.stations[0].commands).toEqual([
+      { verb: "resume", session: "f1", workflow: "", by: "alex", state: "queued", issuedAt: NOW, expiresAt: NOW + 3600_000 },
+    ]);
+    expect(shown!.stations[1].commands).toEqual([]);
+  });
+
+  it("lets a station's owner revoke it, and nobody else who only reads", async () => {
+    const { t, alex, sam } = await seeded();
+
+    expect((await stationsOf(t, alex))!.stations.map((station) => station.revocable)).toEqual([true, false]);
+    expect((await stationsOf(t, sam))!.stations.map((station) => station.revocable)).toEqual([false, false]);
   });
 
   it("collapses every CI job into one entry: its recent jobs and its check pushes", async () => {
     const { t, alex } = await seeded();
 
-    const shown = await t.query(api.activity.stations, { factory: "acme/widgets", signIn: alex });
+    const shown = await stationsOf(t, alex);
 
     expect(shown!.stations.map((station) => station.kind)).not.toContain("ci");
     expect(shown!.ci.jobs.map(({ session, workflow, station }) => [session, workflow, station])).toEqual([["ci1", "pr-review", CI.name]]);
@@ -395,6 +391,6 @@ describe("the stations of a factory", () => {
 
   it("is nothing to someone who may not read the factory", async () => {
     const { t } = await seeded();
-    expect(await t.query(api.activity.stations, { factory: "acme/widgets" })).toBeNull();
+    expect(await stationsOf(t)).toBeNull();
   });
 });

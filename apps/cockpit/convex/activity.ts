@@ -1,22 +1,24 @@
 /**
- * A factory's Activity (spec #40): what needs attention, what is running now,
- * and what finished last — and its Stations: who runs what, where. Whatever
- * depends on a station is shown under it: the watchers it runs, the sessions
- * it holds and the claims it holds. CI jobs, which come and go, are one entry.
+ * A factory's Stations (spec #40): who runs what, where. Whatever depends on a
+ * station is shown under it: the watchers it runs, the sessions it holds and
+ * the claims it holds. CI jobs, which come and go, are one entry.
  *
- * `attentionOf` is the one place what needs attention is read: by the
- * Factory page's `attention` query, and by `factories.list`, whose rows are
- * ranked by it. It returns the facts — what the cockpit was told, with
- * their timestamps — and `model/attention.ts` says which of them are worth
- * a person's attention against the page's own clock.
+ * And `attentionOf`, the one place what needs attention is read: by Now
+ * (`now.page`), across every factory the viewer can read, and by
+ * `factories.list`, whose rows are ranked by it. It returns the facts — what
+ * the cockpit was told, with their timestamps — and `model/attention.ts` says
+ * which of them are worth a person's attention against the page's own clock.
  */
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { heldOn } from "./claims";
 import type { ClaimView } from "./model/claim";
-import type { Report } from "./model/command";
+import type { CommandState, Report, Verb } from "./model/command";
 import { defaultCheck, repoOf, reporting } from "./factory";
+import { periodValidator } from "./model/period";
+import { spellingsOf } from "./spelling";
+import { mayRevoke } from "./stations";
 import type { Drifted, Facts, Failed } from "./model/attention";
 import { drift } from "./model/drift";
 import { permitted } from "./model/inbox";
@@ -27,7 +29,7 @@ import { readable, viewing, type Viewing } from "./viewer";
 const SCANNED = 500;
 /** How many failures the facts carry: more than a day's worth is not news to anyone. */
 const FAILURES = 20;
-/** How many finished sessions Recent lists, and how many CI jobs and check pushes the CI entry does. */
+/** How many CI jobs and check pushes the CI entry lists. */
 const RECENT = 10;
 
 /** A session's record with its summary read: what every list here is made of. */
@@ -52,7 +54,7 @@ function workflowOf(summary: Summary): string {
   return summary.workflows.at(-1) ?? "";
 }
 
-/** A session as Activity and the Stations tab list it. */
+/** A session as the Stations tab lists it. */
 export interface SessionRow {
   session: string;
   workflow: string;
@@ -80,7 +82,7 @@ function rowOf(known: Recorded): SessionRow {
   };
 }
 
-/** Whether a session is live or suspended: what Running now shows. */
+/** Whether a session is live or suspended. */
 function open({ summary }: Recorded): boolean {
   return summary.status === "running" || summary.status === "waiting";
 }
@@ -88,10 +90,6 @@ function open({ summary }: Recorded): boolean {
 /** How many of `known` are live: running now, not suspended at a gate. */
 export function liveIn(known: Recorded[]): number {
   return known.filter(({ summary }) => summary.status === "running").length;
-}
-
-function finished({ summary }: Recorded): boolean {
-  return summary.status === "success" || summary.status === "fail";
 }
 
 /** Whether a station still holds a session: live, suspended, or failed — which only it can resume. */
@@ -102,7 +100,7 @@ function held(known: Recorded): boolean {
 function failures(known: Recorded[]): Failed[] {
   return known
     .filter((each) => each.summary.status === "fail")
-    .map((each) => ({ session: each.session, workflow: workflowOf(each.summary), station: each.summary.stationName, endedAt: endedAt(each) }))
+    .map((each) => ({ session: each.session, title: each.summary.request, workflow: workflowOf(each.summary), station: each.summary.stationName, endedAt: endedAt(each) }))
     .sort((a, b) => b.endedAt - a.endedAt)
     .slice(0, FAILURES);
 }
@@ -157,38 +155,25 @@ export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string, 
            ...(await checkOf(ctx, factory, repo, stations)), queued: repo?.queued ?? null, watchers };
 }
 
-export const attention = query({
-  args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory: named, signIn }): Promise<Facts | null> => {
-    const who = await viewing(ctx, signIn);
-    const factory = await readable(ctx, who, named);
-    if (factory === null) return null;
-    return await attentionOf(ctx, who, factory);
-  },
-});
+/** A command waiting for a station: queued, or delivered and not yet answered. The page's clock says whether it expired. */
+export interface Waiting {
+  verb: Verb;
+  /** The session it is for; "" for a run, which starts one. */
+  session: string;
+  /** A run's workflow; "" for any other verb. */
+  workflow: string;
+  by: string;
+  state: CommandState;
+  issuedAt: number;
+  expiresAt: number;
+}
 
-/**
- * Running now — the live and suspended sessions, grouped by the workflow each
- * is in, most recently active first — and Recent: the last finished ones,
- * however they ended.
- */
-export const page = query({
-  args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory: named, signIn }) => {
-    const factory = await readable(ctx, await viewing(ctx, signIn), named);
-    if (factory === null) return null;
-    const known = await recentOf(ctx, factory);
-    const groups = new Map<string, SessionRow[]>();
-    for (const each of known.filter(open)) {
-      const row = rowOf(each);
-      groups.set(row.workflow, [...(groups.get(row.workflow) ?? []), row]);
-    }
-    return {
-      running: [...groups].sort(([a], [b]) => (a < b ? -1 : 1)).map(([workflow, sessions]) => ({ workflow, sessions })),
-      recent: known.filter(finished).map(rowOf).sort((a, b) => b.endedAt - a.endedAt).slice(0, RECENT),
-    };
-  },
-});
+/** A station's record over the period the page asked for: the sessions it ran, how many failed, and what its key paid. */
+export interface StationRecord {
+  sessions: number;
+  failed: number;
+  cost: number;
+}
 
 /** A station as the Stations tab shows it, with everything that depends on it. */
 export interface StationDetail {
@@ -205,17 +190,28 @@ export interface StationDetail {
   report: Report | null;
   sessions: SessionRow[];
   claims: ClaimView[];
+  /** The release it runs, as the latest session it started said; "" before it started any. */
+  release: string;
+  period: StationRecord;
+  commands: Waiting[];
+  /** Whether the viewer may revoke its token: its owner, or an admin of the repository. */
+  revocable: boolean;
 }
+
+/** Most `spend` rows a station's record sums: past it, the period's spend is what was summed so far. */
+const SPEND_SUMMED = 10_000;
 
 /**
  * Every station of the factory that is registered, holds a session or holds
  * a claim — a station that never registered still runs sessions and asks for
  * claims — and one CI entry for every CI job: the sessions that ran in CI and
- * the self-descriptions CI pushed.
+ * the self-descriptions CI pushed. Each station says the release it runs, the
+ * commands waiting for it, and its record over `period` — the page's last 30
+ * days, by its own midnights, so the query changes only when the day does.
  */
 export const stations = query({
-  args: { factory: v.string(), signIn: v.optional(v.string()) },
-  handler: async (ctx, { factory: named, signIn }) => {
+  args: { factory: v.string(), signIn: v.optional(v.string()), period: periodValidator },
+  handler: async (ctx, { factory: named, signIn, period }) => {
     const who = await viewing(ctx, signIn);
     const factory = await readable(ctx, who, named);
     if (factory === null) return null;
@@ -225,6 +221,7 @@ export const stations = query({
     const detail = (station: string, facts: Partial<StationDetail> = {}): StationDetail => {
       const found = shown.get(station) ?? {
         station, name: station, kind: "local", owner: "", registered: false, seenAt: 0, report: null, sessions: [], claims: [],
+        release: "", period: { sessions: 0, failed: 0, cost: 0 }, commands: [], revocable: false,
       };
       shown.set(station, Object.assign(found, facts));
       return found;
@@ -232,6 +229,7 @@ export const stations = query({
     for (const row of await reporting(ctx, factory)) {
       detail(row.station, {
         name: row.name, kind: row.kind, owner: row.ownerLogin, registered: row.token !== null, seenAt: row.seenAt, report: row.report,
+        revocable: await mayRevoke(ctx, who, row), commands: await waitingFor(ctx, factory, row.station),
       });
     }
     for (const each of known.filter(held)) {
@@ -243,6 +241,34 @@ export const stations = query({
     for (const claim of claims) {
       (shown.get(claim.station) ?? detail(claim.station, { name: claim.stationName })).claims.push(claim);
     }
+    // The release a station runs is the one the session it started last said — by when it started,
+    // not when it last moved: a long session on an old release must not hide a newer one. Its record
+    // is over the sessions `recentOf` read, the factory's most recently active.
+    const latest = new Map<string, number>();
+    for (const each of known) {
+      const found = shown.get(each.summary.stationId);
+      if (found === undefined) continue;
+      const started = Date.parse(each.summary.startedAt) || 0;
+      if (each.summary.skillVersion && started >= (latest.get(found.station) ?? -1)) {
+        latest.set(found.station, started);
+        found.release = each.summary.skillVersion;
+      }
+      const ended = endedAt(each);
+      if (ended >= period.from && ended < period.to) {
+        found.period.sessions += 1;
+        if (each.summary.status === "fail") found.period.failed += 1;
+      }
+    }
+    const stationOf = new Map(known.map((each) => [each.session, each.summary.stationId]));
+    let summed = 0;
+    for (const spelling of await spellingsOf(ctx, factory)) {
+      const rows = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", period.from).lt("at", period.to));
+      for await (const row of rows) {
+        if ((summed += 1) > SPEND_SUMMED) break;
+        const found = shown.get(row.station ?? stationOf.get(row.session) ?? "");
+        if (found !== undefined) found.period.cost += row.cost;
+      }
+    }
     const checks = await ctx.db.query("checks").withIndex("by_factory_at", (q) => q.eq("factory", factory)).order("desc").take(RECENT);
     return {
       stations: [...shown.values()].sort((a, b) => (a.name < b.name ? -1 : 1)),
@@ -253,3 +279,19 @@ export const stations = query({
     };
   },
 });
+
+/** The commands queued for `station` of `factory`, or delivered and not yet answered, oldest first. */
+async function waitingFor(ctx: QueryCtx, factory: string, station: string): Promise<Waiting[]> {
+  const rows: Doc<"commands">[] = [];
+  for (const state of ["queued", "delivered"] as const) {
+    rows.push(...await ctx.db.query("commands")
+      .withIndex("by_station_state", (q) => q.eq("factory", factory).eq("station", station).eq("state", state))
+      .collect());
+  }
+  return rows
+    .map((row) => ({
+      verb: row.verb, session: row.session, workflow: row.workflow ?? "", by: row.by, state: row.state,
+      issuedAt: row.issuedAt, expiresAt: row.expiresAt,
+    }))
+    .sort((a, b) => a.issuedAt - b.issuedAt);
+}

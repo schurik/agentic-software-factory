@@ -14,9 +14,10 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { action, internalQuery, query, type QueryCtx } from "./_generated/server";
-import { repoKey, type Distance } from "./forge/forge";
+import { repoKey, type Distance, type OpenPull } from "./forge/forge";
 import { ForgeError, RateLimited } from "./forge/github";
 import { open } from "./forge/open";
+import { CONFIG_DIR, editable, proposalsOf } from "./model/config";
 import { readDescription } from "./model/description";
 import { roleOf } from "./commands";
 import { editing } from "./config";
@@ -70,13 +71,37 @@ export const page = query({
       stations: (await reporting(ctx, factory)).map((row) => ({
         station: row.station, name: row.name, kind: row.kind, owner: row.ownerLogin, seenAt: row.seenAt,
         head: row.report?.head ?? "", configHash: row.report?.configHash ?? "",
+        // What its loop watches for — issues, answers, prs — as its last poll said: what starts a workflow.
+        watchers: row.report?.watchers ?? [],
       })),
     };
   },
 });
 
+/**
+ * The workflows of `factory` that take a prompt, as its default branch's
+ * self-description names them: what the Run a prompt dialog offers (#108).
+ * `described` is false while no CI workflow has pushed one. Null for a
+ * factory the viewer cannot read.
+ */
+export const promptWorkflows = query({
+  args: { factory: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory: named, signIn }) => {
+    const factory = await readable(ctx, await viewing(ctx, signIn), named);
+    if (factory === null) return null;
+    const check = await defaultCheck(ctx, factory, (await repoOf(ctx, factory))?.defaultBranch || null);
+    if (check === null) return { described: false, workflows: [] };
+    const { workflows } = readDescription(check.description);
+    return { described: true, workflows: workflows.filter((workflow) => workflow.input === "prompt").map((workflow) => workflow.name) };
+  },
+});
+
 export type Look =
-  | { ok: true; tip: string | null; files: string[] | null; distances: Record<string, Distance | null> }
+  | {
+    ok: true; tip: string | null; files: string[] | null; distances: Record<string, Distance | null>;
+    /** The Config tab's pull requests still open: none when the forge will not show them. */
+    proposals: OpenPull[];
+  }
   | { ok: false; because: string };
 
 /** What the look needs from the database: whether the viewer may, which branch, and the commits stations stand on. */
@@ -93,8 +118,11 @@ export const looking = internalQuery({
 
 /**
  * Ask the forge what the page cannot be told: the default branch's commit,
- * the files under `asf/` there, and each reporting station's distance from
- * it. Read on the cockpit's own credential, for a viewer the mirror lets read
+ * the config files under `asf/` there that the cockpit edits (`editable`:
+ * filtered here, so the page is never handed the factory's Python), each
+ * reporting station's distance from it, and the config edits proposed from
+ * the Config tab that are still open.
+ * Read on the cockpit's own credential, for a viewer the mirror lets read
  * the repository; nothing read here is stored.
  */
 export const look = action({
@@ -106,13 +134,15 @@ export const look = action({
     const opened = await open(ctx);
     if (opened === null) return { ok: false, because: "this cockpit has no forge credential to ask with" };
     try {
+      const proposals = proposalsOf(await opened.forge.pulls(args.factory) ?? []);
       const tip = await opened.forge.tip(args.factory, asked.branch);
-      if (tip === null) return { ok: true, tip, files: null, distances: {} };
+      if (tip === null) return { ok: true, tip, files: null, distances: {}, proposals };
       const distances: Record<string, Distance | null> = {};
       for (const head of asked.heads) {
         if (head !== tip) distances[head] = await opened.forge.distance(args.factory, tip, head);
       }
-      return { ok: true, tip, files: await opened.forge.paths(args.factory, tip, "asf"), distances };
+      const files = await opened.forge.paths(args.factory, tip, CONFIG_DIR);
+      return { ok: true, tip, files: files === null ? null : files.filter(editable), distances, proposals };
     } catch (error) {
       if (!(error instanceof ForgeError || error instanceof RateLimited)) throw error;
       return { ok: false, because: error.message };

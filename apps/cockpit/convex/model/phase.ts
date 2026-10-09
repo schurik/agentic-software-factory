@@ -265,7 +265,7 @@ function walk(state: DetailState): Walk {
 }
 
 const DETAILERS: Record<string, Record<number, Detailer>> = {
-  phase_started: { 1: phaseStarted, 2: phaseStarted },
+  phase_started: { 1: phaseStarted, 2: phaseStarted, 3: phaseStarted },   // v3's stage is the story's
   artifact_written: {
     1: (state, p, { seq, ts }) => {
       if (p.str("location") === "repo") state.repoWrites.push({ seq, path: p.str("path"), phaseId: p.str("phase_id") });

@@ -83,6 +83,7 @@ class Phase(BaseModel):
     adw_id: str
     seq: int
     params: PhaseParams
+    stage_index: Optional[int] = None   # the workflow's stage it opened in; None outside one
     status: PhaseStatus = "fail"    # success must be earned
     attempt: int = 0
     error: Optional[str] = None
@@ -1443,6 +1444,7 @@ class SessionSpec(BaseModel):
     # What the chapter this opens answers. A work item unless the caller says
     # otherwise: a factory is reached from a tracker, and a prompt is the exception.
     input: ChapterInput = "issue"
+    stages: list[str] = Field(default_factory=list)   # the workflow's, in order, for its chapter
 
 
 class Invocation(BaseModel):
@@ -1872,7 +1874,8 @@ class Station(BaseModel):
 
 
 class Cockpit(BaseModel):
-    """Where a station ships, from ASF_COCKPIT_URL and ASF_COCKPIT_TOKEN."""
+    """Where a station ships, from ASF_COCKPIT_URL and ASF_COCKPIT_TOKEN — or,
+    with the token unset, the ingest token `asf station register` kept."""
 
     url: str                        # the backend's site origin, e.g. http://127.0.0.1:3211
     token: str = ""                 # a factory-scoped ingest token; empty is refused as 401
@@ -1920,13 +1923,19 @@ class StationCredential(BaseModel):
     this station when a person approved its registration — theirs, for this
     station, and good for nothing but asking that cockpit for commands. Keyed
     by the cockpit, like `ShipAck`: a token one cockpit issued means nothing
-    to another. A CI station never holds one."""
+    to another. A CI station never holds one.
+
+    `ingest_token` is the ingest token the same approval handed over when the
+    station asked holding none (no ASF_COCKPIT_TOKEN): the approver's, for
+    this station, and what it ships with while ASF_COCKPIT_TOKEN stays unset
+    (`station.configured`). "" from a registration that held one."""
 
     cockpit: str
     station: str                    # the station id it was issued to
     token: str
     owner: str = ""                 # the forge login of whoever approved it
     issued_at: str = ""
+    ingest_token: str = ""
 
 
 class StationReport(BaseModel):
@@ -1999,6 +2008,52 @@ class ShipResult(BaseModel):
     acked: int = 0                  # the cockpit's answer, or the offset kept
     pending: int = 0                # events on disk past `acked`
     error: str = ""
+
+
+# ── Onboarding (engine/onboarding.py) ────────────────────────────────────────
+
+OnboardingState = Literal["done", "next", "todo", "skipped"]
+
+
+class OnboardingMark(BaseModel):
+    """One decision `asf onboard --mark` recorded: its value, and when."""
+
+    value: str = ""
+    at: str = ""
+
+
+class OnboardingRecord(BaseModel):
+    """`<data_dir>/onboarding.json`: the onboarding decisions that leave no
+    trace anywhere else — the settings walked, a local cockpit chosen, the CI
+    check declined. Every other step is read off the repository itself, so
+    this holds three keys at most and can never say a step is done that is not.
+    Gitignored with the rest of `data_dir`: a decision a checkout recorded is
+    that checkout's, and a fresh clone reads the shared ones off the forge.
+
+    `started` is the first `asf onboard` here and `finished` the first one that
+    found every step done — "" until then, and cleared when a step comes undone.
+    The skill's startup reads the two to offer picking up where it stopped."""
+
+    started: str = ""
+    finished: str = ""
+    marks: dict[str, OnboardingMark] = Field(default_factory=dict)
+
+
+class OnboardingStep(BaseModel):
+    """One step of `asf onboard`, as the checklist and `--json` print it."""
+
+    step: str
+    title: str
+    state: OnboardingState
+    detail: str = ""                # what the evidence says
+    how: str = ""                   # what to do, and where the skill says how
+
+
+class OnboardingProgress(BaseModel):
+    """Every step in order, and the first one not done (`next`, "" once all are)."""
+
+    steps: list[OnboardingStep]
+    next: str = ""
 
 
 # ── The self-description (engine/describe.py) ────────────────────────────────
@@ -2091,14 +2146,131 @@ class CheckedCheckout(BaseModel):
     config_hash: str = ""
 
 
-class SelfDescription(BaseModel):
-    FORMAT: ClassVar[int] = 1
+# The factory's settings, from format 2: factory.yaml as the factory's own code
+# reads it, with every default resolved — so a cockpit shows what a factory
+# does without parsing factory.yaml, and a key the operator left out reads as
+# what the code does without it. Grouped by what each decides, as a cockpit's
+# Config tab shows them. The tracker's raw command arrays are not here: they
+# are how a station reaches its tracker, not something a cockpit shows.
 
-    format: int = 1
+class DescribedReviews(BaseModel):
+    """The review watcher (`pull_requests:`): which workflow answers review
+    threads on the factory's own pull requests, whose threads it hears, and
+    what it writes back."""
+
+    watched: bool                   # pull_requests.enabled
+    workflow: str
+    trusted_reviewers: list[str]    # [] = anyone who can review
+    ignore_authors: list[str]       # bots whose comments are never work
+    reply_to_threads: bool
+    resolve_threads: bool
+    max_threads: int                # per run
+    max_concurrent: int
+    reap_merged: bool
+
+
+class DescribedIntake(BaseModel):
+    """Where work comes from: labelled issues, review threads, and prompts."""
+
+    issues: bool                    # issues.enabled — a route is still needed to launch
+    routes: dict[str, str]          # label -> workflow
+    queued_label: str
+    trusted_authors: list[str]      # [] = anyone whose issue gets labelled
+    max_concurrent: int             # issue runs in flight
+    reviews: DescribedReviews
+    # Every described workflow that takes a prompt: `asf run`, or a cockpit's
+    # `run` command when `limits.commands` lists it.
+    prompt_workflows: list[str]
+
+
+class DescribedHitl(BaseModel):
+    """People at gates (`hitl:`). `gates` holds every gate a described
+    workflow places, and every gate factory.yaml names, as factory.yaml
+    switches it — a workflow may switch its own (`DescribedGate.on`), and a
+    run's `--hitl` or a station's `ASF_HITL` can still say otherwise."""
+
+    default: bool
+    gates: dict[str, bool]
+    wait_seconds: int               # attended: prompt this long, then suspend
+    when_unattended: Literal["suspend", "auto"]
+    max_rounds: int                 # 0 = until the person approves or aborts
+    notify_command: list[str]       # run when a gate suspends; [] runs nothing
+
+
+class DescribedLanding(BaseModel):
+    """How work lands: the branch a run works on, and how it gets back.
+
+    `mode` is how a prompt run lands; `issue_mode` is how an issue-triggered
+    one does, which `issues.force_pr` holds to `pr`. A review run always lands
+    as `pr` — it exists because the branch is under review. `publish` is
+    `engine/publish.py`'s answer on the checkout that described it: shipped,
+    that checkout had a cockpit configured, as every station reporting to the
+    same cockpit does, so it is their answer too."""
+
+    mode: IntegrationMode
+    issue_mode: IntegrationMode
+    open_pr: bool
+    remote: str
+    branch_prefix: str
+    base_ref: str                   # "" = the branch each station's checkout has out
+    publish: PublishMode
+    worktrees: bool
+    worktree_dir: str
+    keep_on_success: bool
+
+
+class DescribedLimits(BaseModel):
+    """Limits and data (`cockpit:`). The per-session budget is
+    `SelfDescription.budget`, described since format 1."""
+
+    transcripts: bool
+    transcript_retention_days: int  # 0 = the cockpit's own limit
+    commands: list[CommandVerb]     # what a cockpit may ask a station to do
+
+
+class DescribedLabels(BaseModel):
+    """Every label the factory writes on the tracker: an issue's four states,
+    the refined mark beside them, and a failed review run's."""
+
+    queued: str
+    running: str
+    done: str
+    failed: str
+    refined: str
+    pr_failed: str
+
+
+class DescribedForge(BaseModel):
+    """The forge and tracker: the project each watcher aims at — set, or
+    resolved from the origin remote as the watcher would; "" when neither is
+    — and the labels the factory writes. The remote a branch goes to is
+    `DescribedLanding.remote`."""
+
+    project: str
+    review_project: str
+    labels: DescribedLabels
+
+
+class DescribedSettings(BaseModel):
+    """factory.yaml as the factory's code reads it, one group per question a
+    person asks of a factory."""
+
+    intake: DescribedIntake
+    hitl: DescribedHitl
+    landing: DescribedLanding
+    limits: DescribedLimits
+    forge: DescribedForge
+
+
+class SelfDescription(BaseModel):
+    FORMAT: ClassVar[int] = 2       # v2: settings
+
+    format: int = 2
     skill_version: str = ""         # asf/.skill-version; "" from a stamp before 1.1
     checked: CheckedCheckout
     ok: bool                        # every workflow loaded: what `check` exits 0 on
     budget: BudgetConfig            # per session — the only ceiling the factory enforces
+    settings: DescribedSettings
     workflows: list[DescribedWorkflow]
     problems: list[WorkflowProblem] = Field(default_factory=list)
 
@@ -2214,13 +2386,20 @@ class WorkflowStarted(DomainEvent):
     issue's workflow, then a round of pull-request review for each round of
     feedback, so the same workflow twice is two chapters. `input` is what the
     chapter answers: a prompt, an issue or a pull request's review.
+
+    v2: `stages`, the workflow's stages in order, each by its name in the
+    closed vocabulary — so a chapter's shape comes from the session's own
+    record, not from a self-description the workflow may have outgrown since.
+    A phase says which of them it belongs to (`phase_started.stage_index`).
     """
 
     KIND: ClassVar[str] = "workflow_started"
+    VERSION: ClassVar[int] = 2      # v2: stages
 
     workflow: str
     chapter: int                    # from 1, in the order the session opened them
     input: ChapterInput
+    stages: list[str] = Field(default_factory=list)
 
 
 class WorkflowFinished(DomainEvent):
@@ -2262,10 +2441,18 @@ class PhaseStarted(DomainEvent):
     to transcripts. A phase answered from the record was sent nothing and has
     no digest; one whose replay its gates refused is announced a second time,
     with the digest of what the agent was then sent.
+
+    v3: `stage_index`, the stage the phase belongs to, as its index into the
+    chapter's `workflow_started.stages` — so two `commit`s are two stages. A
+    gate, a revision, a verify or a commit belongs to the stage that opened it;
+    the work item's phase (`issue`, `pr`, a prompt's `request`) and `report`
+    belong to none, and say None. A resume says no `workflow_started` of its
+    own, so a `workflow.yaml` edited while its session waited at a gate
+    numbers the stages it walks afresh against the list its chapter recorded.
     """
 
     KIND: ClassVar[str] = "phase_started"
-    VERSION: ClassVar[int] = 2      # v2: task, prompt_digest
+    VERSION: ClassVar[int] = 3      # v2: task, prompt_digest; v3: stage_index
 
     phase_id: str
     seq: int
@@ -2275,6 +2462,7 @@ class PhaseStarted(DomainEvent):
     description: str = ""
     task: str = ""
     prompt_digest: str = ""
+    stage_index: Optional[int] = None
 
 
 class PhaseEnded(DomainEvent):

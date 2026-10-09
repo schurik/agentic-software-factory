@@ -19,7 +19,7 @@ import { type Infer, v } from "convex/values";
 import { isRecord } from "../model/wire";
 import type { Forge, Reach, Repository } from "./forge";
 import {
-  branch, commit, compare, type Credential, distance, ForgeError, type GitHub, items, type Memory, paths, pull, readPerson,
+  branch, commit, commitDiff, compare, type Credential, distance, ForgeError, type GitHub, items, type Memory, paths, pull, readPerson,
   readRepository, readRole, refusal, tip,
 } from "./github";
 
@@ -335,6 +335,11 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       if (installation === undefined) return null;
       return compare(github, await asInstallation(installation), repo, base, head);
     },
+    commitDiff: async (repo, sha) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return commitDiff(github, await asInstallation(installation), repo, sha);
+    },
     // A factory's default branch and its config files, read for the Factory page on the
     // installation's budget, like a session's files: the mirror said the viewer may read it.
     tip: async (repo, branch) => {
@@ -361,6 +366,16 @@ export function appForge(github: GitHub, app: App, memory: Memory, user: string 
       const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
       if (installation === undefined) return null;
       return github.labelled(await asInstallation(installation), repo, label);
+    },
+    pulls: async (repo) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return github.pulls(await asInstallation(installation), repo);
+    },
+    touched: async (repo, since) => {
+      const installation = (await installed()).get(repo.split("/")[0].toLowerCase());
+      if (installation === undefined) return null;
+      return github.touched(await asInstallation(installation), repo, since);
     },
     issue: async (repo, number) => {
       const installation = (await installed()).get(repo.split("/")[0].toLowerCase());

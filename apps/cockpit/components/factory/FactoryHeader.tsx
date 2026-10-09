@@ -1,48 +1,55 @@
 import type { Look } from "@/convex/factory";
-import type { Drift } from "@/convex/model/drift";
+import { liveness } from "@/convex/model/command";
+import { branchHref } from "../format";
+import { ExternalLink, ForgeRef } from "../icons";
+import { Crumbs, PageHeader, Tag } from "../ui";
 import { budgetWords, checkWords, type Page, short } from "./view";
 
 /**
- * The Factory page's fixed header: the repository, its default branch's
- * commit, what its `asf check` last said, the flags worth acting on, the
- * configured per-session budget, and Run a prompt. Pure.
+ * The Factory page's fixed header (#118), under a breadcrumb back to the
+ * Factories list (#153), its state in one line: the
+ * repository with a link to it on the forge, what its `asf check` last said,
+ * the default branch at its commit, how many of its stations are online by
+ * the page's clock, and the configured per-session budget. Run a prompt and
+ * Trigger a workflow are the app header's (#108), and open on this factory;
+ * what drifted is the Stations tab's dot. Pure.
  */
-export function FactoryHeader({ page, look, drifts, forge, running, onRun }: {
+export function FactoryHeader({ page, look, forge, now }: {
   page: Page;
   look: Look | null;
-  drifts: Map<string, Drift>;
   /** The forge's web origin, e.g. https://github.com. */
   forge: string;
-  /** Whether the run form is open. */
-  running: boolean;
-  onRun: () => void;
+  now: number;
 }) {
   const check = checkWords(page.check);
   const tip = (look?.ok ? look.tip : null) ?? page.check?.head ?? null;
-  const drifted = [...drifts.values()].filter((each) => each.drifted).length;
+  const online = page.stations.filter((row) => liveness(row.seenAt, null, now).online).length;
   return (
-    <header className="topbar factory-head">
-      <div className="grow">
-        <h1>
-          {page.onForge ? <a href={`${forge}/${page.repo}`}>{page.repo}</a> : page.repo}
-          {page.private ? <> <span className="tag">private</span></> : null}
-        </h1>
-        <p className="muted small">
-          {page.defaultBranch ? <><code>{page.defaultBranch}</code>{tip ? <> at <code>{short(tip)}</code></> : null}</>
-            : "no default branch the forge shows"}
-          {page.check ? <> · budget {budgetWords(page.check.description.budget)}</> : null}
+    <PageHeader
+      crumbs={<Crumbs trail={[{ label: "Factories", href: "/factories" }]} here={page.repo} />}
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          {page.repo}
+          {page.onForge ? (
+            <a href={`${forge}/${page.repo}`} aria-label={`${page.repo} on the forge`} className="text-faint hover:text-fg">
+              <ExternalLink size={16} aria-hidden="true" />
+            </a>
+          ) : null}
+          {page.private ? <Tag>private</Tag> : null}
+          {page.check?.description.newer ? <Tag tone="wait">upgrade the cockpit</Tag> : null}
+        </span>
+      }
+      sub={
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <Tag tone={check.tone}>{check.text}</Tag>
+          <span>
+            {page.defaultBranch ? <><ForgeRef kind="branch" href={branchHref(forge, page.repo, page.defaultBranch)}>{page.defaultBranch}</ForgeRef>
+              {tip ? <> at <code>{short(tip)}</code></> : null}</>
+              : "no default branch the forge shows"}
+          </span>
+          <span>{online}/{page.stations.length} stations online</span>
+          {page.check ? <span className="tabular-nums">{budgetWords(page.check.description.budget)}</span> : null}
         </p>
-        <p className="flags">
-          <span className={`tag${check.tone === "bad" ? " tag-bad" : check.tone === "ok" ? " tag-ok" : ""}`}>{check.text}</span>
-          {drifted ? <span className="tag tag-wait">{drifted} {drifted === 1 ? "station" : "stations"} drifted</span> : null}
-          {page.check?.description.newer ? <span className="tag tag-wait">upgrade the cockpit</span> : null}
-        </p>
-      </div>
-      <div className="action">
-        <button type="button" className="button" aria-expanded={running} onClick={onRun}>
-          {running ? "Close" : "Run a prompt"}
-        </button>
-      </div>
-    </header>
+      } />
   );
 }

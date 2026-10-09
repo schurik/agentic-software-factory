@@ -85,6 +85,54 @@ describe("the golden self-descriptions", () => {
     expect(read.problems).toEqual([{ workflow: "nightly", error: expect.stringContaining("nobody") }]);
   });
 
+  it("reads the factory's settings, grouped by what each decides, from format 2", () => {
+    const { settings } = readDescription(corpus["v2.json"]);
+
+    expect(settings).not.toBeNull();
+    expect(settings!.intake).toMatchObject({
+      issues: true, queuedLabel: "asf:queued", trustedAuthors: ["alex", "sam"], maxConcurrent: 2,
+      routes: { "asf:ship": "issue", "asf:refine": "refine", "asf:refine-ship": "refine-ship" },
+      promptWorkflows: ["quick", "sdlc", "ship"],
+    });
+    expect(settings!.intake.reviews).toEqual({
+      watched: true, workflow: "pr-review", trustedReviewers: [], ignoreAuthors: ["codecov[bot]"],
+      replyToThreads: true, resolveThreads: true, maxThreads: 20, maxConcurrent: 2, reapMerged: true,
+    });
+    expect(settings!.hitl).toEqual({
+      default: false, gates: { integrate: false, plan: false }, waitSeconds: 900,
+      whenUnattended: "suspend", maxRounds: 3, notifyCommand: ["scripts/notify.sh"],
+    });
+    expect(settings!.landing).toEqual({
+      mode: "pr", issueMode: "pr", openPr: true, remote: "origin", branchPrefix: "asf/", baseRef: "",
+      publish: "on_create", worktrees: true, worktreeDir: ".asf-worktrees", keepOnSuccess: false,
+    });
+    // The budget is the one described since format 1, grouped here with the rest of the limits.
+    expect(settings!.limits).toEqual({
+      budget: { maxCostUsd: 2.5, maxTokens: 2_000_000 }, transcripts: true, transcriptRetentionDays: 14,
+      commands: ["answer", "abort", "kill", "resume"],
+    });
+    expect(settings!.forge).toEqual({
+      project: "acme/widgets", reviewProject: "acme/widgets",
+      labels: { queued: "asf:queued", running: "asf:running", done: "asf:done", failed: "asf:failed",
+                refined: "asf:refined", prFailed: "asf:pr-failed" },
+    });
+  });
+
+  it("reads no settings out of format 1, which had none, and the rest of it as before", () => {
+    const read = readDescription(corpus["v1.json"]);
+
+    expect(read.settings).toBeNull();
+    expect(read.workflows.map((workflow) => workflow.name)).toContain("issue");
+  });
+
+  it("reads a map of settings loosely: what is not a string is left out", () => {
+    const later = described();
+    const settings = later.settings as { intake: { routes: unknown } };
+    settings.intake.routes = { "asf:ship": "issue", "asf:odd": 3 };
+
+    expect(readDescription(JSON.stringify(later)).settings!.intake.routes).toEqual({ "asf:ship": "issue" });
+  });
+
   it("reads a newer format loosely, and says the cockpit is the older one", () => {
     const later = { ...described(), format: KNOWN_FORMAT + 1, something_new: { at: 1 } };
 
@@ -114,13 +162,39 @@ describe("a self-description pushed by a CI station", () => {
     expect((await post(t, "/describe", ingestToken, { station: CI })).status).toBe(400);
     expect((await ship(t, ingestToken, { format: "one" })).status).toBe(400);
     expect((await ship(t, ingestToken, described(), { id: "", name: "x", kind: "ci" })).status).toBe(400);
-    // A checkout's own config is what drift measures, never what it is measured against.
-    const local = await ship(t, ingestToken, described(), { id: "st_mine", name: "alex@mbp:widgets", kind: "local" });
-    expect(local.status).toBe(403);
-    expect((await json(local)).error).toMatch(/CI station/);
     const taken = await ship(t, ingestToken, described());
     expect(taken.status).toBe(200);
     expect(await json(taken)).toEqual({});
+  });
+});
+
+// ── the station that registers it first ──────────────────────────────────────
+
+describe("a self-description pushed by a local station", () => {
+  const MINE = { id: "st_mine", name: "alex@mbp:widgets", kind: "local" };
+
+  it("is taken once, for the default branch, while nothing has described the factory", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "read" });
+    const alex = await signIn(t, forge, "alex");
+    await t.action(api.viewer.refresh, { signIn: alex });
+    const ingestToken = await factory(t, "acme/widgets");
+
+    const branch = await ship(t, ingestToken, described({ ref: "feature/x" }), MINE);
+    expect(branch.status).toBe(409);
+    expect((await json(branch)).error).toMatch(/default branch, main/);
+
+    expect((await ship(t, ingestToken, described({ ref: "main", ok: true }), MINE)).status).toBe(200);
+    const page = await t.query(api.factory.page, { factory: "acme/widgets", signIn: alex });
+    expect(page!.check).toMatchObject({ ref: "main", ok: true, station: MINE.name });
+
+    // From then on it is the CI workflow's: a checkout's own edits never become what drift is measured against.
+    const again = await ship(t, ingestToken, described({ ref: "main", head: "c".repeat(40) }), MINE);
+    expect(again.status).toBe(403);
+    expect((await json(again)).error).toMatch(/CI workflow keeps the description current/);
+    expect((await ship(t, ingestToken, described({ ref: "main", head: "d".repeat(40) }))).status).toBe(200);
+    const kept = await t.query(api.factory.page, { factory: "acme/widgets", signIn: alex });
+    expect(kept!.check).toMatchObject({ head: "d".repeat(40), station: CI.name });
   });
 
   it("renders the Factory page's workflows, from the default branch's description", async () => {
@@ -175,6 +249,23 @@ describe("a self-description pushed by a CI station", () => {
     expect(await t.query(api.factory.page, { factory: "acme/widgets" })).toBeNull();     // nobody signed in
     expect(await t.query(api.factory.page, { factory: "acme/secret", signIn: alex })).toBeNull();
   });
+
+  it("offers the Run a prompt dialog the default branch's prompt workflows, and only those (#108)", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "read" });
+    const alex = await signIn(t, forge, "alex");
+    await t.action(api.viewer.refresh, { signIn: alex });
+    const ingestToken = await factory(t, "acme/widgets");
+    const asked = { factory: "acme/widgets", signIn: alex };
+
+    expect(await t.query(api.factory.promptWorkflows, asked)).toEqual({ described: false, workflows: [] });
+
+    await ship(t, ingestToken, described({ ref: "main" }));
+    // Not `issue` or `pr-review`, which take a work item, nor `nightly`, which does not load.
+    expect(await t.query(api.factory.promptWorkflows, asked)).toEqual({ described: true, workflows: ["quick", "sdlc", "ship"] });
+    expect(await t.query(api.factory.promptWorkflows, { factory: "acme/secret", signIn: alex })).toBeNull();
+    expect(await t.query(api.factory.promptWorkflows, { factory: "acme/widgets" })).toBeNull();     // nobody signed in
+  });
 });
 
 // ── drift ────────────────────────────────────────────────────────────────────
@@ -228,7 +319,7 @@ describe("a station's drift from the default branch", () => {
 
     expect(looked).toEqual({
       ok: true, tip: TIP, files: ["asf/factory.yaml", "asf/workflows/sdlc/workflow.yaml"],
-      distances: { ["1".repeat(40)]: { ahead: 0, behind: 2 } },
+      distances: { ["1".repeat(40)]: { ahead: 0, behind: 2 } }, proposals: [],
     });
     const byName = Object.fromEntries(page!.stations.map((row) => [row.name, row]));
     expect(byName[STATION.name]).toMatchObject({ head: TIP, configHash: "beef", kind: "local" });

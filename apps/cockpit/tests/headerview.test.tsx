@@ -1,0 +1,113 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { Header, type Me, placeOf, viewerMenu } from "../components/Header";
+
+// The header every page sits under (#105): the brand, the three places with
+// the one you are in underlined, and the avatar menu that holds who you are,
+// which cockpit this is, the theme, and Sign out where there is one.
+
+const forge = { host: "github.com", ready: true, app: null };
+const alex = { login: "alex", name: "Alex Doe", avatarUrl: "https://avatars.example/alex.png", reachKnown: true };
+const TEAM: Me = { mode: "team", forge, viewer: alex };
+const LOCAL: Me = { mode: "local", forge, viewer: { ...alex, avatarUrl: "" } };
+
+const html = (me: Me | undefined, path = "/", waiting = 0) =>
+  renderToStaticMarkup(<Header me={me} path={path} waiting={waiting} onSignOut={() => {}} onRun={() => {}} onTrigger={() => {}} />);
+const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+describe("the places", () => {
+  it("are Now, Sessions and Factories, and nothing else", () => {
+    const nav = html(TEAM).match(/<nav[^>]*>(.*?)<\/nav>/)![1];
+    expect([...nav.matchAll(/<a[^>]*href="([^"]+)"[^>]*>([^<]+)/g)].map(([, href, label]) => `${label} ${href}`))
+      .toEqual(["Now /", "Sessions /sessions", "Factories /factories"]);
+  });
+
+  it("mark the one the page is in", () => {
+    expect(placeOf("/")).toBe("now");
+    expect(placeOf("/sessions/acme/widgets/a9f259f0")).toBe("sessions");
+    expect(placeOf("/factories/acme/widgets")).toBe("factories");
+    // Stations and Cost left the nav, and are no place in it.
+    expect(placeOf("/stations")).toBeNull();
+    expect(placeOf("/cost")).toBeNull();
+    expect(html(TEAM, "/sessions").match(/<a[^>]*aria-current="page"[^>]*>([^<]+)/)![1]).toBe("Sessions");
+    expect(html(TEAM, "/cost")).not.toContain('aria-current="page"');
+  });
+
+  it("carry on Now the count of gates waiting on the viewer, from any page, and nothing at zero (#115)", () => {
+    const now = (markup: string) => markup.match(/<nav[^>]*><a[^>]*href="\/"[^>]*>(.*?)<\/a>/)![1];
+    expect(text(now(html(TEAM, "/sessions", 3)))).toBe("Now 3");
+    expect(now(html(TEAM, "/sessions", 3))).toContain('aria-label="3 gates waiting on you"');
+    expect(text(now(html(TEAM, "/sessions", 0)))).toBe("Now");
+  });
+
+  it("draw that count as the redesign's prototype does (#104): 16px high, 10px text on its own line height, centred (#152)", () => {
+    const badge = html(TEAM, "/sessions", 3).match(/<span aria-label="3 gates waiting on you" class="([^"]+)"/)![1].split(" ");
+    expect(badge).toEqual(expect.arrayContaining(["inline-flex", "h-4", "min-w-4", "items-center", "justify-center", "rounded-full",
+                                                  "bg-wait-soft", "px-1", "text-[10px]", "leading-none", "font-semibold"]));
+    // Nothing that sizes it otherwise at a breakpoint, or lets the link's line height in.
+    expect(badge.filter((name) => /^(sm|md|lg|xl|dark):|^(h|min-w|text|leading)-/.test(name)).sort())
+      .toEqual(["h-4", "leading-none", "min-w-4", "text-[10px]", "text-wait"]);
+  });
+
+  it("are not offered to someone a team cockpit does not know yet", () => {
+    expect(html({ ...TEAM, viewer: null })).not.toContain("<nav");
+    expect(html(undefined)).not.toContain("<nav");
+  });
+});
+
+describe.each(["Run a prompt", "Trigger a workflow"])("%s", (action) => {
+  it("is on every page, phone included, for anyone the cockpit knows (#108)", () => {
+    for (const path of ["/", "/sessions", "/factories/acme/widgets", "/sessions/acme/widgets/a9f259f0", "/stations"]) {
+      // The words give way to the icon on a phone; its name stays.
+      expect(html(TEAM, path)).toMatch(new RegExp(`<button[^>]*aria-label="${action}"[^>]*>(?:(?!</button>).)*<span class="hidden sm:inline">${action}</span></button>`));
+    }
+    expect(html(LOCAL)).toContain(`aria-label="${action}"`);
+  });
+
+  it("is not offered to someone a team cockpit does not know yet", () => {
+    expect(html({ ...TEAM, viewer: null })).not.toContain(action);
+    expect(html(undefined)).not.toContain(action);
+  });
+});
+
+describe("Trigger a workflow", () => {
+  it("sits beside Run a prompt and looks like it, never disabled: whether the forge lets the viewer label is the dialog's to say", () => {
+    const buttons = [...html(TEAM, "/factories/acme/widgets").matchAll(/<button[^>]*aria-label="([^"]+)"[^>]*>/g)];
+    const [run, trigger] = buttons.filter(([, label]) => label === "Run a prompt" || label === "Trigger a workflow");
+    expect([run[1], trigger[1]]).toEqual(["Run a prompt", "Trigger a workflow"]);
+    expect(trigger[0].match(/class="[^"]*"/)![0]).toBe(run[0].match(/class="[^"]*"/)![0]);
+    expect(trigger[0]).not.toContain(' disabled=""');
+  });
+});
+
+describe("the brand", () => {
+  it("says local under it only in a local cockpit", () => {
+    expect(text(html(LOCAL))).toContain("cockpit local");
+    expect(text(html(TEAM))).not.toContain("local");
+  });
+});
+
+describe("the avatar", () => {
+  it("is the forge's picture, else the login's initial", () => {
+    expect(html(TEAM)).toMatch(/<img[^>]*src="https:\/\/avatars.example\/alex.png"/);
+    const initial = html(LOCAL);
+    expect(initial).not.toContain("<img");
+    expect(initial).toMatch(/aria-label="Signed in as alex"[^>]*>A</);
+  });
+});
+
+describe("the avatar menu", () => {
+  it("names the viewer and the kind of cockpit", () => {
+    expect(viewerMenu(TEAM)).toEqual({ login: "alex", kind: "Team cockpit · signed in with GitHub", signOut: true });
+    expect(viewerMenu(LOCAL)).toEqual({ login: "alex", kind: "Local cockpit · your own forge token", signOut: false });
+  });
+
+  it("offers Sign out only in a team cockpit", () => {
+    expect(viewerMenu(LOCAL).signOut).toBe(false);
+    expect(viewerMenu({ ...TEAM, forge: { ...forge, host: "ghe.acme.dev" } }).kind).toBe("Team cockpit · signed in with ghe.acme.dev");
+  });
+
+  it("says when a local cockpit has no one to be", () => {
+    expect(viewerMenu({ ...LOCAL, viewer: null })).toEqual({ login: "", kind: "Local cockpit · no forge token yet", signOut: false });
+  });
+});

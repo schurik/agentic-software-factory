@@ -1,19 +1,26 @@
 "use client";
 
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useClock } from "./clock";
-import { said } from "./Shell";
+import { said } from "./said";
 import type { ClaimView } from "@/convex/model/claim";
 import type { Command } from "./session/action";
+import { LiveGate } from "./gate/GateDrawer";
+import { PhaseDetails } from "./session/PhaseDetails";
 import { SessionView } from "./session/SessionView";
+import { readShown, type Shown, writeShown } from "./session/shown";
 import { useSignIn } from "./signIn";
+import { Loading, Notice } from "./ui";
 
 /**
  * One session, live. `useQuery` is a subscription: every event a station ships
  * re-runs the query and the page moves on in place, with nothing to reload.
  * The clock ticks on its own so "last heard from" keeps counting between events.
+ * What is open — the tab, chapters, stages, the drawer — is the address's
+ * (`shown.ts`), so a link opens what its sender saw.
  */
 export function SessionPage({ factory, session }: { factory: string; session: string }) {
   const signIn = useSignIn();
@@ -26,15 +33,24 @@ export function SessionPage({ factory, session }: { factory: string; session: st
   const claims = useQuery(api.claims.ofSession, { factory, session, signIn });
   const release = useAction(api.claims.release);
   const purge = useMutation(api.retention.purgeSession);
+  const changes = useAction(api.diffs.changes);
+  const readChanges = useCallback(() => changes({ factory, session, signIn }), [changes, factory, session, signIn]);
   const [problem, setProblem] = useState("");
   const [released, setReleased] = useState("");
+  const [answered, setAnswered] = useState<{ what: string; url: string } | null>(null);
   const now = useClock();
-  if (page === undefined) return <p className="muted">Loading…</p>;
+  const path = usePathname();
+  const search = useSearchParams();
+  const router = useRouter();
+  const onShow = useCallback((next: Shown) => {
+    router.replace(`${path}${writeShown(next, new URLSearchParams(search.toString()))}`, { scroll: false });
+  }, [path, router, search]);
+  if (page === undefined) return <Loading />;
   if (page === null) {
     return (
-      <p className="notice">
+      <Notice>
         No station has shipped session <code>{session}</code> of {factory}, or it is in a repository you cannot read.
-      </p>
+      </Notice>
     );
   }
   const onCommand = (command: Command) => {
@@ -54,11 +70,31 @@ export function SessionPage({ factory, session }: { factory: string; session: st
       .catch((error: unknown) => setProblem(`Not released: ${said(error)}`));
   };
   return (
-    <>
-      {problem ? <p className="notice">{problem}</p> : null}
-      {released ? <p className="notice">{released}</p> : null}
-      <SessionView page={page} now={now} steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
-                   onPurge={(reason) => purge({ factory, session, reason, signIn })} />
-    </>
+    <div className="flex flex-col gap-5">
+      {problem ? <Notice tone="bad">{problem}</Notice> : null}
+      {released ? <Notice tone="ok">{released}</Notice> : null}
+      {answered ? (
+        <Notice tone="ok">
+          Answered {answered.what}{answered.url
+            ? <>: <a href={answered.url} target="_blank" rel="noreferrer">the comment</a>. The station picks it up from the comment on the issue.</>
+            : <>: sent to the station. It goes on once the station records it as your decision.</>}
+        </Notice>
+      ) : null}
+      <SessionView page={page} now={now} shown={readShown(new URLSearchParams(search.toString()))} onShow={onShow}
+                   steering={steering} onCommand={onCommand} claims={claims} onRelease={onRelease}
+                   onPurge={page.mayPurge ? (reason) => purge({ factory, session, reason, signIn }) : undefined}
+                   readChanges={readChanges}
+                   gate={(item, tab, onTab, close) => (
+                     // One gate a session waits at: answered, the drawer closes and the page says where the answer went.
+                     <LiveGate key={item.phaseId} signIn={signIn} now={now} target={{ factory, session, tab, onTab, step: null, close }}
+                               onAnswered={(gate, given, url) => {
+                                 setAnswered({ what: `${given.verdict} at ${gate.row.gate} round ${gate.row.round}`, url });
+                                 close.onClick();
+                               }} />
+                   )}
+                   phase={(item, tab, onTab) => (
+                     <PhaseDetails item={item} where={{ factory, session, forge: page.forge }} tab={tab} onTab={onTab} />
+                   )} />
+    </div>
   );
 }

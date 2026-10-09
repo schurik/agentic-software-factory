@@ -30,6 +30,7 @@ const DESCRIBED: Record<string, string> = {
   "phase_replayed/v1.json": "plan replayed from the record, planner not called",
   "phase_started/v1.json": "plan started · agent planner",
   "phase_started/v2.json": "plan started · agent planner · asf/stages/plan/task.md",
+  "phase_started/v3.json": "plan started · agent planner · asf/stages/plan/task.md · stage 2 of its chapter",
   "process_ended/v1.json": "process 4250 ended",
   "process_started/v1.json": "process 4250 started: claude_code planner sonnet",
   "prompt_rendered/v1.json": "prompt 1 sent to planner",
@@ -47,6 +48,8 @@ const DESCRIBED: Record<string, string> = {
   "workflow_finished/v1.json":
     "chapter 1: ship finished: fail — the run's acceptance criterion was not met",
   "workflow_started/v1.json": "chapter 1: ship started, answering an issue",
+  "workflow_started/v2.json":
+    "chapter 1: ship started, answering an issue · scout → plan → commit → implement → verify → commit",
 };
 
 // A local cockpit, where every session is its one viewer's to see. Who may see
@@ -105,10 +108,14 @@ describe("a session told by its events", () => {
         factory: "acme/widgets",
         session: "5c0075aa",
         acked: 8,
+        // The poll has not read the forge: where its issue and pull request stand is not known.
+        states: { issue: null, pr: null },
         summary: {
           status: "waiting",
           workflows: ["ship"],
           workflow: "ship",
+          chapter: 0,                   // nothing here started a chapter
+          stages: [],
           request: "add a health check",
           branch: "asf/5c0075aa",
           baseRef: "main",

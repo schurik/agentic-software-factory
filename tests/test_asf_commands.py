@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from engine import commands, events, factory, station
-from engine.data_types import Cockpit, Command, StationCredential
+from engine import commands, describe, events, factory, station, supervise
+from engine.data_types import EVENT_KINDS, Cockpit, Command, StationCredential
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, git,
                           run_state, session_dir, set_config, wire, write_workflow)
@@ -119,6 +119,208 @@ def test_register_without_a_shared_cockpit_says_a_local_one_needs_none(stamped: 
     assert "local cockpit" in said[0]
 
 
+# ── registering without an ingest token (#175) ─────────────────────────────
+
+def no_token(repo: Path, monkeypatch, origin: str = "git@github.com:acme/widgets.git"
+             ) -> factory.FactoryConfig:
+    """Only ASF_COCKPIT_URL set, in a checkout whose origin names the factory."""
+    monkeypatch.delenv("ASF_COCKPIT_TOKEN")
+    if origin:
+        git(repo, "remote", "add", "origin", origin)
+    return loaded(repo, monkeypatch)
+
+
+def approved_without_a_token(repo: Path, cfg, cockpit: FakeCockpit,
+                             said: list[str] | None = None) -> int:
+    def a_person_approves(_seconds: float) -> None:
+        cockpit.approve(cockpit.registrations[0].code, owner="alex")
+
+    return commands.register(cfg, cockpit, wait=a_person_approves,
+                             say=(said if said is not None else []).append)
+
+
+def test_register_with_only_the_url_names_the_factory_and_keeps_the_ingest_token_it_is_handed(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    said: list[str] = []
+    asked: list[dict] = []
+
+    def watched(url: str, token: str, body: dict) -> tuple[int, dict]:
+        if url.endswith("/station/register"):
+            asked.append({"token": token, **body})
+        return cockpit(url, token, body)
+
+    def a_person_approves(_seconds: float) -> None:
+        cockpit.approve(cockpit.registrations[0].code, owner="alex")
+
+    assert commands.register(cfg, watched, wait=a_person_approves, say=said.append) == 0
+
+    assert asked[0]["token"] == "" and asked[0]["factory"] == "acme/widgets"
+    assert asked[0]["host"]                                  # what the approval page names
+    held = station.credential(stamped, DATA_DIR)
+    assert held is not None and held.ingest_token in cockpit.issued and held.owner == "alex"
+    assert "ingest token" in "\n".join(said)
+    assert "station-token.json" not in git(stamped, "status", "--porcelain")
+
+
+def test_a_station_ships_with_the_kept_ingest_token_while_asf_cockpit_token_is_unset(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    assert approved_without_a_token(stamped, cfg, cockpit) == 0
+    data = stamped / DATA_DIR
+    kept = station.credential(stamped, DATA_DIR).ingest_token
+
+    assert station.configured(data) == Cockpit(url=URL, token=kept)
+    # `just up`'s station loop, and a run's own shipper, ship with it too.
+    up = supervise.destination(cfg, stamped, None)
+    assert up.destination.get() == Cockpit(url=URL, token=kept)
+    session = a_session(stamped)
+    events.emit(session, EVENT_KINDS["process_ended"](pid=2))
+    assert station.sync(cfg, cockpit) == 0
+    assert cockpit.acked(session.name) == 1
+
+    # A run's own shipper too, which knows only its session's directory.
+    live = a_session(stamped, "11ve5e55")
+    events.emit(live, EVENT_KINDS["process_ended"](pid=3))
+    shipper = station.start(live, transport=cockpit)
+    assert shipper is not None and shipper.destination.get() == Cockpit(url=URL, token=kept)
+    shipper.stop()
+    assert cockpit.acked(live.name) == 1
+
+    shown = asf(stamped, "status").stdout
+    assert (f"{URL} — ships with the ingest token alex approved for it; "
+            f"takes commands for alex") in shown
+
+    # ASF_COCKPIT_TOKEN, once set, still wins: registering changed nothing it decides.
+    monkeypatch.setenv("ASF_COCKPIT_TOKEN", COCKPIT.token)
+    assert station.configured(data) == COCKPIT
+    # Another cockpit's kept token means nothing here.
+    monkeypatch.delenv("ASF_COCKPIT_TOKEN")
+    monkeypatch.setenv("ASF_COCKPIT_URL", "http://elsewhere.test:3211")
+    assert station.configured(data) == Cockpit(url="http://elsewhere.test:3211", token="")
+
+
+def test_a_revoked_station_is_refused_and_registering_again_hands_it_a_fresh_ingest_token(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    approved_without_a_token(stamped, cfg, cockpit)
+    first = station.credential(stamped, DATA_DIR)
+    session = a_session(stamped)
+    events.emit(session, EVENT_KINDS["process_ended"](pid=2))
+    cockpit.revoke(first.station)
+
+    assert station.sync(cfg, cockpit) == 1                   # a revoked token is a red sync
+
+    assert approved_without_a_token(stamped, cfg, cockpit) == 0
+    second = station.credential(stamped, DATA_DIR)
+    assert second.ingest_token != first.ingest_token
+    assert station.sync(cfg, cockpit) == 0 and cockpit.acked(session.name) == 1
+
+
+def test_register_with_the_token_set_behaves_as_before_and_is_handed_no_ingest_token(
+        stamped: Path, monkeypatch):
+    cfg = loaded(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+
+    assert approved_without_a_token(stamped, cfg, cockpit) == 0
+
+    assert station.credential(stamped, DATA_DIR).ingest_token == ""
+    assert cockpit.issued == {}
+
+
+def test_register_with_neither_a_token_nor_an_origin_says_what_is_missing(stamped: Path,
+                                                                         monkeypatch):
+    cfg = no_token(stamped, monkeypatch, origin="")
+    cockpit = FakeCockpit()
+    said: list[str] = []
+
+    assert commands.register(cfg, cockpit, wait=lambda _: None, say=said.append) == 1
+    assert cockpit.registrations == []
+    assert "origin" in said[-1] and "ASF_COCKPIT_TOKEN" in said[-1]
+
+
+def test_a_cockpit_from_before_tokenless_registration_is_named_as_the_reason(stamped: Path,
+                                                                             monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    cockpit.tokenless = False
+    said: list[str] = []
+
+    assert commands.register(cfg, cockpit, wait=lambda _: None, say=said.append) == 1
+    assert "ASF_COCKPIT_TOKEN" in said[-1] and "upgrade" in said[-1]
+
+
+# ── the first registration describes the factory ─────────────────────────────
+
+def test_the_first_registration_describes_the_factory_with_the_ingest_token_it_was_handed(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    said: list[str] = []
+
+    assert approved_without_a_token(stamped, cfg, cockpit, said) == 0
+
+    [sent] = cockpit.descriptions
+    here = station.identify(stamped, DATA_DIR)
+    assert sent["station"]["id"] == here.id and sent["station"]["kind"] == "local"
+    assert {flow["name"] for flow in sent["description"]["workflows"]} >= {"sdlc", "issue"}
+    shown = "\n".join(said)
+    assert "described the factory" in shown
+    # No CI workflow is stamped here, so it says which one keeps it current, and how to add it.
+    assert "no .github/workflows/asf-check.yml" in shown and "--ci" in shown
+
+
+def test_after_the_first_describing_the_factory_is_the_ci_workflow_s_job(stamped: Path,
+                                                                         monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    approved_without_a_token(stamped, cfg, cockpit)
+    workflow = stamped / ".github" / "workflows" / "asf-check.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("name: asf check\n")
+    said: list[str] = []
+
+    assert approved_without_a_token(stamped, cfg, cockpit, said) == 0      # registered again
+
+    assert len(cockpit.descriptions) == 1
+    assert "described" not in "\n".join(said)
+
+    # And a cockpit that would take it says so when this station tries anyway.
+    fresh = FakeCockpit()
+    fresh.descriptions.append({"station": {"kind": "ci"}})
+    fresh.says_described = False
+    describe.first(Cockpit(url=URL, token=fresh.token), fresh, said.append)
+    assert "CI workflow keeps the description current" in said[-2]
+    assert "from now on .github/workflows/asf-check.yml keeps" in said[-1]
+
+
+def test_a_cockpit_that_does_not_say_whether_the_factory_is_described_is_sent_nothing(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    cockpit.says_described = False
+
+    assert approved_without_a_token(stamped, cfg, cockpit) == 0
+    assert cockpit.descriptions == []
+
+
+def test_a_first_description_from_another_branch_is_refused_and_registering_still_succeeds(
+        stamped: Path, monkeypatch):
+    cfg = no_token(stamped, monkeypatch)
+    git(stamped, "checkout", "-q", "-b", "feature/x")
+    cockpit = FakeCockpit()
+    cockpit.default_branch = "main"
+    said: list[str] = []
+
+    assert approved_without_a_token(stamped, cfg, cockpit, said) == 0
+
+    assert cockpit.descriptions == []
+    assert "not described" in "\n".join(said) and "default branch, main" in "\n".join(said)
+
+
 # ── the poll and its report ──────────────────────────────────────────────────
 
 def test_every_poll_reports_the_verbs_it_obeys_its_commit_its_config_and_its_watchers(
@@ -196,7 +398,7 @@ def test_a_revoked_token_stops_commands_reaching_the_station_and_shipping_goes_o
 
     assert steering.revoked and cockpit.polls == [] and cockpit.queued[0].delivered == 0
     assert len(said) == 1 and "refused this station's command token" in said[0]
-    events.emit(session, events.EVENT_KINDS["process_ended"](pid=1))
+    events.emit(session, EVENT_KINDS["process_ended"](pid=1))
     assert station.ship(session, COCKPIT, cockpit).outcome == "shipped"
 
 

@@ -1,7 +1,7 @@
 ---
 name: agentic-sf
-description: Agentic Software Factory — workflows as directories (workflow.yaml + tasks + agent bindings) over a closed stage vocabulary, with one entry point. Use when the user asks to install agentic-sf (`/agentic-sf install`, or plain words), run a workflow with asf, list or check workflows, create or edit a workflow directory, tune an agent's identity or a stage's task, or inspect a run's trace. Keywords - agentic-sf, asf, software factory, workflow.yaml, stage, task file, agent directory, factory.yaml.
-argument-hint: "[install | run <workflow> \"<prompt>\" | list | check | create workflow | edit agent | ...]"
+description: Agentic Software Factory — workflows as directories (workflow.yaml + tasks + agent bindings) over a closed stage vocabulary, with one entry point. Use when the user is new to agentic-sf (`/agentic-sf onboard`, "how do I start?"), asks to install or upgrade it, run a workflow or work an issue with asf, answer a waiting run, start the watchers, connect a repository to a cockpit or register a station, list or check workflows, create or edit a workflow directory, tune an agent's identity or a stage's task, inspect a run, or uninstall it. Keywords - agentic-sf, asf, software factory, workflow.yaml, stage, task file, agent directory, factory.yaml, cockpit, station.
+argument-hint: "[onboard | install | upgrade | doctor | run <workflow> \"<prompt>\" | issue <n> | up | connect cockpit | register station | create workflow | edit agent | uninstall | ...]"
 ---
 
 # Agentic Software Factory (asf)
@@ -28,10 +28,14 @@ The directory this `SKILL.md` lives in. Substitute it, never the literal
 
 ## Startup
 
-Three steps. Then stop.
+A request to be onboarded — `onboard`, "I'm new to this", "how do I start?",
+"what can it do?" — reads [cookbooks/onboard.md](cookbooks/onboard.md) and
+follows it instead. Anything else: three steps. Then stop.
 
 1. If `asf/factory.yaml` does not exist, say in one line that the factory is
-   not installed here and offer [cookbooks/install.md](cookbooks/install.md).
+   not installed here and offer [cookbooks/install.md](cookbooks/install.md)
+   — and, to someone new to it, [cookbooks/onboard.md](cookbooks/onboard.md) —
+   with the question tool ([Asking the person](#asking-the-person)).
    Stamping it by hand instead of running `install.py` is how a repo ends up
    with `asf/` but no `.env` — read the cookbook. Otherwise:
 2. Compare `asf/.skill-version` (the release that stamped this factory) with
@@ -39,7 +43,8 @@ Three steps. Then stop.
    stamp's is **missing** — stamped before 1.1 — or **older**, say so in one
    line, "stamped at X · skill is Y", and offer
    [cookbooks/upgrade.md](cookbooks/upgrade.md) first, before any other
-   request: read it before acting on it. Nothing is refused meanwhile; an old
+   request, with the question tool (Upgrade now / Not now): read it before
+   acting on it. Nothing is refused meanwhile; an old
    stamp runs as it did. A stamp **newer** than the skill means this skill
    checkout is behind — say so, and install nothing from it.
 3. Run `just list` (or `uv run asf/asf.py list`) and print it — one line per
@@ -52,6 +57,12 @@ when a request calls for it.
 Exception: if the engineer's first message already contains a request, skip
 the waiting and route it.
 
+Onboarding left halfway: when `asf/data/onboarding.json` exists and its
+`finished` is empty, run `just onboard` and add one line — "onboarding stopped
+at <next>" — offering to continue with the question tool (**Continue
+onboarding** · **Not now**), before or beside whatever they asked.
+[cookbooks/onboard.md](cookbooks/onboard.md) is where it continues.
+
 ## Orchestrator rules
 
 You run the system and help the engineer interact with it. **You do no
@@ -61,6 +72,35 @@ the run record — yours to read when observing is the task, never to volunteer
 a status board. Each session's `events.jsonl` is its typed domain events,
 numbered by `seq` — the record a cockpit is fed, so it is read, never
 rewritten.
+
+## Asking the person
+
+Whenever the person has to answer — a choice at install, a decision in
+`factory.yaml`, a gate's verdict, whether to go ahead with something that
+cannot be undone, the next step to take — ask with your harness's **question
+tool**: `AskUserQuestion` in Claude Code. Never end a turn on a question
+written in prose. The cookbooks say at each such point what to ask and with
+which options; the rules are the same everywhere:
+
+- **One call per stopping point**, holding every question you have there (up
+  to four) — not one question per turn.
+- **2–4 options each, the recommended one — or the default — first**, marked
+  `(Recommended)`; each option's description says what it does and what it
+  costs. The tool adds **Other** for typed answers, which is how a reason, a
+  rejection's notes or a prompt's missing detail arrives.
+- `multiSelect` only where the answers are not exclusive (which verbs a cockpit
+  may send). A `preview` shows the lines a choice writes, when that helps.
+- **Do not ask what you can look up** (where a repository stands, which harness
+  `factory.yaml` names) or what has one answer (the CI check with a team
+  cockpit): say it, and act.
+- **The answer is theirs and you act on it** — nothing is decided by the
+  question's default when they have not answered. What a person must do
+  themselves — approve a station's code, issue or store a token, sign in — the
+  tool never does: say what to do and where, and ask only whether it is done
+  when you have to wait on it.
+
+A harness without a question tool: ask in one message, numbered, with the same
+options and the recommended one named, and wait.
 
 ## Where things live in a stamped repo
 
@@ -73,7 +113,7 @@ asf/
   workflows/<name>/       workflow.yaml (input, agents, stages), optional tasks/<key>.md, optional agents/<x>.md
   stages/<name>/          stage.py (the contract) + its default task files
   engine/                 the machinery: session, worktree, gates, permissions, hitl, tracer, …
-  data/                   runtime: sessions/<adw_id>/, station.json (this checkout's id) — never edit
+  data/                   runtime: sessions/<adw_id>/, station.json (this checkout's id), onboarding.json — never edit
 ```
 
 Every run works in its own worktree on branch `asf/<adw_id>`; the checkout is
@@ -123,13 +163,15 @@ journal file and lists its deviations.
 
 ## Request routing
 
-Commands are inline; four requests carry a cookbook as well — install,
-upgrade, run, uninstall — and those are the ones whose answer is a decision
-process rather than a command. Read it before acting, not after.
+Commands are inline; six requests carry a cookbook as well — onboarding,
+install, upgrade, run, connecting a cockpit, uninstall — and those are the ones
+whose answer is a decision process rather than a command. Read it before
+acting, not after.
 
 | Request | Do |
 |---|---|
-| install / set up the factory here | [cookbooks/install.md](cookbooks/install.md) — **read it first**: four decisions belong to the repo, and `install.py` is the only supported way in. Then `uv run <skill>/scripts/install.py --harness claude_code\|pi` and `just doctor` |
+| onboard / new to the skill / "how do I start?" / "what can it do?" / "how do I …?" across install, setup, cockpit, stations, updating, workflows / "where did I leave off?" | [cookbooks/onboard.md](cookbooks/onboard.md) — **read it first**: `just onboard` says which step they are on, judged by evidence — install, ready and settings, **commit and publish the factory before any cockpit**, cockpit and station, CI, labels, first run — and the decisions that leave no trace are recorded with `just onboard --mark`. Take the steps in order. Never recite it |
+| install / set up the factory here | [cookbooks/install.md](cookbooks/install.md) — **read it first**: four decisions belong to the repo, and `install.py` is the only supported way in. Then `uv run <skill>/scripts/install.py --harness claude_code\|pi` and `just doctor`, and after a first install walk the stamped `asf/factory.yaml` with them — budget, model, gates, trusted authors, transcripts, cockpit commands — each with the question tool ([cookbooks/install.md](cookbooks/install.md#the-factorys-settings)) |
 | upgrade the factory / "stamped at X · skill is Y" / `asf/.skill-version` missing or older than the skill's / a re-install printed `YOUR CONFIG NAMES OBSOLETE KEYS` | [cookbooks/upgrade.md](cookbooks/upgrade.md) — **read it first**: `install.py --force` refreshes the code and never the operator's `asf/factory.yaml`, so each key a release added (`cockpit.commands`, `worktree.publish`) and each obsolete one (`observability:`, `integration.mode: none`) is a decision put to the engineer, and registering a station is theirs to approve. Never refused meanwhile; `just doctor` prints both versions |
 | "is this repo ready to run?" / something failed before the first phase | `just doctor` — every check with its fix, then every workflow checked; spawns nothing. [cookbooks/install.md](cookbooks/install.md#post-install-checklist) |
 | run a workflow | `just do "<prompt>"` (sdlc), `just quick`, `just ship`, or `just run <name> "<prompt>" [--hitl all\|none\|plan]` — turning the request into a prompt, watching it, gates, failures: [cookbooks/run_workflow.md](cookbooks/run_workflow.md) |
@@ -145,9 +187,9 @@ process rather than a command. Read it before acting, not after.
 | remove the factory from this repo | [cookbooks/uninstall.md](cookbooks/uninstall.md) — `just uninstall --dry-run` first and show the plan; the skill is untouched, the run record goes with `asf/`, and it is the one irreversible thing here |
 | which workflows exist / what does X do | `uv run asf/asf.py list`; read `asf/workflows/<name>/workflow.yaml` |
 | is this workflow runnable | `uv run asf/asf.py check <name>` — spawns nothing, names every problem |
-| what does this factory say it is / what a cockpit shows of it | `uv run asf/asf.py check --json` — the **self-description**: every workflow's trigger, stages, agents with their `tools`/`writes`, gates, and the per-session budget, as the factory's own code loads them. A cockpit never reads workflow files; this is all it knows of them |
-| show the workflows in the cockpit / "the factory says unchecked" / a CI check for the config | the optional CI workflow: `install.py --harness <h> --ci` stamps `.github/workflows/asf-check.yml` (`check --json --ship` on pull requests and default-branch pushes); the repo sets `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN`. Ask before adding it — a repository's CI is its own. [cookbooks/install.md](cookbooks/install.md#run-it) |
-| create a workflow | copy the closest directory under `asf/workflows/`, edit `workflow.yaml`, run `check`. Read [references/design.md](references/design.md#workflows) first |
+| what does this factory say it is / what a cockpit shows of it | `uv run asf/asf.py check --json` — the **self-description**: every workflow's trigger, stages, agents with their `tools`/`writes`, gates, the per-session budget, and the settings (routes, gates, how work lands, transcripts, commands, the tracker's project and labels) with every default resolved, as the factory's own code loads them. A cockpit never reads workflow files; this is all it knows of them |
+| show the workflows in the cockpit / "the factory says unchecked" / a CI check for the config | the optional CI workflow: `install.py --harness <h> --ci` stamps `.github/workflows/asf-check.yml` (`check --json --ship` on pull requests and default-branch pushes); the repo sets `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN` — a token a repository admin issues on the factory's Stations tab ([cookbooks/connect_cockpit.md](cookbooks/connect_cockpit.md#ci)). With a **team cockpit** it comes with connecting: stamp it unasked and say why (it keeps the description the first registration sent current, from the default branch). With only a local one, ask with the question tool — a repository's CI is its own. [cookbooks/install.md](cookbooks/install.md#run-it) |
+| create or change a workflow | copy the closest directory under `asf/workflows/` (or edit one), edit `workflow.yaml`, run `check`. Read [references/design.md](references/design.md) first |
 | tailor an agent's TASK for one workflow | add `asf/workflows/<name>/tasks/<key>.md` — keys are the stage's TASKS (scout, plan, implement, fix, review, revise, document, recon, ask, refine). Keep the `## Report` block matching the type; `check` verifies it. `pr-review/tasks/implement.md` is the shipped example |
 | tailor an agent's IDENTITY for one workflow | bind it in `workflow.yaml` under `agents:` with `system_append: [agents/<x>.md]` — append, never replace |
 | change an agent for every workflow | edit `asf/agents/<name>/agent.md` — the frontmatter is the boundary, the prose is the voice |
@@ -155,11 +197,12 @@ process rather than a command. Read it before acting, not after.
 | pick a failed run back up | `just resume <id>` — replays recorded agent phases, re-runs what code owns |
 | a run is waiting at a gate / "why is this run waiting?" | `just pending`, `just show <id>`, then `just approve <id> [-m]`, `just reject <id> -m "..."` or `just abort <id>`. A run on a tracked issue can also be answered there — a reply opening with `/approve`, `/reject …` or `/abort`, or from a cockpit's inbox — and `just answers` picks it up. Never approve, and never post such a reply, on the engineer's behalf |
 | a run is waiting on QUESTIONS (`kind: questions` in `just show`) | `just answer <id> -m "..."` supplies what is missing; `just approve <id>` takes every recommendation as it stands. There is nothing to `reject` — the agent asked, it did not claim. The questions are also a comment on the work item, and an answer there does the same thing — any reply is an answer, `/approve` takes every recommendation and `/abort` ends the run. Never answer on the engineer's behalf |
-| ship runs to a cockpit / "why isn't my run in the cockpit?" | set `ASF_COCKPIT_URL` (the backend's site origin, e.g. `http://127.0.0.1:3211`) and `ASF_COCKPIT_TOKEN` (the factory's ingest token) in `.env`; from then on every run and every `approve`/`reject`/`answer`/`abort` ships its session's events from a background thread, and never waits on the cockpit. `just station-sync` sends whatever a cockpit has not acknowledged — every session, from its acknowledged seq — and is a CI job's last step; it fails only when the cockpit refuses the token. A cockpit that was down loses nothing: sync again. Unset, a run ships nothing and is exactly as before. `ASF_STATION_NAME` renames this checkout from `<login>@<host>:<dir>` |
-| kill, resume, answer or run from the cockpit / "why is Kill (Resume, Approve, Run) greyed out?" / register this station | A cockpit **commands** a station only when three things hold: `asf/factory.yaml` lists the verb under `cockpit.commands` (a fresh stamp lists `[answer, abort, kill, resume]`; `run` is off unless listed; it is the repository's decision, made in a reviewed file — never add a verb on the engineer's behalf), the station is **registered** to a person, and that person's login passes `issues.trusted_authors` (empty: anyone the cockpit lets ask, which is a writer). Register with `just station-register` against a shared cockpit: it prints a code and a link, a person approves it there while signed in, and the token lands in `asf/data/station-token.json` — never approve it for them. A local cockpit's station is its owner's already. The station loop (`just up`) and every run's own shipper poll for commands. `kill` stops a run through its own handler; `resume` relaunches a failed session with `asf resume` on the station holding it (a CI session cannot be: it is re-triggered from the forge); `answer`/`abort` decide a gate that waits on no work item (a prompt run's) as the person who sent it — a gate on an issue is answered on the issue — and are refused once the gate, round or subject moved on; `run` starts a prompt workflow only on a station of the person asking. Each outcome is in `asf/data/commands/<id>.json` and the cockpit shows the station's `command_result`. A station that refuses says why; revoking its token under Stations stops every command reaching it. A CI station takes none |
+| connect this repo to our cockpit / "where do I get an ingest token?" / "what is the setup code?" / register this station / a CI token for the cockpit | [cookbooks/connect_cockpit.md](cookbooks/connect_cockpit.md) — **read it first**: local or shared, the operator's once-per-cockpit setup (deploy, setup code by deployment, the GitHub App), then per checkout only `ASF_COCKPIT_URL` and `just station-register`, which a person with write approves in the cockpit and which hands the station its ingest token and, the first time, describes the factory — never approve it for them. The CI check comes with a team cockpit: stamp it and say why. CI's token is issued by a repository admin on the factory's Stations tab. Every failure, with its cause and fix |
+| ship runs to a cockpit / "why isn't my run in the cockpit?" | set `ASF_COCKPIT_URL` (the backend's site origin, e.g. `http://127.0.0.1:3211`) in `.env` and register the station ([cookbooks/connect_cockpit.md](cookbooks/connect_cockpit.md)), or set `ASF_COCKPIT_TOKEN` (the factory's ingest token, which wins when set); from then on every run and every `approve`/`reject`/`answer`/`abort` ships its session's events from a background thread, and never waits on the cockpit. `just station-sync` sends whatever a cockpit has not acknowledged — every session, from its acknowledged seq — and is a CI job's last step; it fails only when the cockpit refuses the token. A cockpit that was down loses nothing: sync again. Unset, a run ships nothing and is exactly as before. `ASF_STATION_NAME` renames this checkout from `<login>@<host>:<dir>` |
+| kill, resume, answer or run from the cockpit / "why is Kill (Resume, Approve, Run) greyed out?" / register this station | A cockpit **commands** a station only when three things hold: `asf/factory.yaml` lists the verb under `cockpit.commands` (a fresh stamp lists `[answer, abort, kill, resume]`; `run` is off unless listed; it is the repository's decision, made in a reviewed file — never add a verb on the engineer's behalf), the station is **registered** to a person, and that person's login passes `issues.trusted_authors` (empty: anyone the cockpit lets ask, which is a writer). Registering is [cookbooks/connect_cockpit.md](cookbooks/connect_cockpit.md) — never approve a code for them. A local cockpit's station is its owner's already. The station loop (`just up`) and every run's own shipper poll for commands. `kill` stops a run through its own handler; `resume` relaunches a failed session with `asf resume` on the station holding it (a CI session cannot be: it is re-triggered from the forge); `answer`/`abort` decide a gate that waits on no work item (a prompt run's) as the person who sent it — a gate on an issue is answered on the issue — and are refused once the gate, round or subject moved on; `run` starts a prompt workflow only on a station of the person asking. Each outcome is in `asf/data/commands/<id>.json` and the cockpit shows the station's `command_result`. A station that refuses says why; revoking its token under Stations stops every command reaching it. A CI station takes none |
 | "what does the cockpit get to see?" / show prompts and agent output in the cockpit | A session's events, always: its chapters (one per workflow it passes through), phases, gates and decisions, spend, each commit's sha, the handoff files its phases wrote (inline, cut at 256 KB; a repo file only as a path, read from the forge), and each tool call's name, outcome and duration — **never a tool's arguments or its result**. The rest is the **transcript** — every prompt an agent was sent and its harness's raw output, tool arguments and results included — and it is written only when `asf/factory.yaml` says `cockpit: {transcripts: true}`. That is the repository's decision, made in a reviewed file: never turn it on on the engineer's behalf, and say what it sends before they do. A cockpit keeps a transcript 30 days after its session finishes (the deployment's maximum) and then ages it out; `cockpit.transcript_retention_days` can only shorten that. Everything else is kept until an admin purges a session's bodies, or an owner the factory's |
-| a run pushed its branch before it was done / the cockpit cannot show what a gate asks about / a run was refused with "cannot publish" | All three are `worktree.publish` in `asf/factory.yaml` (`just doctor` prints the value in force and why). `on_create` — the default once a cockpit is configured — pushes the branch to `worktree.integration.remote` as the session starts, together with the commit it was cut from, and again before every suspend with the gate's subject committed; that push failing is what "cannot publish" means, and the run is refused before a branch or a worktree exists. `on_integrate` — the default without a cockpit — pushes nothing until an `integrate` stage does, and a cockpit then has nothing to show at that session's gates. Which one a repository wants is its own decision: say what each does and let the engineer set it. A published branch that was never integrated is removed from the remote when its session finishes or is aborted — one with a pull request, one pushed with `-u`, or one merged into its base is kept. What the factory cannot see is a pull request somebody opened on the forge while the session was still working: say so before an `abort` of such a session, because deleting its branch closes that pull request. Never delete or re-push a branch by hand to "fix" a waiting run |
-| `worktree.integration.mode: none` refused (or `integrate: {mode: none}` in a workflow) | Refused since 1.2 — every command that loads the config says so, `asf check` names a workflow that says it, and nothing runs until it is changed. `none` meant two things, and each has its own switch now: a workflow that should land nothing drops its `integrate` stage, and `worktree.publish: on_integrate` keeps a branch off the remote until it is integrated. Otherwise `mode: pr`, with `open_pr: false` to push and open nothing. Ask which was meant — do not remap it on the engineer's behalf |
+| a run pushed its branch before it was done / the cockpit cannot show what a gate asks about / a run was refused with "cannot publish" | All three are `worktree.publish` in `asf/factory.yaml` (`just doctor` prints the value in force and why). `on_create` — the default once a cockpit is configured — pushes the branch to `worktree.integration.remote` as the session starts, together with the commit it was cut from, and again before every suspend with the gate's subject committed; that push failing is what "cannot publish" means, and the run is refused before a branch or a worktree exists. `on_integrate` — the default without a cockpit — pushes nothing until an `integrate` stage does, and a cockpit then has nothing to show at that session's gates. Which one a repository wants is its own decision: ask with the question tool, each option saying what it does, and set what they choose. A published branch that was never integrated is removed from the remote when its session finishes or is aborted — one with a pull request, one pushed with `-u`, or one merged into its base is kept. What the factory cannot see is a pull request somebody opened on the forge while the session was still working: say so before an `abort` of such a session, because deleting its branch closes that pull request. Never delete or re-push a branch by hand to "fix" a waiting run |
+| `worktree.integration.mode: none` refused (or `integrate: {mode: none}` in a workflow) | Refused since 1.2 — every command that loads the config says so, `asf check` names a workflow that says it, and nothing runs until it is changed. `none` meant two things, and each has its own switch now: a workflow that should land nothing drops its `integrate` stage, and `worktree.publish: on_integrate` keeps a branch off the remote until it is integrated. Otherwise `mode: pr`, with `open_pr: false` to push and open nothing. Ask which was meant with the question tool, one option per meaning — do not remap it on the engineer's behalf |
 | "where is the cockpit?" / `asf up` said "no local cockpit" | Without `ASF_COCKPIT_URL`, `just up` starts a **local cockpit** at `http://localhost:3000` — the same published images a team deploys, run through the stamped `asf/cockpit/compose.yaml` on Docker — and its station loop ships every session on this checkout to it (the token is issued and kept in `asf/data/cockpit.json` by itself). With `ASF_COCKPIT_URL` set it starts none and ships to that one. It is one per machine: an `up` that finds a newer one running joins it rather than downgrading it, and the `up` that started it owns it. No Docker: `up` warns, drops the cockpit and runs the watchers anyway; `just doctor` names what is missing and which cockpit version it would run. `asf/cockpit/min-version` is the oldest cockpit this stamp ships to; `ASF_COCKPIT_VERSION` in `.env` can only name a newer one. `just station` is the loop without watchers |
 | the local cockpit's Factories page is missing a repository / "no token to ask the forge with" | A local cockpit has no sign-in: it asks the forge **as the engineer**, with the token `gh auth token` prints (for `GH_HOST`, else github.com). `just up` hands it over in the `cockpit` child's environment when it starts the cockpit — never on a command line, never into `.env` — the cockpit keeps it in its own backend on this machine (the `asf-cockpit` compose project's `data` volume), and the Factories page then lists every repository that token reaches whose default branch holds `asf/factory.yaml`, stations or not. `up` prints a `forge` line saying which it was, and `just doctor`'s `cockpit forge` line says it beforehand. No token: the page shows only the factories this machine's stations ship from; `gh auth login`, then start `up` again. It is the engineer's own credential — say that it is handed to the cockpit container before they start one, and never log in, or paste a token anywhere, on their behalf. A **shared** cockpit takes no token from a station: people sign in to it with their team's GitHub App, and see a factory's sessions only if the forge lets them read its repository |
 | watch a run | the cockpit (`just up`, above); `just sessions` (the newest, from their `run.json`), `just tail <id>` (its `events.jsonl`) |

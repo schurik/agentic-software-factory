@@ -47,6 +47,17 @@ export function daysOf(first: string, last: string, timeZone: string): Period | 
   return { from: midnight(...start, timeZone), to: midnight(end[0], end[1], end[2] + 1, timeZone) };
 }
 
+/**
+ * The last `count` calendar days in `timeZone`, today's included, as the
+ * midnights that start each of them there and the one after today: a
+ * factory's Overview spends over them, a column a day. `count + 1` instants;
+ * a day a DST change falls on is 23 or 25 hours long, as the viewer lived it.
+ */
+export function lastDays(count: number, now: number, timeZone: string): number[] {
+  const { year, month, day } = wallDate(now, timeZone);
+  return Array.from({ length: count + 1 }, (_, index) => midnight(year, month, day - count + 1 + index, timeZone));
+}
+
 /** The calendar day `at` falls on in `timeZone`, as `YYYY-MM-DD`: what a custom range starts from. */
 export function dayOf(at: number, timeZone: string): string {
   const { year, month, day } = wallDate(at, timeZone);

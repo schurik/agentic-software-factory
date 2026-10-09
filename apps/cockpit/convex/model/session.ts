@@ -44,6 +44,8 @@ export const summaryValidator = v.object({
   status: v.string(),                 // unknown until session_started | running | waiting | success | fail
   workflows: v.array(v.string()),     // every workflow the session passed through, in order
   workflow: v.string(),               // the one running now: what the latest process said it ran
+  chapter: v.number(),                // the chapter it is in now; 0 for a factory before chapters
+  stages: v.array(v.string()),        // that chapter's stages, as its `workflow_started` v2 named them; [] when it did not
   request: v.string(),
   branch: v.string(),
   baseRef: v.string(),
@@ -79,7 +81,7 @@ const EMPTY_WAITING: WaitingFor = {
 };
 
 export const EMPTY_SUMMARY: Summary = {
-  status: "unknown", workflows: [], workflow: "", request: "", branch: "", baseRef: "", trigger: "",
+  status: "unknown", workflows: [], workflow: "", chapter: 0, stages: [], request: "", branch: "", baseRef: "", trigger: "",
   triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", stationKind: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
   totalTokens: 0, totalCost: 0, unread: 0, transcriptDays: 0,
@@ -103,13 +105,19 @@ export interface SessionView {
   summary: Summary;
   story: Story;
   events: Row[];
+  // Whether the session shipped any transcript event: its factory opted in
+  // (`cockpit: {transcripts: true}`). Their bodies age out; that they came does not.
+  transcripts: boolean;
 }
+
+const TRANSCRIPT_KINDS = ["prompt_rendered", "harness_output"];
 
 /** The whole page: every stored event a row, and what those up to `acked` tell (`fold`). */
 export function view(events: StoredEvent[], acked: number): SessionView {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin(), detail: null };
   const rows = fold(state, events, acked);
-  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows };
+  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows,
+           transcripts: rows.some((row) => TRANSCRIPT_KINDS.includes(row.kind)) };
 }
 
 /** One phase of the page, opened into its tabs (phase.ts); null for a phase it never started. */
@@ -137,6 +145,31 @@ export function advance(summary: Summary, events: StoredEvent[]): Summary {
 /** When a session ended, epoch ms: its finish, else its last event, else `activity` — when the cockpit last heard of it. */
 export function endedAt({ summary, activity }: { summary: Summary; activity: number }): number {
   return at(summary.endedAt) ?? at(summary.lastEventAt) ?? activity;
+}
+
+/** Whether a session is still going: running, or waiting at a gate. */
+/** The workflow a session is in now: what its latest process said it ran, else the last it passed through. */
+export function workflowOf(summary: Summary): string {
+  return summary.workflow || (summary.workflows.at(-1) ?? "");
+}
+
+/** A pull request's number, off its forge URL; "" for a URL that names none. */
+export function prNumber(url: string): string {
+  return /\/pull\/(\d+)\/?$/.exec(url)?.[1] ?? "";
+}
+
+/** An issue's number, off its forge URL; "" for a URL that names none. */
+export function issueNumber(url: string): string {
+  return /\/issues\/(\d+)\/?$/.exec(url)?.[1] ?? "";
+}
+
+export function isLive(summary: Summary): boolean {
+  return summary.status === "running" || summary.status === "waiting";
+}
+
+/** Where a session's clock stops, epoch ms: `now` while it is live, else when it ended (NaN when it never said). */
+export function until(summary: Summary, now: number): number {
+  return isLive(summary) ? now : Date.parse(summary.endedAt || summary.lastEventAt);
 }
 
 /** A summary's timestamp in epoch ms; null when it has none. */
@@ -212,12 +245,16 @@ function learn(summary: Summary, fields: Partial<Summary>): void {
 
 function learnProvenance(summary: Summary, p: Payload): void {
   learn(summary, { trigger: p.str("trigger"), issueUrl: p.str("issue_url"), prUrl: p.str("pr_url") });
+  // A run started on an issue was typed no prompt: what asked for it is the
+  // first work item a provenance named (`#42 title`), as the story's title has it.
+  summary.request ||= p.str("request");
 }
 
 const describeProvenance = (p: Payload) => `provenance: ${p.str("request") || p.str("trigger")}`;
 
 const describePhaseStarted = (p: Payload) =>
   `${p.str("name")} started · ${p.str("kind")}` + (p.str("owner") ? ` ${p.str("owner")}` : "");
+const describePhaseGiven = (p: Payload) => describePhaseStarted(p) + (p.str("task") ? ` · ${p.str("task")}` : "");
 
 /** How an artifact reached the cockpit. A repo file is only named; a handoff
  * file is here whole, cut at the factory's cap, or (not text) not sent at all. */
@@ -230,6 +267,12 @@ function travelled(p: Payload): string {
 }
 
 const ANSWERING: Record<string, string> = { issue: "an issue", pr: "a pull request's review" };
+const describeWorkflowStarted = (p: Payload) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
+  (ANSWERING[p.str("input")] ? `, answering ${ANSWERING[p.str("input")]}` : "");
+
+function chapterStarted(summary: Summary, p: Payload, stages: string[]): void {
+  Object.assign(summary, { chapter: p.num("chapter"), stages });
+}
 
 const money = (cost: number) => `$${cost.toFixed(4)}`;
 const gateRound = (p: Payload | null) => (p ? `${p.str("gate")} round ${p.num("round")}` : "a gate");
@@ -286,9 +329,12 @@ const READERS: Record<string, Record<number, Reader>> = {
   },
   // A chapter: one workflow the session passes through (the story, story.ts).
   workflow_started: {
-    1: {
-      describe: (p) => `chapter ${p.num("chapter")}: ${p.str("workflow")} started` +
-        (ANSWERING[p.str("input")] ? `, answering ${ANSWERING[p.str("input")]}` : ""),
+    1: { fold: (state, p) => chapterStarted(state.summary, p, []), describe: describeWorkflowStarted },
+    // v2 adds the workflow's stages, in order: the chapter's shape, as it ran.
+    2: {
+      fold: (state, p) => chapterStarted(state.summary, p, p.strs("stages")),
+      describe: (p) => describeWorkflowStarted(p) +
+        (p.strs("stages").length ? ` · ${p.strs("stages").join(" → ")}` : ""),
     },
   },
   workflow_finished: {
@@ -298,13 +344,24 @@ const READERS: Record<string, Record<number, Reader>> = {
     },
   },
   session_resumed: {
-    1: { describe: (p) => `resumed chapter ${p.num("chapter")}: ${p.str("workflow")}` },
+    1: {
+      // A process picking up the chapter it was in keeps its stages; any other, whose stages it never said, has none.
+      fold: ({ summary }, p) => {
+        if (p.num("chapter") !== summary.chapter) Object.assign(summary, { chapter: p.num("chapter"), stages: [] });
+      },
+      describe: (p) => `resumed chapter ${p.num("chapter")}: ${p.str("workflow")}`,
+    },
   },
   phase_started: {
     1: { describe: describePhaseStarted },
     // v2 adds what an agent phase was given: its task file and its prompt's digest.
-    2: {
-      describe: (p) => describePhaseStarted(p) + (p.str("task") ? ` · ${p.str("task")}` : ""),
+    2: { describe: describePhaseGiven },
+    // v3 adds the stage it belongs to, as an index into its chapter's stages; none for the work item and the report.
+    3: {
+      describe: (p) => {
+        const index = p.numOrNull("stage_index");
+        return describePhaseGiven(p) + (index === null ? "" : ` · stage ${index + 1} of its chapter`);
+      },
     },
   },
   phase_replayed: {

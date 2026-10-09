@@ -124,7 +124,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
         issue_url=run.issue_url, pr_url=run.pr_url, request=spec.request, station_id=here.id,
         station_name=here.name, station_kind=here.kind,
         transcript_retention_days=cfg.cockpit.transcript_retention_days or 0))
-    artifacts.open_chapter(run.session_dir, workflow, spec.input, resume)
+    artifacts.open_chapter(run.session_dir, workflow, spec)
     # And from here every event this process appends is on its way to the
     # cockpit, when there is one — from a thread, so nothing below waits on it.
     # The same thread asks for the commands that name this session, so a kill

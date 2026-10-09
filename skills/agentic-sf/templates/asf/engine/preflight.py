@@ -40,7 +40,7 @@ import subprocess
 from pathlib import Path
 
 from . import cockpit as local_cockpit
-from . import git_helper, harnesses, publish
+from . import git_helper, harnesses, publish, station
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
 from .utils import anchor, write_atomic
@@ -85,6 +85,19 @@ def repo(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
             fix=f"fetch or create {base_ref!r}, or clear worktree.base_ref in the "
                 f"config to cut from whatever main has checked out"))
         return findings
+
+    # The engineer's checkout on a session's branch — fixing review feedback by
+    # hand — holds that branch, so the session's next run cannot re-create its
+    # worktree from it (`worktree.ensure` refuses), and a new run with no
+    # base_ref would be cut from another session's work. A warning, not a
+    # fatal: it is a perfectly good place to be, until a run needs the branch.
+    current = git_helper.current_branch(main_root)
+    if cfg.worktree.enabled and current.startswith(cfg.worktree.branch_prefix):
+        findings.append(Finding(
+            check="git", level="warn",
+            detail=f"the main checkout is on {current} — a session's branch, so that "
+                   f"session's next run is refused until the checkout leaves it",
+            fix="push what you committed there, then `git checkout <your base branch>`"))
 
     # A check that says nothing when it passes reads as a check that never ran,
     # which in a report is worse than noise — so the good news is a line too.
@@ -448,19 +461,21 @@ def skill() -> list[Finding]:
 
 # ── the cockpit `asf up` starts ──────────────────────────────────────────────
 
-def cockpit() -> list[Finding]:
-    """Whether `asf up` can start the local cockpit, and which one it would run.
+def cockpit(data: Path | None = None) -> list[Finding]:
+    """Whether `asf up` can start the local cockpit, and which one it would run
+    — or, with a shared cockpit configured, what this station ships to it with.
 
-    Asked only when no shared cockpit is configured: with ASF_COCKPIT_URL set,
-    nothing here needs Docker. Warn, never fatal — without Docker `up` still
-    runs every watcher, and a run never needed a cockpit at all. The images
-    are asked about so the first `up` is not a surprise: a missing one is
-    pulled then, and that is minutes on a slow line.
+    With ASF_COCKPIT_URL set nothing here needs Docker: the question is the
+    ingest token, ASF_COCKPIT_TOKEN or the one a registration kept under
+    `data` (the data_dir, anchored), and without either nothing ships.
+    Warn, never fatal — without Docker `up` still runs every watcher, and a
+    run never needed a cockpit at all. The images are asked about so the first
+    `up` is not a surprise: a missing one is pulled then, and that is minutes
+    on a slow line.
     """
     shared = local_cockpit.shared()
     if shared:
-        return [Finding(check="cockpit",
-                        detail=f"shared: {shared} — `asf up` starts no local one")]
+        return [_shared(shared, data)]
     problem = local_cockpit.docker_problem()
     if problem:
         return [Finding(
@@ -514,6 +529,19 @@ def cockpit() -> list[Finding]:
 
 # ── composition ──────────────────────────────────────────────────────────────
 
+def _shared(url: str, data: Path | None) -> Finding:
+    """A shared cockpit, and the ingest token this station ships to it with."""
+    token = station.shipped_with(data)
+    if token:
+        return Finding(check="cockpit", detail=f"shared: {url} — ships with {token}; `asf up` "
+                                               f"starts no local one")
+    return Finding(check="cockpit", level="warn",
+                   detail=f"shared: {url} — no ingest token, so nothing ships to it",
+                   fix="`just station-register`, and have someone with write on the repository "
+                       "approve the code in the cockpit (cookbooks/connect_cockpit.md) — or set "
+                       "ASF_COCKPIT_TOKEN to an ingest token the cockpit issued")
+
+
 def before_run(cfg: FactoryConfig, main_root: Path | None = None) -> list[Finding]:
     """The subset every run is worth paying for. Raises SystemExit on a fatal.
 
@@ -538,5 +566,6 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamped_version(root) + cockpit()
+            + forge(cfg) + labels(cfg, root) + stamped_version(root)
+            + cockpit(anchor(root, cfg.defaults.data_dir))
             + publishing(cfg, root) + skill())

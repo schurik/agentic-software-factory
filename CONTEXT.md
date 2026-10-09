@@ -14,6 +14,17 @@ _Avoid_: instance, installation, deployment
 A named, checked composition of stages inside a factory, started against a prompt, an issue or a pull request.
 _Avoid_: pipeline, flow
 
+**Stage**:
+One step of a workflow's fixed shape, drawn from a closed vocabulary (scout, plan, commit, verify…).
+A workflow lists its stages once, and they are the same for every session it runs.
+_Avoid_: step, node, task
+
+**Phase**:
+One bounded execution a session actually went through: an agent call, a code check, a person at a
+gate. A stage produces one or more phases (a plan, its gate, a revision, the gate again); reading
+the work item at a workflow's start and reporting on it at the end are phases that belong to no stage.
+_Avoid_: step, task, attempt
+
 **Session**:
 One piece of work on one branch, identified by its id, with its own directory of state under the
 factory's data dir. It may pass through several workflows in turn: an issue's workflow, then a round
@@ -103,15 +114,27 @@ _Avoid_: ACL, roles, permissions table, access list
 The cross-repo list, in a cockpit, of every gate currently waiting on the person looking at it.
 _Avoid_: queue, pending list, notifications
 
+**Needs attention**:
+Something on a factory a person should look at now, read against the clock: a gate waiting on
+them, a session that failed within the last day, a claim whose station has been away for over a
+day, a station whose config drifted, a failing check, or queued work no online station is watching.
+_Avoid_: alerts, problems
+
+**Stuck**:
+A running session whose current phase has been running for more than ten minutes, judged against
+the page's clock. It is shown where the session is listed as running, never in Needs attention:
+a phase running long is worth noticing, not a fault, and nothing is done to it.
+_Avoid_: hung, stalled, frozen, timed out
+
 **Command**:
 One steering action, from a closed set, that a cockpit asks a station to carry out on a named session
 when the forge cannot carry it: kill, resume, answering a terminal-channel gate, or a prompt run.
 _Avoid_: instruction, order, job, RPC
 
 **Self-description**:
-A factory's own machine-readable account of its workflows, stages, agents and gates, produced by the
-factory's code at one commit (`asf check --json`). A cockpit renders it and never interprets workflow
-files itself. The one checked on the default branch is what a station's config drift is measured
+A factory's own machine-readable account of its workflows, stages, agents and gates, and of its
+settings with every default resolved, produced by the factory's code at one commit (`asf check
+--json`). A cockpit renders it and never interprets workflow files or `factory.yaml` itself. The one checked on the default branch is what a station's config drift is measured
 against; a factory that never shipped one is unchecked, not broken.
 _Avoid_: manifest, schema, config dump
 

@@ -26,7 +26,8 @@
  * Handlers are keyed by kind and version like session.ts's readers, and are
  * only ever called for an event a reader there could read.
  */
-import { file, readEntry, render, type Entry, type Note } from "./journal";
+import { graphOf, type Graph, markOfStatus, type Standing } from "./graph";
+import { file, numbered, type Numbered, readEntry, render, type Entry, type Note } from "./journal";
 import type { Payload } from "./payload";
 import { prunedOf, type Pruned } from "./retention";
 import type { Summary } from "./session";
@@ -78,6 +79,7 @@ interface Placed {
 interface PhaseFacts extends Placed {
   phaseId: string;
   name: string;
+  stageIndex: number | null;  // into its chapter's stages; null for the work item, the report, or a factory before them
   owner: string;
   description: string;
   status: string;
@@ -92,6 +94,7 @@ export interface AgentItem extends PhaseFacts {
   outputType: string;
   summary: string;
   corrections: number;    // envelopes refused and re-prompted in the same session
+  model: string;          // the model its latest turn ran on, "" before one reported
   toolCalls: number;
   toolFailures: number;
   cost: number;
@@ -112,6 +115,7 @@ export interface GateItem extends Placed {
   type: "gate";
   phaseId: string;
   name: string;
+  stageIndex: number | null;  // the stage that asked it
   gate: string;
   round: number;
   kind: string;           // gate | questions
@@ -149,6 +153,10 @@ export interface Chapter {
   workflow: string;
   title: string;
   input: string;          // issue | pr | prompt
+  // The workflow's stages in order, by their names in the closed vocabulary,
+  // as the chapter's `workflow_started` (v2) recorded them. [] from a factory
+  // before it: the chapter is a flat chain of phases, and no stage is guessed.
+  stages: string[];
   answering: Answering | null;
   startedAt: string;
   endedAt: string;
@@ -161,14 +169,16 @@ export interface Chapter {
   // phase of the session: the page names it and opens it like any other.
   reader: CodeItem | null;
   items: Item[];
+  graph: Graph;           // the chapter as its stage graph draws it (graph.ts)
 }
 
 export interface Now {
   status: string;
   chapter: string;        // the title of the chapter the session is in
-  phase: { name: string; owner: string; kind: string } | null;
+  // `since` is when its latest run started: a phase resumed starts its clock again.
+  phase: { name: string; owner: string; kind: string; since: string } | null;
   waiting: { gate: string; round: number; kind: string; channel: string; issueNumber: number } | null;
-  failed: { name: string; error: string } | null;
+  failed: { phaseId: string; name: string; error: string } | null;
   prUrl: string;
   chapters: number;
 }
@@ -180,8 +190,10 @@ export interface Story {
   chapters: Chapter[];
   now: Now;
   journal: string;        // exactly as the next agent reads it, "" before anything closed
+  journalEntries: Numbered[];   // the same journal, one entry per number, for the page to draw
   station: { id: string; name: string; runBy: string };
   baseCommit: string;
+  headCommit: string;     // the latest commit the session made, "" before it made one
   agentPhases: number;
   toolCalls: number;
 }
@@ -200,6 +212,7 @@ interface PhaseState {
   seq: number;
   at: string;
   chapter: number;
+  stageIndex: number | null;
   name: string;
   kind: string;
   owner: string;
@@ -212,6 +225,7 @@ interface PhaseState {
   outputType: string;
   summary: string;
   corrections: number;
+  model: string;
   toolCalls: number;
   toolFailures: number;
   cost: number;
@@ -236,6 +250,7 @@ interface ChapterState {
   number: number;
   workflow: string;
   input: string;
+  stages: string[];
   startedAt: string;
   endedAt: string;
   status: string;
@@ -256,13 +271,14 @@ export interface StoryState {
   workflow: string;                 // what session_started named, for a factory without chapters
   station: { id: string; name: string; runBy: string };
   baseCommit: string;
+  headCommit: string;
   issueNumber: number;              // of the work item the session is waiting on, if any
   request: string;                  // the first work item a provenance named
 }
 
 export function begin(): StoryState {
   return { chapters: [], current: null, phases: [], extras: [], resumed: null, open: null,
-           journal: [], workflow: "", station: { id: "", name: "", runBy: "" }, baseCommit: "",
+           journal: [], workflow: "", station: { id: "", name: "", runBy: "" }, baseCommit: "", headCommit: "",
            issueNumber: 0, request: "" };
 }
 
@@ -291,7 +307,7 @@ export function tell(state: StoryState, kind: string, version: number, p: Payloa
 function chapter(state: StoryState, number: number, workflow = ""): ChapterState {
   let found = state.chapters.find((each) => each.number === number);
   if (found === undefined) {
-    found = { number, workflow: workflow || state.workflow, input: "", startedAt: "", endedAt: "",
+    found = { number, workflow: workflow || state.workflow, input: "", stages: [], startedAt: "", endedAt: "",
               status: "running", reason: "", issueNumber: 0, issueUrl: "", prUrl: "" };
     state.chapters.push(found);
   }
@@ -321,8 +337,8 @@ function phaseStarted(state: StoryState, p: Payload, { seq, ts }: At): void {
   if (found === undefined) {
     found = {
       phaseId: p.str("phase_id"), number: p.num("seq"), seq, at: ts, chapter: current(state).number,
-      name: "", kind: "", owner: "", description: "", task: "", status: "", error: "", runs: [],
-      replayed: false, outputType: "", summary: "", corrections: 0, toolCalls: 0, toolFailures: 0,
+      stageIndex: null, name: "", kind: "", owner: "", description: "", task: "", status: "", error: "", runs: [],
+      replayed: false, outputType: "", summary: "", corrections: 0, model: "", toolCalls: 0, toolFailures: 0,
       cost: 0, tokens: 0, changedFiles: [], artifacts: [], request: null, commits: [], commands: [],
       gate: "", round: 0, gateKind: "gate", channel: "", issueNumber: 0, headSha: "",
       gateSummary: "", askedAt: "", decision: null,
@@ -359,6 +375,14 @@ function withPhase(fold: (phase: PhaseState, p: Payload, at: At) => void): Telle
   };
 }
 
+function workflowStarted(state: StoryState, p: Payload, { ts }: At): ChapterState {
+  const opened = chapter(state, p.num("chapter"), p.str("workflow"));
+  Object.assign(opened, { workflow: p.str("workflow") || opened.workflow, input: p.str("input"),
+                          startedAt: ts, status: "running" });
+  state.current = opened.number;
+  return opened;
+}
+
 const tellStarted: Teller = (state, p) => {
   state.workflow ||= p.str("workflow");
   state.resumed = null;             // a new process: whatever it replays, it says so itself
@@ -375,11 +399,9 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     3: tellStarted,                 // v3 adds the transcript's retention: the summary's, not the story's
   },
   workflow_started: {
-    1: (state, p, { ts }) => {
-      const opened = chapter(state, p.num("chapter"), p.str("workflow"));
-      Object.assign(opened, { workflow: p.str("workflow") || opened.workflow, input: p.str("input"),
-                              startedAt: ts, status: "running" });
-      state.current = opened.number;
+    1: workflowStarted,
+    2: (state, p, at) => {
+      workflowStarted(state, p, at).stages = p.strs("stages");
     },
   },
   workflow_finished: {
@@ -399,7 +421,15 @@ const TELLERS: Record<string, Record<number, Teller>> = {
   },
   // v2 adds the issue's author and assignees, which the story does not tell.
   provenance_recorded: { 1: provenance, 2: provenance },
-  phase_started: { 1: phaseStarted, 2: phaseStarted },
+  phase_started: {
+    1: phaseStarted,
+    2: phaseStarted,
+    // v3: the stage it belongs to. Each walk of a phase says it again, and the latest stands.
+    3: (state, p, at) => {
+      phaseStarted(state, p, at);
+      phaseOf(state, p.str("phase_id"))!.stageIndex = p.numOrNull("stage_index");
+    },
+  },
   phase_replayed: {
     1: (state, p) => {
       const found = phaseOf(state, p.str("phase_id"));
@@ -441,6 +471,7 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     1: withPhase((phase, p) => {
       phase.cost += p.num("cost");
       phase.tokens += p.num("tokens");
+      phase.model = p.str("model") || phase.model;
     }),
   },
   artifact_written: {
@@ -454,9 +485,12 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     }),
   },
   committed: {
-    1: withPhase((phase, p) => {
-      phase.commits.push({ sha: p.str("sha"), message: p.str("message"), filesTotal: p.num("files_total") });
-    }),
+    1: (state, p, at) => {
+      state.headCommit = p.str("sha") || state.headCommit;
+      withPhase((phase) => {
+        phase.commits.push({ sha: p.str("sha"), message: p.str("message"), filesTotal: p.num("files_total") });
+      })(state, p, at);
+    },
   },
   command_finished: {
     1: withPhase((phase, p) => {
@@ -552,9 +586,19 @@ function duration(phase: PhaseState): number | null {
   return seconds;
 }
 
+/** What a phase is: a person at a gate, an agent, or code. */
+export type PhaseType = (GateItem | AgentItem | CodeItem)["type"];
+
+/** Whether a phase of `kind` is a person at a gate, an agent, or code: the type its item and its icon say. */
+export function phaseType(kind: string): PhaseType {
+  return kind === "engineer" ? "gate" : kind === "agent" ? "agent" : "code";
+}
+
 function item(phase: PhaseState, journal: Entry[]): Item {
-  const placed = { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name };
-  if (phase.kind === "engineer") {
+  const placed = { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name,
+                   stageIndex: phase.stageIndex };
+  const type = phaseType(phase.kind);
+  if (type === "gate") {
     const status = phase.decision ? VERDICTS[phase.decision.verdict] ?? phase.decision.verdict
       : phase.status === "waiting" ? "waiting"
       : phase.status === "success" ? "passed"
@@ -564,12 +608,12 @@ function item(phase: PhaseState, journal: Entry[]): Item {
              summary: phase.gateSummary, decision: phase.decision, at: phase.askedAt || phase.at };
   }
   const facts = factsOf(phase);
-  if (phase.kind === "agent") {
+  if (type === "agent") {
     const notes = journal
       .filter((entry) => entry.note !== null && entry.seq === phase.number && entry.phase === phase.name)
       .map((entry) => entry.note!);
     return { ...facts, type: "agent", task: phase.task, outputType: phase.outputType, summary: phase.summary,
-             corrections: phase.corrections, toolCalls: phase.toolCalls, toolFailures: phase.toolFailures,
+             corrections: phase.corrections, model: phase.model, toolCalls: phase.toolCalls, toolFailures: phase.toolFailures,
              cost: phase.cost, tokens: phase.tokens, changedFiles: phase.changedFiles,
              artifacts: phase.artifacts, notes, replayed: phase.replayed };
   }
@@ -578,7 +622,8 @@ function item(phase: PhaseState, journal: Entry[]): Item {
 
 /** What an agent card and a code row both say of their phase. */
 function factsOf(phase: PhaseState) {
-  return { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name, owner: phase.owner,
+  return { seq: phase.seq, at: phase.at, phaseId: phase.phaseId, name: phase.name,
+           stageIndex: phase.stageIndex, owner: phase.owner,
            description: phase.description, status: phase.status, error: phase.error, duration: duration(phase) };
 }
 
@@ -597,6 +642,13 @@ function answering(chapter: ChapterState): Answering | null {
 
 export function finish(state: StoryState, summary: Summary): Story {
   const ordered = [...state.chapters].sort((a, b) => a.number - b.number);
+  const live = summary.status === "running" || summary.status === "waiting";
+  const inChapter = state.current ?? ordered.at(-1)?.number;
+  // A chapter that did not say how it ended stopped where the session did, if the session stopped.
+  const standing = (chapter: ChapterState): Standing => {
+    const ended = markOfStatus(chapter.status === "success" || chapter.status === "fail" || live ? chapter.status : summary.status);
+    return { here: chapter.number === inChapter, ended: ended === "done" || ended === "failed" ? ended : null };
+  };
   const rounds = new Map<string, number>();
   const chapters = ordered.map((each): Chapter => {
     const mine = state.phases.filter((phase) => phase.chapter === each.number);
@@ -611,13 +663,14 @@ export function finish(state: StoryState, summary: Summary): Story {
     ].sort((a, b) => a.seq - b.seq);
     const round = (rounds.get(each.workflow) ?? 0) + 1;
     rounds.set(each.workflow, round);
+    const told = { stages: each.stages, reader: reader ? codeItem(reader) : null, items };
     return {
-      number: each.number, workflow: each.workflow, input: each.input,
+      ...told, graph: graphOf(told, standing(each)), number: each.number, workflow: each.workflow, input: each.input,
       title: each.input === "pr" ? `${each.workflow}, round ${round}` : each.workflow,
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
       endedAt: each.endedAt, status: each.status, reason: each.reason,
       cost: mine.reduce((total, phase) => total + phase.cost, 0),
-      asked: requester?.request ?? null, reader: reader ? codeItem(reader) : null, items,
+      asked: requester?.request ?? null,
     };
   });
 
@@ -631,16 +684,18 @@ export function finish(state: StoryState, summary: Summary): Story {
     now: {
       status: summary.status,
       chapter: here?.title ?? "",
-      phase: open && { name: open.name, owner: open.owner, kind: open.kind },
+      phase: open && { name: open.name, owner: open.owner, kind: open.kind, since: open.runs.at(-1)?.started ?? open.at },
       waiting: waiting && { gate: waiting.gate, round: waiting.round, kind: waiting.kind,
                             channel: waiting.channel, issueNumber: state.issueNumber },
-      failed: summary.status === "fail" && failed ? { name: failed.name, error: failed.error } : null,
+      failed: summary.status === "fail" && failed ? { phaseId: failed.phaseId, name: failed.name, error: failed.error } : null,
       prUrl: summary.prUrl,
       chapters: chapters.length,
     },
     journal: render(state.journal),
+    journalEntries: numbered(state.journal),
     station: state.station,
     baseCommit: state.baseCommit,
+    headCommit: state.headCommit,
     agentPhases: state.phases.filter((phase) => phase.kind === "agent").length,
     toolCalls: state.phases.reduce((total, phase) => total + phase.toolCalls, 0),
   };
