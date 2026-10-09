@@ -5,6 +5,22 @@
 # is a directory under asf/agents/ holding one agent.md, and a workflow is
 # a directory under asf/workflows/. This file is the manifest they plug into.
 
+# Off-limits to every agent that does not name them in its own `writes`. An
+# agent must not be able to edit the machinery that judges its own work — nor
+# the record of which release stamped it, the cockpit it reports to, or the CI
+# check that runs `asf check` on its pull request.
+protected_files:
+  - asf/engine/
+  - asf/stages/
+  - asf/workflows/
+  - asf/agents/
+  - asf/cockpit/
+  - asf/factory.yaml
+  - asf/asf.py
+  - asf/.skill-version
+  - .github/workflows/asf-check.yml
+data_dir: asf/data                 # runtime home: {data_dir}/sessions/{adw_id}/
+
 # What one SESSION may spend, across every process that joins it. Both off by
 # default (0 = no ceiling); set them where nobody is watching. A ceiling stops
 # the NEXT agent turn, never the one in flight.

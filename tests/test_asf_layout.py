@@ -219,14 +219,14 @@ def test_a_binding_may_append_to_an_identity_but_never_replace_it(factory_repo):
 def test_an_alias_binds_a_roster_agent_under_a_new_name(factory_repo):
     write_workflow(factory_repo, "aliased", {
         "description": "x",
-        "agents": {"fixer": {"from": "builder", "thinking": "high"}},
+        "agents": {"fixer": {"from": "builder", "harness": {"thinking": "low"}}},
         "stages": [{"implement": {"agent": "builder"}},
                    {"verify": {"fix": {"agent": "fixer"}}},
                    {"commit": {"of": "implement"}}]})
     loaded = workflow.load("aliased")
     assert loaded.required_agents == ["builder", "fixer"]
     fixer = next(a for a in loaded.cfg.agents if a.name == "fixer")
-    assert fixer.thinking == "high" and fixer.harness == "fake"
+    assert fixer.thinking == "low" and fixer.harness == "fake"
 
     write_workflow(factory_repo, "orphan", {
         "description": "x",

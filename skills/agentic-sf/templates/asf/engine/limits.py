@@ -17,7 +17,7 @@ nobody is watching for:
   ones before it cost.
 
 So: one wall clock per agent turn, one ceiling per session, both configured
-(`defaults.timeout_seconds`, the `budget:` block) and both off-switchable with
+(`harness.timeout_seconds`, the `budget:` block) and both off-switchable with
 a `0`. Neither is a sandbox — a run that means to spend $40 says so in the
 config. They are the difference between a bad run costing an hour and a night.
 
@@ -205,7 +205,7 @@ class Deadline:
     def reason(self, harness: str, raw_output_path: str = "") -> str:
         """The message for the AgentTimeout this expiry earns."""
         note = (f"{harness} agent ran past its {self.seconds}s limit without "
-                f"finishing and was terminated (defaults.timeout_seconds)")
+                f"finishing and was terminated (harness.timeout_seconds)")
         return f"{note}; partial output: {raw_output_path}" if raw_output_path else note
 
 

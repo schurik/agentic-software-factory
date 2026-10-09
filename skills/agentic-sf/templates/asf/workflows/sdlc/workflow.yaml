@@ -10,12 +10,12 @@ name: sdlc
 description: plan, implement, verify, commit — for work whose shape is clear enough to plan in one pass
 input: prompt
 
-# Optional. Bind a roster agent under an alias with narrower writes or tools, a
-# different model, or text appended to its system prompt (a path relative to
-# this directory). A binding may narrow the roster's boundary, never widen it,
-# and may append to an identity, never replace it.
+# Optional. Bind a roster agent under an alias with narrower writes, tools,
+# skills or context, a different model, or text appended to its system prompt
+# (a path relative to this directory). A binding may narrow the roster's
+# boundary, never widen it, and may append to an identity, never replace it.
 # agents:
-#   planner: {from: planner, model: opus, system_append: agents/planner.md}
+#   planner: {from: planner, harness: {model: sonnet}, system_append: agents/planner.md}
 
 stages:
   - plan:   {agent: planner}              # hitl: true stops here for a person

@@ -69,6 +69,10 @@ OBSOLETE = (
      "refused since 1.2: set `pr` (with `open_pr: false` to push and open nothing), and "
      "`worktree.publish: on_integrate` to keep a branch off the remote until it is "
      "integrated; a workflow that should land nothing drops its `integrate` stage"),
+    Obsolete(("defaults",), None,
+     "refused since 1.3: what an agent runs on is one root `harness:` block, and "
+     "`protected_files` and `data_dir` sit at the top level — take asf/factory.yaml.new, "
+     "or write the block `asf check` prints"),
 )
 
 GITIGNORE_ENTRIES = [
@@ -82,7 +86,7 @@ GITIGNORE_ENTRIES = [
 
 def harness_names() -> list[str]:
     return sorted(d.name for d in HARNESSES.iterdir()
-                  if d.is_dir() and (d / "defaults.yaml").is_file())
+                  if d.is_dir() and (d / "harness.yaml").is_file())
 
 
 def about(harness: str) -> tuple[str, str]:
@@ -181,7 +185,7 @@ def wants_ci(root: Path, asked: bool | None) -> bool:
 
 
 def render_config(harness: str) -> str:
-    head = (HARNESSES / harness / "defaults.yaml").read_text().rstrip() + "\n"
+    head = (HARNESSES / harness / "harness.yaml").read_text().rstrip() + "\n"
     rest = (TEMPLATES / "factory.yaml").read_text().rstrip() + "\n"
     return head + rest
 

@@ -116,7 +116,8 @@ re-stamp is reviewed as a diff of its own.
    take them in; the changelog is what each one says.
 2. **A clean tree.** `git status` — commit the engineer's own work first. The re-stamp is reviewed as one diff, and a diff mixed with theirs
    cannot be.
-3. **Which harness.** `defaults.harness` in `asf/factory.yaml`. Pass that one
+3. **Which harness.** `harness.name` in `asf/factory.yaml` (`defaults.harness`
+   before 1.3). Pass that one
    to `--harness`; another would stamp another roster's prompts.
 4. **Nothing mid-flight.** `just status` and `just pending`. Stop `just up`
    (ctrl-c where it runs). A run still working would carry on in code that
@@ -162,10 +163,22 @@ ones that apply to the engineer in one question-tool call (up to four; the rest
 in the next), each option saying what it does, and edit `asf/factory.yaml` with
 their answer. The options are below each.
 
-1. **`observability:`** — obsolete and ignored since 1.2: delete it. The
+1. **`defaults:`** — refused since 1.3: `just check` fails until it is gone, and
+   prints the block that replaces it. Take the `.new`'s `harness:` block,
+   `protected_files` and `data_dir` in its place, carrying over any value the
+   engineer had changed (`model`, `tools`, `permission_mode`, `data_dir`, …) —
+   or paste what `just check` printed, which already carries them. Two removed
+   options need a question, not a rewrite: if `setting_sources` named
+   `project`, the agents had been reading the repository's skills and
+   `CLAUDE.md`; ask which skills which agent needs (they go in that agent's
+   `harness: {skills: [...]}`) and whether `CLAUDE.md` should reach the agents
+   (`context: [CLAUDE.md]`, in factory.yaml's block or one agent's). An agent
+   or a binding of the repository's own that still sets `model`, `tools`,
+   `thinking`, … flat is refused the same way, with its block.
+2. **`observability:`** — obsolete and ignored since 1.2: delete it. The
    database it placed is no longer written; the file it names (by default
    `asf/data/asf.db`, with its `-wal` and `-shm`) can be deleted too.
-2. **`worktree.integration.mode: none`** (or `integration: {mode: none}`) —
+3. **`worktree.integration.mode: none`** (or `integration: {mode: none}`) —
    refused since 1.2 (it warned in 1.1), and never remapped for them, because
    `none` did two jobs. Ask which was meant:
    - *land nothing* → `mode: pr`, and drop the `integrate` stage from the
@@ -174,14 +187,14 @@ their answer. The options are below each.
    - *push, open no pull request* → `mode: pr` and `open_pr: false`.
    A workflow's own `integrate: {mode: none}` is the same question; `just check`
    names each one. One option per meaning; none `(Recommended)`.
-3. **`worktree.publish`** — unset, it follows the cockpit: `on_create` once one
+4. **`worktree.publish`** — unset, it follows the cockpit: `on_create` once one
    is configured (a session's branch is pushed as it starts and before every
    gate, so the cockpit can show what the gate asks about, and deleted from the
    remote when the session finishes unintegrated), `on_integrate` without one.
    Leaving it unset is a fine answer; `on_integrate` keeps branches local at the
    price of gates the cockpit cannot show. Options: **Leave it unset**
    `(Recommended)` · **`on_integrate`** · **`on_create`**.
-4. **`cockpit.commands`** — without it a station obeys **no** command a cockpit
+5. **`cockpit.commands`** — without it a station obeys **no** command a cockpit
    sends: no kill, no resume, no answering a prompt run's gate from the inbox.
    A fresh stamp lists `commands: [answer, abort, kill, resume]` under
    `cockpit:`; `run` (starting prompt workflows from the cockpit) is off unless
@@ -189,7 +202,7 @@ their answer. The options are below each.
    file — never add one on the engineer's behalf. Ask with `multiSelect`:
    **`answer` + `abort`** (a prompt run's gate, from the inbox) · **`kill`** ·
    **`resume`** · **`run`**; what they tick is the list.
-5. **`cockpit.transcripts`** — off unless the file says `true`. It sends every
+6. **`cockpit.transcripts`** — off unless the file says `true`. It sends every
    prompt and the harness's raw output, tool arguments and results included:
    say so in the options' descriptions, and never turn it on for them: **Leave
    it off** `(Recommended)` · **Send transcripts**.

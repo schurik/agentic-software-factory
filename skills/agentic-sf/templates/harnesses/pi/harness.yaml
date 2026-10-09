@@ -1,0 +1,29 @@
+# asf/factory.yaml — the manifest of this repository's factory.
+#
+# GENERATED at install time for the **pi** harness. It is yours the moment it
+# is stamped — edit it here, never back inside the skill.
+#
+# `harness:` is what every agent runs on. An agent.md overrides any of it with
+# its own `harness:` block, key by key: a list it names replaces this one, and
+# its `options` merge into these. `name: pi` runs `pi -p --mode json`. `model`
+# is `provider/model-id`, resolved against `pi --list-models`, and the provider
+# half decides which key must be in `.env`. An agent may name another harness
+# in its own block.
+harness:
+  name: pi
+  model: google/gemini-3.6-flash   # provider/id — a bare id is ambiguous and refused
+  thinking: medium                 # off | minimal | low | medium | high | xhigh | max
+  timeout_seconds: 1800            # wall clock per agent TURN; 0 disables
+  # Roster-wide tool allowlist; an agent.md may narrow it with its own list.
+  tools:
+    - read
+    - bash
+    - edit
+    - write
+    - grep
+    - find
+    - ls
+  skills: []                       # not on pi yet: refused when the roster loads
+  context: []                      # repo files appended to every identity, e.g. [AGENTS.md]
+  harness_engineering: []          # extension file paths, loaded with `pi -e <file.ts>`
+  options: {}

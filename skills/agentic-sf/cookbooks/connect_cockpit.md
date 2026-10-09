@@ -114,7 +114,8 @@ as part of connecting, and tell them why in these words or close to them —
 uv run <skill>/scripts/install.py --harness <harness> --ci
 ```
 
-`<harness>` is `defaults.harness` in `asf/factory.yaml`. The re-run stamps
+`<harness>` is `harness.name` in `asf/factory.yaml` (`defaults.harness` in a
+stamp before 1.3). The re-run stamps
 only what is missing — here, the one workflow — and says so; commit it with
 the rest of the change. If `.github/workflows/asf-check.yml` is already there,
 it is already done. With a **local** cockpit nothing needs it, and it stays the

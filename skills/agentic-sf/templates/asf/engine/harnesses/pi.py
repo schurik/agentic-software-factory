@@ -32,10 +32,16 @@ from ..tool_calls import ToolCallLedger
 from ..utils import new_id, operator_env
 
 NAME = "pi"
+# What a pi agent on a factory of another harness runs unless it names a model.
+DEFAULT_MODEL = "google/gemini-3.6-flash"
+# Not yet: pi is not verified here to load a skill directory, and a skill that
+# is silently dropped is what `TOOL_MAP` exists to prevent. `skills:` on a pi
+# agent is refused when the roster loads.
+SKILLS = False
 
 
 class Options(BaseModel):
-    """`harness_options` for a pi agent — empty, and deliberately strict.
+    """`harness.options` for a pi agent — empty, and deliberately strict.
 
     Pi is configured through argv and the environment (`PI_PATH`,
     `PI_MODELS_PATH`, the provider key its `model` names), so there is nothing
@@ -202,7 +208,7 @@ def validate_agent(agent: AgentConfig) -> list[str]:
     try:
         Options(**agent.harness_options)
     except Exception as error:
-        problems.append(f"harness_options: {error}")
+        problems.append(f"harness.options: {error}")
     if agent.thinking not in THINKING_LEVELS:
         problems.append(f"thinking {agent.thinking!r} is not one of "
                         f"{' | '.join(THINKING_LEVELS)}")

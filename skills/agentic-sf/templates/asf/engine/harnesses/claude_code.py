@@ -13,11 +13,12 @@ Two things differ from pi and shape everything below:
    `started` flag in the agent map. The id must also be a real UUID, which is
    why it is derived rather than minted from `new_id`.
 2. **A default `claude -p` reads the operator's world** — CLAUDE.md, skills,
-   plugins, hooks, MCP servers. A run that depends on whose machine it ran on
-   is the failure the factory exists to remove, so `Options` below pins it off
-   by default. Those are this harness's `harness_options:` block, and they are
-   config rather than code: a repository that genuinely wants its own CLAUDE.md
-   loaded says so there.
+   plugins, hooks, MCP servers, settings. A run that depends on whose machine
+   it ran on is the failure the factory exists to remove, so `_argv` turns all
+   of it off on every turn, and that is code, not an option. What an agent is
+   given instead is declared: `skills:` arrive as a plugin directory holding
+   exactly those (`_hand_over_skills`), `context:` is appended to the identity
+   by the engine, and an MCP server is a `harness_engineering` entry.
 
 One harness behind the names `__init__.py` documents — `NAME`, `Options`,
 `resolve_model`, `reachable`, `credentials`, `validate_agent`,
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import uuid
 from functools import lru_cache
@@ -41,43 +43,39 @@ from ..data_types import (AgentConfig, AgentRequest, AgentResult, Finding,
                           UsageBreakdown)
 from ..limits import AgentTimeout, Deadline
 from ..tool_calls import ToolCallLedger
-from ..utils import operator_env
+from ..utils import operator_env, write_atomic
 
 NAME = "claude_code"
+# What a claude_code agent on a factory of another harness runs unless it names
+# a model.
+DEFAULT_MODEL = "sonnet"
+# Each turn gets a plugin directory holding exactly the agent's skills
+# (`_skills_dir`), and `Skill` in its tools.
+SKILLS = True
 
 CLAUDE_PATH = os.environ.get("CLAUDE_PATH", "claude")
 
 
 class Options(BaseModel):
-    """`harness_options` for a Claude Code agent: determinism and permissions.
+    """`harness.options` for a Claude Code agent: what only the operator can
+    decide about how it is permitted to act.
 
-    A default `claude -p` discovers whatever the operator has lying around —
-    CLAUDE.md, skills, plugins, hooks, MCP servers — which makes a run depend
-    on whose machine it executed on. That is the exact failure the factory
-    exists to remove, so the defaults below pin it off. They are configuration
-    rather than code because some repositories genuinely do want their own
-    CLAUDE.md loaded, and that is their decision to make.
+    Determinism is not an option. A default `claude -p` discovers whatever the
+    operator has lying around — CLAUDE.md, skills, plugins, hooks, MCP servers,
+    settings — which makes a run depend on whose machine it executed on; so
+    every turn passes `--setting-sources ""` and `--strict-mcp-config`, and
+    `--safe-mode` unless the agent was given skills or harness_engineering
+    (which safe mode would suppress). What an agent IS given is declared:
+    `skills:` and `context:` in its harness block, MCP servers through
+    `harness_engineering: [mcp:<file.json>]`.
 
-    `extra="forbid"`: an unknown key here is a typo or a block written for
-    another harness, and either one is worth failing validation over — a
-    silently ignored `safe_mode` is a run that read the operator's world
-    without saying so.
+    `extra="forbid"`: an unknown key here is a typo, a block written for
+    another harness, or an option a release removed (`REMOVED_OPTIONS`) — and
+    each is worth refusing over rather than ignoring.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    # --safe-mode: no CLAUDE.md, skills, plugins, hooks, MCP servers, custom
-    # agents or commands. Auth, model selection, built-in tools and permissions
-    # keep working, so a Claude subscription still authenticates.
-    safe_mode: bool = True
-    # --bare is stricter still (it also skips LSP and background prefetches),
-    # but it forces ANTHROPIC_API_KEY / apiKeyHelper auth and never reads OAuth
-    # or the keychain — so turning it on takes a subscription-authenticated
-    # roster offline. Off by default for that reason; safe_mode covers the
-    # determinism half without the auth cost.
-    bare: bool = False
-    setting_sources: list[str] = Field(default_factory=list)   # user | project | local
-    strict_mcp_config: bool = True                             # only MCP servers we pass
     # A non-interactive run has to answer its own permission prompts. This is
     # only acceptable because two other things are true: permissions.py
     # fingerprints the tree before the call and rolls back every write outside
@@ -89,6 +87,20 @@ class Options(BaseModel):
     permission_mode: str = "bypassPermissions"
     add_dirs: list[str] = Field(default_factory=list)          # --add-dir, beyond cwd
     max_budget_usd: float = 0.0                                # 0 = no ceiling
+
+
+# What each option this harness used to take became. The loader refuses a
+# config that still says one, with this as the reason — `extra="forbid"` would
+# refuse it anyway, but without saying what to write instead.
+REMOVED_OPTIONS = {
+    "safe_mode": "derived: `--safe-mode` is on unless the agent has `skills` or "
+                 "`harness_engineering`",
+    "bare": "never passed: `--bare` takes a subscription-authenticated roster offline",
+    "setting_sources": "always empty: a repository skill is `skills: [<name>]` and "
+                       "CLAUDE.md is `context: [CLAUDE.md]`, both in the harness block",
+    "strict_mcp_config": "always passed: an MCP server is "
+                         "`harness_engineering: [mcp:<file.json>]`",
+}
 
 
 # Deterministic session ids: the same adw_id + agent + model always resolves to
@@ -119,8 +131,14 @@ TOOL_MAP = {
 CLAUDE_TOOLS = {
     "Read", "Write", "Edit", "Bash", "BashOutput", "KillShell", "Glob", "Grep",
     "NotebookEdit", "WebFetch", "WebSearch", "Task", "TodoWrite", "SlashCommand",
-    "Skill", "ExitPlanMode",
+    "ExitPlanMode",
 }
+# Not in the list above: the engine adds it to a turn whose agent has skills,
+# and the loader refuses it written in `tools:` — one place grants a skill.
+SKILL_TOOL = "Skill"
+
+# The plugin a turn's skills are handed over in. The model sees `asf:<name>`.
+PLUGIN_NAME = "asf"
 
 # pi's ladder has two rungs below Claude Code's. Both collapse onto `low` —
 # there is no "no thinking" effort to map `off` onto — and the collapse is
@@ -178,7 +196,7 @@ def resolve_model(pattern: str) -> str:
     Nothing is resolved against a catalog — the CLI owns that list — so this
     only rejects what cannot possibly work. The one that matters is a
     `provider/model-id` pattern: a claude_code agent inheriting
-    `defaults.model: google/gemini-3.6-flash` would otherwise fail deep inside
+    `harness.model: google/gemini-3.6-flash` would otherwise fail deep inside
     a chain instead of at validation.
     """
     model = pattern.strip()
@@ -223,7 +241,7 @@ def validate_agent(agent: AgentConfig) -> list[str]:
     except Exception as error:
         # Nothing below can be checked against options that would not parse, so
         # this one problem is the whole report for this agent.
-        return [f"harness_options: {error}"]
+        return [f"harness.options: {error}"]
     try:
         map_tools(agent.tools)
     except ValueError as error:
@@ -234,12 +252,6 @@ def validate_agent(agent: AgentConfig) -> list[str]:
     if agent.thinking not in EFFORT_MAP:
         problems.append(f"thinking {agent.thinking!r} is not one of "
                         f"{' | '.join(EFFORT_MAP)}")
-    if agent.harness_engineering and (options.safe_mode or options.bare):
-        problems.append(
-            "harness_engineering is set, but harness_options.safe_mode (or .bare) is on, "
-            "which suppresses MCP servers, plugins and custom agents — verified: "
-            "`--agents` passed under --safe-mode does not reach the session. Turn the "
-            "switch off for this agent, or drop the harness entries.")
     for entry in agent.harness_engineering:
         if _harness_flag(str(entry)) is None:
             problems.append(
@@ -249,15 +261,11 @@ def validate_agent(agent: AgentConfig) -> list[str]:
                 f"harnesses do not share this key.")
     if options.permission_mode not in ("acceptEdits", "auto", "bypassPermissions",
                                        "manual", "dontAsk", "plan"):
-        problems.append(f"harness_options.permission_mode {options.permission_mode!r} is not "
+        problems.append(f"harness.options.permission_mode {options.permission_mode!r} is not "
                         f"a mode the CLI accepts")
     if options.permission_mode in ("manual", "plan"):
-        problems.append(f"harness_options.permission_mode {options.permission_mode!r} needs a "
+        problems.append(f"harness.options.permission_mode {options.permission_mode!r} needs a "
                         f"human at a terminal; a factory run has nobody to ask")
-    for source in options.setting_sources:
-        if source not in ("user", "project", "local"):
-            problems.append(f"harness_options.setting_sources {source!r} is not one of "
-                            f"user | project | local")
     return problems
 
 
@@ -404,6 +412,35 @@ def _harness_flag(entry: str) -> Optional[list[str]]:
             "plugin": ["--plugin-dir", value]}.get(kind)
 
 
+def _skills_dir(request: AgentRequest) -> Optional[Path]:
+    """Where this turn's skills are handed over, or None when it has none."""
+    if not request.skills:
+        return None
+    return Path(request.runtime_dir) / "skills" / (request.agent or "agent")
+
+
+def _hand_over_skills(request: AgentRequest) -> None:
+    """Rebuild the turn's plugin directory to hold exactly its skills: one
+    `plugin.json` and a symlink per skill into the repository.
+
+    A plugin rather than `--setting-sources project`, because that one flag
+    also loads the repository's hooks, permissions and env — "give the builder
+    `tdd`" must not silently become "run the repo's hooks". Rebuilt every turn,
+    so a binding that narrowed the list is never handed the roster's.
+    """
+    plugin = _skills_dir(request)
+    if plugin is None:
+        return
+    shutil.rmtree(plugin, ignore_errors=True)      # unlinks the symlinks, never follows them
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    write_atomic(plugin / ".claude-plugin" / "plugin.json", json.dumps({"name": PLUGIN_NAME}))
+    (plugin / "skills").mkdir()
+    for source in request.skills:
+        # Named as the agent's block names it, whatever the directory links to.
+        (plugin / "skills" / Path(source).name).symlink_to(Path(source).resolve(),
+                                                           target_is_directory=True)
+
+
 def _argv(request: AgentRequest, model: str, options: Options) -> list[str]:
     """The full command line for one turn. Kept separate so it can be read."""
     cmd = [CLAUDE_PATH, "-p", "--output-format", "stream-json", "--verbose",
@@ -411,15 +448,16 @@ def _argv(request: AgentRequest, model: str, options: Options) -> list[str]:
            "--effort", EFFORT_MAP[request.thinking],
            "--system-prompt", request.system_prompt,
            "--permission-mode", options.permission_mode]
-    # Determinism. `--setting-sources` is passed even when empty: the empty
-    # value is what turns user/project/local settings files OFF.
-    cmd += ["--setting-sources", ",".join(options.setting_sources)]
-    if options.bare:
-        cmd.append("--bare")
-    elif options.safe_mode:
+    # Determinism, on every turn. The empty `--setting-sources` is what turns
+    # the user, project and local settings files OFF — `user` and `local`
+    # differ by machine, and `project` brought the repository's hooks along
+    # with its skills. `--safe-mode` also drops CLAUDE.md, skills, plugins and
+    # MCP servers, so it is off exactly when the agent was handed a plugin or
+    # an extension it would suppress. Never `--bare`: it reads no OAuth or
+    # keychain, and a subscription-authenticated roster would go offline.
+    cmd += ["--setting-sources", "", "--strict-mcp-config"]
+    if not request.skills and not request.extensions:
         cmd.append("--safe-mode")
-    if options.strict_mcp_config:
-        cmd.append("--strict-mcp-config")
     # The run's tree is the cwd, but data_dir lives in the MAIN checkout, so
     # the session runtime is a SECOND root — and it is the one holding
     # context_handoff/, which is how agents hand work to each other. Without
@@ -431,8 +469,13 @@ def _argv(request: AgentRequest, model: str, options: Options) -> list[str]:
     if options.max_budget_usd:
         cmd += ["--max-budget-usd", str(options.max_budget_usd)]
     tools = map_tools(request.tools)
+    if tools and request.skills:
+        tools.append(SKILL_TOOL)
     if tools:
         cmd += ["--tools", ",".join(tools)]
+    plugin = _skills_dir(request)
+    if plugin is not None:
+        cmd += ["--plugin-dir", str(plugin)]
     for entry in request.extensions:
         flags = _harness_flag(str(entry))
         if flags:
@@ -556,6 +599,7 @@ def run(request: AgentRequest, on_event: Optional[Callable[[dict], None]] = None
                    f"running at effort {EFFORT_MAP[request.thinking]!r}", on_event)
     options = Options(**request.options)
     result = AgentResult(session_id=request.native_session_id or request.session_id)
+    _hand_over_skills(request)
 
     returncode, stderr = _stream(_argv(request, model, options), request, result,
                                  on_event, on_spawn, on_exit)

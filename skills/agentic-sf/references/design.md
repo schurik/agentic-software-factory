@@ -27,7 +27,7 @@ person or the orchestrator session. Agent proposes, code disposes.
 
 | Layer | Where | Owns | Edited |
 |---|---|---|---|
-| A · Roster | `asf/agents/<name>/` | identity, model, tools, `writes` — the security boundary | rarely, reviewed |
+| A · Roster | `asf/agents/<name>/` | identity, harness (model, tools, skills, context), `writes` — the security boundary | rarely, reviewed |
 | B · Stages | `asf/stages/<name>/` | the contract, loops, conditions, default task files | when the vocabulary grows |
 | C · Workflows | `asf/workflows/<name>/` | which stages, options, agent bindings, task overrides | often |
 
@@ -35,7 +35,7 @@ person or the orchestrator session. Agent proposes, code disposes.
 
 ```
 asf/agents/planner/
-  agent.md        frontmatter: purpose, thinking, color, tools, writes   (name = directory)
+  agent.md        frontmatter: purpose, color, writes, harness: {…}   (name = directory)
                   body: who the agent is
   agent.pi.md     optional: the identity for one harness, when it must differ — prose only
 ```
@@ -43,6 +43,24 @@ asf/agents/planner/
 One file, two readers. `engine.factory` parses the frontmatter and enforces
 it; `engine.prompts` strips it and hands the model the body. The same shape
 as a Claude Code subagent file. No `user.md`: the task belongs to the stage.
+
+What an agent runs on is one `harness:` block, the same block factory.yaml
+opens with and a workflow binding narrows: `name`, `model`, `thinking`,
+`timeout_seconds`, `tools`, `skills`, `context`, `harness_engineering`,
+`options`. `purpose`, `color` and `writes` stay flat — they are the engine's.
+`agents.merge_harness` lays the agent's block over factory.yaml's: on the same
+harness a list replaces and `options` merge key by key; on another harness
+only `thinking`, `timeout_seconds`, `skills` and `context` cross over, because
+a model, a tool name or an option is one harness's vocabulary.
+
+Nothing on the operator's machine reaches an agent unless a block names it.
+`skills: [tdd]` resolves to `.claude/skills/tdd/` or `.agents/skills/tdd/` in
+the main checkout (never `~/.claude`), and on Claude Code arrives as a plugin
+directory holding exactly those skills, with `Skill` added to the tools — which
+is why `Skill` written in `tools:` is refused. `context: [CLAUDE.md]` is
+appended by the engine after the identity, under a heading naming the file, on
+any harness. A skill or context file that resolves nowhere is refused at load,
+and so are skills on a harness that cannot load them (pi, for now).
 
 ### Stages
 
@@ -114,8 +132,8 @@ name: ship
 description: one line — it is what `list` shows
 input: prompt
 agents:
-  planner: {from: planner, model: opus, system_append: [agents/planner.md]}
-  fixer:   {from: builder, thinking: high, writes: [src/]}
+  planner: {from: planner, harness: {model: sonnet}, system_append: [agents/planner.md]}
+  fixer:   {from: builder, harness: {thinking: high, skills: []}, writes: [src/]}
 stages:
   - plan:   {agent: planner, hitl: true}
   - commit: {of: plan}
@@ -142,9 +160,11 @@ Rules, enforced at load:
 
 1. **Vocabulary is closed.** A stage name must be a directory under
    `asf/stages/`. No control flow keys exist.
-2. **Bindings narrow.** `writes` and `tools` in a binding must be covered by
-   the roster's; `None` in the roster (unrestricted) is narrowed by anything.
-   `harness` and `harness_options` cannot be bound at all.
+2. **Bindings narrow.** `writes`, and the `tools`, `skills` and `context` of a
+   binding's `harness:` block, must be covered by the roster's; `None` in the
+   roster (unrestricted) is narrowed by anything. `model`, `thinking` and
+   `timeout_seconds` replace; the harness's `name`, `options` and
+   `harness_engineering` cannot be bound at all.
 3. **Identity appends.** `system_append` is a list of files under the workflow
    directory; `system` is not a binding key.
 4. **Tasks are checked against types.** The `## Report` JSON block of every
@@ -185,7 +205,8 @@ top of it through a small seam:
 - `session.ensure(cfg, SessionSpec(name=, request=))`: `run.json` names the workflow, and
   `session_started` carries the prompt.
 - `quality.run_blocks(run, names)`: a verify stage picks its blocks.
-- `agents.merge_defaults(raw)`: one merge over defaults, used by `engine.factory`.
+- `agents.merge_harness(raw)`: one merge of each agent's `harness:` block over
+  factory.yaml's, used by `engine.factory`.
 
 And five modules of its own: `stage.py` (contract and registry), `tasks.py`
 (resolution and the report check), `factory.py` (roster from directories),

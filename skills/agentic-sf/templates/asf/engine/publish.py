@@ -47,7 +47,7 @@ def resolve(cfg: FactoryConfig, main_root: Path) -> tuple[PublishMode, str]:
     """
     if cfg.worktree.publish:
         return cfg.worktree.publish, "worktree.publish"
-    data_dir = anchor(main_root, cfg.defaults.data_dir)
+    data_dir = anchor(main_root, cfg.data_dir)
     if local_cockpit.shared() or local_cockpit.has_issued_token(data_dir):
         return ON_CREATE, "the default once a cockpit is configured"
     return ON_INTEGRATE, "the default without a cockpit"

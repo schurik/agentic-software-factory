@@ -103,6 +103,27 @@ before — `None` when there are none, never omitted.
   of copy first and checks its files moved; the README and the install cookbook give the one
   command that links: `npx skills add … --skill agentic-sf --agent claude-code pi -y`.
 
+- **One `harness:` block — skills and CLAUDE.md by intent, not by CLI flag.** `defaults:` is
+  gone from `factory.yaml`: what every agent runs on is a root `harness:` block (`name`, `model`,
+  `thinking`, `timeout_seconds`, `tools`, `skills`, `context`, `harness_engineering`,
+  `options`), and `protected_files` and `data_dir` sit at the top level. An agent.md overrides
+  with the same block, merged key by key — a list replaces, `options` merge — and an agent on
+  another harness inherits only `thinking`, `timeout_seconds`, `skills` and `context` (a pi agent
+  no longer inherits claude_code's `tools`). A workflow binding narrows in the same block:
+  `tools`, `skills` and `context` may only shrink. `skills: [tdd]` resolves to the
+  repository's `.claude/skills/tdd/` or `.agents/skills/tdd/`, never `~/.claude`, and on Claude
+  Code arrives as a plugin directory holding exactly the named skills, with `Skill` added to the
+  tools — written in `tools:` it is refused. `context: [CLAUDE.md]` is appended by the engine
+  after the identity, on any harness. `asf check` refuses a skill or context file that resolves
+  nowhere, and skills on pi. Claude Code's `safe_mode`, `bare`, `setting_sources` and
+  `strict_mcp_config` options are removed: every turn passes `--setting-sources ""` and
+  `--strict-mcp-config`, `--safe-mode` unless the agent has skills or `harness_engineering`, and
+  never `--bare` — so "give the builder `tdd`" no longer also runs the repository's hooks.
+- **`protected_files` covers everything the factory stamps.** `asf/cockpit/`, `asf/.skill-version`
+  and `.github/workflows/asf-check.yml` join the factory's own code: an agent that does not name
+  one in its `writes` can no longer edit the release record, the cockpit it reports to, or the
+  check its pull request is judged by.
+
 ### Upgrade
 
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
@@ -125,6 +146,18 @@ before — `None` when there are none, never omitted.
    <harness> --ci`, and set `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN`
    (`cookbooks/connect_cockpit.md` § CI). A cockpit older than this release never says whether the
    factory is described, so registering against one describes nothing — as before.
+7. **`factory.yaml` must be rewritten by hand**: `--force` never touches it, and `asf check`
+   refuses its `defaults:` block, printing the `harness:` block, `protected_files` and
+   `data_dir` that replace it, the values it held carried over. Take that, or the `harness:`
+   block of `asf/factory.yaml.new` (`cookbooks/upgrade.md` § The config). The re-stamp rewrites
+   the shipped agents and workflows; an agent.md or a binding of the repository's own that sets
+   `model`, `thinking`, `tools`, `timeout_seconds`, `harness_engineering` or `harness_options`
+   flat is refused the same way, with its block. A factory whose claude_code options said
+   `setting_sources: [project]` was handing its agents the repository's skills, CLAUDE.md and
+   hooks: name the skills each agent needs in its `skills:`, and add `context: [CLAUDE.md]` where
+   CLAUDE.md should still reach them.
+   The rewrite keeps the factory's own `protected_files`; add `asf/cockpit/`,
+   `asf/.skill-version` and `.github/workflows/asf-check.yml` to it, as the `.new` lists them.
 
 ## 1.2.0 — 2026-10-02
 

@@ -1,12 +1,13 @@
 ---
 # planner — the name is this directory's. The frontmatter is what the
 # machinery needs; the prose below it is who the agent IS. WHAT it does in a
-# given stage is that stage's task file. Anything not set here is inherited
-# from `defaults:` in factory.yaml.
+# given stage is that stage's task file. What it runs on is the `harness:`
+# block, and anything that block leaves out is factory.yaml's `harness:`.
 purpose: Turn a request into a plan the builder can implement without asking questions.
-thinking: high
-model: opus                        # overrides factory.yaml defaults.model
 color: "#a78bfa"                   # a swatch for this agent; the engine draws nothing with it
+harness:                           # over factory.yaml's `harness:`, key by key
+  model: opus
+  thinking: high
 # The boundary, enforced in code after every call: the plan is the only thing
 # the planner may leave in the repo. Its handoff files under data_dir are
 # always writable — read-only with respect to the REPO, never mute.

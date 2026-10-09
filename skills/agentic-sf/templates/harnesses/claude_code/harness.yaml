@@ -1,0 +1,35 @@
+# asf/factory.yaml — the manifest of this repository's factory.
+#
+# GENERATED at install time for the **claude_code** harness. It is yours the
+# moment it is stamped — edit it here, never back inside the skill.
+#
+# `harness:` is what every agent runs on. An agent.md overrides any of it with
+# its own `harness:` block, key by key: a list it names replaces this one, and
+# its `options` merge into these. `name: claude_code` runs `claude -p`. `model`
+# is an alias (opus | sonnet | haiku) or a full id, and the CLI brings its own
+# auth: a Claude subscription runs this factory with no API key at all. An
+# agent may name another harness in its own block; one workflow may mix them.
+harness:
+  name: claude_code
+  model: sonnet                    # alias or full id; a pi `provider/id` is rejected
+  thinking: medium                 # off | minimal | low | medium | high | xhigh | max
+  timeout_seconds: 1800            # wall clock per agent TURN; 0 disables
+  # Roster-wide tool allowlist; an agent.md may narrow it with its own list.
+  # `Skill` is not one to name: `skills:` below grants it.
+  tools:
+    - Read
+    - Bash
+    - Edit
+    - Write
+    - Grep
+    - Glob
+  # Nothing of the operator's machine reaches an agent: no CLAUDE.md, no
+  # skills, no hooks, no settings, no MCP servers. What does is named here, or
+  # in one agent's own block — usually there: `skills: [tdd]` on the builder.
+  skills: []                       # repo skills by name: .claude/skills/<name>/, .agents/skills/<name>/
+  context: []                      # repo files appended to every identity, e.g. [CLAUDE.md]
+  harness_engineering: []          # `mcp:<file.json>`, `agents:<json-or-file>`, `plugin:<dir>`
+  options:
+    permission_mode: bypassPermissions   # root? use acceptEdits
+    add_dirs: []
+    max_budget_usd: 0

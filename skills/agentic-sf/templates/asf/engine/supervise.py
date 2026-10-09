@@ -232,15 +232,15 @@ class Target:
 
 def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Target | None:
     """The shared cockpit, the local one this process starts or joined, or None."""
-    shared = station.configured(anchor(main_root, cfg.defaults.data_dir))
+    shared = station.configured(anchor(main_root, cfg.data_dir))
     if shared is not None:
         return Target(Destination(lambda: shared, label=f"shared: {shared.url}"),
-                      lambda: station.credential(main_root, cfg.defaults.data_dir), local=False)
+                      lambda: station.credential(main_root, cfg.data_dir), local=False)
     if local_cockpit.shared() or local is None:
         return None
     repository = issues.resolve_project(cfg.issues, main_root) or main_root.name
-    cockpit = local_cockpit.Local(anchor(main_root, cfg.defaults.data_dir), repository,
-                                  here=station.identify(main_root, cfg.defaults.data_dir))
+    cockpit = local_cockpit.Local(anchor(main_root, cfg.data_dir), repository,
+                                  here=station.identify(main_root, cfg.data_dir))
     started = ("joined, started by another `asf up`" if local == "join" else
                f"{local_cockpit.version()}; the first start pulls its images")
     return Target(Destination(cockpit.get, cockpit.refused,
@@ -259,7 +259,7 @@ def _commands_line(cfg: FactoryConfig, main_root: Path, here: Station,
     obeys = ", ".join(verbs) if verbs else "none opted in (cockpit.commands in asf/factory.yaml)"
     if target.local:
         return f"{obeys} — the local cockpit's own station"
-    held = station.credential(main_root, cfg.defaults.data_dir)
+    held = station.credential(main_root, cfg.data_dir)
     if held is None or held.cockpit != station.configured().url:
         return f"{obeys} — not registered with this cockpit: `asf station register`"
     return f"{obeys} — registered to {held.owner or 'its owner'}"
@@ -267,7 +267,7 @@ def _commands_line(cfg: FactoryConfig, main_root: Path, here: Station,
 
 def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     main_root = git_helper.main_root()
-    here = station.identify(main_root, cfg.defaults.data_dir)
+    here = station.identify(main_root, cfg.data_dir)
     interval = children.interval
     print(f"asf {'up' if children.watchers else 'station'} — {main_root}")
     want = wanted(cfg, children)
@@ -289,7 +289,7 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     loop = None
     started: list[Service] = []
     if target is not None:
-        sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
+        sessions = artifacts.sessions_root(main_root, cfg.data_dir)
         steering = None
         if here.kind != "ci":
             steering = commands.Steering(commands.Here(cfg, main_root, config_path),
@@ -414,17 +414,17 @@ def status(cfg: FactoryConfig) -> int:
     """One screen: what is watching, what is running, what is left behind —
     all from files."""
     main_root = git_helper.main_root()
-    sessions = artifacts.sessions_root(main_root, cfg.defaults.data_dir)
-    rows = artifacts.watcher_states(artifacts.watchers_dir(main_root, cfg.defaults.data_dir))
+    sessions = artifacts.sessions_root(main_root, cfg.data_dir)
+    rows = artifacts.watcher_states(artifacts.watchers_dir(main_root, cfg.data_dir))
     print(f"repo:      {main_root}")
     print(f"sessions:  {sessions}{'' if sessions.is_dir() else '  (no runs yet)'}")
     ships_to = local_cockpit.shared()
     shared = station.configured() if ships_to else None
     if shared is not None:
-        token = station.shipped_with(anchor(main_root, cfg.defaults.data_dir))
+        token = station.shipped_with(anchor(main_root, cfg.data_dir))
         ships_to += (f" — ships with {token}" if token
                      else " — no ingest token, nothing ships: `asf station register`")
-        held = station.credential(main_root, cfg.defaults.data_dir)
+        held = station.credential(main_root, cfg.data_dir)
         if held is not None and held.cockpit == shared.url:
             ships_to += f"; takes commands for {held.owner or 'its owner'}"
     elif ships_to:

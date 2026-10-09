@@ -16,7 +16,7 @@ repo yourself reproduces the *files* and none of the decisions around them:
 | the `# agentic-sf runtime` block in `.gitignore` | `asf/data/` and `.asf-worktrees/` become tracked, and a commit stage running `git add -A` sweeps the run record into the repository |
 | quality detection | every `verify` block stays a placeholder, and a placeholder **fails** with exit 78 |
 | `justfile` vs `asf.justfile` | a repository's own justfile gets overwritten, or the recipes never land |
-| the assembled `asf/factory.yaml` | the roster is the harness's `defaults.yaml` merged with `templates/factory.yaml`; neither half is the config on its own |
+| the assembled `asf/factory.yaml` | the harness's `harness.yaml` (the `harness:` block) followed by `templates/factory.yaml` (everything harness-agnostic, `protected_files` and `data_dir` included); neither half is the config on its own |
 
 If you are looking at a repo that has `asf/` but no `.env`, that is what
 happened. Re-running `install.py` from the repo root repairs it: it skips every
@@ -56,7 +56,7 @@ at, a missing flag is an error rather than a silent choice.
 
 Three more worth naming only if the answer is not the default: `worktree.enabled`
 (on — every run works in its own tree on branch `asf/<adw_id>`, never the
-engineer's checkout), `defaults.protected_files` (the factory's own code, so
+engineer's checkout), `protected_files` (the factory's own code, so
 an agent cannot edit the machinery that judges its work), and `worktree.publish`
 (unset — a session's branch is pushed as it is created once a cockpit is configured,
 so the cockpit can show what a gate asks about, and not before an `integrate`
@@ -104,7 +104,7 @@ is the answer: it comes with connecting, and you say why
 
 | Stamped | From | Tracked? |
 |---|---|---|
-| `asf/factory.yaml` | assembled: `templates/harnesses/<harness>/defaults.yaml` + `templates/factory.yaml` | yes — the manifest, and yours the moment it lands |
+| `asf/factory.yaml` | assembled: `templates/harnesses/<harness>/harness.yaml` + `templates/factory.yaml` | yes — the manifest, and yours the moment it lands |
 | `asf/asf.py` | `templates/asf/asf.py` | yes — the one entry point |
 | `asf/engine/` | `templates/asf/engine/` | yes — session, worktree, gates, permissions, hitl, tracer, harnesses |
 | `asf/stages/<name>/` | `templates/asf/stages/` | yes — the closed vocabulary: scout, plan, implement, verify, review, document, commit, integrate. Each is `stage.py` plus its default task files |
@@ -173,7 +173,8 @@ without.
    it. Unset, `doctor` warns on `ASF_SKILL`.
 4. **The harness's own steps** — `install.py` printed them after stamping, out
    of that harness's `about.md`: the CLI on PATH, how it authenticates, and the
-   sharp edges (`safe_mode`, running as root, how a model id is resolved).
+   sharp edges (what of the operator's machine an agent sees, running as root,
+   how a model id is resolved).
    Re-read them there rather than guessing which apply.
 5. **The quality blocks** — `doctor` names every block still unwired. Write the
    real argv into `asf/engine/quality.py` as a **list**, calling binaries by
@@ -228,7 +229,7 @@ they have answered, and only what they chose.
 | Setting | Question | Options |
 |---|---|---|
 | `budget.max_cost_usd` | What may one session spend? | **No ceiling** (stamped `0`) · **$2** · **$5** · **$10**, or an amount through Other. Recommend a ceiling when issues or reviews start runs: those run with nobody watching. A ceiling stops the next agent turn, never the one in flight |
-| `defaults.model` | Which model do the agents run? | `claude_code`: **`sonnet`** (stamped) · **`opus`** — slower and dearer, for hard work · **`haiku`** — cheap, for small changes. `pi`: the stamped `provider/id`, or theirs through Other |
+| `harness.model` | Which model do the agents run? | `claude_code`: **`sonnet`** (stamped) · **`opus`** — slower and dearer, for hard work · **`haiku`** — cheap, for small changes. `pi`: the stamped `provider/id`, or theirs through Other |
 | `hitl.gates` | Where should a run stop for a person? (`multiSelect`) | **At the plan** (`plan: on`) — read what it will build before it builds · **Before it lands** (`integrate: on`) — the whole diff before the pull request or merge · **Nowhere** (stamped) — runs go straight through; ticked with another, ask again. The `issue` workflow stops at its plan either way: its `workflow.yaml` says so, and a workflow outranks this block |
 | `issues.trusted_authors`, `pull_requests.trusted_reviewers` | Whose issues and reviews may start a run? | **Anyone who can label or review** (stamped `[]`) — the forge's permissions are the gate · **Only the people I name** — logins through Other. Recommend naming them on a repository outsiders can file issues on |
 
