@@ -64,6 +64,19 @@ person accepting its plan and merging its pull request. There is at most one ope
 scorer.
 _Avoid_: auto-tuning, self-healing, learning, retrospective
 
+**Benchmark**:
+A named list of past sessions' requests, each pinned at the commit it started from, worked again
+under two or more variants so their scores, cost and duration can be compared. Its sessions are
+never published, integrated or reported on the tracker, count toward no metric and no
+self-improvement, and name no winner: a person reads the difference against the noise and decides.
+_Avoid_: eval, test suite, experiment, A/B test
+
+**Variant**:
+One configuration of a factory under benchmark, named by a git ref of its files: the default branch,
+or a branch such as a self-improvement pull request's. Models, prose, task files and workflow
+options all vary the same way, by being committed.
+_Avoid_: config, candidate, arm, profile
+
 **Autonomous pull request**:
 A merged pull request that a session opened itself and whose every commit at merge, other than
 merges from the base branch, was made by that session. Rounds of review driven by human comments
