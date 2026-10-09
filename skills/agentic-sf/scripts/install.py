@@ -13,8 +13,9 @@ workflows, the runner, and `.skill-version`, the release they came from — plus
 a factory.yaml assembled for the chosen harness, that harness's `.env.sample`,
 the justfile, and the .gitignore entries — and, when taken (`--ci`, or yes when
 asked), `.github/workflows/asf-check.yml`. Existing files are skipped unless
---force. ONE FILE IS NEVER OVERWRITTEN even then: factory.yaml is the
-operator's; under --force a changed render lands beside it as `.new`.
+--force. TWO THINGS ARE NEVER OVERWRITTEN even then: factory.yaml is the
+operator's, and under --force a changed render lands beside it as `.new`; and
+every scorer under `asf/scorers/` is the team's own criteria, kept as it is.
 
 Stdlib only: this runs under `uv run` with no dependencies.
 """
@@ -74,6 +75,12 @@ OBSOLETE = (
      "`protected_files` and `data_dir` sit at the top level — take asf/factory.yaml.new, "
      "or write the block `asf check` prints"),
 )
+
+# What a re-stamp never rewrites under `asf/`, --force or not: the team's
+# scorers (ADR 0006). A scorer is written for this repository as factory.yaml
+# is, and is not the skill's to refresh: one the skill ships is stamped where
+# there is none, and the operator's copy is kept where there is.
+USER_OWNED = (Path("asf") / "scorers",)
 
 GITIGNORE_ENTRIES = [
     "asf/data/",
@@ -197,12 +204,20 @@ def stamp(src: Path, dest: Path, force: bool, stamped: list, skipped: list) -> N
                 continue
             stamp(child, dest / child.name, force, stamped, skipped)
         return
-    if dest.exists() and not force:
+    if dest.exists() and (not force or user_owned(dest)):
         skipped.append(str(dest))
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
     stamped.append(str(dest))
+
+
+def user_owned(dest: Path) -> bool:
+    try:
+        relative = dest.resolve().relative_to(Path.cwd().resolve())
+    except ValueError:
+        return False
+    return any(relative.is_relative_to(owned) for owned in USER_OWNED)
 
 
 def write_config(harness: str, dest: Path, force: bool,

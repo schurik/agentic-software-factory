@@ -20,7 +20,7 @@ import pytest
 from engine import commands, describe, factory
 from engine.data_types import SelfDescription
 
-from .asf_helpers import asf, git
+from .asf_helpers import asf, git, scorer
 from .fake_cockpit import FakeCockpit
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "self-description"
@@ -199,11 +199,15 @@ def test_the_writer_matches_the_golden_fixture_for_the_current_format():
 
 def test_the_stamped_factory_s_description_has_the_golden_fixture_s_shape(stamped: Path):
     """The writer, run on a real stamp (one workflow broken, so a problem is
-    described too), emits exactly the fields the current fixture holds, at
+    described too, and a scorer beside one it refuses), emits exactly the fields the current fixture holds, at
     every depth — so a field added or dropped without a format bump fails
     here, not in a cockpit."""
     spec = stamped / "asf" / "workflows" / "quick" / "workflow.yaml"
     spec.write_text(spec.read_text().replace("{agent: builder}", "{agent: nobody}", 1))
+    scorer(stamped, "corrections", {"workflow": "issue", "kind": "code",
+                                    "predicate": "corrections_above(2)"})
+    scorer(stamped, "orphan", {"workflow": "gone", "kind": "code",
+                               "predicate": "corrections_above(2)"})
     _, raw = described(stamped)
     golden = json.loads((GOLDEN / f"v{SelfDescription.FORMAT}.json").read_text())
 

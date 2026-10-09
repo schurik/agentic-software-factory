@@ -35,7 +35,8 @@ from typing import Any, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import agents, claims, factory, git_helper, inputs, issues, pull_requests, session, tasks
+from . import (agents, claims, factory, git_helper, inputs, issues, pull_requests, scorers,
+               session, tasks)
 from .data_types import (AgentConfig, BuildOutput, ChapterInput, ClaimAsk, EnvelopeBase,
                          FactoryConfig, Invocation, PhaseParams, SessionSpec)
 from .utils import new_id
@@ -345,41 +346,47 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
         input=workflow.input, request=request if workflow.input == "prompt" else "",
         stages=[step.stage.name for step in workflow.steps]))
 
-    if workflow.input == "issue":
-        opened = inputs.open_issue(run, cfg, number)
-    elif workflow.input == "pr":
-        opened = inputs.open_pr(run, cfg, context)
-        if opened.nothing_to_do:
-            return run.finish(accepted=True)      # "already handled" is the common case
-    else:
-        with run.phase(PhaseParams(name="request", kind="engineer", owner=run.engineer,
-                                   description="Capture the incoming ask, and which "
-                                               "workflow was asked to carry it")) as ph:
-            ph.log(input=request, workflow=workflow.name,
-                   stages=" -> ".join(step.stage.name for step in workflow.steps))
-        opened = inputs.Opened(prompt=request)
-
-    ctx = StageContext(run, workflow, opened.prompt)
-    ctx.previous = opened.previous
-    ctx.baseline = run.pin("baseline", lambda: git_helper.rev(run.repo_root, "HEAD"))
-    accepted, reason = True, ""
+    # However the chapter ends — accepted, refused, a phase failed — it is
+    # scored once it has, by every scorer bound to this workflow. A chapter
+    # stopped at a gate has not ended: the process that ends it scores it.
     try:
-        for index, step in enumerate(workflow.steps):
-            ctx.begin(step)
-            with run.stage(index):
-                output = step.stage.run(ctx, step.opts)
-            ctx.end(step, output)
-    except StageStop as stop:
-        accepted, reason = False, str(stop)
+        if workflow.input == "issue":
+            opened = inputs.open_issue(run, cfg, number)
+        elif workflow.input == "pr":
+            opened = inputs.open_pr(run, cfg, context)
+            if opened.nothing_to_do:
+                return run.finish(accepted=True)      # "already handled" is the common case
+        else:
+            with run.phase(PhaseParams(name="request", kind="engineer", owner=run.engineer,
+                                       description="Capture the incoming ask, and which "
+                                                   "workflow was asked to carry it")) as ph:
+                ph.log(input=request, workflow=workflow.name,
+                       stages=" -> ".join(step.stage.name for step in workflow.steps))
+            opened = inputs.Opened(prompt=request)
 
-    # The tracker hears about the run either way: a run that could not finish
-    # is exactly the one whose reporter most needs to know where it stopped.
-    if workflow.input == "issue":
-        inputs.report_issue(run, cfg, opened, accepted)
-    elif workflow.input == "pr":
-        build = ctx.latest.get(BuildOutput)
-        inputs.report_pr(run, cfg, opened, accepted, build.summary if build else "")
-    return run.finish(accepted=accepted, reason=reason)
+        ctx = StageContext(run, workflow, opened.prompt)
+        ctx.previous = opened.previous
+        ctx.baseline = run.pin("baseline", lambda: git_helper.rev(run.repo_root, "HEAD"))
+        accepted, reason = True, ""
+        try:
+            for index, step in enumerate(workflow.steps):
+                ctx.begin(step)
+                with run.stage(index):
+                    output = step.stage.run(ctx, step.opts)
+                ctx.end(step, output)
+        except StageStop as stop:
+            accepted, reason = False, str(stop)
+
+        # The tracker hears about the run either way: a run that could not finish
+        # is exactly the one whose reporter most needs to know where it stopped.
+        if workflow.input == "issue":
+            inputs.report_issue(run, cfg, opened, accepted)
+        elif workflow.input == "pr":
+            build = ctx.latest.get(BuildOutput)
+            inputs.report_pr(run, cfg, opened, accepted, build.summary if build else "")
+        return run.finish(accepted=accepted, reason=reason)
+    finally:
+        scorers.after_chapter(run, workflow)
 
 
 def _project(cfg: FactoryConfig, kind: str) -> str:

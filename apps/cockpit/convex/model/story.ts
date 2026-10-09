@@ -164,6 +164,21 @@ export interface Answering {
   url: string;
 }
 
+/**
+ * One scorer's score of a chapter (`chapter_scored`): its class, whether that
+ * class is failing, and the events it rests on — by seq, and by the phases
+ * they belong to, which is where a person goes to check it. A chapter no scorer
+ * judged has none; a score never changes how the chapter ended.
+ */
+export interface Score {
+  scorer: string;
+  kind: string;           // code | judge
+  class: string;
+  failing: boolean;
+  evidence: number[];
+  cites: { phaseId: string; name: string }[];
+}
+
 export interface Chapter {
   number: number;         // 0 for a factory that did not say (older than chapters)
   workflow: string;
@@ -182,6 +197,9 @@ export interface Chapter {
   // passed and it still did not accept the chapter. Null while it runs, and
   // from a factory before v2.
   accepted: boolean | null;
+  // Its scores, one per scorer, the latest of each standing — usually told
+  // after the session finished: a chapter is scored once it has ended.
+  scores: Score[];
   cost: number;
   asked: Asked | null;
   // The code phase that read what was asked — the issue, or the threads. Its
@@ -278,6 +296,7 @@ interface ChapterState {
   status: string;
   reason: string;
   accepted: boolean | null;
+  scores: Omit<Score, "cites">[];
   issueNumber: number;
   issueUrl: string;
   prUrl: string;
@@ -297,12 +316,13 @@ export interface StoryState {
   headCommit: string;
   issueNumber: number;              // of the work item the session is waiting on, if any
   request: string;                  // the first work item a provenance named
+  phaseOfSeq: Map<number, string>;  // the phase each event that named one belongs to: what a score cites
 }
 
 export function begin(): StoryState {
   return { chapters: [], current: null, phases: [], extras: [], resumed: null, open: null,
            journal: [], workflow: "", station: { id: "", name: "", runBy: "" }, baseCommit: "", headCommit: "",
-           issueNumber: 0, request: "" };
+           issueNumber: 0, request: "", phaseOfSeq: new Map() };
 }
 
 export interface At {
@@ -324,6 +344,7 @@ export function toldVersions(kind: string): number[] {
 
 /** Fold one event in, if the story has anything to take from it. */
 export function tell(state: StoryState, kind: string, version: number, p: Payload, at: At): void {
+  if (p.str("phase_id")) state.phaseOfSeq.set(at.seq, p.str("phase_id"));
   TELLERS[kind]?.[version]?.(state, p, at);
 }
 
@@ -331,7 +352,7 @@ function chapter(state: StoryState, number: number, workflow = ""): ChapterState
   let found = state.chapters.find((each) => each.number === number);
   if (found === undefined) {
     found = { number, workflow: workflow || state.workflow, input: "", stages: [], startedAt: "", endedAt: "",
-              status: "running", reason: "", accepted: null, issueNumber: 0, issueUrl: "", prUrl: "" };
+              status: "running", reason: "", accepted: null, scores: [], issueNumber: 0, issueUrl: "", prUrl: "" };
     state.chapters.push(found);
   }
   return found;
@@ -589,6 +610,19 @@ const TELLERS: Record<string, Record<number, Teller>> = {
       if (entry !== null) state.journal = file(state.journal, entry);
     },
   },
+  // A score of a chapter that has ended. It opens no chapter: a score of one this
+  // session never told is a chapter the cockpit has nothing to put it under.
+  chapter_scored: {
+    1: (state, p) => {
+      const scored = state.chapters.find((each) => each.number === p.num("chapter"));
+      if (scored === undefined) return;
+      const score = { scorer: p.str("scorer"), kind: p.str("kind"), class: p.str("class"),
+                      failing: p.bool("failing"), evidence: p.nums("evidence") };
+      const again = scored.scores.findIndex((each) => each.scorer === score.scorer);
+      if (again === -1) scored.scores.push(score);
+      else scored.scores[again] = score;     // scored again: the latest stands, in its place
+    },
+  },
   session_finished: {
     // A killed process says only that the session ended: whatever phase it was
     // in ended there too, the way the session did.
@@ -673,6 +707,16 @@ function codeItem(phase: PhaseState): CodeItem {
   return { ...factsOf(phase), type: "code", commits: phase.commits, commands: phase.commands };
 }
 
+/** The phases a score's evidence belongs to, each once, in the order it cites them. */
+function citesOf(state: StoryState, evidence: number[]): Score["cites"] {
+  const cites: Score["cites"] = [];
+  for (const seq of evidence) {
+    const phase = phaseOf(state, state.phaseOfSeq.get(seq) ?? "");
+    if (phase && !cites.some((each) => each.phaseId === phase.phaseId)) cites.push({ phaseId: phase.phaseId, name: phase.name });
+  }
+  return cites;
+}
+
 function answering(chapter: ChapterState): Answering | null {
   if (chapter.input === "issue" && chapter.issueNumber) {
     return { kind: "issue", number: chapter.issueNumber, url: chapter.issueUrl };
@@ -711,6 +755,7 @@ export function finish(state: StoryState, summary: Summary): Story {
       title: each.input === "pr" ? `${each.workflow}, round ${round}` : each.workflow,
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
       endedAt: each.endedAt, status: each.status, reason: each.reason, accepted: each.accepted,
+      scores: each.scores.map((score) => ({ ...score, cites: citesOf(state, score.evidence) })),
       cost: mine.reduce((total, phase) => total + phase.cost, 0),
       asked: requester?.request ?? null,
     };

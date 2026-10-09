@@ -276,8 +276,10 @@ Content-Type: application/json
 - Resending is harmless. A `seq` already stored is skipped, never overwritten, because a `seq` means
   one line forever.
 - No event is refused for arriving late. A session's events can come after its `session_finished`
-  — the `pull_request_closed` its station's PR watcher sends when its pull request merges — and
-  are stored and folded like any other, without changing how the session ended.
+  — the `pull_request_closed` its station's PR watcher sends when its pull request merges, a
+  `chapter_scored` for each scorer that judged a chapter once it ended — and are stored and folded
+  like any other, without changing how the session ended. The session page shows a chapter's
+  scores under it.
 - No event is refused for its kind or version. One this cockpit has no reader for (an unknown kind,
   or a `v` newer than it reads) is stored raw, shown as a generic row, and counted in the "upgrade
   the cockpit" banner. `401` is for a missing or unknown token, and `400` is for a body that is not a
@@ -505,7 +507,8 @@ The cockpit never reads a factory's workflow files. What it shows of them is the
 purpose, trigger, stage chain, agents with their `tools` and `writes`, gates, the per-session
 budget, and (from format 2) the factory's settings with every default resolved by its own code,
 grouped by what each decides: where work comes from, people at gates, how work lands, limits and
-data, the forge and tracker — pushed by the optional CI workflow a stamp carries with
+data, the forge and tracker, and (from format 3) its scorers with their classes and thresholds
+resolved — pushed by the optional CI workflow a stamp carries with
 `install.py --ci`. `POST /describe`
 with the factory's ingest token, `{station: {id, name, kind}, description}`, keeps the latest one per
 branch (`convex/describe.ts`), as the JSON text it arrived as; `convex/model/description.ts` reads

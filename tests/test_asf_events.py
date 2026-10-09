@@ -29,8 +29,8 @@ from engine.data_types import EVENT_KINDS, DomainEvent
 
 from . import projection
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster,
-                          forge, forge_data, issue_json, run_state, session_dir, set_config,
-                          wire, write_workflow)
+                          forge, forge_data, issue_json, run_state, scorer, session_dir,
+                          set_config, wire, write_workflow)
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "events"
 FIXED_TS = "2026-09-29T12:00:00.000+00:00"
@@ -219,6 +219,9 @@ def a_story(repo: Path) -> None:
         "input": "issue",
         "stages": [{"refine": {}}, {"plan": {"hitl": True}}, {"implement": {}},
                    {"commit": {"of": "implement"}}]})
+    # Scored once the chapter ends: a late event the projection must take in its stride.
+    scorer(repo, "builder-corrections", {"workflow": "story", "focus": "builder",
+                                         "kind": "code", "predicate": "corrections_above(0)"})
     commit_all(repo)
 
 
@@ -262,6 +265,9 @@ def test_replaying_a_session_s_events_rebuilds_its_files_exactly(stamped: Path, 
     assert written.decisions["plan_1"]["verdict"] == "reject"
     assert {e["kind"] for e in written.journal} == {"phase", "note", "remark"}
     assert written.run["workflows"] == ["story"] and written.run["total_cost"] > 0
+    [scored] = [line for line in events.read(session_dir(stamped, STORY_ID))
+                if line.kind == "chapter_scored"]
+    assert (scored.payload["scorer"], scored.payload["class"]) == ("builder-corrections", "above")
 
     lines = events.read(session_dir(stamped, STORY_ID))
     assert [line.seq for line in lines] == list(range(1, len(lines) + 1))

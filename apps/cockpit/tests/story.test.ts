@@ -386,6 +386,42 @@ describe("edges a recording does not reach", () => {
       .toEqual([["fail", null], ["fail", false], ["success", true]]);
   });
 
+  it("tells each chapter's scores, arriving late, the latest of each scorer standing, with the phases they cite", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const said = (kind: string, seq: number, payload: Record<string, unknown>) => ({ ...fixture(kind, seq), payload });
+    const scored = (seq: number, payload: Record<string, unknown>) =>
+      said("chapter_scored", seq, { ...(fixture("chapter_scored", seq).payload as object), ...payload });
+    await ship(t, token, [
+      fixture("session_started", 1), chapter(2, 1),
+      started(3, "x_01_plan", "plan"), ended(4, "x_01_plan", "plan"),
+      started(5, "x_02_build", "build"),
+      said("envelope_rejected", 6, { phase_id: "x_02_build", agent: "builder", output_type: "BuildOutput", attempt: 1 }),
+      said("gate_result", 7, { phase_id: "x_02_build", gate: "diff_matches_claims", attempt: 1, passed: false }),
+      ended(8, "x_02_build", "build"),
+      said("workflow_finished", 9, { workflow: "gated", chapter: 1, status: "success", reason: "", accepted: true }),
+      fixture("session_finished", 10),
+    ]);
+    const before = await story(t);
+    // Scored after the session finished, and one scorer twice: a chapter resumed and finished again.
+    await ship(t, token, [
+      scored(11, { chapter: 1, scorer: "corrections", class: "above", failing: true, evidence: [6, 7] }),
+      scored(12, { chapter: 1, scorer: "lenient", class: "within", failing: false, evidence: [] }),
+      scored(13, { chapter: 1, scorer: "corrections", class: "within", failing: false, evidence: [6] }),
+      scored(14, { chapter: 7, scorer: "corrections", class: "above", failing: true, evidence: [] }),
+    ]);
+
+    const after = await story(t);
+    expect(before.chapters[0].scores).toEqual([]);
+    expect(after.chapters.map((each) => each.number)).toEqual([1]);      // no chapter opened by a score
+    expect(after.chapters[0].scores).toEqual([
+      { scorer: "corrections", kind: "code", class: "within", failing: false, evidence: [6],
+        cites: [{ phaseId: "x_02_build", name: "build" }] },
+      { scorer: "lenient", kind: "code", class: "within", failing: false, evidence: [], cites: [] },
+    ]);
+    expect({ ...after.chapters[0], scores: [] }).toEqual(before.chapters[0]);   // a score changes nothing else
+  });
+
   it("keeps an agent phase's card though it wrote the chapter's request", async () => {
     const t = cockpit();
     const token = await factory(t);

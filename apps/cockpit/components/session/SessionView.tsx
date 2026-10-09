@@ -11,7 +11,7 @@ import type { SteeringView } from "@/convex/model/command";
 import type { Budget } from "@/convex/model/description";
 import { isLive, type SessionView as View, until } from "@/convex/model/session";
 import { markOfStatus, miniOf } from "@/convex/model/graph";
-import type { Chapter } from "@/convex/model/story";
+import type { Chapter, Score } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
 import { branchHref, formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
@@ -19,7 +19,7 @@ import { factoryHref } from "../factory/view";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
 import { PurgeForm } from "../Purge";
-import { Button, buttonClass, Card, Crumbs, cx, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, TabPanel, Tabs } from "../ui";
+import { Button, buttonClass, Card, Crumbs, cx, followInPlace, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, TabPanel, Tabs } from "../ui";
 import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
@@ -123,7 +123,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
           const toggleChapter = (to: boolean) => onShow?.(withChapter(shown, chapter.number, to));
           return (
             <ChapterRow key={chapter.number} chapter={chapter} open={open} onOpen={toggleChapter} until={stops} latest={chapter.number === latest}
-                        sessionDone={!isLive(summary)}>
+                        sessionDone={!isLive(summary)} openPhase={openPhase}>
               <StageGraph graph={chapter.graph} opened={opened} onToggle={toggleStage} openPhase={openPhase}
                           openStage={(index) => go(withStage(shown, chapter.number, index))} />
             </ChapterRow>
@@ -257,11 +257,12 @@ export function More({ page, onPurge }: { page: Pick<Page, "session" | "mayPurge
 /**
  * One chapter, one row: open, its stage graph; folded, one line with a mini
  * graph, how long it took and what it cost. The row's header keeps one size
- * either way, so nothing below it jumps.
+ * either way, so nothing below it jumps. Its scores sit under the header,
+ * open or folded: how the chapter was judged is read across chapters.
  */
-function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, children }: {
+function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, openPhase, children }: {
   chapter: Chapter; open: boolean; onOpen: (open: boolean) => void; until: number; latest: boolean; sessionDone: boolean;
-  children: ReactNode;
+  openPhase: OpenPhase; children: ReactNode;
 }) {
   const took = secondsBetween(chapter.startedAt, chapter.endedAt ? Date.parse(chapter.endedAt) : until);
   return (
@@ -284,6 +285,7 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, childre
           {latest && !sessionDone ? null : <StatusIcon status={markOfStatus(chapter.status)} />}
         </span>
       </Collapsible.Trigger>
+      {chapter.scores.length ? <Scores scores={chapter.scores} openPhase={openPhase} /> : null}
       <Collapsible.Panel className="overflow-hidden">
         <div className="px-4 pb-4 md:px-5 md:pb-5">{children}</div>
       </Collapsible.Panel>
@@ -291,6 +293,39 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, childre
   );
 }
 
+
+/**
+ * A chapter's scores, one per scorer: its class in words — a failing one says so,
+ * in the colour of a fault — and the phases its evidence is in, each opening that
+ * phase. Never green: a score that is not failing is a measurement, not an "ok".
+ */
+function Scores({ scores, openPhase }: { scores: Score[]; openPhase: OpenPhase }) {
+  return (
+    <p data-scores="" className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 text-sm md:px-5 md:pl-11">
+      <span className="text-xs font-medium tracking-wider text-faint uppercase">Scores</span>
+      {scores.map((score) => (
+        <span key={score.scorer}>
+          <span className="text-muted">{score.scorer}:</span>{" "}
+          <span className={score.failing ? "text-bad" : undefined}>{score.class}{score.failing ? ", failing" : ""}</span>
+          {score.cites.length ? (
+            <span className="text-muted">
+              {" — cites "}
+              {score.cites.map((cite, index) => {
+                const { href, onClick } = openPhase(cite.phaseId);
+                return (
+                  <span key={cite.phaseId}>
+                    {index ? ", " : ""}
+                    <a href={href} onClick={followInPlace(onClick)}>{cite.name}</a>
+                  </span>
+                );
+              })}
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </p>
+  );
+}
 
 /** The events this cockpit cannot read, listed as they were sent: nothing is hidden, and the page says to upgrade. */
 function Unread({ page }: { page: Page }) {

@@ -28,6 +28,15 @@ budget:
   max_cost_usd: 0
   max_tokens: 0
 
+# When a scorer's failing scores are a pattern rather than a bad day: at
+# `failures` of the last `of_last` distinct sessions it judged — several failing
+# chapters of one session count once. A scorer (asf/scorers/<name>/scorer.md)
+# may hold itself to another bar with its own `improve_after:`. A score never
+# changes how the chapter it judged ended: a scorer measures, a gate decides.
+self_improvement:
+  failures: 3
+  of_last: 10
+
 # Where a human may stop a run. A stage names its gate (`plan` in the plan
 # stage); a workflow turns it on with `hitl: true` on that stage; this block is
 # the default underneath, and `--hitl` on the command line beats both.

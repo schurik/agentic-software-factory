@@ -2,9 +2,10 @@
 
 A cockpit never interprets workflow files (spec #40). What it shows of a
 factory — each workflow's purpose, trigger, stages, agents and gates, the
-per-session budget, and the factory's settings — is THIS: the workflows loaded
-by the same `workflow.load` that `run` calls, and factory.yaml as
-`factory.load` reads it, written out as a `SelfDescription`. So a cockpit and
+per-session budget, the factory's settings and the scorers that judge its
+chapters — is THIS: the workflows loaded by the same `workflow.load` that `run`
+calls, the scorers by the same `scorers.load` a run scores with, and
+factory.yaml as `factory.load` reads it, written out as a `SelfDescription`. So a cockpit and
 a run cannot disagree about what a workflow is or what a setting left unset
 means, and a cockpit upgrade never has to learn a new stage option or default.
 
@@ -22,12 +23,13 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from . import commands, factory, git_helper, integration, issues, publish, station, workflow
+from . import (commands, factory, git_helper, integration, issues, publish, scorers, station,
+               workflow)
 from .data_types import (CheckedCheckout, Cockpit, DescribedAgent, DescribedForge, DescribedGate,
-                         DescribedHitl, DescribedIntake, DescribedLabels, DescribedLanding, DescribedLimits,
-                         DescribedReviews, DescribedSettings, DescribedStage, DescribedTrigger,
-                         DescribedWorkflow, FactoryConfig, SelfDescription, Station,
-                         WorkflowProblem)
+                         DescribedHitl, DescribedIntake, DescribedLabels, DescribedLanding,
+                         DescribedLimits, DescribedMeasure, DescribedReviews, DescribedScorer,
+                         DescribedSettings, DescribedStage, DescribedTrigger, DescribedWorkflow,
+                         FactoryConfig, ScorerProblem, SelfDescription, Station, WorkflowProblem)
 
 VERSION_FILE = Path("asf") / ".skill-version"
 CI_WORKFLOW = Path(".github") / "workflows" / "asf-check.yml"    # what `install.py --ci` stamps
@@ -49,13 +51,18 @@ def build(config_path: str | Path = factory.DEFAULT_CONFIG) -> SelfDescription:
             problems.append(WorkflowProblem(workflow=name, error=str(error)))
             continue
         described.append(_workflow(loaded, cfg))
+    found, refused = scorers.load(factory.root_of(config_path),
+                                  {flow.name: [agent.name for agent in flow.agents]
+                                   for flow in described})
     return SelfDescription(
         skill_version=_skill_version(main_root),
         checked=CheckedCheckout(head=_head(main_root), ref=_ref(main_root),
                                 config_hash=commands.config_hash(main_root,
                                                                  cfg.data_dir)),
-        ok=not problems, budget=cfg.budget, settings=_settings(cfg, main_root, described),
-        workflows=described, problems=problems)
+        ok=not problems and not refused, budget=cfg.budget,
+        settings=_settings(cfg, main_root, described), workflows=described, problems=problems,
+        scorers=[_scorer(each, cfg) for each in found],
+        scorer_problems=[ScorerProblem(scorer=each.name, error=each.error) for each in refused])
 
 
 def dumps(description: SelfDescription) -> str:
@@ -85,6 +92,15 @@ def _workflow(loaded: workflow.Workflow, cfg: FactoryConfig) -> DescribedWorkflo
     return DescribedWorkflow(name=loaded.name, description=loaded.description,
                              input=loaded.input, trigger=_trigger(loaded, cfg), stages=stages,
                              agents=agents, gates=gates, warnings=loaded.warnings)
+
+
+def _scorer(scorer: scorers.Scorer, cfg: FactoryConfig) -> DescribedScorer:
+    spec = scorer.spec
+    return DescribedScorer(
+        name=scorer.name, workflow=spec.workflow, focus=spec.focus, kind=spec.kind,
+        predicate=spec.predicate, classes=scorer.classes,
+        sample_rate=1.0 if spec.sample_rate is None else spec.sample_rate, model=spec.model,
+        improve_after=spec.improve_after or cfg.self_improvement)
 
 
 def _trigger(loaded: workflow.Workflow, cfg: FactoryConfig) -> DescribedTrigger:
@@ -137,7 +153,8 @@ def _settings(cfg: FactoryConfig, main_root: Path,
             project=issues.resolve_project(cfg.issues, main_root),
             review_project=issues.resolve_project(pr, main_root),
             labels=DescribedLabels(**states.model_dump(), refined=cfg.issues.refined_label,
-                                   pr_failed=pr.states.failed)))
+                                   pr_failed=pr.states.failed)),
+        measure=DescribedMeasure(self_improvement=cfg.self_improvement))
 
 
 def _unique(names: list[str]) -> list[str]:

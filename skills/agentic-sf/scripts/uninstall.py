@@ -12,8 +12,8 @@ The inverse of `install.py`, and the only thing here that is not reversible.
 Run it from the **target repo root** — the cwd is what gets emptied, never the
 skill, which keeps every generator and can stamp the factory back tomorrow.
 
-What goes: `asf/` entire (the engine, the stages, the agents and workflows you
-own, and the whole run record under `asf/data/`), the per-run worktrees and
+What goes: `asf/` entire (the engine, the stages, the agents, workflows and
+scorers you own, and the whole run record under `asf/data/`), the per-run worktrees and
 their git metadata, `.env.sample`, the stamped justfile, the CI workflow
 `install.py --ci` stamped, and the `# agentic-sf runtime` block from `.gitignore`.
 
