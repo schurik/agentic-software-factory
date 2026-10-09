@@ -1,0 +1,10 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "pull_request_opened",
+  "v": 1,
+  "payload": {
+    "url": "https://github.com/acme/widgets/pull/43",
+    "number": 43
+  }
+}

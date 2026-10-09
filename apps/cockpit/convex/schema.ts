@@ -151,6 +151,26 @@ export default defineSchema({
     .index("by_session", ["factory", "session", "phase"])
     .index("by_factory_at", ["factory", "at"]),
 
+  // A session's pull request, as the Measure tab counts it (model/pulls.ts):
+  // when its own integration opened it, how and when it closed, whether it was
+  // autonomous — and the commits the session made, which decide that. Written by ingest as the events arrive, the way phases are,
+  // so Metrics counts pull requests without reading events.
+  pulls: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    url: v.string(),
+    opened: v.union(v.null(), v.number()),
+    closed: v.union(v.null(), v.number()),
+    merged: v.boolean(),
+    mergedAt: v.union(v.null(), v.number()),
+    firstReviewAt: v.union(v.null(), v.number()),
+    autonomous: v.boolean(),
+    commits: v.array(v.string()),
+  })
+    .index("by_session", ["factory", "session"])
+    .index("by_factory_opened", ["factory", "opened"])
+    .index("by_factory_merged", ["factory", "mergedAt"]),
+
   // An answer a viewer posted from the inbox: the comment on the work item,
   // which is the answer itself — this only remembers that it was sent, so the
   // row says so until the factory's answers watcher picks it up and the

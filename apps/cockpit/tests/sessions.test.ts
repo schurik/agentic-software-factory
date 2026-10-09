@@ -34,6 +34,8 @@ const DESCRIBED: Record<string, string> = {
   "process_ended/v1.json": "process 4250 ended",
   "process_started/v1.json": "process 4250 started: claude_code planner sonnet",
   "prompt_rendered/v1.json": "prompt 1 sent to planner",
+  "pull_request_closed/v1.json": "pull request #43 merged with 2 commits",
+  "pull_request_opened/v1.json": "opened pull request #43",
   "provenance_recorded/v1.json": "provenance: #42 health check broken",
   "provenance_recorded/v2.json": "provenance: #42 health check broken",
   "session_finished/v1.json": "session finished: fail — the run's acceptance criterion was not met",
@@ -189,6 +191,24 @@ describe("a session told by its events", () => {
     await ship(t, token, [fixture("phase_started", 2)]);
     expect((await t.query(api.sessions.list, {}))!.sessions[0].summary.status).toBe("fail");
     expect((await t.query(api.sessions.get, WHERE))!.summary.status).toBe("fail");
+  });
+
+  it("takes the news of its pull request after it finished, and still ends how it ended", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    await ship(t, token, [...upToTheGate, fixture("decision_recorded", 9), fixture("session_finished", 10)]);
+    const before = (await t.query(api.sessions.get, WHERE))!;
+
+    // The PR watcher reaps it days later: a late event, on a session long finished.
+    expect(await ship(t, token, [fixture("pull_request_closed", 11)])).toEqual({ acked: 11 });
+    const after = (await t.query(api.sessions.get, WHERE))!;
+    expect(after.summary).toEqual({ ...before.summary, lastEventAt: after.summary.lastEventAt });
+    expect(after.summary).toMatchObject({ status: "fail", endedAt: "2026-09-29T12:00:00.000+00:00", unread: 0 });
+    expect(after.story.chapters).toEqual(before.story.chapters);
+    expect(after.events.at(-1)).toMatchObject({ seq: 11, kind: "pull_request_closed", unreadBecause: null,
+                                                detail: "pull request #43 merged with 2 commits" });
+    const [listed] = (await t.query(api.sessions.list, {}))!.sessions;
+    expect(listed.summary.status).toBe("fail");
   });
 
   it("is unknown to the session page when nothing of it was shipped", async () => {

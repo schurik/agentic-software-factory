@@ -242,6 +242,17 @@ holds wherever the session's events go. Aging out replaces an event's body
 with a `pruned` marker and keeps the event — which is why no view but the
 cockpit's Transcript tab may be built from a transcript body.
 
+A session's pull request is two events of its own. `pull_request_opened` is said by the
+integration that opened it — never for one it found open, which is why a cockpit can tell a pull
+request the factory opened from one a person did. `pull_request_closed` is said by the PR
+watcher's reap once the forge shows it merged or closed (`asf prs`): merged or not, when, when its
+first review came, its commits at close and which of them merged the base branch in. It is the first
+event that can arrive after `session_finished`, and a cockpit takes it on a finished session. With
+the session's own `committed` shas it decides whether the pull request was autonomous (CONTEXT.md),
+so a merge and autonomy reach a cockpit as events and never by a cockpit asking the forge (ADR
+0006). `run.json`'s `pr_state` is written beside it, and is what keeps the watcher from reading the
+same pull request twice.
+
 ### Publishing
 
 A cockpit never reads a station's files. It renders a gate's subject from the

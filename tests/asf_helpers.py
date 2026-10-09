@@ -303,7 +303,10 @@ def comment_json(body: str, author: str = "schurik", created_at: str = "2026-01-
 
 
 def pr_json(number: int, branch: str, threads: list[dict] | None = None,
-            state: str = "OPEN") -> dict:
+            state: str = "OPEN", merged_at: str = "", commits=(), reviews=()) -> dict:
+    """One pull request as the forge's graphql answers it. `commits` are its
+    commits as `(oid, [parent oids])`, oldest first; `reviews` the times its
+    reviews were submitted — what a pull request that closed is read for."""
     nodes = [{"id": f"T{i}", "isResolved": False, "isOutdated": False,
               "path": t.get("path", "app.py"), "line": t.get("line", 1),
               "comments": {"nodes": [{"databaseId": i, "body": t["body"],
@@ -314,4 +317,8 @@ def pr_json(number: int, branch: str, threads: list[dict] | None = None,
         "number": number, "title": "add app.py", "url": f"https://forge/acme/widgets/pull/{number}",
         "state": state, "isDraft": False, "baseRefName": "main", "headRefName": branch,
         "reviewDecision": "", "author": {"login": "someone"},
+        "mergedAt": merged_at or None,
+        "commits": {"nodes": [{"commit": {"oid": oid, "parents": {"nodes": [
+            {"oid": parent} for parent in parents]}}} for oid, parents in commits]},
+        "reviews": {"nodes": [{"submittedAt": at} for at in reviews]},
         "reviewThreads": {"nodes": nodes}}}}}

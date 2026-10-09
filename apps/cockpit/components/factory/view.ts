@@ -54,7 +54,9 @@ export function short(sha: string): string {
 }
 
 /** The factory page's tabs, as its address names them (`?tab=`), in order. */
-export const FACTORY_TABS = { overview: "Overview", workflows: "Workflows", stations: "Stations", config: "Config" } as const;
+export const FACTORY_TABS = {
+  overview: "Overview", workflows: "Workflows", measure: "Measure", stations: "Stations", config: "Config",
+} as const;
 export type FactoryTab = keyof typeof FACTORY_TABS;
 
 /** A tab's dot: what problem it holds, said to a screen reader and on hover, and the status it is drawn as. */

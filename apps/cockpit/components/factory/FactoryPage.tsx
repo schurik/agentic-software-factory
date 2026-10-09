@@ -18,6 +18,7 @@ import { Loading, Notice } from "../ui";
 import { ConfigEditor } from "./ConfigEditor";
 import { ConfigTab } from "./ConfigTab";
 import { FactoryView } from "./FactoryView";
+import { MeasureTab, type MeasureView } from "./MeasureTab";
 import { OverviewTab, type OverviewDays } from "./OverviewTab";
 import { IngestTokens, StationsTab } from "./StationsTab";
 import { drifts, type FactoryTab, tabOf } from "./view";
@@ -29,7 +30,9 @@ const DAY = 24 * 3600_000;
  * One factory (#118): its header, and its tabs — Overview, what the factory
  * spent and how its sessions and gates went over the last 7 or 30 days
  * (#119); Workflows, from the factory's own self-description, each with its
- * last 30 days (#120); Stations, a
+ * last 30 days (#120); Measure, how the factory measures its own work — the
+ * pull requests it opened and merged, and their autonomy, over the
+ * Overview's period (#184); Stations, a
  * card each with the registrations waiting on top; and Config, whose files a
  * writer edits into a pull request. The tab open is the address's (`?tab=`), so a link — Now's
  * "Stations →" — lands on the tab that answers it. Live: the queries keep
@@ -49,6 +52,9 @@ export function FactoryPage({ factory }: { factory: string }) {
   const [days, setDays] = useState<OverviewDays>(30);
   const midnights = lastDays(days, now, timeZone);
   const overview = useQuery(api.overview.page, { factory, days: midnights, signIn });
+  // The Measure tab is over the same period: one choice of days for the page.
+  const metrics = useQuery(api.measure.metrics, { factory, days: midnights, signIn });
+  const [measure, setMeasure] = useState<MeasureView>("metrics");
   // The Workflows tab's record is always the last 30 days: the Overview's own query, when it shows those too.
   const record = useQuery(api.overview.page, { factory, days: lastDays(30, now, timeZone), signIn });
   const stations = useQuery(api.activity.stations, { factory, signIn, period });
@@ -111,6 +117,10 @@ export function FactoryPage({ factory }: { factory: string }) {
     <FactoryView page={page} look={look} drifts={measured} forge={web} now={now} tab={tab} onTab={onTab}
                  panels={{
                    overview: <OverviewTab overview={overview} days={days} midnights={midnights} now={now} timeZone={timeZone} onDays={setDays} />,
+                   measure: (
+                     <MeasureTab metrics={metrics} view={measure} onView={setMeasure} days={days} midnights={midnights}
+                                 timeZone={timeZone} onDays={setDays} />
+                   ),
                    workflows: (
                      <WorkflowsTab check={page.check} factory={page.repo} stations={page.stations} now={now} record={record ?? undefined}
                                    onRun={(workflow) => run({ factory: page.repo, workflow })} />

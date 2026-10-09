@@ -45,9 +45,9 @@ from __future__ import annotations
 
 import subprocess
 
-from . import artifacts, git_helper
+from . import artifacts, git_helper, pull_requests
 from .data_types import (FactoryConfig, IntegrationMode, IntegrationRequest, IntegrationResult,
-                         ProvenanceRecorded)
+                         ProvenanceRecorded, PullRequestOpened)
 from .utils import operator_env
 
 
@@ -350,6 +350,9 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
                               if line.startswith("http")), "")
         result.notes.append(f"opened a pull request"
                             f"{': ' + result.pr_url if result.pr_url else ''}")
+        if result.pr_url:
+            run.tracer.event(PullRequestOpened(url=result.pr_url,
+                                               number=pull_requests.number_of(result.pr_url)))
     # Recorded here, not in the ADW: this is the only place a pr url exists, and
     # a chain that landed a branch must not be able to forget where it went. In
     # memory too, so a later phase of THIS process — and `keep_published` — can

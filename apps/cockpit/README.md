@@ -275,6 +275,9 @@ Content-Type: application/json
   refused with `413` and nothing of it is stored. A station sends a backlog as several batches.
 - Resending is harmless. A `seq` already stored is skipped, never overwritten, because a `seq` means
   one line forever.
+- No event is refused for arriving late. A session's events can come after its `session_finished`
+  — the `pull_request_closed` its station's PR watcher sends when its pull request merges — and
+  are stored and folded like any other, without changing how the session ended.
 - No event is refused for its kind or version. One this cockpit has no reader for (an unknown kind,
   or a `v` newer than it reads) is stored raw, shown as a generic row, and counted in the "upgrade
   the cockpit" banner. `401` is for a missing or unknown token, and `400` is for a body that is not a
@@ -516,8 +519,8 @@ is not unchecked from the moment it connects; the CI workflow keeps it current a
 
 `/factories/<owner>/<repo>` (`convex/factory.ts`) has a fixed header, under a breadcrumb back to the
 Factories list, that says the factory's state in one line — its name with a link to it on the forge, the check's state, the default branch at its
-commit, how many of its stations are online and the per-session budget — and four tabs: Overview,
-Workflows, Stations and Config. The tab open is the address's (`?tab=stations`), so Now's Needs
+commit, how many of its stations are online and the per-session budget — and five tabs: Overview,
+Workflows, Measure, Stations and Config. The tab open is the address's (`?tab=stations`), so Now's Needs
 attention rows land on the tab that answers them (Compare and Stations on Stations, See config on
 Config), and a dot marks a tab that holds a problem: a broken workflow, a drifted station, a failing
 check. **All sessions →** beside the tabs is `/sessions?factory=<owner>/<repo>`.
@@ -545,6 +548,19 @@ failed there (`convex/model/workflows.ts`). The figures are the Overview's query
 days, read off the phase rows; a figure goes on a stage only when that stage held its place when it
 ran. The agents fold into a table — where each runs, its model and thinking, its tools, and what it
 may write — and a prompt workflow's Run opens the header's dialog on that factory and workflow.
+
+**Measure** (`convex/measure.ts`) is how the factory measures its own work, over the Overview's
+period and under a sub-navigation that opens on **Metrics** — Scorers and Benchmarks join it there
+(#182). Metrics counts the pull requests the factory's own sessions opened in the period, those that
+merged in it, and **autonomy**: the share of the merged ones that were autonomous pull requests —
+opened by the session's own integration (`pull_request_opened`), and every commit of it at merge one
+the session's `committed` events name, or a merge from the base branch. Review rounds driven by
+people's comments are the session's own commits, so they keep it autonomous; a single push by a
+person does not, and a pull request the factory did not open never is. A merge reaches the cockpit
+only as the `pull_request_closed` a station's PR watcher sends when it reaps the session — usually
+long after `session_finished`, which is why ingest takes events on a finished session. Ingest folds
+the three kinds into one row a session (`convex/model/pulls.ts`), so the tab reads no event and
+never asks the forge (ADR 0006). With nothing opened or merged in the period it says so, and why.
 
 **Stations** has the stations asking to join on top (`stations:registrations`), each approved by
 typing the code its `asf station register` printed — never shown here, because typing it is what

@@ -225,9 +225,11 @@ pull_requests:
   resolve_threads: true            # ...and only when the run addressed it
   max_threads: 20                  # bounds the prompt; a bigger review is a conversation
   max_concurrent: 2
-  # A merged or closed pull request ends its session: the watcher stops a review
-  # run still working that branch and releases its worktree. The BRANCH is
-  # never deleted — that belongs to whoever merged.
+  # A merged or closed pull request ends its session: the watcher records how it
+  # closed in the session (`pull_request_closed`, what a cockpit's Measure tab
+  # counts merges and autonomy from), stops a review run still working that
+  # branch and releases its worktree. The BRANCH is never deleted — that
+  # belongs to whoever merged.
   reap_merged: true
   states:
     # The only label this path uses: a run that ends red leaves its threads

@@ -12,9 +12,11 @@ from pathlib import Path
 
 from engine import events
 
+from . import projection
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
                           forge_calls, forge_data, git, issue_json, phase_names, pr_json,
-                          run_state, session_dir, set_config, wire, with_origin)
+                          run_state, session_dir, set_config, wire, with_origin,
+                          write_workflow)
 
 ID = "1d5e4c0e"
 ID2 = "2d5e4c0e"
@@ -276,3 +278,82 @@ def test_a_closed_or_foreign_pull_request_is_refused_before_a_session_exists(sta
     assert not (stamped / "asf" / "data" / "sessions").exists()
     assert json.loads((stamped / ".forge" / "calls.json").read_text()) == [] \
         if (stamped / ".forge" / "calls.json").exists() else True
+
+
+# ── a pull request's life: opened by its session, closed on the forge ────────
+
+def landed(stamped: Path) -> list[str]:
+    """A prompt run that integrated as a pull request (#9, as the stand-in opens
+    every one). Returns the shas of the commits the session made."""
+    base = forge(stamped)
+    write_workflow(stamped, "land", {
+        "description": "implement, verify, commit and open a pull request",
+        "input": "prompt",
+        "stages": [{"implement": {"agent": "builder"}}, {"verify": {"blocks": ["test"]}},
+                   {"commit": {"of": "implement"}}, {"integrate": {}}]})
+    fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
+    wire(stamped, "test", PY_CHECK)
+    set_config(stamped, worktree={"integration": {"mode": "pr", "open_pr": True,
+                                                  "pr_command": [*base, "pr-create"]}})
+    with_origin(stamped)
+    commit_all(stamped)
+    result = asf(stamped, "run", "land", "add app.py", "--adw-id", ID)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return [line.payload["sha"] for line in events.read(session_dir(stamped, ID))
+            if line.kind == "committed"]
+
+
+def test_a_session_that_opens_its_pull_request_says_so(stamped: Path):
+    landed(stamped)
+    lines = events.read(session_dir(stamped, ID))
+    [opened] = [line.payload for line in lines if line.kind == "pull_request_opened"]
+    assert opened == {"url": "https://forge/acme/widgets/pull/9", "number": 9}
+    # ...after the commits it opened it with, and before the session finished.
+    kinds = [line.kind for line in lines]
+    assert kinds.index("committed") < kinds.index("pull_request_opened") \
+        < kinds.index("session_finished")
+
+
+def test_reaping_a_merged_pull_request_records_how_it_closed(stamped: Path):
+    [made] = landed(stamped)
+    reviewed(stamped)
+    forge_data(stamped, "listing.json", [])
+    update = "b" * 40                        # "Update branch": the base branch merged in
+    forge_data(stamped, "pr.json", pr_json(
+        9, f"asf/{ID}", state="MERGED", merged_at="2026-10-02T09:00:00Z",
+        commits=[(made, ["a" * 40]), (update, [made, "c" * 40])],
+        reviews=["2026-10-01T15:00:00Z", "2026-10-01T18:00:00Z"]))
+    finished = [line.seq for line in events.read(session_dir(stamped, ID))
+                if line.kind == "session_finished"][-1]
+
+    result = asf(stamped, "prs", "once")
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = events.read(session_dir(stamped, ID))
+    [closed] = [line for line in lines if line.kind == "pull_request_closed"]
+    assert closed.seq > finished                 # a late event: the session had already ended
+    assert closed.payload == {
+        "url": "https://forge/acme/widgets/pull/9", "number": 9, "merged": True,
+        "merged_at": "2026-10-02T09:00:00Z", "first_review_at": "2026-10-01T15:00:00Z",
+        "head_shas": [made, update], "base_merges": [update]}
+    # run.json says it beside the event, and the events alone still rebuild run.json.
+    assert run_state(stamped, ID)["pr_state"] == "merged"
+    rebuilt = projection.replay(session_dir(stamped, ID))
+    assert rebuilt.run == projection.on_disk(session_dir(stamped, ID)).run
+
+    # A second pass has nothing left to reap, and says nothing twice.
+    assert asf(stamped, "prs", "once").returncode == 0
+    assert len([line for line in events.read(session_dir(stamped, ID))
+                if line.kind == "pull_request_closed"]) == 1
+
+
+def test_a_pull_request_closed_unmerged_is_recorded_as_such(stamped: Path):
+    [made] = landed(stamped)
+    reviewed(stamped)
+    forge_data(stamped, "listing.json", [])
+    forge_data(stamped, "pr.json", pr_json(9, f"asf/{ID}", state="CLOSED",
+                                           commits=[(made, ["a" * 40])]))
+    assert asf(stamped, "prs", "once").returncode == 0
+    [closed] = [line.payload for line in events.read(session_dir(stamped, ID))
+                if line.kind == "pull_request_closed"]
+    assert (closed["merged"], closed["merged_at"], closed["first_review_at"]) == (False, "", "")
+    assert closed["head_shas"] == [made] and closed["base_merges"] == []

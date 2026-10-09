@@ -7,8 +7,9 @@ TypeScript, and the same rules it has to get right:
 
   * `run.json` — `session_started` opens (or re-opens) the record and carries
     forward what a session never unlearns; `provenance_recorded`, `usage`,
-    `gate_opened`, `suspended`, a consumed `decision_recorded` and
-    `session_finished` each change the fields they name.
+    `gate_opened`, `suspended`, a consumed `decision_recorded`,
+    `session_finished` and — late, after it — `pull_request_closed` each
+    change the fields they name.
   * `decisions/<gate>_<round>.json` — the last `decision_recorded` for that key.
   * `envelopes/<phase_id>.json` and `<agent>/envelope.json` — the last
     `envelope_accepted` per phase, and per agent.
@@ -85,13 +86,14 @@ def _started(out: Projection, body: dict) -> None:
            "repo_root": body["repo_root"], "branch": body["branch"],
            "trigger": body["trigger"], "triggered_by": body["triggered_by"],
            "issue_url": body["issue_url"],
-           "pr_url": body["pr_url"], "issue_number": 0, "issue_project": "",
+           "pr_url": body["pr_url"], "pr_state": "", "issue_number": 0, "issue_project": "",
            "waiting_for": None, "total_tokens": 0, "total_cost": 0.0}
     if previous is not None:
         run["workflows"] = previous["workflows"] + [
             name for name in run["workflows"] if name not in previous["workflows"]]
         for key in LEARNED:
             run[key] = run[key] or previous[key]
+        run["pr_state"] = previous["pr_state"]
         run["waiting_for"] = previous["waiting_for"]
         run["total_tokens"] = previous["total_tokens"]
         run["total_cost"] = previous["total_cost"]
@@ -126,6 +128,10 @@ def _suspended(out: Projection, body: dict) -> None:
 def _finished(out: Projection, body: dict) -> None:
     if out.run is not None:
         out.run.update(status=body["status"], ended_at=body["ended_at"])
+
+
+def _pr_closed(out: Projection, body: dict) -> None:
+    _learn(out, {"pr_state": "merged" if body["merged"] else "closed"})
 
 
 # ── decisions, envelopes, journal ────────────────────────────────────────────
@@ -176,6 +182,7 @@ _HANDLERS = {
     "gate_opened": _gate_opened,
     "suspended": _suspended,
     "session_finished": _finished,
+    "pull_request_closed": _pr_closed,
     "decision_recorded": _decision,
     "envelope_accepted": _envelope,
     "journal_noted": _journal,
