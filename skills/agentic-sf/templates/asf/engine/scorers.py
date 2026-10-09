@@ -84,7 +84,7 @@ def chapter_record(lines: Sequence[EventLine], number: int) -> ChapterRecord:
 # ── the closed set of code predicates ────────────────────────────────────────
 
 @dataclass(frozen=True)
-class Judged:
+class Classed:
     """A predicate's answer: the class it gives, and the seqs it rests on."""
 
     name: str
@@ -96,10 +96,10 @@ class Predicate:
     name: str
     takes: str                      # what goes in the parentheses, as `check` says it
     classes: tuple[ScorerClass, ...]
-    judge: Callable[[ChapterRecord, str, int], Judged]     # (record, focus, argument)
+    classify: Callable[[ChapterRecord, str, int], Classed]     # (record, focus, argument)
 
 
-def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Judged:
+def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Classed:
     """A correction is an agent's answer refused and sent back to the same
     session: an envelope that did not parse (`envelope_rejected`), or a round
     of its gates that failed (`gate_result`, one per gate, so a round is its
@@ -115,7 +115,7 @@ def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Judged:
             failed_rounds.add((line.payload.get("phase_id"), line.payload.get("attempt")))
             evidence.append(line.seq)
     corrections = rejected + len(failed_rounds)
-    return Judged("above" if corrections > limit else "within", evidence)
+    return Classed("above" if corrections > limit else "within", evidence)
 
 
 PREDICATES: dict[str, Predicate] = {predicate.name: predicate for predicate in (
@@ -160,10 +160,10 @@ class Scorer:
     def score(self, record: ChapterRecord) -> ChapterScored:
         """A code scorer's score of `record`. A judge is not scored here."""
         predicate, argument = parse_predicate(self.spec.predicate)
-        judged = predicate.judge(record, self.spec.focus, argument)
-        failing = next(each.fail for each in predicate.classes if each.name == judged.name)
+        classed = predicate.classify(record, self.spec.focus, argument)
+        failing = next(each.fail for each in predicate.classes if each.name == classed.name)
         return ChapterScored(chapter=record.number, scorer=self.name, kind="code",
-                             class_=judged.name, failing=failing, evidence=judged.evidence)
+                             class_=classed.name, failing=failing, evidence=classed.evidence)
 
 
 def said(scorer: Scorer) -> str:
@@ -291,6 +291,8 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
         record = chapter_record(events.read(run.session_dir), number)
         for scorer in found:
             if scorer.spec.kind != "code":
+                run.console.note(f"scorer {scorer.name} is a judge: checked, not run — "
+                                 f"chapter {number} has no score from it")
                 continue
             score = scorer.score(record)
             run.tracer.event(score)

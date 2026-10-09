@@ -88,6 +88,10 @@ def test_a_refused_chapter_is_scored_too_and_a_broken_scorer_is_said_and_skipped
                                             "kind": "code", "predicate": "corrections_above(0)"})
     scorer(stamped, "typo", {"workflow": "quick", "kind": "code",
                              "predicate": "corections_above(0)"})
+    scorer(stamped, "judge", {"workflow": "quick", "kind": "judge",
+                              "classes": [{"name": "fine", "fail": False},
+                                          {"name": "lost", "fail": True}]},
+           "Did the builder stay on the prompt?\n")
     commit_all(stamped)
 
     result = asf(stamped, "run", "quick", "add app.py")       # quick: max_fix_loops 2
@@ -103,6 +107,7 @@ def test_a_refused_chapter_is_scored_too_and_a_broken_scorer_is_said_and_skipped
             found["builder-corrections"]["evidence"]) == ("within", False, [])
     assert "scorer typo did not score" in result.stdout
     assert "corections_above(0)" in result.stdout
+    assert "scorer judge is a judge: checked, not run" in result.stdout     # and left no score
 
 
 def test_a_failed_round_of_gates_is_one_correction_and_a_focus_counts_only_its_agent(
