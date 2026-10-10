@@ -51,7 +51,7 @@ function text(html: string): string {
 
 /** The tab over `shown`: the metrics above, unless the query answered otherwise — undefined while it asks. */
 const render = (...shown: [Metrics | null | undefined] | []) => renderToStaticMarkup(
-  <MeasureTab factory="acme/widgets" metrics={shown.length ? shown[0] : METRICS} view="metrics" onView={() => {}} days={7} midnights={WEEK} timeZone="UTC" onDays={() => {}} />,
+  <MeasureTab factory="acme/widgets" metrics={shown.length ? shown[0] : METRICS} scorers={undefined} openScorer={null} onOpenScorer={() => {}} view="metrics" onView={() => {}} days={7} midnights={WEEK} timeZone="UTC" onDays={() => {}} />,
 );
 
 describe("the factory page's Measure tab", () => {

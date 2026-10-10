@@ -89,10 +89,14 @@ export default defineSchema({
     // Whether its chapters' rows (`chapters`) were written from its first
     // event, the same way: unset on a session stored before they existed.
     chaptered: v.optional(v.boolean()),
+    // Whether its scores' rows (`scores`) were written from its first event,
+    // the same way: unset on a session stored before they existed.
+    scored: v.optional(v.boolean()),
   })
     .index("by_session", ["factory", "session"])
     .index("by_phased", ["phased"])
     .index("by_chaptered", ["chaptered"])
+    .index("by_scored", ["scored"])
     .index("by_transcripts", ["transcripts"])
     .index("by_transcripts_due", ["transcriptsDue"])
     .index("by_activity", ["activity"])
@@ -169,6 +173,24 @@ export default defineSchema({
   })
     .index("by_session", ["factory", "session", "chapter"])
     .index("by_factory_at", ["factory", "at"]),
+
+  // One scorer's scores of a session (model/scores.ts): each chapter's latest,
+  // and whether any is failing — what a threshold counts. Written by ingest as
+  // each `chapter_scored` arrives, usually long after the session finished,
+  // so the Measure tab's Scorers view reads no event. `at` is when the cockpit
+  // first stored the session: the order its strip lists a factory's sessions in.
+  scores: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    scorer: v.string(),
+    at: v.number(),
+    failing: v.boolean(),
+    chapters: v.array(v.object({
+      chapter: v.number(), class: v.string(), failing: v.boolean(), evidence: v.array(v.number()),
+    })),
+  })
+    .index("by_session", ["factory", "session", "scorer"])
+    .index("by_factory_scorer", ["factory", "scorer", "at"]),
 
   // A session's pull request, as the Measure tab counts it (model/pulls.ts):
   // when its own integration opened it, how and when it closed, whether it was

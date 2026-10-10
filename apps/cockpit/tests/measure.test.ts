@@ -3,6 +3,7 @@ import { api, internal } from "../convex/_generated/api";
 import { lastDays } from "../convex/model/period";
 import { foldedVersions as chapterVersions } from "../convex/model/chapters";
 import { foldedVersions as pullVersions } from "../convex/model/pulls";
+import { foldedVersions as scoreVersions } from "../convex/model/scores";
 import { type Cockpit, corpus, fixture, ingest, type WireEvent } from "./helpers";
 import { fakeForge, localOf } from "./station";
 
@@ -436,7 +437,8 @@ describe("chapters by trigger", () => {
 describe("the rows' readers", () => {
   it.each(Object.keys(corpus))("fold %s if they fold its kind at all", (name) => {
     const { kind, v: version } = corpus[name];
-    for (const [where, folded] of [["model/pulls.ts", pullVersions(kind)], ["model/chapters.ts", chapterVersions(kind)]] as const) {
+    for (const [where, folded] of [["model/pulls.ts", pullVersions(kind)], ["model/chapters.ts", chapterVersions(kind)],
+                                ["model/scores.ts", scoreVersions(kind)]] as const) {
       if (folded.length) expect(folded, `${kind} v${version} has a reader but no fold in ${where}`).toContain(version);
     }
   });

@@ -552,12 +552,12 @@ days, read off the phase rows; a figure goes on a stage only when that stage hel
 ran. The agents fold into a table — where each runs, its model and thinking, its tools, and what it
 may write — and a prompt workflow's Run opens the header's dialog on that factory and workflow.
 
-**Measure** (`convex/measure.ts`) is how the factory measures its own work, over the Overview's
-period and under a sub-navigation that opens on **Metrics** — Scorers and Benchmarks join it there
-(#182). Metrics counts the pull requests the factory's own sessions opened in the period, those that
-merged in it, and **autonomy**: the share of the merged ones that were autonomous pull requests —
-opened by the session's own integration (`pull_request_opened`), and every commit of it at merge one
-the session's `committed` events name, or a merge from the base branch. Review rounds driven by
+**Measure** (`convex/measure.ts`) is how the factory measures its own work, under a sub-navigation
+that opens on **Metrics**, over the Overview's period, then **Scorers** — Benchmarks joins them
+there (#182). Metrics counts the pull requests the factory's own sessions opened in the period,
+those that merged in it, and **autonomy**: the share of the merged ones that were autonomous pull
+requests — opened by the session's own integration (`pull_request_opened`), and every commit of it
+at merge one the session's `committed` events name, or a merge from the base branch. Review rounds driven by
 people's comments are the session's own commits, so they keep it autonomous; a single push by a
 person does not, and a pull request the factory did not open never is. A merge reaches the cockpit
 only as the `pull_request_closed` a station's PR watcher sends when it reaps the session — usually
@@ -577,13 +577,34 @@ the period are **counted by trigger** — a prompt, an issue, a pull request's r
 chapter's `workflow_started` says it answers — with a link to the Overview, whose split by workflow
 it does not repeat.
 
+**Scorers** (#190) has no period: a scorer counts sessions, not days. It lists every scorer the
+default branch's self-description names, as an accordion — one open at a time, since no two are
+read together — nearest its threshold first and the inactive (`sample_rate: 0`) last. A row is
+words in shared columns: the scorer and its kind, what it judges (its workflow, its focus, every
+chapter or the share it samples), its self-improvement issue (empty until there is
+self-improvement), and **Failing, counted**: how many of the sessions counted toward its threshold
+failed, then a cell for each — amber below the threshold, red at it, dashed while fewer are
+counted. The counted sessions are the last `of_last` distinct sessions the scorer judged, by the
+threshold the self-description resolved for it — its own `improve_after:`, else the factory's
+`self_improvement:` — however far back that reaches. The open scorer tells one story: where it
+stands in one sentence; the **session strip**, the factory's last 30 sessions, the same for every
+scorer, a low mark for one it did not judge (another workflow's, not sampled, still running), the
+counted ones tall under a bracket, and the failing share before them against theirs — the one
+chart, which is why there is no failing share by week; the failing counted sessions, each with its
+class, a link to its chapter, and the first event it cites, linking to that event's phase; and a
+quiet footer of what the scorer is. Every term has an (i), opened on hover or a tap, and a row's
+terms are explained on the column names above the rows.
+
 Ingest folds the five kinds a pull request is made of into one row a session
-(`convex/model/pulls.ts`), and each `workflow_started` into a row a chapter
-(`convex/model/chapters.ts`), so the tab reads no event and never asks the forge (ADR 0006). A
-pull request's row an older cockpit wrote is folded again from the session's first event on its
-next batch; its chapters are written by `chapters:backfill`, which `docker/start.sh` (and a Vercel
-production build) runs after each deploy, or by its next batch if it comes first. With nothing
-measured in the period it says so, and why.
+(`convex/model/pulls.ts`), each `workflow_started` into a row a chapter
+(`convex/model/chapters.ts`), and each `chapter_scored` into a row a session and scorer
+(`convex/model/scores.ts`) — failing when any chapter's latest score is, since a threshold counts
+distinct sessions — so the tab reads no event and never asks the forge (ADR 0006); a score cites
+its evidence by seq, and only the first cited event of a failing counted session is read. A pull
+request's row an older cockpit wrote is folded again from the session's first event on its next
+batch; its chapters and its scores are written by `chapters:backfill` and `scores:backfill`, which
+`docker/start.sh` (and a Vercel production build) runs after each deploy, or by its next batch if
+it comes first. With nothing measured in the period it says so, and why.
 
 **Stations** has the stations asking to join on top (`stations:registrations`), each approved by
 typing the code its `asf station register` printed — never shown here, because typing it is what

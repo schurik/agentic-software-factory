@@ -1,17 +1,18 @@
 import Link from "next/link";
-import type { Metrics } from "@/convex/measure";
+import type { Metrics, Scorers } from "@/convex/measure";
 import type { Size, Stretch } from "@/convex/model/measure";
 import type { Components } from "@/convex/model/pulls";
 import { formatDollars as dollars, formatDuration, formatNumber, plural, prNumber, sessionHref } from "../format";
 import { cx, Loading, Notice, num, pillClass, Section, Table } from "../ui";
 import { OVERVIEW_DAYS, type OverviewDays, PeriodFilter, Stat } from "./OverviewTab";
+import { ScorersView } from "./ScorersView";
 import { tabHref } from "./view";
 
 /**
- * The Measure tab's views, in the order its sub-navigation lists them. Metrics
- * first and alone for now; Scorers and Benchmarks join it here (#182).
+ * The Measure tab's views, in the order its sub-navigation lists them: Metrics,
+ * then Scorers (#190); Benchmarks joins them here (#182).
  */
-export const MEASURE_VIEWS = { metrics: "Metrics" } as const;
+export const MEASURE_VIEWS = { metrics: "Metrics", scorers: "Scorers" } as const;
 export type MeasureView = keyof typeof MEASURE_VIEWS;
 
 const AUTONOMY = "The share of merged pull requests that were autonomous: opened by the factory's own session, " +
@@ -40,15 +41,20 @@ const TRIGGERED = "What started each chapter that began in the period: a prompt 
   "labelled, or a round of review comments on a pull request.";
 
 /**
- * A factory's Measure tab (#184, #188): how the factory measures its own work.
- * One filter row — the view, then the period, the Overview's own — over the
- * view open. Pure: `metrics` is the query's answer, undefined while it is
- * asked and null for a factory the viewer may not read.
+ * A factory's Measure tab (#184, #188, #190): how the factory measures its own
+ * work. One filter row — the view, then, on Metrics, the period, the
+ * Overview's own: a scorer counts sessions, not days — over the view open.
+ * Pure: `metrics` and `scorers` are the queries' answers, undefined while
+ * they are asked and null for a factory the viewer may not read.
  */
-export function MeasureTab({ factory, metrics, view, onView, days, midnights, timeZone, onDays }: {
+export function MeasureTab({ factory, metrics, scorers, openScorer, onOpenScorer, view, onView, days, midnights, timeZone, onDays }: {
   /** The factory's repository, `owner/name`: what its sessions and its Overview are addressed by. */
   factory: string;
   metrics: Metrics | null | undefined;
+  scorers: Scorers | null | undefined;
+  /** The scorer open in the Scorers view's accordion, by name: one at a time, or none. */
+  openScorer: string | null;
+  onOpenScorer: (scorer: string | null) => void;
   view: MeasureView;
   onView: (view: MeasureView) => void;
   days: OverviewDays;
@@ -69,9 +75,13 @@ export function MeasureTab({ factory, metrics, view, onView, days, midnights, ti
             </button>
           ))}
         </nav>
-        <PeriodFilter days={days} midnights={midnights} timeZone={timeZone} onDays={onDays} />
+        {view === "metrics" ? <PeriodFilter days={days} midnights={midnights} timeZone={timeZone} onDays={onDays} /> : null}
       </div>
-      {metrics === undefined ? <Loading />
+      {view === "scorers" ? (
+        scorers === undefined ? <Loading />
+          : scorers === null ? <Notice>This is not a factory you can read.</Notice>
+          : <ScorersView factory={factory} scorers={scorers} open={openScorer} onOpen={onOpenScorer} />
+      ) : metrics === undefined ? <Loading />
         : metrics === null ? <Notice>This is not a factory you can read.</Notice>
         : metrics.cut ? <Notice>More happened in the {period} than the cockpit counts at once: pick a shorter period.</Notice>
         : <MetricsView factory={factory} metrics={metrics} period={period} />}

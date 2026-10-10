@@ -15,9 +15,14 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { SUMMED } from "./cost";
+import { defaultCheck, repoOf } from "./factory";
 import { byTrigger, type TriggerLine } from "./model/chapters";
+import { readDescription } from "./model/description";
 import { type CostPerPr, costPerPrOf, type Costed, type Cycle, cycleOf, type Dear, dearestOf } from "./model/measure";
+import { Payload } from "./model/payload";
 import type { Period } from "./model/period";
+import { type Cite, type Failing, ordered, type ScorerLine, scorerLine, STRIP, windowOf } from "./model/scorers";
+import { described } from "./model/session";
 import { spellingsOf } from "./spelling";
 import { readable, viewing } from "./viewer";
 
@@ -110,4 +115,70 @@ async function chaptersStartedIn(ctx: QueryCtx, factory: string, period: Period)
     }
   }
   return found;
+}
+
+// ── the Scorers view ────────────────────────────────────────────────────────
+
+/** A scorer's line as the view shows it: each failing counted session with the first event it cites. */
+export type ScorerView = Omit<ScorerLine, "failing"> & { failing: Failing[] };
+
+export interface Scorers {
+  /** Whether the factory has described itself on its default branch: what names its scorers. */
+  described: boolean;
+  /** How many sessions the strip spans: the factory's last `STRIP`, or all it has. */
+  sessions: number;
+  /** Nearest its threshold first, the inactive last. */
+  scorers: ScorerView[];
+}
+
+/**
+ * `factory`'s Scorers view (#190): every scorer its default branch's
+ * self-description names, over the factory's last `STRIP` sessions, with
+ * the sessions counted toward the threshold the description resolved for it.
+ * Null for someone who may not read the factory, or has not signed in to a
+ * team's cockpit.
+ */
+export const scorers = query({
+  args: { factory: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory: named, signIn }): Promise<Scorers | null> => {
+    const who = await viewing(ctx, signIn);
+    if (who.mode === "team" && who.viewer === null) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
+    const check = await defaultCheck(ctx, factory, (await repoOf(ctx, factory))?.defaultBranch || null);
+    if (check === null) return { described: false, sessions: 0, scorers: [] };
+    const spellings = await spellingsOf(ctx, factory);
+
+    const latest: Doc<"sessions">[] = [];
+    for (const spelling of spellings) {
+      latest.push(...await ctx.db.query("sessions").withIndex("by_factory", (q) => q.eq("factory", spelling)).order("desc").take(STRIP));
+    }
+    const strip = latest.sort((a, b) => a._creationTime - b._creationTime).slice(-STRIP);
+    const from = strip[0]?._creationTime ?? Infinity;
+
+    const lines = await Promise.all(readDescription(check.description).scorers.map(async (scorer) => {
+      const rows = new Map<string, Doc<"scores">>();
+      for (const spelling of spellings) {
+        const of = () => ctx.db.query("scores").withIndex("by_factory_scorer", (q) => q.eq("factory", spelling).eq("scorer", scorer.name));
+        for (const row of await of().order("desc").take(windowOf(scorer.improveAfter))) rows.set(row.session, row);
+        if (from !== Infinity) {
+          const inStrip = ctx.db.query("scores").withIndex("by_factory_scorer", (q) => q.eq("factory", spelling).eq("scorer", scorer.name).gte("at", from));
+          for await (const row of inStrip) rows.set(row.session, row);
+        }
+      }
+      const line = scorerLine(scorer, strip.map((record) => record.session), [...rows.values()]);
+      const failing = await Promise.all(line.failing.map(async ({ seq, ...each }) =>
+        ({ ...each, cite: seq === null ? null : await citeOf(ctx, rows.get(each.session)!.factory, each.session, seq) })));
+      return { ...line, failing };
+    }));
+    return { described: true, sessions: strip.length, scorers: ordered(lines) };
+  },
+});
+
+/** The event at `seq` of a session, as a score cites it; null when the cockpit holds no such event. */
+async function citeOf(ctx: QueryCtx, factory: string, session: string, seq: number): Promise<Cite | null> {
+  const event = await ctx.db.query("events")
+    .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).eq("seq", seq)).unique();
+  if (event === null) return null;
+  return { seq, detail: described(event) || event.kind, phaseId: Payload.parse(event.payload).str("phase_id") };
 }
