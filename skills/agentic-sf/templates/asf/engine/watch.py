@@ -730,9 +730,9 @@ def _record_closed(cfg: FactoryConfig, main_root, session_dir: Path,
 def backfill(cfg: FactoryConfig, since: Optional[datetime] = None) -> int:
     """`asf score`, once its scorers have scored (`scorers.backfill`): record
     how a pull request closed for every session since `since` that has one no
-    watcher saw close — the reap's record, without the watcher. A factory nobody ran `asf prs` for still gets its merges and its
-    autonomy, and the event is the very one a reap writes, so a cockpit counts
-    it the same.
+    watcher saw close — the reap's record, without the watcher. A factory
+    nobody ran `asf prs` for still gets its merges and its autonomy, and the
+    event is the very one a reap writes, so a cockpit counts it the same.
 
     Only the record: a backfill releases no worktree, stops no run and touches
     no label — that is the watcher's cleanup, and a backfill may run on a

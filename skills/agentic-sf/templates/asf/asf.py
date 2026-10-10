@@ -257,7 +257,8 @@ def cmd_score(args) -> int:
             bound[name] = workflow.load(name, args.config).required_agents
         except SystemExit:
             pass                # its scorers are refused for it, and say so
-    code = scorers.backfill(cfg, factory.root_of(args.config), bound, args.since, args.scorer)
+    chosen, broken = scorers.choose(factory.root_of(args.config), bound, args.scorer)
+    code = scorers.backfill(cfg, chosen, broken, args.since)
     return max(code, watch.backfill(cfg, args.since))
 
 
@@ -398,7 +399,8 @@ def build_parser() -> argparse.ArgumentParser:
     score.add_argument("--since", type=_since, default=None, metavar="DATE",
                        help="only sessions started on or after DATE (2026-10-01); default: all")
     score.add_argument("--scorer", action="append", default=[], metavar="NAME",
-                       help="score with this scorer only (repeatable); default: every one")
+                       help="score with this scorer only (repeatable); default: every one. "
+                            "It narrows the scoring: pull requests are still recorded")
     score.set_defaults(func=cmd_score)
     trees = _config_on(sub.add_parser("worktrees", help="list, prune or remove run worktrees"))
     trees.add_argument("action", choices=["list", "prune", "remove"])

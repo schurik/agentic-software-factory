@@ -397,37 +397,16 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
 
 # ── scoring chapters that ended before the scorer: `asf score` ───────────────
 
-def ended_chapters(lines: Sequence[EventLine]) -> dict[int, tuple[str, int]]:
-    """{chapter: (its workflow, the seq of its latest end)} for every chapter
-    of the session that has ended and was not taken up again since. A chapter
-    resumed after it ended is open until it ends again, and a chapter stopped
-    at a gate has not ended at all."""
-    workflows: dict[int, str] = {}
-    ends: dict[int, int] = {}
-    for line in lines:
-        if line.kind not in ("workflow_started", "session_resumed", "workflow_finished"):
-            continue
-        number = int(line.payload.get("chapter") or 0)
-        if line.kind == "workflow_started":
-            workflows[number] = str(line.payload.get("workflow", ""))
-        if number not in workflows:
-            continue                # a resume or an ending of a chapter nothing opened
-        if line.kind == "workflow_finished":
-            ends[number] = line.seq
-        else:
-            ends.pop(number, None)
-    return {number: (workflows[number], seq) for number, seq in sorted(ends.items())}
-
-
 @dataclass
 class Tally:
     scored: int = 0                 # chapters given at least one score
-    already: int = 0                # chapters every chosen code scorer had scored
+    already: int = 0                # chapters every chosen code scorer had scored before
     unjudged: dict[str, int] = field(default_factory=dict)    # judge -> chapters left
     failed: int = 0                 # sessions that could not be read or written
 
 
-def past(sessions_dir: Path, chosen: Sequence[Scorer], since: datetime | None) -> Tally:
+def score_ended_chapters(sessions_dir: Path, chosen: Sequence[Scorer],
+                         since: datetime | None) -> Tally:
     """Score every chapter that has ended, in a session started on or after
     `since`, with each of `chosen` bound to its workflow that has not scored it
     since it last ended — so a second pass adds nothing, and a chapter resumed
@@ -439,10 +418,10 @@ def past(sessions_dir: Path, chosen: Sequence[Scorer], since: datetime | None) -
     joins the session's record as a late event, and is flushed to a cockpit
     then — the session's own shipper finished with it long ago."""
     tally = Tally()
-    for adw_id, _ in sorted(artifacts.started_since(sessions_dir, since).items()):
+    for adw_id in sorted(artifacts.started_since(sessions_dir, since)):
         session_dir = Path(sessions_dir) / adw_id
         try:
-            if _score_session(adw_id, session_dir, chosen, tally):
+            if _score_session(session_dir, chosen, tally):
                 station.flush(session_dir)
         except Exception as error:          # noqa: BLE001 — one session never stops the rest
             tally.failed += 1
@@ -450,8 +429,7 @@ def past(sessions_dir: Path, chosen: Sequence[Scorer], since: datetime | None) -
     return tally
 
 
-def _score_session(adw_id: str, session_dir: Path, chosen: Sequence[Scorer],
-                   tally: Tally) -> bool:
+def _score_session(session_dir: Path, chosen: Sequence[Scorer], tally: Tally) -> bool:
     """Score the session's ended chapters into `tally`; True when it wrote any."""
     lines = events.read(session_dir)
     latest: dict[tuple[int, str], int] = {}                   # (chapter, scorer) -> seq
@@ -460,7 +438,7 @@ def _score_session(adw_id: str, session_dir: Path, chosen: Sequence[Scorer],
             latest[int(line.payload.get("chapter") or 0), str(line.payload.get("scorer"))] = \
                 line.seq
     wrote = False
-    for number, (workflow, ended) in ended_chapters(lines).items():
+    for number, (workflow, ended) in artifacts.ended_chapters(session_dir).items():
         bound = [each for each in chosen if each.spec.workflow == workflow]
         for judge in (each for each in bound if each.spec.kind != "code"):
             tally.unjudged[judge.name] = tally.unjudged.get(judge.name, 0) + 1
@@ -474,34 +452,44 @@ def _score_session(adw_id: str, session_dir: Path, chosen: Sequence[Scorer],
         for scorer in due:
             score = scorer.score(record)
             events.emit(session_dir, score)
-            print(f"  {adw_id} chapter {number} ({workflow}): {scorer.name} — {score.class_}"
+            print(f"  {session_dir.name} chapter {number} ({workflow}): {scorer.name} — "
+                  f"{score.class_}"
                   + (" (failing)" if score.failing else ""))
         tally.scored += 1
         wrote = True
     return wrote
 
 
-def backfill(cfg: FactoryConfig, factory_root: Path, workflows: Mapping[str, Sequence[str]],
-             since: datetime | None = None, names: Sequence[str] = ()) -> int:
-    """`asf score`: give the scorers `names` (default: every one) a baseline
-    from the sessions already on disk — every ended chapter of their workflow
-    they have not scored. A judge is checked, not run, as after a chapter.
-
-    A name no scorer has is refused before anything is scored or asked of
-    the forge (SystemExit). 1 when a chosen scorer is one `check` refuses, or
-    a session could not be scored."""
+def choose(factory_root: Path, workflows: Mapping[str, Sequence[str]],
+           names: Sequence[str] = ()) -> tuple[list[Scorer], list[Refused]]:
+    """The scorers `names` (default: every one), as `load` reads them: the
+    ones that hold and the ones `check` refuses. A name no scorer has is
+    refused here (SystemExit), before anything is scored or asked of the
+    forge."""
     found, refused = load(factory_root, workflows)
     known = sorted({each.name for each in found} | {each.name for each in refused})
     unknown = [name for name in names if name not in known]
     if unknown:
         raise SystemExit(f"no scorer named {', '.join(unknown)} under "
                          f"{directory(factory_root)} — it has: {', '.join(known) or 'none'}")
-    chosen = [each for each in found if not names or each.name in names]
-    broken = [each for each in refused if not names or each.name in names]
+    if not names:
+        return found, refused
+    return ([each for each in found if each.name in names],
+            [each for each in refused if each.name in names])
+
+
+def backfill(cfg: FactoryConfig, chosen: Sequence[Scorer], broken: Sequence[Refused],
+             since: datetime | None = None) -> int:
+    """`asf score`: give the `chosen` scorers a baseline from the sessions
+    already on disk — every ended chapter of their workflow they have not
+    scored — and say why each `broken` one scores nothing. A judge is checked,
+    not run, as after a chapter. 1 when a scorer is broken, or a session could
+    not be scored."""
     for each in broken:
         print(f"✗ scorer {each.name} scores nothing until `asf check` accepts it\n"
               f"  {each.path}: {each.error}")
-    tally = past(artifacts.sessions_root(git_helper.main_root(), cfg.data_dir), chosen, since)
+    tally = score_ended_chapters(artifacts.sessions_root(git_helper.main_root(), cfg.data_dir),
+                                 chosen, since)
     for name, count in sorted(tally.unjudged.items()):
         print(f"scorer {name} is a judge: checked, not run — {count} chapter(s) have no "
               f"score from it")

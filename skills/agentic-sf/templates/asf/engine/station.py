@@ -395,7 +395,9 @@ def flush(session_dir: str | Path, transport: Transport | None = None) -> None:
     """One bounded round, for a process that writes to a session it does not
     run — a watcher aborting a run at its gate, `asf score` adding a late
     score — and outlives the write by hours, so an exit-time flush would come
-    far too late."""
+    far too late. `post` is looked up when it ships, as in `start`, so a
+    process that swapped the module's transport (`tests/fake_cockpit_run.py`)
+    flushes through the one it swapped in."""
     cockpit = configured(data_of(session_dir))
     if cockpit is not None:
         Shipper(session_dir, cockpit, transport or post).start().stop()
