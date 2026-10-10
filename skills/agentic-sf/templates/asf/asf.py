@@ -34,8 +34,11 @@ Usage:
     uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--interval 120]
                                                  the station loop, the local cockpit, every watcher
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
-    uv run asf/asf.py score [--since 2026-10-01] record how pull requests no watcher saw close
-                                                 ended, for sessions started since
+    uv run asf/asf.py score [--since 2026-10-01] [--scorer corrections]
+                                                 score every ended chapter a scorer has not
+                                                 scored, and record how pull requests no
+                                                 watcher saw close ended, for sessions
+                                                 started since
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
     uv run asf/asf.py station                    the station loop alone: ships, starts no watcher
     uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
@@ -244,7 +247,19 @@ def cmd_status(args) -> int:
 
 
 def cmd_score(args) -> int:
-    return watch.backfill(factory.load(args.config), args.since)
+    """Measure what already happened: every ended chapter a scorer has not
+    scored, then every pull request no watcher saw close. The scoring goes
+    first — it needs no forge, so a forge that cannot be read costs no score."""
+    cfg = factory.load(args.config)
+    bound: dict[str, list[str]] = {}
+    for name, _ in workflow.available(args.config):
+        try:
+            bound[name] = workflow.load(name, args.config).required_agents
+        except SystemExit:
+            pass                # its scorers are refused for it, and say so
+    chosen, broken = scorers.choose(factory.root_of(args.config), bound, args.scorer)
+    code = scorers.backfill(cfg, chosen, broken, args.since)
+    return max(code, watch.backfill(cfg, args.since))
 
 
 def _since(text: str) -> datetime:
@@ -378,10 +393,14 @@ def build_parser() -> argparse.ArgumentParser:
     _config_on(sub.add_parser("status", help="what is watching, running, waiting, left behind")
                ).set_defaults(func=cmd_status)
     score = _config_on(sub.add_parser(
-        "score", help="measure past sessions: record how each one's pull request closed, "
-                      "where no PR watcher was running to see it"))
+        "score", help="measure past sessions: score every ended chapter a scorer has not "
+                      "scored yet, and record how each one's pull request closed, where no PR "
+                      "watcher was running to see it"))
     score.add_argument("--since", type=_since, default=None, metavar="DATE",
                        help="only sessions started on or after DATE (2026-10-01); default: all")
+    score.add_argument("--scorer", action="append", default=[], metavar="NAME",
+                       help="score with this scorer only (repeatable); default: every one. "
+                            "It narrows the scoring: pull requests are still recorded")
     score.set_defaults(func=cmd_score)
     trees = _config_on(sub.add_parser("worktrees", help="list, prune or remove run worktrees"))
     trees.add_argument("action", choices=["list", "prune", "remove"])

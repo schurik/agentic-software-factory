@@ -22,19 +22,25 @@ simply has no score, which is how a reader tells "not judged".
 scorers through, so a scorer `check` accepts is one a run will score with. A
 scorer is the operator's file, like factory.yaml: `install.py --force` never
 rewrites one, the shipped four included once they are there.
+
+A chapter is scored by the process that ends it (`after_chapter`), and one
+that ended before its scorer existed by `asf score` (`backfill`), with the
+score it would have had then — so a new scorer has a baseline on day one.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Literal, Mapping, Sequence, get_args
 
 from pydantic import ValidationError
 
-from . import artifacts, events, frontmatter
-from .data_types import ChapterScored, EventLine, LimitKind, ScorerClass, ScorerSpec
+from . import artifacts, events, frontmatter, git_helper, station
+from .data_types import (ChapterScored, EventLine, FactoryConfig, LimitKind, ScorerClass,
+                         ScorerSpec)
 
 if TYPE_CHECKING:
     from .runner import Run
@@ -387,3 +393,108 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
                              + (" (failing)" if score.failing else ""))
     except Exception as error:              # noqa: BLE001 — see the docstring
         run.console.note(f"scoring failed, and the chapter stands as it ended: {error}")
+
+
+# ── scoring chapters that ended before the scorer: `asf score` ───────────────
+
+@dataclass
+class Tally:
+    scored: int = 0                 # chapters given at least one score
+    already: int = 0                # chapters every chosen code scorer had scored before
+    unjudged: dict[str, int] = field(default_factory=dict)    # judge -> chapters left
+    failed: int = 0                 # sessions that could not be read or written
+
+
+def score_ended_chapters(sessions_dir: Path, chosen: Sequence[Scorer],
+                         since: datetime | None) -> Tally:
+    """Score every chapter that has ended, in a session started on or after
+    `since`, with each of `chosen` bound to its workflow that has not scored it
+    since it last ended — so a second pass adds nothing, and a chapter resumed
+    and ended again is scored on how it ended last.
+
+    Each score is the one `after_chapter` would have given the chapter as it
+    ended: a predicate reads the chapter's own lines, and nothing appended to
+    the session since (a score, a pull request's close) is one of them. It
+    joins the session's record as a late event, and is flushed to a cockpit
+    then — the session's own shipper finished with it long ago."""
+    tally = Tally()
+    for adw_id in sorted(artifacts.started_since(sessions_dir, since)):
+        session_dir = Path(sessions_dir) / adw_id
+        try:
+            if _score_session(session_dir, chosen, tally):
+                station.flush(session_dir)
+        except Exception as error:          # noqa: BLE001 — one session never stops the rest
+            tally.failed += 1
+            print(f"  {adw_id}: could not be scored ({error})")
+    return tally
+
+
+def _score_session(session_dir: Path, chosen: Sequence[Scorer], tally: Tally) -> bool:
+    """Score the session's ended chapters into `tally`; True when it wrote any."""
+    lines = events.read(session_dir)
+    latest: dict[tuple[int, str], int] = {}                   # (chapter, scorer) -> seq
+    for line in lines:
+        if line.kind == ChapterScored.KIND:
+            latest[int(line.payload.get("chapter") or 0), str(line.payload.get("scorer"))] = \
+                line.seq
+    wrote = False
+    for number, (workflow, ended) in artifacts.ended_chapters(session_dir).items():
+        bound = [each for each in chosen if each.spec.workflow == workflow]
+        for judge in (each for each in bound if each.spec.kind != "code"):
+            tally.unjudged[judge.name] = tally.unjudged.get(judge.name, 0) + 1
+        code = [each for each in bound if each.spec.kind == "code"]
+        due = [each for each in code if latest.get((number, each.name), 0) < ended]
+        if code and not due:
+            tally.already += 1
+        if not due:
+            continue
+        record = chapter_record(lines, number)
+        for scorer in due:
+            score = scorer.score(record)
+            events.emit(session_dir, score)
+            print(f"  {session_dir.name} chapter {number} ({workflow}): {scorer.name} — "
+                  f"{score.class_}"
+                  + (" (failing)" if score.failing else ""))
+        tally.scored += 1
+        wrote = True
+    return wrote
+
+
+def choose(factory_root: Path, workflows: Mapping[str, Sequence[str]],
+           names: Sequence[str] = ()) -> tuple[list[Scorer], list[Refused]]:
+    """The scorers `names` (default: every one), as `load` reads them: the
+    ones that hold and the ones `check` refuses. A name no scorer has is
+    refused here (SystemExit), before anything is scored or asked of the
+    forge."""
+    found, refused = load(factory_root, workflows)
+    known = sorted({each.name for each in found} | {each.name for each in refused})
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        raise SystemExit(f"no scorer named {', '.join(unknown)} under "
+                         f"{directory(factory_root)} — it has: {', '.join(known) or 'none'}")
+    if not names:
+        return found, refused
+    return ([each for each in found if each.name in names],
+            [each for each in refused if each.name in names])
+
+
+def backfill(cfg: FactoryConfig, chosen: Sequence[Scorer], broken: Sequence[Refused],
+             since: datetime | None = None) -> int:
+    """`asf score`: give the `chosen` scorers a baseline from the sessions
+    already on disk — every ended chapter of their workflow they have not
+    scored — and say why each `broken` one scores nothing. A judge is checked,
+    not run, as after a chapter. 1 when a scorer is broken, or a session could
+    not be scored."""
+    for each in broken:
+        print(f"✗ scorer {each.name} scores nothing until `asf check` accepts it\n"
+              f"  {each.path}: {each.error}")
+    tally = score_ended_chapters(artifacts.sessions_root(git_helper.main_root(), cfg.data_dir),
+                                 chosen, since)
+    for name, count in sorted(tally.unjudged.items()):
+        print(f"scorer {name} is a judge: checked, not run — {count} chapter(s) have no "
+              f"score from it")
+    print(f"scored {tally.scored} chapter(s)" + (f" since {since.date()}" if since else "")
+          + f"; {tally.already} already scored"
+          + (f"; {tally.failed} session(s) could not be scored — run it again"
+             if tally.failed else ""))
+    return 1 if broken or tally.failed else 0

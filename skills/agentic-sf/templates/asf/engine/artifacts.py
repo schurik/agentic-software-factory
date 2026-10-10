@@ -205,6 +205,16 @@ def ended_chapter(session_dir: Path) -> int:
     return 0 if chapters.open else chapters.active
 
 
+def ended_chapters(session_dir: Path) -> dict[int, tuple[str, int]]:
+    """{chapter: (its workflow, the seq of its latest end)} for every chapter
+    that has ended and was not taken up again since — what `asf score` may
+    score. A chapter resumed after it ended is open until it ends again, and a
+    chapter stopped at a gate has not ended at all."""
+    chapters = _chapters(session_dir)
+    return {number: (chapters.workflows[number], seq)
+            for number, seq in sorted(chapters.ends.items())}
+
+
 @dataclass
 class _Chapters:
     """A session's chapters, as its events tell them."""
@@ -212,6 +222,8 @@ class _Chapters:
     workflows: dict[int, str] = field(default_factory=dict)   # number -> workflow, as opened
     active: int = 0               # the one the latest process took up; 0 = none yet
     open: bool = False            # ...and whether it is still unfinished
+    ends: dict[int, int] = field(default_factory=dict)   # number -> seq of its latest end,
+                                                          # while not taken up again since
 
     def latest_of(self, workflow: str) -> int:
         """The newest chapter of `workflow`, or 0 when it has none."""
@@ -233,8 +245,10 @@ def _chapters(session_dir: Path) -> _Chapters:
             continue                # a resume or an ending of a chapter nothing opened
         if line.kind == WorkflowFinished.KIND:
             chapters.open = chapters.open and number != chapters.active
+            chapters.ends[number] = line.seq
         else:
             chapters.active, chapters.open = number, True
+            chapters.ends.pop(number, None)
     return chapters
 
 
@@ -595,10 +609,17 @@ def pr_urls(sessions_dir: Path) -> dict[str, str]:
 def unclosed_pr_urls(sessions_dir: Path, since: datetime | None = None) -> dict[str, str]:
     """{adw_id: pr_url} for every session whose pull request has not been seen
     closed — open still, or closed while nothing was watching — of those started
-    on or after `since`. A session with no readable start counts as started
-    since: nothing says it is older."""
-    return {adw_id: state.pr_url for adw_id, state in scan(sessions_dir).items()
-            if state.pr_url and not state.pr_state and _started_since(state.started_at, since)}
+    on or after `since`."""
+    return {adw_id: state.pr_url for adw_id, state in started_since(sessions_dir, since).items()
+            if state.pr_url and not state.pr_state}
+
+
+def started_since(sessions_dir: Path, since: datetime | None = None) -> dict[str, RunState]:
+    """`scan`, narrowed to the sessions started on or after `since` — what
+    `asf score --since` walks. A session with no readable start counts as
+    started since: nothing says it is older."""
+    return {adw_id: state for adw_id, state in scan(sessions_dir).items()
+            if _started_since(state.started_at, since)}
 
 
 def _started_since(started_at: str, since: datetime | None) -> bool:

@@ -7,6 +7,8 @@ meets it by:
   * `asf run` on the fake harness: every scorer bound to the workflow leaves a
     `chapter_scored` on the session's own record once the chapter has ended,
     and the chapter ends the way it would have with no scorer at all;
+  * `asf score`: every finished chapter a scorer has not scored yet is scored
+    after the fact, so a new scorer has a baseline from the sessions on disk;
   * `asf check`: a malformed scorer is refused before anything runs, and the
     self-description lists the scorers with their thresholds resolved;
   * `install.py --force`: a scorer is the operator's, and is never rewritten.
@@ -15,7 +17,10 @@ meets it by:
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -269,6 +274,145 @@ def test_review_chapters_are_counted_per_session_and_scored_on_the_latest(stampe
     # Chapter 1 is the quick workflow's, which this scorer does not judge; each
     # review chapter is scored on the review chapters the session has had by then.
     assert by_chapter == {2: ("within", False, opened[:1]), 3: ("above", True, opened)}
+
+
+# ── scoring past chapters: `asf score` ───────────────────────────────────────
+
+def refused_and_accepted(repo: Path) -> tuple[str, str]:
+    """Two finished sessions of `quick`, scored by nothing: one its workflow
+    refused (quick: max_fix_loops 2), one it accepted."""
+    fake_roster(repo, builder=[build_reply("1/0\n", "feat: broken"),
+                               build_reply("2/0\n", "feat: still broken")])
+    wire(repo, "test", PY_CHECK)
+    commit_all(repo)
+    refused = asf(repo, "run", "quick", "add app.py")
+    assert refused.returncode == 1, refused.stdout + refused.stderr
+    fake_roster(repo, builder=[build_reply("ok = 1\n", "feat: app")])
+    commit_all(repo)
+    accepted = asf(repo, "run", "quick", "add app.py")
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+    return adw_id_of(refused), adw_id_of(accepted)
+
+
+def test_score_gives_a_new_scorer_a_baseline_and_a_second_run_adds_nothing(stamped: Path):
+    refused, accepted = refused_and_accepted(stamped)
+    assert not scores(stamped, refused) and not scores(stamped, accepted)
+    scorer(stamped, "refused", {"workflow": "quick", "kind": "code", "predicate": "not_accepted"})
+
+    result = asf(stamped, "score")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    [ended] = [line.seq for line in lines_of(stamped, refused, "workflow_finished")]
+    assert classed(stamped, refused) == {"refused": ("not_accepted", True, [ended])}
+    assert classed(stamped, accepted) == {"refused": ("accepted", False, [])}
+    # A late event on a long-finished session, which still ends how it ended.
+    for adw_id in (refused, accepted):
+        [finished] = lines_of(stamped, adw_id, "session_finished")
+        [score] = lines_of(stamped, adw_id, "chapter_scored")
+        assert score.seq > finished.seq
+    assert (run_state(stamped, refused)["status"], run_state(stamped, accepted)["status"]) == (
+        "fail", "success")
+    assert "scored 2 chapter(s)" in result.stdout
+
+    again = asf(stamped, "score")
+
+    assert again.returncode == 0, again.stdout + again.stderr
+    for adw_id in (refused, accepted):
+        assert len(lines_of(stamped, adw_id, "chapter_scored")) == 1
+    assert "scored 0 chapter(s)" in again.stdout and "2 already scored" in again.stdout
+
+
+def test_score_runs_only_the_scorers_it_is_given(stamped: Path):
+    refused, _ = refused_and_accepted(stamped)
+    scorer(stamped, "refused", {"workflow": "quick", "kind": "code", "predicate": "not_accepted"})
+    scorer(stamped, "corrections", {"workflow": "quick", "kind": "code",
+                                    "predicate": "corrections_above(0)"})
+
+    unknown = asf(stamped, "score", "--scorer", "refused", "--scorer", "corections")
+    assert unknown.returncode == 1, unknown.stdout + unknown.stderr
+    assert "no scorer named corections" in unknown.stderr and "corrections" in unknown.stderr
+    assert not scores(stamped, refused)                       # refused before anything was scored
+    assert "pull request" not in unknown.stdout               # ...or asked of the forge
+
+    only = asf(stamped, "score", "--scorer", "refused")
+    assert only.returncode == 0, only.stdout + only.stderr
+    assert set(scores(stamped, refused)) == {"refused"}
+
+    rest = asf(stamped, "score")
+    assert rest.returncode == 0, rest.stdout + rest.stderr
+    assert sorted(line.payload["scorer"] for line in lines_of(stamped, refused, "chapter_scored")) \
+        == ["corrections", "refused"]
+
+
+def test_a_late_score_is_the_score_the_chapter_had_when_it_ended(stamped: Path):
+    fake_roster(stamped, builder=[{"text": "not json at all"}, {"text": "still not json"},
+                                  build_reply("ok = 1\n", "feat: app")])
+    wire(stamped, "test", PY_CHECK)
+    scorer(stamped, "live", {"workflow": "quick", "kind": "code",
+                             "predicate": "corrections_above(1)"})
+    commit_all(stamped)
+    ran = asf(stamped, "run", "quick", "add app.py")
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    adw_id = adw_id_of(ran)
+    scorer(stamped, "late", {"workflow": "quick", "kind": "code",
+                             "predicate": "corrections_above(1)"})
+
+    result = asf(stamped, "score")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    found = scores(stamped, adw_id)
+    assert len(lines_of(stamped, adw_id, "chapter_scored")) == 2     # `live` is not scored twice
+    assert {**found["late"], "scorer": "live"} == found["live"]
+    assert found["live"]["class"] == "above"
+
+
+def test_score_leaves_an_open_chapter_a_judge_and_an_older_session_unscored(stamped: Path):
+    plan = {"writes": {"docs/asf/spec/plan.md": "# Plan\n"}, "tokens": 100, "cost": 0.01,
+            "envelope": envelope(artifacts=["docs/asf/spec/plan.md"], commit_message="docs: plan")}
+    fake_roster(stamped, planner=[plan], builder=[build_reply("ok = 1\n", "feat: app")])
+    commit_all(stamped)
+    waiting = asf(stamped, "run", "sdlc", "add app.py", "--hitl", "plan")
+    assert waiting.returncode == 75, waiting.stdout + waiting.stderr     # stopped at its gate
+    refused, accepted = refused_and_accepted(stamped)
+    scorer(stamped, "sdlc-refused", {"workflow": "sdlc", "kind": "code",
+                                     "predicate": "not_accepted"})
+    scorer(stamped, "refused", {"workflow": "quick", "kind": "code", "predicate": "not_accepted"})
+    scorer(stamped, "judge", {"workflow": "quick", "kind": "judge",
+                              "classes": [{"name": "fine", "fail": False},
+                                          {"name": "lost", "fail": True}]},
+           "Did the builder stay on the prompt?\n")
+
+    later = asf(stamped, "score", "--since", "2999-01-01")
+    assert later.returncode == 0, later.stdout + later.stderr
+    assert not any(scores(stamped, adw_id) for adw_id in (refused, accepted))
+
+    result = asf(stamped, "score")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not scores(stamped, adw_id_of(waiting))        # its chapter has not ended
+    assert set(scores(stamped, refused)) == set(scores(stamped, accepted)) == {"refused"}
+    assert "scorer judge is a judge: checked, not run" in result.stdout
+
+
+RUNNER = Path(__file__).resolve().parent / "fake_cockpit_run.py"
+
+
+def test_a_late_score_reaches_the_cockpit_on_its_own(stamped: Path, tmp_path: Path):
+    _, accepted = refused_and_accepted(stamped)
+    scorer(stamped, "refused", {"workflow": "quick", "kind": "code", "predicate": "not_accepted"})
+    told = tmp_path / "told.json"
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"out": str(told)}))
+
+    result = subprocess.run([sys.executable, str(RUNNER), str(spec), "score"], cwd=stamped,
+                            capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                            env={**os.environ, "ASF_COCKPIT_URL": "http://cockpit.test:3211",
+                                 "ASF_COCKPIT_TOKEN": "asf_ingest_test"})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    stored = json.loads(told.read_text())["stored"][accepted]
+    [score] = [event for event in stored.values() if event["kind"] == "chapter_scored"]
+    assert (score["payload"]["scorer"], score["payload"]["class"]) == ("refused", "accepted")
 
 
 # ── checking a scorer before it costs anything ───────────────────────────────

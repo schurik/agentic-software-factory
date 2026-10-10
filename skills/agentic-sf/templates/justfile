@@ -168,7 +168,8 @@ prs-status:
 prs-watch *ARGS:
     {{asf}} prs loop "$@"
 
-# record how pull requests no watcher saw close ended: just score [--since 2026-10-01]
+# score every ended chapter a scorer has not scored, and record how pull requests no
+# watcher saw close ended: just score [--since 2026-10-01] [--scorer corrections]
 score *ARGS:
     {{asf}} score "$@"
 
