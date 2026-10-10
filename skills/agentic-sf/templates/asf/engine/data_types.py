@@ -965,8 +965,8 @@ class HarnessDefaults(BaseModel):
 
 
 def default_protected_files() -> list[str]:
-    return ["asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/", "asf/cockpit/",
-            "asf/factory.yaml", "asf/asf.py", "asf/.skill-version",
+    return ["asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/", "asf/scorers/",
+            "asf/cockpit/", "asf/factory.yaml", "asf/asf.py", "asf/.skill-version",
             ".github/workflows/asf-check.yml"]
 
 
@@ -2946,7 +2946,8 @@ class ChapterScored(DomainEvent):
     """One scorer's score of a finished chapter (`engine/scorers.py`): its class,
     whether that class is failing, and the seqs of the events it rests on — the
     evidence a reader checks it against, every one in this session and in this
-    chapter.
+    chapter, but for the one predicate counted per session
+    (`review_chapters_above`), which cites the chapters it counted.
 
     LATE BY NATURE: a chapter is scored once it has ended, so the score follows
     its `workflow_finished` and usually its `session_finished` too, and a past

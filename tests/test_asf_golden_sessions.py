@@ -45,17 +45,19 @@ from engine import events, frontmatter
 from engine.data_types import EVENT_KINDS
 
 from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forge,
-                          forge_data, git, issue_json, new_repo, pr_json, session_dir, set_config,
-                          stamp, wire, with_origin)
+                          forge_data, git, issue_json, new_repo, pr_json, scorer, session_dir,
+                          set_config, stamp, wire, with_origin)
 
 THIS_REPO = Path(__file__).resolve().parent.parent
 SESSIONS = Path(__file__).resolve().parent / "golden" / "sessions"
 EVENT_FIXTURES = Path(__file__).resolve().parent / "golden" / "events"
-RECORDING = "issue-then-two-reviews-in-stages"
+RECORDING = "issue-then-two-reviews-scored"
 # The recording made before a phase said which stage it belongs to: the cockpit's session page
 # draws it as a flat chain of phases (apps/cockpit/tests/graph.test.ts), never a guessed grouping.
 # RECORDING moves on when a new story is recorded; this one stays.
 BEFORE_STAGES = "issue-then-two-reviews"
+# The recording made before scorers, rollbacks and limits were facts of their own.
+BEFORE_SCORES = "issue-then-two-reviews-in-stages"
 RECORDER = "tests/test_asf_golden_sessions.py"
 ID = "a9f259f0"
 PR = 9
@@ -90,6 +92,13 @@ def replies(repo: Path) -> dict:
     """Every agent's script for the first chapter, in the order they are spent."""
     return {
         "scout": [{
+            # The scout's `writes:` is `[]`: a file it leaves in the repository is rolled back,
+            # and its phase fails.
+            "writes": {handoff(repo, "scout_findings.md"): FINDINGS, "NOTES.md": "# Notes\n"},
+            "tokens": 1_700, "cost": 0.019,
+            "envelope": envelope(summary="the prompt is built in app.py",
+                                 findings=[{"file": "app.py", "note": "no date"}],
+                                 artifacts=[handoff(repo, "scout_findings.md")])}, {
             "writes": {handoff(repo, "scout_findings.md"): FINDINGS},
             "tokens": 1_900, "cost": 0.021, "context_tokens": 58_000, "context_window": 200_000,
             "tool_calls": [{"tool": "grep", "args": {"pattern": "build_prompt"}, "result": "1"},
@@ -158,13 +167,22 @@ def review_round(repo: Path, said: str, content: str, message: str) -> None:
 
 # What `tell` tells, said once: here, and in each recording's provenance.md.
 STORY = """\
-Chapter 1 is issue #42: scouted, planned, and stopped at the plan gate,
-where a person rejects the plan with a remark and approves the second one
-with another. The approval resumes the session — the scout and the planner
-are replayed from the record, not called again — and the build, review,
-documentation and pull request follow; the gates hitl leaves off pass by
-policy. Chapters 2 and 3 are two rounds of review on that pull request.
+Chapter 1 is issue #42. The scout writes a file outside its `writes:`, which
+is rolled back and fails the chapter; `asf resume` scouts again. The plan
+stops at the plan gate, where a person rejects it with a remark and approves
+the second one with another. The approval resumes the session, and the
+session's cost ceiling refuses the builder's first turn, a limit hit that
+fails the chapter again. With the ceiling raised, `asf resume` builds, and the
+review, documentation and pull request follow; the gates hitl leaves off pass
+by policy. Chapters 2 and 3 are two rounds of review on that pull request.
+Every time a chapter ends it is scored: the issue's by the four scorers a
+stamp ships, which find the rollback and the limit hit, and each review
+round by a team's `review_chapters_above(1)`, which the second one fails.
 Transcripts are on, so the prompts each agent was sent are in the stream."""
+
+# The session's cost ceiling: past what the scouts and the planner spend before
+# the builder's first turn, so that turn is the one it refuses.
+CEILING = 0.17
 
 
 def tell(repo: Path) -> None:
@@ -182,7 +200,11 @@ def tell(repo: Path) -> None:
                               "graphql_command": [*base, "graphql"]},
                worktree={"integration": {"mode": "pr", "open_pr": True,
                                          "pr_command": [*base, "pr-create"]}},
-               cockpit={"transcripts": True})
+               cockpit={"transcripts": True},
+               budget={"max_cost_usd": CEILING})
+    scorer(repo, "review-rounds", {"workflow": "pr-review", "kind": "code",
+                                   "predicate": "review_chapters_above(1)"},
+           "# Review rounds\n\nOne round of review is a conversation; two is a pattern.\n")
     forge_data(repo, "issue.json", {**issue_json(42, author="schurik", body=ISSUE),
                                     "title": "Resolve relative due dates via the meeting date"})
     fake_roster(repo, **replies(repo))
@@ -190,12 +212,17 @@ def tell(repo: Path) -> None:
     with_origin(repo)
     commit_all(repo)
 
-    asked = asf(repo, "run", "issue", "42", "--adw-id", ID, "--hitl", "plan")
+    rolled_back = asf(repo, "run", "issue", "42", "--adw-id", ID, "--hitl", "plan")
+    assert rolled_back.returncode == 1, rolled_back.stdout + rolled_back.stderr
+    asked = asf(repo, "resume", ID)
     assert asked.returncode == 75, asked.stdout + asked.stderr
     rejected = asf(repo, "reject", ID, "-m", "name the module the date is converted in")
     assert rejected.returncode == 75, rejected.stdout + rejected.stderr
-    approved = asf(repo, "approve", ID, "-m", "keep the prompt in English")
-    assert approved.returncode == 0, approved.stdout + approved.stderr
+    limited = asf(repo, "approve", ID, "-m", "keep the prompt in English")
+    assert limited.returncode == 1, limited.stdout + limited.stderr
+    set_config(repo, budget={"max_cost_usd": 5.0})
+    built = asf(repo, "resume", ID)
+    assert built.returncode == 0, built.stdout + built.stderr
 
     review_round(repo, "the date should read like Sep 25, 2026",
                  "def build_prompt(meeting_date):\n    return f'{meeting_date:%b %d, %Y}'\n",
@@ -300,6 +327,24 @@ def test_the_recorded_story_still_runs_and_is_written_only_when_asked(tmp_path: 
         "commit_plan": 2, "verify_1": 4, "review_1": 5, "commit_implement": 6, "integrate": 9,
         "report": None}
     assert json.loads((session_dir(repo, ID) / "run.json").read_text())["status"] == "success"
+    # The failures are facts of their own, and every chapter was scored on them.
+    [rolled_back] = [line for line in lines if line.kind == "permission_rolled_back"]
+    assert (rolled_back.payload["agent"], rolled_back.payload["paths"]) == ("scout", ["NOTES.md"])
+    [hit] = [line for line in lines if line.kind == "limit_hit"]
+    assert (hit.payload["agent"], hit.payload["kind"], hit.payload["limit"]) == (
+        "builder", "cost", CEILING)
+    latest = {(line.payload["chapter"], line.payload["scorer"]):
+              (line.payload["class"], line.payload["evidence"])
+              for line in lines if line.kind == "chapter_scored"}
+    review_opened = [line.seq for line in lines
+                     if line.kind == "workflow_started" and line.payload["input"] == "pr"]
+    assert {key: value for key, value in latest.items() if key[0] == 1} == {
+        (1, "corrections"): ("within", latest[1, "corrections"][1]),
+        (1, "limit-hits"): ("hit", [hit.seq]),
+        (1, "not-accepted"): ("accepted", []),
+        (1, "permission-rollbacks"): ("rolled_back", [rolled_back.seq])}
+    assert (latest[2, "review-rounds"], latest[3, "review-rounds"]) == (
+        ("within", review_opened[:1]), ("above", review_opened))
     assert git(repo, "log", "-1", "--format=%s", f"asf/{ID}") == "fix: one date format throughout"
 
     provenance = Provenance(
@@ -338,6 +383,14 @@ def test_the_cockpit_keeps_a_session_from_before_stages():
     lines = [json.loads(text) for text in (SESSIONS / BEFORE_STAGES / "events.jsonl").read_text().splitlines()]
     assert {line["v"] for line in lines if line["kind"] == "workflow_started"} == {1}
     assert all("stage_index" not in line["payload"] for line in lines if line["kind"] == "phase_started")
+
+
+def test_the_cockpit_keeps_a_session_from_before_scores():
+    """A session recorded before a chapter's end said whether it was accepted
+    stays in the corpus beside the one scored: no score, and no `accepted`."""
+    lines = [json.loads(text) for text in (SESSIONS / BEFORE_SCORES / "events.jsonl").read_text().splitlines()]
+    assert {line["v"] for line in lines if line["kind"] == "workflow_finished"} == {1}
+    assert not [line for line in lines if line["kind"] == "chapter_scored"]
 
 
 @pytest.mark.parametrize("name", RECORDINGS)

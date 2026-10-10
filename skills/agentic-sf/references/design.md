@@ -216,7 +216,17 @@ classes are fixed; it costs nothing. `corrections_above(n)` counts the times an 
 was refused and sent back to the same session — an envelope that did not parse
 (`envelope_rejected`), or a round of its gates that failed (`gate_result`, one per gate, so a
 round counts once) — and is `above` (failing) past `n`, `within` otherwise; with `focus`, only that
-agent's. A **judge** declares its own `classes`, each `{name, fail}`, how often it judges
+agent's. The rest of the closed set reads the failures that are facts of their own (below, under the
+engine): `permission_rolled_back` is `rolled_back` (failing) when an agent's writes outside its
+boundary were undone, `clean` otherwise; `limit_hit`, or `limit_hit(tokens|cost|timeout)` for one
+kind, is `hit` (failing) when a limit stopped a phase, `none` otherwise — both narrowed by `focus`,
+both citing each event. `not_accepted` is `not_accepted` (failing) when the chapter's latest
+`workflow_finished` says `accepted: false`, `accepted` otherwise — a chapter whose phase failed was
+never judged, and is not counted. `review_chapters_above(k)` is the one counted per session: on the
+chapter being scored, the session's latest, it counts every chapter opened on a pull request's
+review (`workflow_started`, `input: pr`) up to and including it, and is `above` (failing) past `k`;
+its evidence is those openings, earlier chapters' included. The last two judge the whole chapter,
+and `check` refuses them a `focus`. A **judge** declares its own `classes`, each `{name, fail}`, how often it judges
 (`sample_rate`, 0 to 1) and optionally a `model`; its prose is the criteria. A judge is checked
 today and not yet run.
 
@@ -224,7 +234,7 @@ When a chapter ends — accepted, refused, or a phase failed — the station sco
 code scorer bound to its workflow, after its `workflow_finished` (`scorers.after_chapter`, from
 `workflow.run`). Each score is a `chapter_scored` on the judged session's own record: the scorer,
 its class, whether that class is failing, and the seqs of the events it rests on, every one in
-that chapter. **A score never changes how the chapter ended** — a scorer measures, a gate decides
+that chapter — or, for `review_chapters_above`, in the session's chapters up to it. **A score never changes how the chapter ended** — a scorer measures, a gate decides
 (ADR 0006) — and a scorer that cannot run is said on the console and skipped. A criterion that
 must block work is not a scorer; it is a gate, in Python. A chapter stopped at a gate has not
 ended, and is scored by the process that ends it.
@@ -241,6 +251,12 @@ The threshold is when one scorer's failing scores stop being a bad day: `self_im
 {failures: 3, of_last: 10}` in `factory.yaml` for every scorer, and a scorer's own
 `improve_after:` for a stricter or looser one. A scorer is **the operator's**: `install.py
 --force` never rewrites anything under `asf/scorers/`.
+
+A stamp ships four code scorers on `issue`, turned on, so a factory is measured from its first
+chapter: `corrections` (`corrections_above(2)`), `permission-rollbacks`
+(`permission_rolled_back`), `limit-hits` (`limit_hit`) and `not-accepted` (`not_accepted`). They
+are stamped from `templates/asf/scorers/` where there is none, and are the team's from then on —
+changed, focused or deleted like any scorer, and kept by every re-run, `--force` or not.
 
 ## The engine
 

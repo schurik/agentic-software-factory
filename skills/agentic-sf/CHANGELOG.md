@@ -26,10 +26,18 @@ before — `None` when there are none, never omitted.
   predicate; prose for the criteria — and once a chapter of that workflow ends, accepted or not,
   the station records its score as `chapter_scored` on the session: the class, whether it is
   failing, and the seqs of the events it rests on. The score never changes how the chapter ended.
-  The first predicate is `corrections_above(n)`: the times an agent's answer was refused and sent
-  back (an envelope that did not parse, a round of gates that failed). `asf check` refuses a
+  The predicates are a closed set: `corrections_above(n)`, the times an agent's answer was
+  refused and sent back (an envelope that did not parse, a round of gates that failed);
+  `permission_rolled_back`; `limit_hit`, or `limit_hit(tokens|cost|timeout)` for one kind;
+  `not_accepted`, the phases passed and the workflow refused the chapter; and
+  `review_chapters_above(k)`, the rounds of pull-request review a session has needed, counted per
+  session and scored on its latest chapter. `asf check` refuses a
   malformed scorer — an unknown workflow, agent or predicate, a judge with no failing class or a
-  `sample_rate` outside 0..1 — and `install.py --force` never rewrites one. `self_improvement:
+  `sample_rate` outside 0..1, a predicate's argument it does not take, a `focus` on a predicate
+  that judges the whole chapter — and `install.py --force` never rewrites one. **A stamp ships
+  four code scorers on `issue`, turned on**, so a factory is measured from its first chapter:
+  `corrections` (`corrections_above(2)`), `permission-rollbacks`, `limit-hits` and
+  `not-accepted`. A re-run of `install.py` names every scorer it kept. `self_improvement:
   {failures: 3, of_last: 10}` in factory.yaml, or a scorer's own `improve_after:`, is when its
   failing scores count as a pattern. `asf check --json` is format 3: it lists the scorers with
   their classes and thresholds resolved, and the threshold under `settings.measure`. A 1.3.0
@@ -176,8 +184,13 @@ before — `None` when there are none, never omitted.
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
    settings in the self-description, registering without a token, the pull request events and
-   the failure events, and scoring; nothing else changes. No scorer ships yet: a factory that
-   wants one writes `asf/scorers/<name>/scorer.md` and runs `just check`. `asf/factory.yaml.new`
+   the failure events, and scoring; nothing else changes. The re-stamp — or `install.py`
+   without `--force`, which stamps only what is missing — adds the four default scorers under
+   `asf/scorers/` (`corrections`, `permission-rollbacks`, `limit-hits`, `not-accepted`, all on
+   `issue`): commit them, and `just check` lists them. A factory that has no `issue` workflow,
+   or wants other criteria, edits or deletes them — they are the team's from then on, and no
+   later `--force` touches them. Add `asf/scorers/` to your `protected_files:`, as
+   `asf/factory.yaml.new` does, so no agent can edit what measures it. `asf/factory.yaml.new`
    carries the `self_improvement:` block; without it the defaults (3 of the last 10) apply. The
    PR watcher's first pass after it (`just prs`, or `just up`) records every pull request the
    factory opened that has since closed, 20 a pass — what the Measure tab counts merges from;

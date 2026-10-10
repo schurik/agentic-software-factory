@@ -381,6 +381,11 @@ def main() -> int:
         print(f"    + {s}")
     if skipped:
         print(f"  skipped (already exist, use --force to overwrite): {len(skipped)}")
+    kept = [path for path in skipped if user_owned(Path(path))]
+    if kept:
+        print(f"  kept (yours, never overwritten — --force or not): {len(kept)}")
+        for path in kept:
+            print(f"    = {path}")
     for mine, proposed in config_notes:
         print("\n  YOUR CONFIG WAS NOT TOUCHED — a fresh render is beside it:")
         print(f"    yours: {mine}\n    new:   {proposed}")

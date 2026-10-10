@@ -179,6 +179,55 @@ describe("authority and replays", () => {
   });
 });
 
+describe("a session scored, after a rollback and a limit hit", () => {
+  // The recording's chapter 1 failed twice before it shipped — a scout rolled
+  // back, then the builder's first turn refused by the session's cost ceiling —
+  // and was scored each time it ended; each review round was scored too.
+  const SCORED = recorded["issue-then-two-reviews-scored"];
+
+  async function scored(upTo = SCORED.events.length) {
+    const t = cockpit();
+    await ship(t, await factory(t), SCORED.events.slice(0, upTo));
+    return story(t);
+  }
+
+  it("tells the rollback and the limit hit as facts of the phases they stopped, while each was how it stood", async () => {
+    // A phase card tells its latest run: shipped as far as each failed process, it is the failure.
+    const phase = async (upTo: number, phaseId: string) =>
+      (await scored(upTo)).chapters[0].items.find((item) => item.type === "agent" && item.phaseId === phaseId);
+
+    expect(await phase(23, "a9f259f0_02_scout")).toMatchObject({
+      status: "fail", rollback: { paths: ["NOTES.md"], notUndone: [] }, limit: null });
+    expect(await phase(157, "a9f259f0_08_implement")).toMatchObject({
+      status: "fail", rollback: null, limit: { kind: "cost", limit: 0.17, reached: 0.183 } });
+  });
+
+  it("tells each chapter's scores as they stood when it last ended, citing the phases of their evidence", async () => {
+    const { chapters } = await scored();
+
+    expect(chapters.map(({ number, status, accepted }) => [number, status, accepted]))
+      .toEqual([[1, "success", true], [2, "success", true], [3, "success", true]]);
+    expect(chapters[0].scores).toEqual([
+      { scorer: "corrections", kind: "code", class: "within", failing: false, evidence: [91],
+        cites: [{ phaseId: "a9f259f0_05_plan_revise_1", name: "plan_revise_1" }] },
+      { scorer: "limit-hits", kind: "code", class: "hit", failing: true, evidence: [149],
+        cites: [{ phaseId: "a9f259f0_08_implement", name: "implement" }] },
+      { scorer: "not-accepted", kind: "code", class: "accepted", failing: false, evidence: [], cites: [] },
+      { scorer: "permission-rollbacks", kind: "code", class: "rolled_back", failing: true, evidence: [15],
+        cites: [{ phaseId: "a9f259f0_02_scout", name: "scout" }] },
+    ]);
+    // Counted per session: its evidence is each review chapter's opening, which no phase owns.
+    expect(chapters.slice(1).map(({ scores }) => scores)).toEqual([
+      [{ scorer: "review-rounds", kind: "code", class: "within", failing: false, evidence: [263], cites: [] }],
+      [{ scorer: "review-rounds", kind: "code", class: "above", failing: true, evidence: [263, 295], cites: [] }],
+    ]);
+  });
+
+  it("is the journal the factory rendered for the next agent, byte for byte", async () => {
+    expect((await scored()).journal).toBe(SCORED.journal);
+  });
+});
+
 describe("the journal", () => {
   it("is the journal the factory rendered for the next agent, byte for byte", async () => {
     const { t } = await told();

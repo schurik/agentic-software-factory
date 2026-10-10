@@ -195,7 +195,10 @@ lines) — not a transcript.
 
 A chapter that ended is scored by every scorer bound to its workflow: the run's
 last lines say `scored by <scorer>: <class>`, `(failing)` where that class is,
-and the session holds each as a `chapter_scored`. A score is a measurement, not
+and the session holds each as a `chapter_scored`. An `issue` chapter is scored
+by the four a stamp ships: `corrections` (`above` past two), `permission-rollbacks`
+(`rolled_back`), `limit-hits` (`hit`) and `not-accepted` — so a run that met a
+rollback or a limit says `(failing)` beside it, citing the very event. A score is a measurement, not
 the outcome — never report a run accepted as failed, or the reverse, because of
 one. A scorer that could not run says so (`scorer <name> did not score: …`);
 `just check` names what is wrong with it.
