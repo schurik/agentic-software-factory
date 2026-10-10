@@ -12,6 +12,8 @@ A criterion that must block work is a gate, in Python.
 
 Two kinds. A CODE scorer names one predicate from the closed set below, a pure
 function over the chapter's domain events with fixed classes; it costs nothing.
+A stamp ships four of them on `issue` (`templates/asf/scorers/`), so a factory
+is measured from its first chapter.
 A JUDGE is a model reading the chapter against the prose, with the classes its
 frontmatter declares — checked here, not yet run: a chapter no scorer judged
 simply has no score, which is how a reader tells "not judged".
@@ -19,7 +21,7 @@ simply has no score, which is how a reader tells "not judged".
 `load` is what `asf check` refuses a scorer with and what a run reads its
 scorers through, so a scorer `check` accepts is one a run will score with. A
 scorer is the operator's file, like factory.yaml: `install.py --force` never
-rewrites one.
+rewrites one, the shipped four included once they are there.
 """
 
 from __future__ import annotations
@@ -27,12 +29,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Literal, Mapping, Sequence, get_args
 
 from pydantic import ValidationError
 
 from . import artifacts, events, frontmatter
-from .data_types import ChapterScored, EventLine, ScorerClass, ScorerSpec
+from .data_types import ChapterScored, EventLine, LimitKind, ScorerClass, ScorerSpec
 
 if TYPE_CHECKING:
     from .runner import Run
@@ -47,14 +49,21 @@ SCORER_FILE = "scorer.md"
 @dataclass
 class ChapterRecord:
     """The events of one chapter of one session, in order, and who owned each
-    phase in it — what a predicate reads, and the only seqs it may cite."""
+    phase in it — what a predicate reads, and the seqs it cites. `session` is
+    every line of the session, for the one predicate counted per session
+    (`review_chapters_above`), whose evidence is other chapters' openings."""
 
     number: int
     lines: list[EventLine] = field(default_factory=list)
     owners: dict[str, str] = field(default_factory=dict)      # phase_id -> agent
+    session: list[EventLine] = field(default_factory=list)
 
     def agent_of(self, line: EventLine) -> str:
         return str(line.payload.get("agent") or self.owners.get(line.payload.get("phase_id"), ""))
+
+    def of(self, focus: str, line: EventLine) -> bool:
+        """Whether `line` counts under `focus`: every line without one."""
+        return not focus or self.agent_of(line) == focus
 
 
 def chapter_record(lines: Sequence[EventLine], number: int) -> ChapterRecord:
@@ -65,7 +74,7 @@ def chapter_record(lines: Sequence[EventLine], number: int) -> ChapterRecord:
     lie between them; a new process's `session_started` belongs to none until
     it says which chapter it took.
     """
-    record = ChapterRecord(number=number)
+    record = ChapterRecord(number=number, session=list(lines))
     current = 0
     for line in lines:
         if line.kind in ("workflow_started", "session_resumed"):
@@ -91,12 +100,20 @@ class Classed:
     evidence: list[int]
 
 
+# What a predicate's parentheses take: nothing, a whole number, or optionally
+# one kind of limit. `check` refuses anything else before a run can trip on it.
+Takes = Literal["", "n", "limit_kind?"]
+LIMIT_KINDS = get_args(LimitKind)
+
+
 @dataclass(frozen=True)
 class Predicate:
     name: str
-    takes: str                      # what goes in the parentheses, as `check` says it
+    form: str                       # how `check` writes it: `limit_hit(kind?)`
+    takes: Takes
     classes: tuple[ScorerClass, ...]
-    classify: Callable[[ChapterRecord, str, int], Classed]     # (record, focus, argument)
+    classify: Callable[[ChapterRecord, str, object], Classed]  # (record, focus, argument)
+    focuses: bool = True            # whether a `focus:` agent narrows what it counts
 
 
 def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Classed:
@@ -106,7 +123,7 @@ def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Classed
     phase and attempt). The evidence is every one of those events."""
     evidence, rejected, failed_rounds = [], 0, set()
     for line in record.lines:
-        if focus and record.agent_of(line) != focus:
+        if not record.of(focus, line):
             continue
         if line.kind == "envelope_rejected":
             rejected += 1
@@ -118,27 +135,93 @@ def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Classed
     return Classed("above" if corrections > limit else "within", evidence)
 
 
+def _permission_rolled_back(record: ChapterRecord, focus: str, _: object) -> Classed:
+    """An agent wrote outside its `writes:` and the factory undid it: every
+    `permission_rolled_back` in the chapter is the evidence."""
+    evidence = [line.seq for line in record.lines
+                if line.kind == "permission_rolled_back" and record.of(focus, line)]
+    return Classed("rolled_back" if evidence else "clean", evidence)
+
+
+def _limit_hit(record: ChapterRecord, focus: str, kind: object) -> Classed:
+    """A budget ceiling or a turn's wall clock stopped an agent phase: every
+    `limit_hit` in the chapter, of `kind` when one is named."""
+    evidence = [line.seq for line in record.lines if line.kind == "limit_hit"
+                and (not kind or line.payload.get("kind") == kind) and record.of(focus, line)]
+    return Classed("hit" if evidence else "none", evidence)
+
+
+def _not_accepted(record: ChapterRecord, _focus: str, _: object) -> Classed:
+    """The phases passed and the workflow still did not accept the chapter: a
+    fix loop that ran out, a reviewer who withheld approval. A chapter that
+    failed in a phase was never judged, and says accepted (`WorkflowFinished`).
+    A resumed chapter finishes again, and its latest end is how it stands; a
+    `workflow_finished` from before `accepted` was recorded says nothing of
+    it, and is taken as accepted."""
+    ends = [line for line in record.lines if line.kind == "workflow_finished"]
+    if ends and ends[-1].payload.get("accepted", True) is False:
+        return Classed("not_accepted", [ends[-1].seq])
+    return Classed("accepted", [])
+
+
+def _review_chapters_above(record: ChapterRecord, _focus: str, limit: int) -> Classed:
+    """How many rounds of pull-request review the session has needed — counted
+    per session, on the chapter being scored, which is its latest: every
+    chapter opened on a pull request's review (`workflow_started`, `input:
+    pr`) up to and including this one. Its evidence is each of those
+    openings, earlier chapters' included: the count is the session's."""
+    opened: dict[int, int] = {}
+    for line in record.session:
+        chapter = int(line.payload.get("chapter") or 0)
+        if (line.kind == "workflow_started" and line.payload.get("input") == "pr"
+                and 0 < chapter <= record.number):
+            opened.setdefault(chapter, line.seq)
+    evidence = sorted(opened.values())
+    return Classed("above" if len(evidence) > limit else "within", evidence)
+
+
+_COUNT = (ScorerClass(name="above", fail=True), ScorerClass(name="within", fail=False))
+
 PREDICATES: dict[str, Predicate] = {predicate.name: predicate for predicate in (
-    Predicate("corrections_above", "n, the most corrections a chapter may take and pass",
-              (ScorerClass(name="above", fail=True), ScorerClass(name="within", fail=False)),
-              _corrections_above),
+    Predicate("corrections_above", "corrections_above(n)", "n", _COUNT, _corrections_above),
+    Predicate("permission_rolled_back", "permission_rolled_back", "",
+              (ScorerClass(name="rolled_back", fail=True), ScorerClass(name="clean", fail=False)),
+              _permission_rolled_back),
+    Predicate("limit_hit", "limit_hit(kind?)", "limit_kind?",
+              (ScorerClass(name="hit", fail=True), ScorerClass(name="none", fail=False)),
+              _limit_hit),
+    Predicate("not_accepted", "not_accepted", "",
+              (ScorerClass(name="not_accepted", fail=True),
+               ScorerClass(name="accepted", fail=False)),
+              _not_accepted, focuses=False),
+    Predicate("review_chapters_above", "review_chapters_above(k)", "n", _COUNT,
+              _review_chapters_above, focuses=False),
 )}
 
 _CALL = re.compile(r"\s*([a-z_]+)\s*(?:\(\s*([^)]*?)\s*\))?\s*")
 
 
-def parse_predicate(text: str) -> tuple[Predicate, int]:
-    """`corrections_above(2)` → (its predicate, 2). Raises ValueError saying why not."""
+def parse_predicate(text: str) -> tuple[Predicate, object]:
+    """`corrections_above(2)` → (its predicate, 2); `limit_hit` → (its
+    predicate, ""). Raises ValueError saying why not."""
     match = _CALL.fullmatch(text or "")
-    known = ", ".join(f"{name}({p.takes.split(',')[0]})" for name, p in PREDICATES.items())
+    known = ", ".join(predicate.form for predicate in PREDICATES.values())
     if not match or match[1] not in PREDICATES:
         raise ValueError(f"predicate {text!r} is not one of the closed set: {known}")
-    predicate = PREDICATES[match[1]]
-    argument = match[2]
-    if argument is None or not argument.isdigit():
-        raise ValueError(f"predicate {text!r} takes a whole number: {predicate.name}"
-                         f"({predicate.takes})")
-    return predicate, int(argument)
+    predicate, argument = PREDICATES[match[1]], match[2] or ""
+    if predicate.takes == "n":
+        if not argument.isdigit():
+            raise ValueError(f"predicate {text!r} takes a whole number: {predicate.form}")
+        return predicate, int(argument)
+    if predicate.takes == "limit_kind?":
+        if argument and argument not in LIMIT_KINDS:
+            raise ValueError(f"predicate {text!r} names no kind of limit: {predicate.form}, "
+                             f"where kind is one of {', '.join(LIMIT_KINDS)} or left out for "
+                             f"any")
+        return predicate, argument
+    if argument:
+        raise ValueError(f"predicate {text!r} takes nothing: {predicate.form}")
+    return predicate, ""
 
 
 # ── scorers, loaded and checked ──────────────────────────────────────────────
@@ -241,10 +324,14 @@ def _problems(spec: ScorerSpec, criteria: str,
                         f"({', '.join(workflows[spec.workflow]) or 'it binds none'})")
     if spec.kind == "code":
         try:
-            parse_predicate(spec.predicate)
+            predicate, _ = parse_predicate(spec.predicate)
         except ValueError as error:
             problems.append(str(error) if spec.predicate else
                             "a code scorer names its predicate: `predicate: corrections_above(2)`")
+        else:
+            if spec.focus and not predicate.focuses:
+                problems.append(f"{predicate.name} judges the whole chapter, not one agent — "
+                                f"drop `focus: {spec.focus}`")
         judges = [key for key in ("classes", "sample_rate", "model")
                   if key in spec.model_fields_set]
         if judges:

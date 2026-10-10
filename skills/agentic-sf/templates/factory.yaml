@@ -6,14 +6,16 @@
 # a directory under asf/workflows/. This file is the manifest they plug into.
 
 # Off-limits to every agent that does not name them in its own `writes`. An
-# agent must not be able to edit the machinery that judges its own work — nor
-# the record of which release stamped it, the cockpit it reports to, or the CI
-# check that runs `asf check` on its pull request.
+# agent must not be able to edit the machinery that judges its own work, nor
+# the scorers that measure it — nor the record of which release stamped it, the
+# cockpit it reports to, or the CI check that runs `asf check` on its pull
+# request.
 protected_files:
   - asf/engine/
   - asf/stages/
   - asf/workflows/
   - asf/agents/
+  - asf/scorers/
   - asf/cockpit/
   - asf/factory.yaml
   - asf/asf.py

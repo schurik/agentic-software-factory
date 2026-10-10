@@ -110,7 +110,7 @@ is the answer: it comes with connecting, and you say why
 | `asf/stages/<name>/` | `templates/asf/stages/` | yes — the closed vocabulary: scout, plan, implement, verify, review, document, commit, integrate. Each is `stage.py` plus its default task files |
 | `asf/agents/<name>/agent.md` | `templates/asf/agents/` | yes — **the user-owned home for identity**: frontmatter for the engine, prose for the model |
 | `asf/workflows/<name>/` | `templates/asf/workflows/` | yes — `sdlc`, `quick`, `ship`, `issue`, `pr-review` |
-| `asf/scorers/<name>/scorer.md` | written by the team (none ship yet) | yes — what a workflow's finished chapters are judged by; **never rewritten, even by `--force`** ([design.md](../references/design.md#scorers)) |
+| `asf/scorers/<name>/scorer.md` | `templates/asf/scorers/` — four code scorers on `issue`: `corrections`, `permission-rollbacks`, `limit-hits`, `not-accepted` — and whatever the team writes | yes — what a workflow's finished chapters are judged by; stamped where missing, **never rewritten, even by `--force`**, and a re-run lists each one it kept ([design.md](../references/design.md#scorers)) |
 | `asf/.skill-version` | `templates/asf/.skill-version` | yes — the skill release that stamped it; `doctor` compares it with the skill's own. Never edit it: `--force` rewrites it, and a factory without one was stamped before 1.1 |
 | `.env.sample` | `templates/harnesses/<harness>/env.sample` | yes — only the keys that harness needs |
 | `.env` | copied from `.env.sample`, with `ASF_SKILL=` written in | **no** — gitignored, and the reason a clone needs `install.py` re-run |
@@ -145,7 +145,9 @@ workflows and agents, `asf/.skill-version`) to the skill's current version.
 **It does not overwrite `asf/factory.yaml`**: a fresh render lands beside it as
 `asf/factory.yaml.new` and the installer prints `YOUR CONFIG WAS NOT TOUCHED`,
 leaving the diff to you. **Nor anything under `asf/scorers/`**: a scorer is the
-team's criteria, kept as written. Everything else stamped *is* replaced,
+team's criteria, kept as written — the four a stamp ships included, once they
+are there. A re-run stamps a shipped scorer only where there is none, and names
+every scorer it kept under `kept (yours, never overwritten …)`. Everything else stamped *is* replaced,
 including agent prose you edited, so commit before you force.
 
 Every re-run also **lints the config it kept**: each key a release dropped is

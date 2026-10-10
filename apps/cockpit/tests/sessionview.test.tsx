@@ -325,6 +325,35 @@ describe("a failure that is a fact", () => {
   });
 });
 
+describe("a phase stopped on an earlier run", () => {
+  // The scout was rolled back and the builder stopped at the cost limit, each in a process
+  // that failed; both were resumed and passed. A score cites those facts, and so does the card.
+  const SCORED = recorded["issue-then-two-reviews-scored"].events;
+  const SCOUT = "a9f259f0_02_scout";
+  const IMPLEMENT = "a9f259f0_08_implement";
+  const ROLLED_BACK = "↺ an earlier run wrote outside its boundary: NOTES.md rolled back";
+  const LIMITED = "⏹ an earlier run stopped at the cost limit: $0.18 spent of $0.17";
+  const overview = (phase: string) => html({ events: SCORED, shown: { phase } }).split("data-drawer=").at(-1)!;
+
+  it("says so on the phase's Overview, quietly, under how the phase ended", () => {
+    expect(read(overview(SCOUT))).toContain(ROLLED_BACK);
+    expect(read(overview(IMPLEMENT))).toContain(LIMITED);
+    expect(overview(SCOUT)).not.toContain("text-bad");          // it passed: the fact is history, not a failure
+  });
+
+  it("says so on the Timeline, under the phase's line", () => {
+    const timeline = text({ events: SCORED, shown: { tab: "timeline" } });
+    expect(timeline).toContain(ROLLED_BACK);
+    expect(timeline).toContain(LIMITED);
+  });
+
+  it("says nothing of it while the failure is how the phase stands", () => {
+    const failed = failedIn(upTo(18, SCORED));
+    expect(text({ events: failed, shown: { tab: "timeline" } })).not.toContain("an earlier run");
+    expect(text({ events: failed, shown: { phase: SCOUT } })).not.toContain("an earlier run");
+  });
+});
+
 describe("a chapter's scores", () => {
   const IMPLEMENT = "a9f259f0_08_implement";
   const last = STAGED.at(-1)!.seq;

@@ -76,6 +76,17 @@ export interface Limit {
   reached: number;
 }
 
+/**
+ * What stopped one of a phase's runs before its latest — a rollback or a limit,
+ * at the seq that said it. A resumed phase that passed still holds it: a score
+ * cites that seq, and the phase it lands on has to say what happened there.
+ */
+export interface Stop {
+  seq: number;
+  rollback: Rollback | null;
+  limit: Limit | null;
+}
+
 export interface Decision {
   verdict: string;
   by: string;
@@ -119,6 +130,8 @@ export interface AgentItem extends PhaseFacts {
   // What stopped it, when a fact says so: the page tells these rather than the error's prose.
   rollback: Rollback | null;
   limit: Limit | null;
+  // What stopped its earlier runs, oldest first: history once a later run passed.
+  earlier: Stop[];
 }
 
 export interface CodeItem extends PhaseFacts {
@@ -275,6 +288,8 @@ interface PhaseState {
   commands: Command[];
   rollback: Rollback | null;
   limit: Limit | null;
+  stoppedAt: number;      // the seq of the rollback or limit above, 0 for none
+  earlier: Stop[];
   gate: string;
   round: number;
   gateKind: string;
@@ -384,15 +399,19 @@ function phaseStarted(state: StoryState, p: Payload, { seq, ts }: At): void {
       stageIndex: null, name: "", kind: "", owner: "", description: "", task: "", status: "", error: "", runs: [],
       replayed: false, outputType: "", summary: "", corrections: 0, model: "", toolCalls: 0, toolFailures: 0,
       cost: 0, tokens: 0, changedFiles: [], artifacts: [], request: null, commits: [], commands: [],
-      rollback: null, limit: null, gate: "", round: 0, gateKind: "gate", channel: "", issueNumber: 0, headSha: "",
+      rollback: null, limit: null, stoppedAt: 0, earlier: [], gate: "", round: 0, gateKind: "gate", channel: "", issueNumber: 0, headSha: "",
       gateSummary: "", askedAt: "", decision: null,
     };
     state.phases.push(found);
   }
+  // A new run tells what stops it afresh; what stopped the last one becomes history.
+  if (found.rollback || found.limit) {
+    found.earlier.push({ seq: found.stoppedAt, rollback: found.rollback, limit: found.limit });
+  }
   Object.assign(found, {
     name: p.str("name") || found.name, kind: p.str("kind") || found.kind,
     owner: p.str("owner") || found.owner, description: p.str("description") || found.description,
-    task: p.str("task") || found.task, status: "running", error: "", rollback: null, limit: null,
+    task: p.str("task") || found.task, status: "running", error: "", rollback: null, limit: null, stoppedAt: 0,
   });
   found.runs.push({ started: ts, ended: "", replay: false });
   state.open = found;
@@ -553,13 +572,15 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     }),
   },
   permission_rolled_back: {
-    1: withPhase((phase, p) => {
+    1: withPhase((phase, p, { seq }) => {
       phase.rollback = { paths: p.strs("paths"), notUndone: p.strs("not_undone") };
+      phase.stoppedAt = seq;
     }),
   },
   limit_hit: {
-    1: withPhase((phase, p) => {
+    1: withPhase((phase, p, { seq }) => {
       phase.limit = { kind: p.str("kind"), limit: p.num("limit"), reached: p.num("reached") };
+      phase.stoppedAt = seq;
     }),
   },
   gate_opened: { 1: (state, p, at) => asked(state, p.obj("waiting_for"), at) },
@@ -691,7 +712,8 @@ function item(phase: PhaseState, journal: Entry[]): Item {
     return { ...facts, type: "agent", task: phase.task, outputType: phase.outputType, summary: phase.summary,
              corrections: phase.corrections, model: phase.model, toolCalls: phase.toolCalls, toolFailures: phase.toolFailures,
              cost: phase.cost, tokens: phase.tokens, changedFiles: phase.changedFiles,
-             artifacts: phase.artifacts, notes, replayed: phase.replayed, rollback: phase.rollback, limit: phase.limit };
+             artifacts: phase.artifacts, notes, replayed: phase.replayed, rollback: phase.rollback, limit: phase.limit,
+             earlier: phase.earlier };
   }
   return codeItem(phase);
 }
