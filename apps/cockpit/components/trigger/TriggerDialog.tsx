@@ -5,7 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { repoKey } from "@/convex/forge/forge";
-import type { Offered, Triggered } from "@/convex/trigger";
+import type { Offered } from "@/convex/trigger";
 import { factoryInView } from "../run/dialog";
 import { said } from "../said";
 import { useSignIn } from "../signIn";
@@ -40,15 +40,19 @@ export function TriggerWorkflow({ as, children }: { as: string; children: ReactN
       <Modal open={opened !== null} onClose={close} title="Trigger a workflow"
              description="Labels an issue on the forge as you, and the factory's issues watcher starts the workflow.">
         <ViewerLogin.Provider value={as || null}>
-          <LiveTriggerForm start={opened?.factory ?? ""} as={as} onCancel={close} />
+          <LiveTriggerForm start={opened?.factory ?? ""} as={as} onDone={close} />
         </ViewerLogin.Provider>
       </Modal>
     </Opener.Provider>
   );
 }
 
-/** The form, on what the forge says now: the routes are read again whenever another factory is chosen. */
-function LiveTriggerForm({ start, as, onCancel }: { start: string; as: string; onCancel: () => void }) {
+/**
+ * The form, on what the forge says now: the routes are read again whenever another factory is
+ * chosen. Labelled, the issue is the watcher's to start, and the dialog closes; refused, it stays
+ * open on why.
+ */
+function LiveTriggerForm({ start, as, onDone }: { start: string; as: string; onDone: () => void }) {
   const signIn = useSignIn();
   const readRoutes = useAction(api.trigger.routes);
   const trigger = useAction(api.trigger.trigger);
@@ -57,7 +61,7 @@ function LiveTriggerForm({ start, as, onCancel }: { start: string; as: string; o
   // The routes read, and for which factory: another factory's are none of this one's.
   const [read, setRead] = useState<{ factory: string; routes: Offered } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<Triggered | null>(null);
+  const [problem, setProblem] = useState("");
 
   // The factory asked for, spelled as the forge spells it.
   const factories = [...(offered ?? [])];
@@ -77,18 +81,20 @@ function LiveTriggerForm({ start, as, onCancel }: { start: string; as: string; o
   const submit = async () => {
     if (routes === null || !routes.ok) return;
     setBusy(true);
-    setOutcome(null);
+    setProblem("");
     try {
       const label = asked.label || routes.routes[0].label;
-      setOutcome(await trigger({ factory, issue: Number(asked.issue), label, signIn }));
+      const triggered = await trigger({ factory, issue: Number(asked.issue), label, signIn });
+      if (triggered.ok) onDone();
+      else setProblem(triggered.because);
     } catch (error) {
-      setOutcome({ ok: false, because: said(error) });
+      setProblem(said(error));
     } finally {
       setBusy(false);
     }
   };
   return (
-    <TriggerFormView factories={factories} routes={routes} asked={{ ...asked, factory }} busy={busy} outcome={outcome} as={as}
-                     onChange={(next) => { setAsked(next); setOutcome(null); }} onSubmit={() => void submit()} onCancel={onCancel} />
+    <TriggerFormView factories={factories} routes={routes} asked={{ ...asked, factory }} busy={busy} problem={problem} as={as}
+                     onChange={(next) => { setAsked(next); setProblem(""); }} onSubmit={() => void submit()} onCancel={onDone} />
   );
 }

@@ -18,7 +18,7 @@ const asked = (given: Partial<Asked> = {}): Asked => ({ factory: "acme/widgets",
 
 function form(shown: Asked, given: Partial<Parameters<typeof TriggerFormView>[0]> = {}): string {
   return renderToStaticMarkup(
-    <TriggerFormView factories={["acme/gadgets", "acme/widgets"]} routes={ROUTES} asked={shown} busy={false} outcome={null} as="alex"
+    <TriggerFormView factories={["acme/gadgets", "acme/widgets"]} routes={ROUTES} asked={shown} busy={false} problem="" as="alex"
                      onChange={() => undefined} onSubmit={() => undefined} onCancel={() => undefined} {...given} />);
 }
 
@@ -67,11 +67,8 @@ describe("the trigger form", () => {
     expect(form(asked({ factory: "" }), { routes: null })).not.toContain("Reading");
   });
 
-  it("links the issue it labelled, or says why it did not", () => {
-    expect(form(asked({ issue: "42" }), {
-      outcome: { ok: true, workflow: "issue", title: "health check broken", url: "https://github.com/acme/widgets/issues/42" },
-    })).toMatch(/<a [^>]*href="https:\/\/github.com\/acme\/widgets\/issues\/42" target="_blank" rel="noreferrer"><svg [^>]*aria-label="issue open".*?#42 health check broken<\/span><\/a>: issue starts when the factory&#x27;s issues watcher next polls/);
-    expect(form(asked({ issue: "43" }), { outcome: { ok: false, because: "#43 is closed" } }))
-      .toContain("Not triggered: #43 is closed.");
+  it("says why the forge refused it, and nothing until it has", () => {
+    expect(form(asked({ issue: "43" }), { problem: "#43 is closed" })).toContain("Not triggered: #43 is closed.");
+    expect(form(asked({ issue: "43" }))).not.toContain("Not triggered");
   });
 });

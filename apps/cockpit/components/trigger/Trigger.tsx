@@ -2,8 +2,7 @@
 
 import { Form } from "@base-ui/react/form";
 import { notAnIssue } from "@/convex/model/trigger";
-import type { Offered, Triggered } from "@/convex/trigger";
-import { ForgeRef } from "../icons";
+import type { Offered } from "@/convex/trigger";
 import { Button, Control, Field, Notice, Select } from "../ui";
 import { useWho } from "../viewer";
 
@@ -16,21 +15,22 @@ export interface Asked {
 
 /**
  * The Trigger a workflow dialog's body: the factory and one of its routes,
- * the issue, what pressing Trigger will do — before it is pressed, and once
- * it has been — then Cancel and Trigger. Whether the viewer may label the
+ * the issue, what pressing Trigger will do, why the forge refused it if it
+ * did — then Cancel and Trigger. Once it labels the issue the dialog closes. Whether the viewer may label the
  * factory's issues is the forge's word, which `routes` carries: the dialog
  * opens on any factory, and says there why nothing can be triggered on one.
  *
  * Pure: what it shows comes from its props, so a test renders it.
  */
-export function TriggerFormView({ factories, routes, asked, busy, outcome, as, onChange, onSubmit, onCancel }: {
+export function TriggerFormView({ factories, routes, asked, busy, problem, as, onChange, onSubmit, onCancel }: {
   /** The factories on the forge the viewer can read, and the one in view. */
   factories: string[];
   /** The chosen factory's routes; null while they are read. */
   routes: Offered | null;
   asked: Asked;
   busy: boolean;
-  outcome: Triggered | null;
+  /** Why the forge refused the last Trigger; empty when it has not. */
+  problem: string;
   /** Whose name the labels go on under: the viewer's login. */
   as: string;
   onChange: (asked: Asked) => void;
@@ -44,7 +44,9 @@ export function TriggerFormView({ factories, routes, asked, busy, outcome, as, o
   const by = as ? who(as) : "you";
   const ready = route !== undefined && asked.issue !== "" && !busy;
   return (
-    <Form className="grid gap-4" onFormSubmit={() => { if (ready) onSubmit(); }}>
+    // One column no wider than the dialog: an auto one grows to fit an unbreakable line, and
+    // pushes every field and the buttons past the dialog's edge.
+    <Form className="grid grid-cols-1 gap-4" onFormSubmit={() => { if (ready) onSubmit(); }}>
       <div className="grid gap-3 sm:grid-cols-2">
         <Select label="Factory" items={factories} value={factory} placeholder="Pick a factory"
                 onChange={(chosen) => onChange({ ...asked, factory: chosen, label: "" })} />
@@ -66,12 +68,7 @@ export function TriggerFormView({ factories, routes, asked, busy, outcome, as, o
             triggered it.
           </p>
         ) : null}
-      {outcome?.ok ? (
-        <Notice tone="ok" className="text-sm">
-          Labelled <ForgeRef kind="issue" href={outcome.url} state="open" newTab>#{asked.issue} {outcome.title}</ForgeRef>: {outcome.workflow} starts
-          when the factory&apos;s issues watcher next polls.
-        </Notice>
-      ) : outcome ? <Notice tone="bad" className="text-sm">Not triggered: {outcome.because}.</Notice> : null}
+      {problem ? <Notice tone="bad" className="text-sm">Not triggered: {problem}.</Notice> : null}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>
         <Button type="submit" variant="primary" disabled={!ready}>

@@ -23,7 +23,7 @@ function Harness({ onSubmit, onCancel = () => undefined }: { onSubmit: (asked: A
   const [asked, setAsked] = useState<Asked>({ factory: "acme/widgets", issue: "", label: "" });
   return (
     <TriggerFormView factories={Object.keys(ROUTES).sort()} routes={ROUTES[asked.factory] ?? null} asked={asked} busy={false}
-                     outcome={null} as="alex" onChange={setAsked} onSubmit={() => onSubmit(asked)} onCancel={onCancel} />
+                     problem="" as="alex" onChange={setAsked} onSubmit={() => onSubmit(asked)} onCancel={onCancel} />
   );
 }
 
