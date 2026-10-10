@@ -82,7 +82,25 @@ before — `None` when there are none, never omitted.
   under the chapter on the session page and counts on the Scorers view. `--scorer <name>`
   (repeatable) runs only the scorers named, and a name no scorer has is refused before anything
   is scored. A second run adds nothing; a chapter stopped at a gate is left to the process that
-  ends it, and a judge is checked, not run. No event changes.
+  ends it, and a judge scorer scores the chapters it samples, as after a chapter.
+- **A model can judge a chapter.** A scorer of `kind: judge` declares its `classes` (each failing
+  or not), a `sample_rate` and optionally a `model`, and its prose is the criteria. One shipped
+  roster agent, `judge` (`asf/agents/judge/agent.md`, on pi and claude_code alike), runs every
+  judge scorer under the factory's permissions with `writes: []`, reading the chapter's envelopes,
+  journal, the diff at each commit, prompts and raw output, and answers `{class, reasoning,
+  evidence}`. Its gates send it back to the same session when the class is not one its scorer
+  declares, it cites nothing, or a cited seq is not an event of that chapter. It reads in a
+  detached checkout of its own at the chapter's last commit, never the station's main checkout. What judging costs is the score's
+  `usage` — measurement, never a `usage` event of the session — and the judge's whole record
+  stays inside the session's directory, under `judges/`. `chapter_scored` v2 carries the
+  judge's `reasoning`, only under `cockpit: {transcripts: true}`; without it the key is absent.
+  Which chapters a judge samples is drawn from a hash, the same answer every time, so `asf score`
+  passes over a chapter its judge did not sample, and a chapter not judged has no event. `asf
+  check` refuses a judge scorer when the roster has no `judge` or its task
+  (`asf/engine/judge.md`) no longer matches `JudgeOutput`. **A stamp ships one example judge,
+  `reviewer-scope`, at `sample_rate: 0`**: shown as inactive on the Scorers view until a team
+  gives it a rate. A 1.3.0 cockpit reads `chapter_scored` v2, and shows a judge's reasoning under
+  its score on the session page when the factory sent it.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -196,10 +214,13 @@ before — `None` when there are none, never omitted.
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
    settings in the self-description, registering without a token, the pull request events and
-   the failure events, and scoring; nothing else changes. The re-stamp — or `install.py`
-   without `--force`, which stamps only what is missing — adds the four default scorers under
-   `asf/scorers/` (`corrections`, `permission-rollbacks`, `limit-hits`, `not-accepted`, all on
-   `issue`): commit them, and `just check` lists them. A factory that has no `issue` workflow,
+   the failure events, scoring, and judges — the `judge` agent and its task come with it; nothing
+   else changes. The re-stamp — or `install.py` without `--force`, which stamps only what is
+   missing — adds the four default scorers under `asf/scorers/` (`corrections`,
+   `permission-rollbacks`, `limit-hits`, `not-accepted`, all on `issue`) and the example judge
+   `reviewer-scope` at `sample_rate: 0`: commit them, and `just check` lists them. The judge
+   costs nothing until it is given a rate; a factory whose `issue` workflow binds no `reviewer`
+   refocuses or deletes it. A factory that has no `issue` workflow,
    or wants other criteria, edits or deletes them — they are the team's from then on, and no
    later `--force` touches them. Add `asf/scorers/` to your `protected_files:`, as
    `asf/factory.yaml.new` does, so no agent can edit what measures it. `asf/factory.yaml.new`

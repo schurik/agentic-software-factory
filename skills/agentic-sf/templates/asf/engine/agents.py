@@ -632,7 +632,8 @@ def _parse_with_retries(run, phase: Phase, call: AgentCall, result, send):
                     f"{call.output_type.__name__} JSON: {error}") from error
             run.console.retry(phase.params.owner, attempt, JSON_FIX_ATTEMPTS,
                               f"invalid {call.output_type.__name__} JSON: {error}")
-            fields = ", ".join(call.output_type.model_fields.keys())
+            fields = ", ".join(info.alias or name
+                               for name, info in call.output_type.model_fields.items())
             result = send(
                 f"Your response was not valid JSON for the required structure "
                 f"({error}). Respond again with ONLY a JSON object with these "

@@ -74,7 +74,8 @@ def check(path: Path, output_type: type[BaseModel]) -> list[str]:
                            f"told what JSON to answer with"]
     if not isinstance(example, dict):
         return problems + [f"{path}: the ## Report block must be a JSON object"]
-    fields = output_type.model_fields
+    # By the name a reply uses: `class`, not the `class_` Python spells it.
+    fields = {info.alias or name: info for name, info in output_type.model_fields.items()}
     unknown = sorted(set(example) - set(fields))
     required = sorted(name for name, info in fields.items() if info.is_required())
     missing = sorted(set(required) - set(example))

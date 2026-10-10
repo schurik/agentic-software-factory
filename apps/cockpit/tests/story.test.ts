@@ -487,6 +487,30 @@ describe("edges a recording does not reach", () => {
     expect({ ...after.chapters[0], scores: [] }).toEqual(before.chapters[0]);   // a score changes nothing else
   });
 
+  it("tells a judge's reasoning under its score when the station sent one, and a code score has none", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const judged = fixture("chapter_scored", 7, 2);
+    await ship(t, token, [
+      fixture("session_started", 1), chapter(2, 1),
+      started(3, "x_01_review", "review"), ended(4, "x_01_review", "review"),
+      { ...fixture("workflow_finished", 5, 2), payload: { workflow: "gated", chapter: 1, status: "success", reason: "", accepted: true } },
+      { ...fixture("chapter_scored", 6), payload: { ...(fixture("chapter_scored", 6).payload as object), evidence: [] } },
+      { ...judged, payload: { ...(judged.payload as object), evidence: [3] } },
+      // A factory that did not opt in to transcripts sends a judge's score without it.
+      { ...judged, seq: 8, payload: { ...(judged.payload as object), scorer: "quiet", evidence: [], reasoning: undefined } },
+    ]);
+
+    const [scored] = (await story(t)).chapters;
+    expect(scored.scores).toEqual([
+      { scorer: "corrections", kind: "code", class: "above", failing: true, evidence: [], cites: [] },
+      { scorer: "reviewer-scope", kind: "judge", class: "plan_only", failing: true, evidence: [3],
+        reasoning: (judged.payload as { reasoning: string }).reasoning,
+        cites: [{ phaseId: "x_01_review", name: "review" }] },
+      { scorer: "quiet", kind: "judge", class: "plan_only", failing: true, evidence: [], cites: [] },
+    ]);
+  });
+
   it("keeps an agent phase's card though it wrote the chapter's request", async () => {
     const t = cockpit();
     const token = await factory(t);

@@ -28,7 +28,8 @@ export interface ScoreRow {
 }
 
 /** The versions of each kind the rows fold. */
-const FOLDED: Record<string, number[]> = { chapter_scored: [1] };
+// v2 adds a judge's `reasoning`, which a row does not carry: the Scorers view reads classes.
+const FOLDED: Record<string, number[]> = { chapter_scored: [1, 2] };
 
 /** The versions of `kind` the rows fold, or [] for a kind they take nothing from (tests/measure.test.ts holds the corpus to it). */
 export function foldedVersions(kind: string): number[] {

@@ -227,6 +227,12 @@ def worktree_add(cwd: Pathish, path: Pathish, branch: str,
     return _git(cwd, *args)
 
 
+def worktree_add_detached(cwd: Pathish, path: Pathish, ref: str) -> str:
+    """Attach a worktree at `path` with `ref` checked out and no branch — a
+    tree to read a commit in, which nothing will ever commit from."""
+    return _git(cwd, "worktree", "add", "--detach", str(path), ref)
+
+
 def worktree_list(cwd: Pathish) -> list[dict[str, str]]:
     """Every worktree of this repository: {path, head, branch, detached, prunable}."""
     entries: list[dict[str, str]] = []

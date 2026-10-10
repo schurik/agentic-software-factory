@@ -65,8 +65,10 @@ def test_the_shipped_workflows_load_and_name_their_agents(factory_repo):
 
 def test_the_roster_is_directories_and_factory_yaml_may_not_carry_agents(factory_repo):
     cfg = factory.load()
-    assert sorted(a.name for a in cfg.agents) == ["analyst", "builder", "documenter", "planner",
-                                                  "reviewer", "scout"]
+    assert sorted(a.name for a in cfg.agents) == ["analyst", "builder", "documenter", "judge",
+                                                  "planner", "reviewer", "scout"]
+    judge = next(a for a in cfg.agents if a.name == "judge")
+    assert judge.writes == []                                          # it measures, never writes
     scout = next(a for a in cfg.agents if a.name == "scout")
     assert scout.writes == [] and scout.thinking == "medium"          # read-only recon, cheap
     planner = next(a for a in cfg.agents if a.name == "planner")

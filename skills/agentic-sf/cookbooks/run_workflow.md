@@ -194,13 +194,17 @@ else the error it ended with (its `phase_ended` event, or the run's closing
 lines) — not a transcript.
 
 A chapter that ended is scored by every scorer bound to its workflow: the run's
-last lines say `scored by <scorer>: <class>`, `(failing)` where that class is,
-and the session holds each as a `chapter_scored`. An `issue` chapter is scored
+last lines say `chapter <n> scored by <scorer>: <class>`, `(failing)` where that
+class is — and for a judge what judging it cost — and the session holds each as a
+`chapter_scored`. A judge scores only the chapters it samples (`scorer <name> did
+not sample chapter <n>` otherwise); its reasoning is in the session's `judges/`
+directory, and on the event only under the transcripts opt-in. An `issue` chapter is scored
 by the four a stamp ships: `corrections` (`above` past two), `permission-rollbacks`
 (`rolled_back`), `limit-hits` (`hit`) and `not-accepted` — so a run that met a
 rollback or a limit says `(failing)` beside it, citing the very event. A score is a measurement, not
 the outcome — never report a run accepted as failed, or the reverse, because of
-one. A scorer that could not run says so (`scorer <name> did not score: …`);
+one. A scorer that could not run says so (`scorer <name> did not score: …`, or `did
+not judge chapter <n>: …` for a judge that gave no score);
 `just check` names what is wrong with it. A chapter that ended before a scorer
 was written has no score from it until `just score` gives it one
 (`--scorer <name>` for that scorer alone): the score it would have had when it

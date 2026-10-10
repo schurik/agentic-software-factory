@@ -279,7 +279,8 @@ Content-Type: application/json
   — the `pull_request_closed` its station's PR watcher sends when its pull request merges, a
   `chapter_scored` for each scorer that judged a chapter once it ended — and are stored and folded
   like any other, without changing how the session ended. The session page shows a chapter's
-  scores under it.
+  scores under it, and a judge's reasoning beside its score when the factory sent it
+  (`chapter_scored` v2, only under the factory's transcripts opt-in).
 - No event is refused for its kind or version. One this cockpit has no reader for (an unknown kind,
   or a `v` newer than it reads) is stored raw, shown as a generic row, and counted in the "upgrade
   the cockpit" banner. `401` is for a missing or unknown token, and `400` is for a body that is not a

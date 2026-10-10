@@ -227,11 +227,53 @@ chapter being scored, the session's latest, it counts every chapter opened on a 
 review (`workflow_started`, `input: pr`) up to and including it, and is `above` (failing) past `k`;
 its evidence is those openings, earlier chapters' included. The last two judge the whole chapter,
 and `check` refuses them a `focus`. A **judge** declares its own `classes`, each `{name, fail}`, how often it judges
-(`sample_rate`, 0 to 1) and optionally a `model`; its prose is the criteria. A judge is checked
-today and not yet run.
+(`sample_rate`, 0 to 1, every chapter when unset) and optionally a `model`; its prose is the
+criteria, and the scorer file holds nothing else.
+
+```yaml
+---
+workflow: issue
+focus: reviewer
+kind: judge
+classes:
+  - {name: checked_both, fail: false}
+  - {name: plan_only, fail: true}
+sample_rate: 0.2
+---
+Did the reviewer judge the code that was written, or only the plan it was written from?
+```
+
+Every judge scorer is run by one shipped roster agent, `asf/agents/judge/agent.md`, the same on
+pi and claude_code, on a task the engine owns (`asf/engine/judge.md`, beside `engine/judge.py`
+that calls it): the criteria, the classes, the chapter's events by seq, its commits, and where the
+session's record is. It reads everything the station has — envelopes, the journal, the diff at each
+committed sha (`git show`), prompts and raw output — and answers `JudgeOutput`, `{class,
+reasoning, evidence}`. The triad holds as for a stage: the `EnvelopeBase` subclass, the task's
+`## Report` block (`asf check` refuses the judge's scorers when it drifts) and `output_type=` at
+the call. It runs under the factory's permissions with `writes: []`, whatever its agent.md says,
+in a checkout of its own: a detached worktree at the chapter's last commit, outside the
+repository, removed once it answers — never the station's main checkout, where rolling back what
+changed during the call could roll back the operator's own edits. Its gates check what code can
+(invariant 4): the class is one its scorer declares, and it cites at least one seq, every one an
+event of the judged session (`evidence_exists`) and of the judged chapter (`evidence_in_chapter`). A failed gate re-prompts the same judge session, twice
+at most; a judge that never satisfies them, or cannot start, leaves no score and says so.
+
+A judge runs on a run of its own whose record lies **inside** the judged session's directory,
+under `judges/c<chapter>-<scorer>-at-<seq>/`: its phase, gates, prompts, spend and envelope —
+its reasoning with it — none of them an event of the session. The session gets one event, the
+`chapter_scored` its envelope becomes, whose `usage` is what judging cost: measurement, never the
+work's, and never a `usage` event the session's cost per PR would count. `reasoning` rides on that
+event (v2) only under `cockpit: {transcripts: true}`, because it quotes what the judge read; without
+the opt-in it is absent from the event and stays in the judge's record. Which chapters a judge
+samples is drawn from a hash of the scorer, the session and the chapter, never at random: the same
+answer every time it is asked, so `asf score` passes over an unsampled chapter as surely as the run
+that ended it, and a higher rate keeps every chapter a lower one drew. A chapter not sampled has no
+event at all. **A stamp ships one judge, `reviewer-scope`, at `sample_rate: 0`**: checked by `asf
+check`, shown as inactive on the Scorers view, and judging nothing until the team gives it a rate.
 
 When a chapter ends — accepted, refused, or a phase failed — the station scores it with every
-code scorer bound to its workflow, after its `workflow_finished` (`scorers.after_chapter`, from
+scorer bound to its workflow — the code scorers first, then each judge that samples it — after its
+`workflow_finished` (`scorers.after_chapter`, from
 `workflow.run`). Each score is a `chapter_scored` on the judged session's own record: the scorer,
 its class, whether that class is failing, and the seqs of the events it rests on, every one in
 that chapter — or, for `review_chapters_above`, in the session's chapters up to it. **A score never changes how the chapter ended** — a scorer measures, a gate decides
@@ -242,10 +284,11 @@ ended, and is scored by the process that ends it.
 A chapter that ended before its scorer existed is scored by `asf score [--since DATE] [--scorer
 NAME]` (`scorers.backfill`), so a new scorer has a baseline from the sessions already on disk. It
 walks the sessions started since, and scores every chapter that has ended — and was not resumed
-since — with each chosen code scorer bound to its workflow that has no score of it after its
-latest `workflow_finished`; a second pass adds nothing, and a chapter resumed and ended again is
+since — with each chosen scorer bound to its workflow that has no score of it after its latest
+`workflow_finished`, a judge only on the chapters it samples; a second pass adds nothing, and a chapter resumed and ended again is
 scored on how it ended last. The predicate reads that chapter's own lines, which no later event
-joins, so a late score is the score the chapter would have had as it ended. Each lands on the
+joins, so a late code score is the score the chapter would have had as it ended; a judge reads the
+session's record as it is now, and cites only the chapter's own events. Each lands on the
 session's record after its `session_finished`, the way a pull request's close does, and is
 flushed to a cockpit at once. `--scorer` names the scorers to run, and a name no scorer has is
 refused before anything is scored. Then the same command records the pull requests no watcher
@@ -254,7 +297,8 @@ saw close (§ below).
 `asf check` refuses a scorer before it costs anything: a workflow the factory does not load, a
 focus that is not one of its agents, a predicate outside the closed set, a judge with no failing
 class or a `sample_rate` outside 0..1, a judge's key on a code scorer, a threshold that can never
-be met. A run reads its scorers through the same `scorers.load`, so a scorer `check` accepts is
+be met, and a judge no judge could run: the roster has no `judge` agent, or its task's `## Report`
+no longer matches `JudgeOutput`. A run reads its scorers through the same `scorers.load`, so a scorer `check` accepts is
 one a run scores with. The self-description (format 3) lists each scorer with what it left
 unsaid resolved — a predicate's classes, the share of chapters it judges, the threshold that
 applies to it — and the factory-wide threshold under `settings.measure`.

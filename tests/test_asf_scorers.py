@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from engine import events
+from engine import events, git_helper
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
                           forge_data, git, install, pr_json, run_state, scorer, session_dir,
@@ -37,6 +37,10 @@ REVIEWED = "5c0be7ed"
 def build_reply(content: str, message: str) -> dict:
     return {"writes": {"app.py": content}, "tokens": 50, "cost": 0.02,
             "envelope": envelope(changed_files=["app.py"], commit_message=message)}
+
+
+def worktrees(repo: Path) -> list[dict[str, str]]:
+    return git_helper.worktree_list(repo)
 
 
 def lines_of(repo: Path, adw_id: str, kind: str) -> list[events.EventLine]:
@@ -116,7 +120,8 @@ def test_a_refused_chapter_is_scored_too_and_a_broken_scorer_is_said_and_skipped
             found["builder-corrections"]["evidence"]) == ("within", False, [])
     assert "scorer typo did not score" in result.stdout
     assert "corections_above(0)" in result.stdout
-    assert "scorer judge is a judge: checked, not run" in result.stdout     # and left no score
+    # The fake judge has no script: every send fails, and it leaves no score.
+    assert "scorer judge did not judge chapter 1" in result.stdout
 
 
 def test_a_failed_round_of_gates_is_one_correction_and_a_focus_counts_only_its_agent(
@@ -276,6 +281,125 @@ def test_review_chapters_are_counted_per_session_and_scored_on_the_latest(stampe
     assert by_chapter == {2: ("within", False, opened[:1]), 3: ("above", True, opened)}
 
 
+# ── a judge: a model reading the chapter against the prose ───────────────────
+
+ON_PROMPT = {"workflow": "quick", "kind": "judge",
+             "classes": [{"name": "on_prompt", "fail": False}, {"name": "lost", "fail": True}]}
+CRITERIA = "Did the builder do what the prompt asked, and nothing else?\n"
+REASONING = "app.py holds exactly what the prompt asked for, and nothing beside it."
+# A quick chapter's events, as the fake harness records them: seq 1 is the
+# session's `session_started`, which belongs to no chapter; 2 opens chapter 1
+# and 10 is the builder's accepted envelope.
+OPENED, BUILT, OUTSIDE = 2, 10, 1
+
+
+def judged(class_: str, evidence: list[int], reasoning: str = REASONING) -> dict:
+    return {"tokens": 30, "cost": 0.01,
+            "envelope": envelope(**{"class": class_, "reasoning": reasoning,
+                                    "evidence": evidence})}
+
+
+def a_judged_chapter(repo: Path, *answers: dict, **meta) -> str:
+    """One accepted `quick` chapter, judged by `on-prompt`, whose judge gives `answers`."""
+    fake_roster(repo, builder=[build_reply("ok = 1\n", "feat: app")], judge=list(answers))
+    wire(repo, "test", PY_CHECK)
+    scorer(repo, "on-prompt", {**ON_PROMPT, **meta}, CRITERIA)
+    commit_all(repo)
+    result = asf(repo, "run", "quick", "add app.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result
+
+
+def test_a_judge_scores_a_chapter_citing_its_events_and_its_spend_is_not_the_work_s(
+        stamped: Path):
+    result = a_judged_chapter(stamped, judged("on_prompt", [OPENED, BUILT]))
+
+    adw_id = adw_id_of(result)
+    [score] = [line.payload for line in lines_of(stamped, adw_id, "chapter_scored")]
+    assert {key: score[key] for key in ("chapter", "scorer", "kind", "class", "failing",
+                                        "evidence")} == {
+        "chapter": 1, "scorer": "on-prompt", "kind": "judge", "class": "on_prompt",
+        "failing": False, "evidence": [OPENED, BUILT]}
+    assert (score["usage"]["total_tokens"], score["usage"]["total_cost"]) == (30, 0.01)
+    # What judging cost is measurement, on the score — never a `usage` of the session's.
+    assert {line.payload["agent"] for line in lines_of(stamped, adw_id, "usage")} == {"builder"}
+    assert run_state(stamped, adw_id)["status"] == "success"
+    # Without the transcripts opt-in, the reasoning stays in the session's directory.
+    assert "reasoning" not in score
+    kept = [path for path in session_dir(stamped, adw_id).rglob("envelope.json")
+            if REASONING in path.read_text()]
+    assert kept, "the judge's reasoning is nowhere in the session's directory"
+
+
+def test_a_judge_citing_what_it_cannot_have_seen_is_sent_back_and_its_correction_stands(
+        stamped: Path):
+    result = a_judged_chapter(stamped, judged("wandered", [9999, OUTSIDE]),
+                              judged("on_prompt", []), judged("lost", [BUILT]))
+
+    adw_id = adw_id_of(result)
+    [score] = [line.payload for line in lines_of(stamped, adw_id, "chapter_scored")]
+    assert (score["class"], score["failing"], score["evidence"]) == ("lost", True, [BUILT])
+    assert score["usage"]["total_tokens"] == 90                # every answer was paid for
+    said = result.stdout
+    assert "'wandered' is not one of on-prompt's classes" in said
+    assert "seq 9999 is no event of this session" in said
+    assert f"seq {OUTSIDE} is not in chapter 1" in said
+    assert "cites nothing" in said                             # a score rests on events
+    # A failing score is a measurement: the chapter ended as it ended.
+    [finished] = lines_of(stamped, adw_id, "workflow_finished")
+    assert finished.payload["accepted"] is True
+
+
+def test_a_judge_reads_in_a_tree_of_its_own_and_may_change_nothing(stamped: Path):
+    # The operator is editing in the main checkout while the chapter is judged.
+    (stamped / "README.md").write_text("half-written, and nobody's but the operator's\n")
+    result = a_judged_chapter(stamped, {**judged("on_prompt", [BUILT]),
+                                        "writes": {"notes.md": "the judge's own notes\n"}})
+
+    adw_id = adw_id_of(result)
+    assert not lines_of(stamped, adw_id, "chapter_scored")     # it wrote: no score from it
+    assert "scorer on-prompt did not judge chapter 1" in result.stdout
+    assert "notes.md" in result.stdout
+    # Its writes were in its own checkout, which is gone; the operator's are untouched.
+    assert (stamped / "README.md").read_text() == "half-written, and nobody's but the operator's\n"
+    assert not (stamped / "notes.md").exists()
+    assert [tree["path"] for tree in worktrees(stamped) if "asf-judge-" in tree["path"]] == []
+
+
+def test_a_judge_s_reasoning_leaves_the_machine_only_with_the_transcripts(stamped: Path):
+    set_config(stamped, cockpit={"transcripts": True})
+
+    result = a_judged_chapter(stamped, judged("on_prompt", [BUILT]))
+
+    [score] = [line.payload for line in lines_of(stamped, adw_id_of(result), "chapter_scored")]
+    assert score["reasoning"] == REASONING
+
+
+def test_a_judge_at_sample_rate_0_is_never_called(stamped: Path):
+    result = a_judged_chapter(stamped, judged("lost", [BUILT]), sample_rate=0)
+
+    adw_id = adw_id_of(result)
+    assert not lines_of(stamped, adw_id, "chapter_scored")      # not judged: no event at all
+    assert not [path for path in session_dir(stamped, adw_id).rglob("envelope.json")
+                if "lost" in path.read_text()]
+    assert "on-prompt did not sample chapter 1" in result.stdout
+
+
+def test_sampling_is_the_same_answer_every_time_it_is_asked():
+    from engine import scorers
+
+    def chosen(rate: float, name: str = "on-prompt") -> set[str]:
+        return {f"s{n:04d}" for n in range(2000)
+                if scorers.sampled(rate, f"s{n:04d}", 1, name)}
+
+    assert chosen(0) == set() and len(chosen(1)) == 2000
+    fifth = chosen(0.2)
+    assert 0.17 < len(fifth) / 2000 < 0.23
+    assert chosen(0.2) == fifth                              # asked again, answered the same
+    assert chosen(0.2) < chosen(0.5)                         # a higher rate keeps what it had
+    assert chosen(0.2, "other") != fifth                     # each scorer draws its own
+
+
 # ── scoring past chapters: `asf score` ───────────────────────────────────────
 
 def refused_and_accepted(repo: Path) -> tuple[str, str]:
@@ -377,10 +501,7 @@ def test_score_leaves_an_open_chapter_a_judge_and_an_older_session_unscored(stam
     scorer(stamped, "sdlc-refused", {"workflow": "sdlc", "kind": "code",
                                      "predicate": "not_accepted"})
     scorer(stamped, "refused", {"workflow": "quick", "kind": "code", "predicate": "not_accepted"})
-    scorer(stamped, "judge", {"workflow": "quick", "kind": "judge",
-                              "classes": [{"name": "fine", "fail": False},
-                                          {"name": "lost", "fail": True}]},
-           "Did the builder stay on the prompt?\n")
+    scorer(stamped, "judge", {**ON_PROMPT, "sample_rate": 0}, CRITERIA)
 
     later = asf(stamped, "score", "--since", "2999-01-01")
     assert later.returncode == 0, later.stdout + later.stderr
@@ -391,7 +512,32 @@ def test_score_leaves_an_open_chapter_a_judge_and_an_older_session_unscored(stam
     assert result.returncode == 0, result.stdout + result.stderr
     assert not scores(stamped, adw_id_of(waiting))        # its chapter has not ended
     assert set(scores(stamped, refused)) == set(scores(stamped, accepted)) == {"refused"}
-    assert "scorer judge is a judge: checked, not run" in result.stdout
+
+    again = asf(stamped, "score")                  # a judge that samples nothing is no debt
+
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert "scored 0 chapter(s); 2 already scored" in again.stdout
+
+
+def test_score_has_a_judge_judge_the_chapters_that_ended_before_it(stamped: Path):
+    refused, accepted = refused_and_accepted(stamped)
+    fake_roster(stamped, judge=[judged("lost", [OPENED])])
+    scorer(stamped, "on-prompt", ON_PROMPT, CRITERIA)
+    commit_all(stamped)
+
+    result = asf(stamped, "score")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    for adw_id in (refused, accepted):
+        [score] = [line.payload for line in lines_of(stamped, adw_id, "chapter_scored")]
+        assert (score["kind"], score["class"], score["evidence"]) == ("judge", "lost", [OPENED])
+        assert score["usage"]["total_tokens"] == 30
+    assert "scored 2 chapter(s)" in result.stdout
+
+    again = asf(stamped, "score")
+
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert "scored 0 chapter(s); 2 already scored" in again.stdout
 
 
 RUNNER = Path(__file__).resolve().parent / "fake_cockpit_run.py"
@@ -479,6 +625,31 @@ def test_check_accepts_a_well_formed_scorer_of_either_kind(stamped: Path):
     assert "✓ scorer reviewer-scope: issue · reviewer · judge" in result.stdout
 
 
+def test_the_judge_s_report_block_is_the_envelope_its_answer_is_parsed_as():
+    from engine import judge, tasks
+    from engine.data_types import JudgeOutput
+
+    assert tasks.check(judge.TASK, JudgeOutput) == []
+
+
+@pytest.mark.parametrize("break_it, said", [
+    (lambda repo: shutil.rmtree(repo / "asf" / "agents" / "judge"), "there is no judge agent"),
+    (lambda repo: (repo / "asf" / "engine" / "judge.md").write_text(
+        (repo / "asf" / "engine" / "judge.md").read_text().replace('"reasoning":', '"rationale":')),
+     "## Report omits ['reasoning']"),
+], ids=["no-judge-agent", "drifted-report"])
+def test_check_refuses_a_judge_scorer_no_judge_could_run(stamped: Path, break_it, said: str):
+    scorer(stamped, "reviewer-scope", {**JUDGE, "focus": "reviewer"},
+           "Did the reviewer read the diff as well as the plan?\n")
+    break_it(stamped)
+
+    result = asf(stamped, "check")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "✗ scorer reviewer-scope" in result.stdout and said in result.stdout, result.stdout
+    assert "✓ scorer corrections" in result.stdout           # a code scorer needs no judge
+
+
 def test_a_threshold_that_can_never_be_met_is_refused_in_factory_yaml(stamped: Path):
     set_config(stamped, self_improvement={"failures": 11, "of_last": 10})
 
@@ -543,21 +714,29 @@ def test_install_force_never_overwrites_a_scorer(stamped: Path):
 
 # ── the four a stamp ships ───────────────────────────────────────────────────
 
-DEFAULTS = {
+CODE = {
     "corrections": "corrections_above(2)",
     "limit-hits": "limit_hit",
     "not-accepted": "not_accepted",
     "permission-rollbacks": "permission_rolled_back",
 }
+EXAMPLE_JUDGE = "reviewer-scope"
+DEFAULTS = [*CODE, EXAMPLE_JUDGE]
 
 
 def test_a_fresh_stamp_is_measured_from_its_first_chapter(stamped: Path):
     described = json.loads(asf(stamped, "check", "--json").stdout)
 
     assert described["ok"] is True and described["scorer_problems"] == []
-    assert {each["name"]: (each["workflow"], each["kind"], each["predicate"])
-            for each in described["scorers"]} == {
-        name: ("issue", "code", predicate) for name, predicate in DEFAULTS.items()}
+    by_name = {each["name"]: each for each in described["scorers"]}
+    assert set(by_name) == set(DEFAULTS)
+    assert {name: (by_name[name]["workflow"], by_name[name]["kind"], by_name[name]["predicate"],
+                   by_name[name]["sample_rate"]) for name in CODE} == {
+        name: ("issue", "code", predicate, 1.0) for name, predicate in CODE.items()}
+    # ...and one judge, to show what one is: present, and judging nothing until given a rate.
+    example = by_name[EXAMPLE_JUDGE]
+    assert (example["workflow"], example["kind"], example["sample_rate"]) == ("issue", "judge", 0)
+    assert any(each["fail"] for each in example["classes"])
 
 
 def test_a_re_run_reports_the_scorers_as_there_and_an_upgrade_adds_them(repo: Path):
@@ -585,9 +764,13 @@ def test_a_re_run_reports_the_scorers_as_there_and_an_upgrade_adds_them(repo: Pa
 def test_install_force_leaves_the_shipped_scorers_as_the_team_left_them(stamped: Path):
     shipped = stamped / "asf" / "scorers" / "corrections" / "scorer.md"
     shipped.write_text(shipped.read_text().replace("corrections_above(2)", "corrections_above(4)"))
-    written = shipped.read_text()
+    # A team that turned the example judge on keeps it on.
+    judge = stamped / "asf" / "scorers" / EXAMPLE_JUDGE / "scorer.md"
+    judge.write_text(judge.read_text().replace("sample_rate: 0\n", "sample_rate: 0.2\n"))
+    written = {path: path.read_text() for path in (shipped, judge)}
+    assert "sample_rate: 0.2" in written[judge]
 
     forced = install(stamped, "--harness", "claude_code", "--force")
 
     assert forced.returncode == 0, forced.stdout + forced.stderr
-    assert shipped.read_text() == written
+    assert {path: path.read_text() for path in written} == written

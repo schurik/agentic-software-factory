@@ -298,6 +298,7 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, openPha
  * A chapter's scores, one per scorer: its class in words — a failing one says so,
  * in the colour of a fault — and the phases its evidence is in, each opening that
  * phase. Never green: a score that is not failing is a measurement, not an "ok".
+ * A judge's reasoning follows it on a line of its own, when the factory sent it.
  */
 function Scores({ scores, openPhase }: { scores: Score[]; openPhase: OpenPhase }) {
   return (
@@ -321,6 +322,7 @@ function Scores({ scores, openPhase }: { scores: Score[]; openPhase: OpenPhase }
               })}
             </span>
           ) : null}
+          {score.reasoning ? <span className="block text-muted">{score.reasoning}</span> : null}
         </span>
       ))}
     </p>
