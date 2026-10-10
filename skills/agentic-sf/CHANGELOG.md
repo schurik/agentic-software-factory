@@ -51,7 +51,8 @@ before — `None` when there are none, never omitted.
   carries `accepted`, false when every phase passed and the workflow still refused the chapter.
   Each was only the words of an error or a reason before. A 1.3.0 cockpit tells them on the
   session page as what they are — the limit, the paths, "not accepted" on the chapter — rather
-  than as error text.
+  than as error text, and keeps a rollback or a limit on its phase once a resumed run of it
+  passed ("an earlier run wrote outside its boundary: …"), where a score citing it lands.
 - **A session says what became of its pull request.** The integration that opens a pull request
   records `pull_request_opened`, and the PR watcher, when it reaps a session whose pull request
   merged or closed, records `pull_request_closed` — merged or not, when, when its first review came,

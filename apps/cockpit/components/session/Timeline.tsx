@@ -8,7 +8,7 @@ import { KindIcon, StatusIcon } from "../icons";
 import { cx, followInPlace } from "../ui";
 import { useWho } from "../viewer";
 import type { OpenPhase } from "../graph/StageGraph";
-import { answeringWords, notAccepted, phaseName, stoppedMark, stoppedWords } from "./words";
+import { answeringWords, earlierWords, notAccepted, phaseName, stoppedMark, stoppedWords } from "./words";
 
 /**
  * The session in order: every phase of every chapter, a row each — when, its
@@ -74,6 +74,9 @@ function Line({ item, chapter, opened, openPhase }: { item: Item; chapter: Chapt
         ) : null}
         {item.type === "agent" ? item.notes.map((note) => (
           <span key={`${note.kind}:${note.what}`} className="mt-0.5 block">⚑ {note.kind}: {note.what}</span>
+        )) : null}
+        {item.type === "agent" ? item.earlier.map((stop) => (
+          <span key={stop.seq} className="mt-0.5 block">{stoppedMark(stop)} {earlierWords(stop)}</span>
         )) : null}
         {item.type === "agent" && stopped ? (
           <span className="mt-0.5 block text-bad">{stoppedMark(item)} {stopped}</span>

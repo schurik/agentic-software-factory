@@ -11,7 +11,7 @@ import { isMarkdown, Markdown } from "../Markdown";
 import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, plural, pretty } from "../format";
 import { cx, Facts, num, Pre, Table, TabPanel, Tabs } from "../ui";
 import { useWho } from "../viewer";
-import { channelWords, stoppedMark, stoppedWords } from "./words";
+import { channelWords, earlierWords, stoppedMark, stoppedWords } from "./words";
 
 /** Which session a phase is of, and the forge's web origin its links go to ("" when unknown). */
 export interface Where {
@@ -242,6 +242,11 @@ function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; w
           ) : null}
         </div>
       ) : error ? <div className="rounded-lg border border-bad/40 bg-bad-soft px-3 py-2 text-bad">{error}</div> : null}
+      {item.type === "agent" && item.earlier.length ? (
+        <ul className="text-muted">
+          {item.earlier.map((stop) => <li key={stop.seq}>{stoppedMark(stop)} {earlierWords(stop)}</li>)}
+        </ul>
+      ) : null}
       {item.type === "gate" ? <GateRemark gate={item} /> : null}
       {item.type === "agent" ? item.notes.map((note) => (
         <div key={`${note.kind}:${note.what}`} className="rounded-lg border border-line bg-surface-2 px-3 py-2.5">

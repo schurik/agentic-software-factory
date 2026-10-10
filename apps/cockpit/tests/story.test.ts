@@ -202,6 +202,22 @@ describe("a session scored, after a rollback and a limit hit", () => {
       status: "fail", rollback: null, limit: { kind: "cost", limit: 0.17, reached: 0.183 } });
   });
 
+  it("keeps on a phase what stopped its earlier runs, once a later run of it passed", async () => {
+    const phase = async (upTo: number, phaseId: string) =>
+      (await scored(upTo)).chapters[0].items.find((item) => item.type === "agent" && item.phaseId === phaseId);
+
+    // While the failure is how the phase stands, it is what stopped it, and nothing came before.
+    expect(await phase(23, "a9f259f0_02_scout")).toMatchObject({ status: "fail", earlier: [] });
+    // Resumed and passed, then replayed twice: the rollback is still the scout's, told as earlier.
+    expect(await phase(SCORED.events.length, "a9f259f0_02_scout")).toMatchObject({
+      status: "success", rollback: null, limit: null,
+      earlier: [{ seq: 15, rollback: { paths: ["NOTES.md"], notUndone: [] }, limit: null }] });
+    expect(await phase(SCORED.events.length, "a9f259f0_08_implement")).toMatchObject({
+      status: "success", rollback: null, limit: null,
+      earlier: [{ seq: 149, rollback: null, limit: { kind: "cost", limit: 0.17, reached: 0.183 } }] });
+    expect(await phase(SCORED.events.length, "a9f259f0_03_plan")).toMatchObject({ earlier: [] });
+  });
+
   it("tells each chapter's scores as they stood when it last ended, citing the phases of their evidence", async () => {
     const { chapters } = await scored();
 

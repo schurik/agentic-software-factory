@@ -6,7 +6,7 @@
  * links to.
  */
 
-import type { Limit, Rollback } from "@/convex/model/story";
+import type { Limit, Rollback, Stop } from "@/convex/model/story";
 import { formatDollars, formatDuration, formatTokenCount, formatTokens } from "../format";
 
 /** The colour a status is drawn in; `none` for one that says nothing about how things went. */
@@ -102,6 +102,14 @@ export function rollbackWords({ paths, notUndone }: Rollback): string {
     paths.length ? `${paths.join(", ")} rolled back` : "",
     notUndone.length ? `${notUndone.join(", ")} not undone` : "",
   ].filter(Boolean).join("; ");
+}
+
+/**
+ * What stopped one of a phase's earlier runs, in the same words, told as
+ * history: "an earlier run wrote outside its boundary: NOTES.md rolled back".
+ */
+export function earlierWords(stop: Stop): string {
+  return `an earlier run ${stoppedWords(stop)}`;
 }
 
 /** The mark a stopped phase's fact is told with: a limit is a stop, a rollback an undo. */
