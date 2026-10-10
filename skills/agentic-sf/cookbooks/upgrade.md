@@ -154,7 +154,9 @@ From the **target repo root**. Read three things in what it prints:
 - A workflow, agent or stage of the repository's own (a name the skill does not
   ship) was never touched, and nor was any scorer under `asf/scorers/` — the
   re-stamp keeps every one as written, the four the skill ships included, and
-  stamps a shipped one only where it is missing.
+  stamps a shipped one only where it is missing. A scorer stamped now has
+  scored nothing that ended before it: `just score` gives it a baseline from
+  the sessions already on disk (`--scorer <name>` for that one alone).
 
 ## The config: one decision at a time
 

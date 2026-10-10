@@ -391,13 +391,14 @@ def start(session_dir: str | Path, transport: Transport | None = None,
     return shipper
 
 
-def flush(session_dir: str | Path, transport: Transport = post) -> None:
+def flush(session_dir: str | Path, transport: Transport | None = None) -> None:
     """One bounded round, for a process that writes to a session it does not
-    run — a watcher aborting a run at its gate — and outlives the write by
-    hours, so an exit-time flush would come far too late."""
+    run — a watcher aborting a run at its gate, `asf score` adding a late
+    score — and outlives the write by hours, so an exit-time flush would come
+    far too late."""
     cockpit = configured(data_of(session_dir))
     if cockpit is not None:
-        Shipper(session_dir, cockpit, transport).start().stop()
+        Shipper(session_dir, cockpit, transport or post).start().stop()
 
 
 @dataclass

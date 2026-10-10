@@ -201,4 +201,7 @@ by the four a stamp ships: `corrections` (`above` past two), `permission-rollbac
 rollback or a limit says `(failing)` beside it, citing the very event. A score is a measurement, not
 the outcome — never report a run accepted as failed, or the reverse, because of
 one. A scorer that could not run says so (`scorer <name> did not score: …`);
-`just check` names what is wrong with it.
+`just check` names what is wrong with it. A chapter that ended before a scorer
+was written has no score from it until `just score` gives it one
+(`--scorer <name>` for that scorer alone): the score it would have had when it
+ended, added to the session's record and shown under the chapter like any other.

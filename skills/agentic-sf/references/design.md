@@ -239,6 +239,18 @@ that chapter — or, for `review_chapters_above`, in the session's chapters up t
 must block work is not a scorer; it is a gate, in Python. A chapter stopped at a gate has not
 ended, and is scored by the process that ends it.
 
+A chapter that ended before its scorer existed is scored by `asf score [--since DATE] [--scorer
+NAME]` (`scorers.backfill`), so a new scorer has a baseline from the sessions already on disk. It
+walks the sessions started since, and scores every chapter that has ended — and was not resumed
+since — with each chosen code scorer bound to its workflow that has no score of it after its
+latest `workflow_finished`; a second pass adds nothing, and a chapter resumed and ended again is
+scored on how it ended last. The predicate reads that chapter's own lines, which no later event
+joins, so a late score is the score the chapter would have had as it ended. Each lands on the
+session's record after its `session_finished`, the way a pull request's close does, and is
+flushed to a cockpit at once. `--scorer` names the scorers to run, and a name no scorer has is
+refused before anything is scored. Then the same command records the pull requests no watcher
+saw close (§ below).
+
 `asf check` refuses a scorer before it costs anything: a workflow the factory does not load, a
 focus that is not one of its agents, a predicate outside the closed set, a judge with no failing
 class or a `sample_rate` outside 0..1, a judge's key on a code scorer, a threshold that can never

@@ -75,6 +75,14 @@ before — `None` when there are none, never omitted.
   request ended, and records the same `pull_request_closed` the watcher's reap would — so the
   Measure tab counts it alike. It only records: no worktree, run or label is touched, and
   `pull_requests.enabled` need not be on. A second run adds nothing.
+- **A new scorer gets a baseline on day one.** `asf score` (`just score`) first scores every
+  chapter that ended, in the sessions started `--since`, with each scorer bound to its workflow
+  that has not scored it — the score the chapter would have had when it ended, appended to the
+  session's record as a late `chapter_scored` and flushed to the cockpit at once, where it shows
+  under the chapter on the session page and counts on the Scorers view. `--scorer <name>`
+  (repeatable) runs only the scorers named, and a name no scorer has is refused before anything
+  is scored. A second run adds nothing; a chapter stopped at a gate is left to the process that
+  ends it, and a judge is checked, not run. No event changes.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -198,7 +206,9 @@ before — `None` when there are none, never omitted.
    carries the `self_improvement:` block; without it the defaults (3 of the last 10) apply. The
    PR watcher's first pass after it (`just prs`, or `just up`) records every pull request the
    factory opened that has since closed, 20 a pass — what the Measure tab counts merges from;
-   a factory that runs no watcher records them with `just score` instead. Pull requests opened before the re-stamp said nothing
+   a factory that runs no watcher records them with `just score` instead. Run `just score` once
+   after the re-stamp either way: it gives the four scorers a baseline from every chapter that
+   ended before them. Pull requests opened before the re-stamp said nothing
    when they opened, so they count as merged but never as autonomous. Pull requests that closed before
    the re-stamp have no size, and are counted in no size. A factory with the CI
    workflow ships format 3 on its next default-branch push.

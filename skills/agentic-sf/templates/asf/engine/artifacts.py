@@ -595,10 +595,17 @@ def pr_urls(sessions_dir: Path) -> dict[str, str]:
 def unclosed_pr_urls(sessions_dir: Path, since: datetime | None = None) -> dict[str, str]:
     """{adw_id: pr_url} for every session whose pull request has not been seen
     closed — open still, or closed while nothing was watching — of those started
-    on or after `since`. A session with no readable start counts as started
-    since: nothing says it is older."""
-    return {adw_id: state.pr_url for adw_id, state in scan(sessions_dir).items()
-            if state.pr_url and not state.pr_state and _started_since(state.started_at, since)}
+    on or after `since`."""
+    return {adw_id: state.pr_url for adw_id, state in started_since(sessions_dir, since).items()
+            if state.pr_url and not state.pr_state}
+
+
+def started_since(sessions_dir: Path, since: datetime | None = None) -> dict[str, RunState]:
+    """`scan`, narrowed to the sessions started on or after `since` — what
+    `asf score --since` walks. A session with no readable start counts as
+    started since: nothing says it is older."""
+    return {adw_id: state for adw_id, state in scan(sessions_dir).items()
+            if _started_since(state.started_at, since)}
 
 
 def _started_since(started_at: str, since: datetime | None) -> bool:

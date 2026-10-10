@@ -299,6 +299,13 @@ alike. It needs the forge CLI and `pull_requests.project` (or an origin
 remote), not `pull_requests.enabled`; it only records — no worktree, run or
 label is touched — and a second run adds nothing.
 
+The same command gives the scorers a baseline: before it asks the forge
+anything, it scores every chapter that ended — in the sessions started since —
+with each scorer bound to its workflow that has not scored it, so a factory
+stamped into a repository that already ran sessions, or a scorer written today,
+has scores from the first look. `--scorer corrections` (repeatable) runs only
+the scorers named.
+
 The labels themselves are a separate job from routing them: run
 `just labels --create` once, and again after any upgrade or any edit that names
 a new one. On a tracker that is not the forge, clear `issues.labels_list_command`
