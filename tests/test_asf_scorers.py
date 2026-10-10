@@ -164,6 +164,9 @@ def test_a_rollback_is_scored_from_its_own_event_and_a_focus_counts_only_its_age
                                   "predicate": "permission_rolled_back"})
     scorer(stamped, "scout-rollbacks", {"workflow": "scouted", "focus": "scout", "kind": "code",
                                         "predicate": "permission_rolled_back()"})
+    # A phase that failed ended a chapter its workflow never judged: not "not accepted".
+    scorer(stamped, "refused", {"workflow": "scouted", "kind": "code",
+                                "predicate": "not_accepted"})
     commit_all(stamped)
 
     result = asf(stamped, "run", "scouted", "look around")
@@ -172,7 +175,8 @@ def test_a_rollback_is_scored_from_its_own_event_and_a_focus_counts_only_its_age
     adw_id = adw_id_of(result)
     [rolled_back] = [line.seq for line in lines_of(stamped, adw_id, "permission_rolled_back")]
     assert classed(stamped, adw_id) == {"rollbacks": ("rolled_back", True, [rolled_back]),
-                                        "scout-rollbacks": ("rolled_back", True, [rolled_back])}
+                                        "scout-rollbacks": ("rolled_back", True, [rolled_back]),
+                                        "refused": ("accepted", False, [])}
 
 
 def test_a_chapter_with_nothing_rolled_back_is_clean(stamped: Path):
@@ -194,11 +198,12 @@ def test_a_limit_hit_is_scored_by_any_kind_or_only_the_kind_it_names(stamped: Pa
     fake_roster(stamped, planner=[plan], builder=[build_reply("ok = 1\n", "feat: app")])
     wire(stamped, "test", PY_CHECK)
     set_config(stamped, budget={"max_tokens": 100})          # the planner spends exactly that
-    for name, predicate in (("limits", "limit_hit"), ("tokens", "limit_hit(tokens)"),
-                            ("timeouts", "limit_hit(timeout)"),
-                            ("planner-limits", "limit_hit")):
-        scorer(stamped, name, {"workflow": "sdlc", "kind": "code", "predicate": predicate,
-                               **({"focus": "planner"} if name.startswith("planner") else {})})
+    for name, predicate, focus in (("limits", "limit_hit", ""),
+                                   ("tokens", "limit_hit(tokens)", ""),
+                                   ("timeouts", "limit_hit(timeout)", ""),
+                                   ("planner-limits", "limit_hit", "planner")):
+        scorer(stamped, name, {"workflow": "sdlc", "focus": focus, "kind": "code",
+                               "predicate": predicate})
     commit_all(stamped)
 
     result = asf(stamped, "run", "sdlc", "add app.py")
@@ -249,9 +254,9 @@ def test_review_chapters_are_counted_per_session_and_scored_on_the_latest(stampe
     assert first.returncode == 0, first.stdout + first.stderr
     git(stamped, "push", "-q", "-u", "origin", f"asf/{REVIEWED}")
 
-    for round_, said_ in enumerate(("make ok 2", "make ok 3"), start=2):
-        fake_roster(stamped, builder=[build_reply(f"ok = {round_}\n", f"fix: ok is {round_}")])
-        forge_data(stamped, "pr.json", pr_json(72, f"asf/{REVIEWED}", [{"body": said_}]))
+    for value, asked in enumerate(("make ok 2", "make ok 3"), start=2):
+        fake_roster(stamped, builder=[build_reply(f"ok = {value}\n", f"fix: ok is {value}")])
+        forge_data(stamped, "pr.json", pr_json(72, f"asf/{REVIEWED}", [{"body": asked}]))
         commit_all(stamped)
         result = asf(stamped, "run", "pr-review", "72")
         assert result.returncode == 0, result.stdout + result.stderr

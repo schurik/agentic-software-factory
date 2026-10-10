@@ -61,6 +61,10 @@ class ChapterRecord:
     def agent_of(self, line: EventLine) -> str:
         return str(line.payload.get("agent") or self.owners.get(line.payload.get("phase_id"), ""))
 
+    def of(self, focus: str, line: EventLine) -> bool:
+        """Whether `line` counts under `focus`: every line without one."""
+        return not focus or self.agent_of(line) == focus
+
 
 def chapter_record(lines: Sequence[EventLine], number: int) -> ChapterRecord:
     """The lines of chapter `number`: from its `workflow_started`, or a
@@ -119,7 +123,7 @@ def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Classed
     phase and attempt). The evidence is every one of those events."""
     evidence, rejected, failed_rounds = [], 0, set()
     for line in record.lines:
-        if focus and record.agent_of(line) != focus:
+        if not record.of(focus, line):
             continue
         if line.kind == "envelope_rejected":
             rejected += 1
@@ -134,8 +138,8 @@ def _corrections_above(record: ChapterRecord, focus: str, limit: int) -> Classed
 def _permission_rolled_back(record: ChapterRecord, focus: str, _: object) -> Classed:
     """An agent wrote outside its `writes:` and the factory undid it: every
     `permission_rolled_back` in the chapter is the evidence."""
-    evidence = [line.seq for line in record.lines if line.kind == "permission_rolled_back"
-                and not (focus and record.agent_of(line) != focus)]
+    evidence = [line.seq for line in record.lines
+                if line.kind == "permission_rolled_back" and record.of(focus, line)]
     return Classed("rolled_back" if evidence else "clean", evidence)
 
 
@@ -143,8 +147,7 @@ def _limit_hit(record: ChapterRecord, focus: str, kind: object) -> Classed:
     """A budget ceiling or a turn's wall clock stopped an agent phase: every
     `limit_hit` in the chapter, of `kind` when one is named."""
     evidence = [line.seq for line in record.lines if line.kind == "limit_hit"
-                and not (kind and line.payload.get("kind") != kind)
-                and not (focus and record.agent_of(line) != focus)]
+                and (not kind or line.payload.get("kind") == kind) and record.of(focus, line)]
     return Classed("hit" if evidence else "none", evidence)
 
 
