@@ -32,4 +32,5 @@ if [ "${VERCEL_ENV:-}" = "production" ]; then
   bun x convex run retention:backfill > /dev/null 2>&1 || echo "vercel-build: the retention backfill did not run; transcripts stored before it may not age out"
   bun x convex run phases:backfill > /dev/null 2>&1 || echo "vercel-build: the phases' backfill did not run; older sessions' gates are missing from the Overview"
   bun x convex run chapters:backfill > /dev/null 2>&1 || echo "vercel-build: the chapters' backfill did not run; older sessions' chapters are missing from Measure"
+  bun x convex run scores:backfill > /dev/null 2>&1 || echo "vercel-build: the scores' backfill did not run; older sessions' scores are missing from Measure"
 fi

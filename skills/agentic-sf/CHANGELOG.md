@@ -42,8 +42,11 @@ before — `None` when there are none, never omitted.
   failing scores count as a pattern. `asf check --json` is format 3: it lists the scorers with
   their classes and thresholds resolved, and the threshold under `settings.measure`. A 1.3.0
   cockpit shows each chapter's scores under it on the session page, each citing the phases its
-  evidence is in; an older one shows `chapter_scored` as an event it cannot read, and format 3 as
-  newer.
+  evidence is in, and every scorer on the Measure tab's **Scorers** view: over the factory's last
+  30 sessions, with the sessions counted toward its threshold — its `improve_after:` or the
+  factory's `self_improvement:`, as `asf check --json` resolved it — and the failing ones among
+  them, each with the first event it cites. An older cockpit shows `chapter_scored` as an event it
+  cannot read, and format 3 as newer.
 - **A rollback, a limit and a refused chapter are facts.** `permission_rolled_back` names the
   paths the factory undid after an agent wrote outside its `writes:`, and the ones it left as they
   were; `limit_hit` says which limit stopped an agent phase — `tokens` or `cost` from `budget:`,

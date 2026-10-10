@@ -220,6 +220,12 @@ function apply(state: State, event: StoredEvent, fold: boolean): Row {
   return { seq, ts, kind, v: version, unreadBecause: null, detail: reader.describe(p), raw };
 }
 
+/** One event in the words the session page's events list gives it: "" for a kind or version this cockpit cannot read. */
+export function described({ kind, v: version, payload }: StoredEvent): string {
+  const reader = READERS[kind]?.[version];
+  return reader === undefined ? "" : reader.describe(Payload.parse(payload));
+}
+
 function waitingFor(p: Payload | null): WaitingFor | null {
   if (p === null) return null;
   return { ...EMPTY_WAITING, gate: p.str("gate"), round: p.num("round"), kind: p.str("kind") || "gate",

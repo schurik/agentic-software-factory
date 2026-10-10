@@ -9,6 +9,7 @@ import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
 import { phase } from "./phases";
 import { pull } from "./pulls";
+import { score } from "./scores";
 import { liveToken } from "./tokens";
 
 /**
@@ -89,8 +90,14 @@ export const append = internalMutation({
     const waiting = summary.waitingFor !== null;
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);
-    if (record === null) await ctx.db.insert("sessions", { factory, session, acked, summary, activity, waiting, phased: true, chaptered: true, ...transcript });
-    else await ctx.db.patch(record._id, { acked, summary, activity, waiting, phased: true, chaptered: true, ...transcript });
+    const fields = { acked, summary, activity, waiting, phased: true, chaptered: true, scored: true, ...transcript };
+    const id = record === null ? await ctx.db.insert("sessions", { factory, session, ...fields }) : record._id;
+    if (record !== null) await ctx.db.patch(record._id, fields);
+    // Its scores' rows: what the Scorers view reads (model/scores.ts). Written after the session's own
+    // document, unlike the rows above, because each is ordered by when the session was first stored.
+    const at = record?._creationTime ?? (await ctx.db.get(id))!._creationTime;
+    if (record === null || record.scored) await score(ctx, { factory, session }, fresh, at);
+    else await score(ctx, { factory, session }, await all(), at);
     return { acked };
   },
 });
