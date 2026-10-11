@@ -226,3 +226,14 @@ the `issue` workflow like any other, and nothing changes until a person approves
 its plan. `could not search the tracker` filed nothing on purpose — a second
 issue is worse than a late one; the next failing score, or `just score`, tries
 again once `gh` works. None of this changes how the run ended.
+
+Before a new issue is filed, the `diagnostician` diagnoses the pattern — a phase
+of its own on the console, then `scorer <name> diagnosed: a change to the
+factory, in <files>; diagnosing it cost $<x>` — and the issue's `## Diagnosis`
+carries it. Tell the user what it proposes, and the two things code decided for
+it: a file under `Reported, not proposed` is factory code, a gate or what
+decides acceptance, which only a person changes, deliberately; and
+`Upstreamable` means the change belongs in the skill too, for a person to carry
+there — nothing was filed upstream. `not diagnosed, …` says why there is none
+(the day's measurement budget, or a diagnosis the gates never accepted); the
+issue was filed all the same.

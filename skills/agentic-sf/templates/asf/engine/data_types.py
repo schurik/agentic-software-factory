@@ -193,6 +193,25 @@ class JudgeOutput(EnvelopeBase):
     evidence: list[int] = Field(default_factory=list)       # seqs
 
 
+class DiagnosisOutput(EnvelopeBase):
+    """The diagnosis of one scorer's repeated failing scores, before its
+    self-improvement issue is filed (`engine/diagnose.py`): why it keeps
+    failing, whether the change belongs to the factory or the application,
+    which files, and what to change in them.
+
+    Gated on what can be checked: every file is one the repository has, and
+    `surface` agrees with where they are. What it may propose is code's to
+    rule on afterwards, never its own: a skill-owned task file is redirected
+    to the workflow's override, and factory code is reported, never proposed.
+    """
+
+    cause: str = Field(min_length=1)
+    surface: Literal["factory", "application"]
+    files: list[str] = Field(default_factory=list)          # repo-relative
+    proposed_change: str = Field(min_length=1)
+    upstreamable: bool = False
+
+
 class ScoutFinding(BaseModel):
     file: str
     note: str = ""

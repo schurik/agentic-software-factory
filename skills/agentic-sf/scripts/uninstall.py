@@ -165,6 +165,7 @@ def stamped_targets(root: Path) -> set[Path]:
 
     walk(TEMPLATES / "asf", root / "asf")
     targets.add(root / CONFIG)
+    targets.add(root / install.SKILL_FILES)
     return targets
 
 

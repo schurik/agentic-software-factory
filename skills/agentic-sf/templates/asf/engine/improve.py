@@ -11,6 +11,16 @@ scores, the events each one cites and the scorer's criteria, labelled
 person approves its plan and merges its pull request; nothing here changes the
 factory, and nothing here changes how a chapter ended.
 
+Before filing, one bounded agent phase diagnoses the pattern
+(`engine/diagnose.py`): the cause, whether the change belongs to the factory or
+the application, the files and the proposed change, with code's rulings
+applied — a skill-owned task file redirected to the workflow's override, and
+factory code reported, never proposed. The issue body carries it. It is paid
+from the measurement budget, so a day whose budget is spent files the issue
+undiagnosed and says so, as does a diagnosis that could not be made: the
+evidence is worth filing either way. New evidence for an open issue is a
+comment, and is not diagnosed again.
+
 AT MOST ONE OPEN ISSUE PER SCORER, and the tracker is the only state two
 stations share: before filing, a station searches the forge for an open issue
 carrying the scorer's label, and if one is there it adds the failing sessions
@@ -38,7 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Sequence
 
-from . import artifacts, events, issues, labels
+from . import artifacts, diagnose, events, issues, labels, measurement
 from .data_types import (ChapterScored, EventLine, FactoryConfig, HarnessOutput, ImproveAfter,
                          IssueUpdate, NewIssue, OpenIssue, PromptRendered)
 
@@ -136,9 +146,11 @@ def title(scorer: "Scorer", counted: Window) -> str:
     return f"Self-improvement: scorer {scorer.name} failed on {counted.failed_on()}"
 
 
-def issue_body(cfg: FactoryConfig, scorer: "Scorer", counted: Window) -> str:
-    """The whole case, standing on its own: the pattern, the scorer's criteria,
-    and each failing score with the events it cites."""
+def issue_body(cfg: FactoryConfig, scorer: "Scorer", counted: Window,
+               diagnosed: "diagnose.Diagnosis | str" = "") -> str:
+    """The whole case, standing on its own: the pattern, its diagnosis — or
+    why it has none — the scorer's criteria, and each failing score with the
+    events it cites."""
     threshold = counted.threshold
     whose = ("its own `improve_after:`" if scorer.spec.improve_after
              else "`self_improvement:` in `asf/factory.yaml`")
@@ -152,6 +164,7 @@ def issue_body(cfg: FactoryConfig, scorer: "Scorer", counted: Window) -> str:
         f"`{WORKFLOW}` workflow like any other issue, and nothing in the factory or the "
         "application changes until a person approves its plan and merges its pull request.",
         "",
+        *_diagnosis(diagnosed),
         "## The scorer's criteria",
         "",
         *_criteria(scorer),
@@ -170,6 +183,41 @@ def comment_body(cfg: FactoryConfig, scorer: "Scorer", counted: Window,
         "",
         *_failing(cfg, new),
     ]))
+
+
+def _diagnosis(diagnosed: "diagnose.Diagnosis | str") -> list[str]:
+    """The diagnosis section: what to change and where, as code ruled on it."""
+    if not diagnosed:
+        return []
+    if isinstance(diagnosed, str):
+        return ["## Diagnosis", "", f"None was made: {diagnosed.rstrip('.')}.", "",
+                "The evidence below stands on its own, and the plan diagnoses it.", ""]
+    surface = "the factory" if diagnosed.surface == "factory" else "the application"
+    text = ["## Diagnosis", "", f"**Cause:** {diagnosed.cause}", "",
+            f"**Surface:** {surface}", "",
+            ("**Proposed change:**" if diagnosed.proposes else
+             "**Reported, not proposed** — it is in factory code, where every gate is:"),
+            "", *(f"> {line}".rstrip() for line in diagnosed.proposed_change.splitlines()),
+            "", "**Files:**", ""]
+    text += [f"- {_ruling(each)}" for each in diagnosed.files]
+    if diagnosed.upstreamable:
+        text += ["", "**Upstreamable:** the change belongs in the skill this factory was "
+                     "stamped from as well — a note for a person to carry there. Nothing "
+                     "here files anything upstream."]
+    return text + [""]
+
+
+def _ruling(named: "diagnose.Named") -> str:
+    if named.ruling == "reported":
+        return (f"`{named.path}` — factory code, where gates decide what is accepted: "
+                f"reported, never proposed. A change to what blocks work is a person's to "
+                f"make, deliberately, in code.")
+    if named.ruling == "redirected":
+        return (f"`{named.path}` — the workflow's own task override, in place of "
+                f"`{named.named}`, which the skill owns and `install.py --force` would "
+                f"overwrite.")
+    return f"`{named.path}`" + (" — the skill owns it, and `install.py --force` would "
+                                "overwrite it" if named.skill_owned else "")
 
 
 def _criteria(scorer: "Scorer") -> list[str]:
@@ -290,12 +338,13 @@ def _consider(filing: Filing, scorer: "Scorer") -> None:
         say(f"scorer {scorer.name} failed on {counted.failed_on()}, and no issue is filed: "
             f"`issues.create_command` is empty")
         return
+    diagnosed = _diagnosed(filing, scorer, counted)
     # One that already exists stays as it is, and refuses to be defined again:
     # what that says matters only when filing then fails.
     defined = labels.define(cfg, filing.main_root, label)
     queued = queue_labels(cfg)
     result = issues.create(filing.main_root, cfg.issues, NewIssue(
-        title=title(scorer, counted), body=issue_body(cfg, scorer, counted),
+        title=title(scorer, counted), body=issue_body(cfg, scorer, counted, diagnosed),
         labels=[label.name, *queued]))
     if not result.ok:
         say(f"scorer {scorer.name} failed on {counted.failed_on()}, and the issue was not "
@@ -305,6 +354,27 @@ def _consider(filing: Filing, scorer: "Scorer") -> None:
         f"({label.name})"
         + (f", queued for the {WORKFLOW} workflow" if queued else
            f" — no route label takes an issue to the {WORKFLOW} workflow, so it is not queued"))
+
+
+def _diagnosed(filing: Filing, scorer: "Scorer", counted: Window) -> "diagnose.Diagnosis | str":
+    """The pattern's diagnosis, or why there is none: the day's measurement
+    budget is spent, or the diagnostician gave none."""
+    cfg, say = filing.cfg, filing.say
+    day = measurement.today(cfg, filing.main_root)
+    if day.spent_out:
+        why = (f"the measurement budget is spent — ${day.spent:.2f} of ${day.budget:.2f} on "
+               f"{day.day} (UTC), `measurement.usd_per_day` in factory.yaml")
+        say(f"scorer {scorer.name}: not diagnosed, {why}")
+        return why
+    try:
+        diagnosis = diagnose.diagnose(cfg, filing.main_root, scorer, counted)
+    except RuntimeError as error:
+        say(f"scorer {scorer.name}: not diagnosed, {error}")
+        return str(error)
+    say(f"scorer {scorer.name} diagnosed: a change to the {diagnosis.surface}, in "
+        f"{', '.join(each.path for each in diagnosis.files)}; diagnosing it cost "
+        f"${diagnosis.cost:.4f}")
+    return diagnosis
 
 
 def _add_to(filing: Filing, scorer: "Scorer", counted: Window, issue: OpenIssue) -> None:

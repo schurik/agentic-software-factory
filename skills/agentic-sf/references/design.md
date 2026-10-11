@@ -272,7 +272,7 @@ event at all. **A stamp ships one judge, `reviewer-scope`, at `sample_rate: 0`**
 check`, shown as inactive on the Scorers view, and judging nothing until the team gives it a rate.
 
 Judging is paid from a budget of its own, never the work's (ADR 0006): `measurement: {usd_per_day:
-5}` in factory.yaml, one UTC day's spend for judges and benchmarks alike, which the self-description
+5}` in factory.yaml, one UTC day's spend for judges, self-improvement's diagnoses and benchmarks alike, which the self-description
 (format 4) carries resolved under `settings.measure.measurement`. It is checked before every judge
 call (`engine/measurement.py`), against what every judge that started that day cost — read off the
 judges' own records under each session's `judges/`, a judge that gave no score included, never off
@@ -282,7 +282,8 @@ as usual, and `asf score` judges it on a later day with budget left — saying i
 until then, but not on the record. A judge that started under the budget runs to its end, so the
 last one can overrun it; two processes judging at once can each find budget left. A cockpit learns
 what judging cost only from the scores' `usage`, so a judge that gave no score is in the station's
-check and not in the cockpit's Measurement cost. `usd_per_day: 0`
+check and not in the cockpit's Measurement cost — nor is a self-improvement diagnosis, which the
+same budget pays for and which no event carries (`asf/data/diagnoses/`, below). `usd_per_day: 0`
 judges nothing — unlike `budget:`, 0 is not "no ceiling". A chapter its judge did not sample still
 has no event: it was never going to be judged.
 
@@ -354,6 +355,42 @@ asks nothing of the forge.
   `issues.states.queued`, so the issues watcher takes it into the `issue` workflow, where a person
   approves its plan and merges its pull request. A config with no route to `issue` files it
   unqueued, and says so. `issues.enabled: false` files nothing, and says so.
+- **Diagnosed before it is filed** (`engine/diagnose.py`): one bounded agent phase, the
+  `diagnostician`, reads the failing sessions' directories and answers a `DiagnosisOutput` —
+  `{cause, surface: factory|application, files, proposed_change, upstreamable}` — which the body
+  carries under `## Diagnosis`, ahead of the criteria. It runs with `writes: []` whatever the
+  roster says, in a detached checkout of the station's `HEAD` outside the repository, removed once
+  it answers, like a judge; the sessions' records are outside that tree, read and never written.
+  Its gates (invariant 4): every file is one the repository has at that `HEAD`, inside it, and at
+  least one is named (`files_exist`); `surface` is `factory` when every file is under `asf/` and
+  `application` when none is (`surface_agrees`). A failed gate re-prompts the same session, twice
+  at most. Then **code rules**, never the model:
+  - **factory code** — any `.py` under `asf/` — is where every gate is and what decides
+    acceptance: it is **reported**, never proposed, because a change to what blocks work is a
+    person's deliberate change, in code;
+  - a **stage's own task file** of the scorer's workflow, when the skill owns it, is
+    **redirected** to the workflow's override, `asf/workflows/<workflow>/tasks/<key>.md`
+    (`engine/tasks.py`), in the file list and in the proposed change's own words, so the fix
+    survives the next `install.py --force`;
+  - any file **the skill owns** marks the diagnosis **upstreamable** — as does the diagnostician,
+    of a change to the factory — a note for a person to carry the change to the skill; nothing
+    files anything upstream.
+
+  What the skill owns is `asf/.skill-files`, which `install.py` writes on every run: every file
+  under `asf/` a `--force` overwrites (the scorers are not among them). A factory stamped before
+  it holds everything under `asf/` but `factory.yaml` and `asf/scorers/` to be the skill's.
+
+  A diagnosis keeps its record in a directory of its own, `asf/data/diagnoses/<scorer>-<when>/`,
+  in no session — it is about a scorer, across sessions — and is paid from the measurement budget,
+  checked before it starts. Once the day's is spent, or when no diagnosis could be made (no
+  `diagnostician`, an answer the gates never accepted), the issue is filed undiagnosed and says
+  why: the evidence is worth filing either way. New evidence for an open issue is a comment, and is
+  not diagnosed again. What it writes goes on a tracker that may be public, so its task tells it to
+  cite events by seq and never quote a transcript. A factory with scorers whose roster has no
+  `diagnostician`, or whose `asf/engine/diagnose.md` `## Report` drifted from `DiagnosisOutput`,
+  files undiagnosed without calling it — nothing is spent on an answer that cannot parse — and
+  `asf check` warns of it (`~`) without failing: undiagnosed is worse, not broken, and every scorer
+  still scores.
 
 A stamp ships four code scorers on `issue`, turned on, so a factory is measured from its first
 chapter: `corrections` (`corrections_above(2)`), `permission-rollbacks`

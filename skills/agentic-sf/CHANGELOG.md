@@ -126,6 +126,21 @@ before — `None` when there are none, never omitted.
   every session — never changes how a chapter ended, and needs no cockpit. A new
   `issues.create_command` (default `["gh", "issue", "create"]`) files it; empty files nothing.
   No event changes.
+- **A self-improvement issue carries a diagnosis.** Before filing, one bounded agent phase — the
+  new `diagnostician`, `writes: []`, in a detached checkout of its own — reads the failing
+  sessions' records and answers a typed envelope: the cause, the surface (`factory` or
+  `application`), the files and the proposed change. Its gates send it back when it names a file
+  the repository does not have, or claims a surface its files are not on. Code then rules on what
+  it may propose: factory code (any `.py` under `asf/`, where every gate is) is reported in the
+  issue, never proposed; a stage's own task file is redirected to the workflow's override
+  (`asf/workflows/<name>/tasks/<key>.md`), which `install.py --force` leaves alone; and a change
+  to any file the skill owns is marked upstreamable, for a person to carry to the skill. What the
+  skill owns is `asf/.skill-files`, which the installer now writes. A diagnosis is paid from the
+  measurement budget; once the day's is spent, or when none could be made, the issue is filed
+  undiagnosed and says why. New evidence for an open issue is a comment, and is not diagnosed
+  again. A factory with scorers and no diagnostician, or whose `asf/engine/diagnose.md` drifted
+  from `DiagnosisOutput`, files its issues undiagnosed without calling it, and `asf check` warns
+  of it. No event changes.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -239,7 +254,8 @@ before — `None` when there are none, never omitted.
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
    settings in the self-description, registering without a token, the pull request events and
-   the failure events, scoring, and judges — the `judge` agent and its task come with it; nothing
+   the failure events, scoring, and judges — the `judge` agent and its task come with it — and
+   the diagnosis, with the `diagnostician` agent, its task and `asf/.skill-files`; nothing
    else changes. The re-stamp — or `install.py` without `--force`, which stamps only what is
    missing — adds the four default scorers under `asf/scorers/` (`corrections`,
    `permission-rollbacks`, `limit-hits`, `not-accepted`, all on `issue`) and the example judge

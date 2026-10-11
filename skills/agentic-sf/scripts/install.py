@@ -9,7 +9,8 @@ Usage:
                                      [--no-detect-quality] [--ci | --no-ci]
 
 Stamps `asf/` — the engine, the stage vocabulary, the starter agents and
-workflows, the runner, and `.skill-version`, the release they came from — plus
+workflows, the runner, and `.skill-version`, the release they came from — and
+`.skill-files`, the record of which of them the skill owns — plus
 a factory.yaml assembled for the chosen harness, that harness's `.env.sample`,
 the justfile, and the .gitignore entries — and, when taken (`--ci`, or yes when
 asked), `.github/workflows/asf-check.yml`. Existing files are skipped unless
@@ -81,6 +82,18 @@ OBSOLETE = (
 # is, and is not the skill's to refresh: one the skill ships is stamped where
 # there is none, and the operator's copy is kept where there is.
 USER_OWNED = (Path("asf") / "scorers",)
+
+# What the skill owns in this stamp: every file under `asf/` that `--force`
+# overwrites, one path per line. Self-improvement reads it (`engine/
+# diagnose.py`): a change to one of these is lost on the next re-stamp, so a
+# diagnosis redirects it to a workflow's own task override and marks it for a
+# person to carry upstream. It is the installer's record, not a template —
+# rewritten whenever it differs from what this skill would stamp, --force or
+# not, because it says what the skill owns, not which version of it is here.
+SKILL_FILES = Path("asf") / ".skill-files"
+SKILL_FILES_HEADER = ("# Written by the agentic-sf installer: the files under asf/ the skill owns,\n"
+                      "# which `install.py --force` overwrites. Never edit it; a re-stamp "
+                      "rewrites it.\n")
 
 GITIGNORE_ENTRIES = [
     "asf/data/",
@@ -209,6 +222,27 @@ def stamp(src: Path, dest: Path, force: bool, stamped: list, skipped: list) -> N
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
+    stamped.append(str(dest))
+
+
+def skill_files() -> str:
+    """The record of what the skill owns, as this skill would stamp it."""
+    source = TEMPLATES / "asf"
+    paths = sorted((Path("asf") / path.relative_to(source)).as_posix()
+                   for path in source.rglob("*")
+                   if path.is_file() and "__pycache__" not in path.parts
+                   and not any((Path("asf") / path.relative_to(source)).is_relative_to(owned)
+                               for owned in USER_OWNED))
+    return SKILL_FILES_HEADER + "\n".join(paths) + "\n"
+
+
+def record_skill_files(root: Path, stamped: list, skipped: list) -> None:
+    dest = root / SKILL_FILES
+    fresh = skill_files()
+    if dest.is_file() and dest.read_text() == fresh:
+        skipped.append(str(dest))
+        return
+    dest.write_text(fresh)
     stamped.append(str(dest))
 
 
@@ -359,6 +393,7 @@ def main() -> int:
     stamp(TEMPLATES / "asf", root / "asf", args.force, stamped, skipped)
     if unrecorded and not args.force:
         keep_unrecorded(root, stamped)
+    record_skill_files(root, stamped, skipped)
     write_config(harness, root / "asf" / "factory.yaml", args.force, stamped, skipped,
                  config_notes)
     obsolete = lint_config(root / "asf" / "factory.yaml")
