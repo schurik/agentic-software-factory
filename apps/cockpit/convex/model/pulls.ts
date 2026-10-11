@@ -8,8 +8,10 @@
  * person does not. And what it took: when the session started, how big the
  * pull request was, and what the session's agent calls cost, by component.
  *
- * Folded at ingest from five kinds and nothing else, the way phases.ts
+ * Folded at ingest from six kinds and nothing else, the way phases.ts
  * folds phase rows: `session_started` when the work was kicked off,
+ * `provenance_recorded` (v3) whether the session works a scorer's
+ * self-improvement issue — whose merge the scorer counts from (model/improvements.ts),
  * `committed` which commits the session made — kept on the row, because its
  * pull request's close is checked against them and can come long after them,
  * a reopened one's close again — `usage` what each agent call cost,
@@ -58,11 +60,15 @@ export interface PullRow {
   commits: string[];
   /** What the session's agent calls cost, by component. */
   spent: Components;
+  /** The scorer whose self-improvement issue the session works, and that issue; absent for any other session. */
+  improves?: string;
+  issue?: number;
 }
 
 /** The versions of each kind the row folds: every one a factory writes, of a kind it takes anything from. */
 const FOLDED: Record<string, number[]> = {
-  session_started: [1, 2, 3], committed: [1], usage: [1], pull_request_opened: [1], pull_request_closed: [1, 2],
+  session_started: [1, 2, 3], provenance_recorded: [1, 2, 3], committed: [1], usage: [1], pull_request_opened: [1],
+  pull_request_closed: [1, 2],
 };
 
 /** The versions of `kind` the row folds, or [] for a kind it takes nothing from (tests/measure.test.ts holds the corpus to it). */
@@ -94,6 +100,9 @@ export function pulledIn(row: PullRow | null, events: StoredEvent[]): PullRow | 
     if (event.kind === "session_started") {
       // Its first process's start: a resume, a join or an answer is a later process of the same session.
       pull.kickoff ??= ms(p.str("started_at")) ?? ms(event.ts);
+    } else if (event.kind === "provenance_recorded") {
+      // Learned once, like all provenance — and only a v3 says it: before, no issue was one.
+      if (p.str("improves")) Object.assign(pull, { improves: p.str("improves"), issue: p.num("issue_number") });
     } else if (event.kind === "committed") {
       if (!pull.commits.includes(p.str("sha"))) pull.commits.push(p.str("sha"));
     } else if (event.kind === "usage") {

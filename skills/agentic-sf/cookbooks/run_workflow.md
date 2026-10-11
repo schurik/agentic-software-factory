@@ -227,6 +227,15 @@ its plan. `could not search the tracker` filed nothing on purpose — a second
 issue is worse than a late one; the next failing score, or `just score`, tries
 again once `gh` works. None of this changes how the run ended.
 
+Once a pull request for that issue merges, the scorer counts afresh: only
+chapters that started after the merge, and the console says so — `scorer
+<name> failed on 1 of the last 1 sessions it judged since #14 merged`. The
+failures the change was meant to fix are not evidence against it. The station
+knows of the merge from the session that worked the issue (its record says it
+`improves` the scorer, and how its pull request closed), so a merge the PR
+watcher never saw counts once `just score` has backfilled it. A pattern after
+the merge files a new issue: the old one is closed.
+
 Before a new issue is filed, the `diagnostician` diagnoses the pattern — a phase
 of its own on the console, then `scorer <name> diagnosed: a change to the
 factory, in <files>; diagnosing it cost $<x>` — and the issue's `## Diagnosis`

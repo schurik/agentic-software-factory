@@ -45,6 +45,9 @@ const DESCRIBED: Record<string, string> = {
   "pull_request_opened/v1.json": "opened pull request #43",
   "provenance_recorded/v1.json": "provenance: #42 health check broken",
   "provenance_recorded/v2.json": "provenance: #42 health check broken",
+  "provenance_recorded/v3.json":
+    "provenance: #108 Self-improvement: scorer refused failed on 3 of the last 10 sessions it judged · improves scorer refused",
+  "improvement_filed/v1.json": "filed issue #108 for scorer refused, citing 3 failing sessions",
   "session_finished/v1.json": "session finished: fail — the run's acceptance criterion was not met",
   "session_resumed/v1.json": "resumed chapter 1: ship",
   "session_started/v1.json": "session started: ship on alex@mbp:widgets",

@@ -19,7 +19,8 @@ import os
 import time
 from contextlib import contextmanager
 
-from . import agents, artifacts, git_helper, hitl, journal, limits, publish, replay, worktree
+from . import (agents, artifacts, git_helper, hitl, journal, labels, limits, publish, replay,
+               worktree)
 from .console import Console
 from .data_types import (COMMIT_FILES, AgentCall, AgentConfig, AgentResult, Committed,
                          Decision, DomainEvent, EnvelopeBase, Gate, Phase, PhaseEnded,
@@ -202,7 +203,8 @@ class Run:
         artifacts.record_provenance(self.session_dir, ProvenanceRecorded(
             request=request, trigger="issue", issue_url=context.url,
             issue_number=context.number, issue_project=context.project,
-            issue_author=context.author, issue_assignees=context.assignees))
+            issue_author=context.author, issue_assignees=context.assignees,
+            improves=labels.improved_by(context.labels)))
 
     def record_pull_request(self, context) -> None:
         """Bind this run to the pull request whose review feedback caused it.

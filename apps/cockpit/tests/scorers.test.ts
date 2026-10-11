@@ -45,10 +45,10 @@ const FAILING: Record<string, boolean> = { above: true, within: false, plan_only
  * and then each scorer in `scored` scored its chapter — the late events a
  * station appends after `session_finished`.
  */
-function session(id: string, scored: Scored = {}, { chapter = 1 }: { chapter?: number } = {}): WireEvent[] {
+function session(id: string, scored: Scored = {}, { chapter = 1, at }: { chapter?: number; at?: string } = {}): WireEvent[] {
   const events: WireEvent[] = [];
   const add = (event: WireEvent, payload: Record<string, unknown> = {}) => {
-    events.push({ ...event, seq: events.length + 1, payload: { ...event.payload, ...payload } });
+    events.push({ ...event, seq: events.length + 1, ...(at ? { ts: at } : {}), payload: { ...event.payload, ...payload } });
   };
   add(fixture("session_started", 1, 3), { adw_id: id });
   add(fixture("workflow_started", 1, 2), { workflow: "issue", chapter: 1, input: "issue" });
@@ -255,5 +255,133 @@ describe("a session an older cockpit stored", () => {
     await ship(t, ingestToken, "a1", events.slice(-1));
     expect((await scorer(t, "corrections")).counted).toEqual([{ session: "a1", failing: true }]);
     expect((await scorer(t, "reviewer-scope")).counted).toEqual([{ session: "a1", failing: true }]);
+  });
+});
+
+// ── self-improvement (#196) ─────────────────────────────────────────────────
+
+const ISSUE = 108;
+const issueUrl = (number: number) => `https://github.com/acme/widgets/issues/${number}`;
+const pullUrl = (number: number) => `https://github.com/acme/widgets/pull/${number}`;
+
+/** What self-improvement filed on the newest failing session it cites: a late `improvement_filed`. */
+function filed(events: WireEvent[], payload: Record<string, unknown> = {}): WireEvent[] {
+  const said = fixture("improvement_filed", events.length + 1);
+  return [...events, { ...said, payload: { ...said.payload, scorer: "corrections", number: ISSUE, url: issueUrl(ISSUE), ...payload } }];
+}
+
+/**
+ * The session that worked `corrections`' issue — its issue carried the label,
+ * so its `provenance_recorded` (v3) says it `improves` the scorer — and opened
+ * pull request #14, which the forge then merged at `mergedAt`, if at all.
+ */
+function improving(id: string, { at, mergedAt, issue = ISSUE, pr = 14 }: { at: string; mergedAt?: string; issue?: number; pr?: number }): WireEvent[] {
+  const events: WireEvent[] = [];
+  const add = (event: WireEvent, payload: Record<string, unknown> = {}, ts = at) => {
+    events.push({ ...event, seq: events.length + 1, ts, payload: { ...event.payload, ...payload } });
+  };
+  add(fixture("session_started", 1, 3), { adw_id: id });
+  add(fixture("provenance_recorded", 1, 3), { issue_number: issue, issue_url: issueUrl(issue), improves: "corrections" });
+  add(fixture("workflow_started", 1, 2), { workflow: "issue", chapter: 1, input: "issue" });
+  add(fixture("pull_request_opened", 1), { url: pullUrl(pr), number: pr });
+  add(fixture("session_finished", 1), { status: "success" });
+  if (mergedAt) {
+    add(fixture("pull_request_closed", 1, 2), { url: pullUrl(pr), number: pr, merged: true, merged_at: mergedAt, head_shas: [], base_merges: [] }, mergedAt);
+  }
+  return events;
+}
+
+/** Ship `events` as the cockpit takes them in at `at`: the order the strip lists sessions in. */
+async function shipAt(t: Cockpit, token: string, id: string, at: string, events: WireEvent[]) {
+  vi.setSystemTime(Date.parse(at));
+  await ship(t, token, id, events);
+}
+
+describe("after a self-improvement merge", () => {
+  // Before anything is stored: a document's creation time never goes back.
+  beforeEach(() => {
+    vi.setSystemTime(Date.parse("2026-09-30T00:00:00Z"));
+  });
+
+  it("counts only the chapters that started after it, and says where on the strip it merged", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await describedAs(t, ingestToken);
+    await shipAt(t, ingestToken, "a1", "2026-10-01T09:00:00Z", session("a1", { corrections: "above" }, { at: "2026-10-01T09:00:00Z" }));
+    await shipAt(t, ingestToken, "a2", "2026-10-01T10:00:00Z", filed(session("a2", { corrections: "above" }, { at: "2026-10-01T10:00:00Z" })));
+    await shipAt(t, ingestToken, "i1", "2026-10-02T09:00:00Z", improving("i1", { at: "2026-10-02T09:00:00Z", mergedAt: "2026-10-02T12:00:00Z" }));
+    await shipAt(t, ingestToken, "a3", "2026-10-03T09:00:00Z", session("a3", { corrections: "above" }, { at: "2026-10-03T09:00:00Z" }));
+
+    const corrections = await scorer(t, "corrections");
+    expect(corrections.counted).toEqual([{ session: "a3", failing: true }]);
+    expect(corrections.failures).toBe(1);
+    expect(corrections.merge).toEqual({ session: "i1", url: pullUrl(14), number: 14, at: Date.parse("2026-10-02T12:00:00Z"), index: 3 });
+    // The failures before it are still on the strip, judged, and no longer counted.
+    expect(corrections.strip.map((mark) => [mark.session, mark.judged, mark.counted])).toEqual([
+      ["a1", true, false], ["a2", true, false], ["i1", false, false], ["a3", true, true],
+    ]);
+    expect(corrections.shares).toEqual({ before: 1, counted: 1 });
+    // Another scorer's self-improvement is not this one's.
+    expect((await scorer(t, "reviewer-scope")).merge).toBeNull();
+  });
+
+  it("counts a later chapter of a session that started before it", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await describedAs(t, ingestToken);
+    const events = session("a1", { corrections: "above" }, { at: "2026-10-01T09:00:00Z" });
+    await shipAt(t, ingestToken, "a1", "2026-10-01T09:00:00Z", events);
+    await shipAt(t, ingestToken, "i1", "2026-10-02T09:00:00Z", improving("i1", { at: "2026-10-02T09:00:00Z", mergedAt: "2026-10-02T12:00:00Z" }));
+    expect((await scorer(t, "corrections")).counted).toEqual([]);
+
+    // A review chapter of a1's, after the merge, scored failing.
+    const review = [
+      { ...fixture("workflow_started", events.length + 1, 2), ts: "2026-10-03T09:00:00Z", payload: { ...fixture("workflow_started", 0, 2).payload, workflow: "issue", chapter: 2, input: "pr" } },
+      { ...fixture("chapter_scored", events.length + 2), ts: "2026-10-03T10:00:00Z", payload: { ...fixture("chapter_scored", 0).payload, chapter: 2, scorer: "corrections", class: "above", failing: true, evidence: [] } },
+    ];
+    await shipAt(t, ingestToken, "a1", "2026-10-03T10:00:00Z", review);
+
+    expect((await scorer(t, "corrections")).counted).toEqual([{ session: "a1", failing: true }]);
+  });
+
+  it("is drawn on no strip that begins after it", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await describedAs(t, ingestToken);
+    await shipAt(t, ingestToken, "i1", "2026-10-02T09:00:00Z", improving("i1", { at: "2026-10-02T09:00:00Z", mergedAt: "2026-10-02T08:00:00Z" }));
+
+    expect((await scorer(t, "corrections")).merge).toMatchObject({ number: 14, index: null });
+  });
+});
+
+describe("a scorer's self-improvement issue", () => {
+  it("is the one filed, with its diagnosis, until a session opens its pull request, and past once that merges", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await describedAs(t, ingestToken);
+    await shipAt(t, ingestToken, "a1", "2026-10-01T09:00:00Z", filed(session("a1", { corrections: "above" })));
+
+    const issue = {
+      number: ISSUE, url: issueUrl(ISSUE), title: "Self-improvement: scorer refused failed on 3 of the last 10 sessions it judged",
+      cause: "The builder stops after one failed test run instead of reading the failure.", surface: "factory", notDiagnosed: "",
+      at: Date.parse("2026-09-29T12:00:00.000+00:00"),
+    };
+    expect(await scorer(t, "corrections")).toMatchObject({ issue: { ...issue, pr: null }, past: [] });
+
+    await shipAt(t, ingestToken, "i1", "2026-10-02T09:00:00Z", improving("i1", { at: "2026-10-02T09:00:00Z" }));
+    expect((await scorer(t, "corrections")).issue).toEqual({ ...issue, pr: { url: pullUrl(14), number: 14, state: "open" } });
+
+    await shipAt(t, ingestToken, "i1", "2026-10-02T12:00:00Z", improving("i1", { at: "2026-10-02T09:00:00Z", mergedAt: "2026-10-02T12:00:00Z" }).slice(-1));
+    expect(await scorer(t, "corrections")).toMatchObject({ issue: null, past: [{ ...issue, pr: { url: pullUrl(14), number: 14, state: "merged" } }] });
+    expect((await scorer(t, "reviewer-scope")).issue).toBeNull();
+  });
+
+  it("is the newest filed, an older one past; new evidence added to it files no second", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await describedAs(t, ingestToken);
+    await shipAt(t, ingestToken, "a1", "2026-10-01T09:00:00Z", filed(session("a1", { corrections: "above" }), { number: 90, url: issueUrl(90) }));
+    await shipAt(t, ingestToken, "a2", "2026-10-02T09:00:00Z", filed(session("a2", { corrections: "above" }), { number: 95, url: issueUrl(95) }).map((event) => ({ ...event, ts: "2026-10-02T09:00:00Z" })));
+    await shipAt(t, ingestToken, "a3", "2026-10-03T09:00:00Z", filed(session("a3", { corrections: "above" }),
+      { number: 95, url: issueUrl(95), commented: true, cause: "", surface: "", title: "" }).map((event) => ({ ...event, ts: "2026-10-03T09:00:00Z" })));
+
+    const corrections = await scorer(t, "corrections");
+    expect(corrections.issue).toMatchObject({ number: 95, cause: expect.stringContaining("builder") });
+    expect(corrections.past.map((each) => each.number)).toEqual([90]);
   });
 });

@@ -1788,10 +1788,12 @@ class NewIssue(BaseModel):
 
 
 class OpenIssue(BaseModel):
-    """An open issue as a listing gives it: its number, its description and
-    the body of each comment on it, oldest first."""
+    """An open issue as a listing gives it: its number, where it is, its
+    title, its description and the body of each comment on it, oldest first."""
 
     number: int
+    url: str = ""
+    title: str = ""
     body: str = ""
     comments: list[str] = Field(default_factory=list)
 
@@ -1807,6 +1809,7 @@ class IssueResult(BaseModel):
 
     ok: bool = False
     number: int = 0
+    url: str = ""                   # a filed issue's, as the CLI printed it
     commented: bool = False
     labels_changed: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
@@ -2595,10 +2598,17 @@ class ProvenanceRecorded(DomainEvent):
     — the people besides the one who triggered it (`session_started`) whose
     work a cockpit ranks first for them. A snapshot: nothing in the session
     depends on them, so they are carried to the cockpit and not to `run.json`.
+
+    v3: `improves`, the scorer whose self-improvement issue the session works
+    — read off the issue's `asf:improve:<scorer>` label when the run read it,
+    "" for any other. With the session's `pull_request_closed` it is where a
+    self-improvement merged, which is what the scorer counts from afterwards
+    (`engine/improve.py`) — on the station and in a cockpit alike, from the
+    events alone. Not in `run.json`, like v2's.
     """
 
     KIND: ClassVar[str] = "provenance_recorded"
-    VERSION: ClassVar[int] = 2      # v2: issue_author, issue_assignees
+    VERSION: ClassVar[int] = 3      # v2: issue_author, issue_assignees; v3: improves
 
     request: str = ""
     trigger: str = ""
@@ -2608,6 +2618,7 @@ class ProvenanceRecorded(DomainEvent):
     pr_url: str = ""
     issue_author: str = ""
     issue_assignees: list[str] = Field(default_factory=list)
+    improves: str = ""
 
 
 class WorkflowStarted(DomainEvent):
@@ -3161,6 +3172,34 @@ class PullRequestClosed(DomainEvent):
     deletions: int = 0
 
 
+class ImprovementFiled(DomainEvent):
+    """Self-improvement filed an issue for a scorer, or added new evidence to
+    the one open for it (`engine/improve.py`) — on the record of the newest
+    failing session it cites, as a late event like the score that crossed the
+    threshold: what a cockpit draws a scorer's issue from without asking the
+    forge (ADR 0006).
+
+    `commented` is False for the issue filed, True for a comment on one open
+    — filed here or by another station. `sessions` are the failing sessions
+    that text cites, newest first. The diagnosis is the issue's: `cause` and
+    `surface` (factory | application) when one was made, `not_diagnosed` why
+    none was; all three "" on a comment, which is never diagnosed. Nothing a
+    transcript says is here: the issue quotes none either.
+    """
+
+    KIND: ClassVar[str] = "improvement_filed"
+
+    scorer: str
+    number: int
+    url: str = ""
+    title: str = ""
+    commented: bool = False
+    sessions: list[str] = Field(default_factory=list)
+    cause: str = ""
+    surface: str = ""
+    not_diagnosed: str = ""
+
+
 # ── transcript events: written only when `cockpit.transcripts` is on ─────────
 #
 # Through `Run.transcript`, the one door they are written through — so no caller
@@ -3216,4 +3255,5 @@ EVENT_KINDS: dict[str, type[DomainEvent]] = {model.KIND: model for model in (
     GateOpened, SessionSuspended, DecisionRecorded, JournalNoted, UsageRecorded,
     ArtifactWritten, Committed, ToolCalled, ProcessStarted, ProcessEnded, CommandFinished,
     CommandResult, SessionFinished, PullRequestOpened, PullRequestClosed, PermissionRolledBack,
-    LimitHit, ChapterScored, ChapterNotJudged, PromptRendered, HarnessOutput)}
+    LimitHit, ChapterScored, ChapterNotJudged, ImprovementFiled, PromptRendered,
+    HarnessOutput)}

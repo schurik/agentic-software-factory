@@ -187,10 +187,31 @@ export default defineSchema({
     failing: v.boolean(),
     chapters: v.array(v.object({
       chapter: v.number(), class: v.string(), failing: v.boolean(), evidence: v.array(v.number()),
+      // When the chapter started, epoch ms: what a self-improvement merge is counted from. Absent
+      // from a row written before it was kept, which is read as starting when the session was stored.
+      startedAt: v.optional(v.number()),
     })),
   })
     .index("by_session", ["factory", "session", "scorer"])
     .index("by_factory_scorer", ["factory", "scorer", "at"]),
+
+  // One issue self-improvement filed on the factory's own tracker for a
+  // scorer (model/improvements.ts): what its `improvement_filed` said, the
+  // diagnosis included. Written by ingest as each arrives — late, on the
+  // record of the newest failing session it cites — so the Scorers view draws
+  // a scorer's issue without reading an event or asking the forge.
+  improvements: defineTable({
+    factory: v.string(),
+    scorer: v.string(),
+    number: v.number(),
+    url: v.string(),
+    title: v.string(),
+    cause: v.string(),
+    surface: v.string(),
+    notDiagnosed: v.string(),
+    at: v.number(),
+  })
+    .index("by_factory_scorer", ["factory", "scorer", "number"]),
 
   // What measuring a factory's own work cost (model/measured.ts): one row for
   // each judgement a scorer's judge was paid for, at the time it was judged,
@@ -231,10 +252,16 @@ export default defineSchema({
     spent: v.optional(v.object({
       input: v.number(), output: v.number(), cacheRead: v.number(), cacheWrite: v.number(), other: v.number(),
     })),
+    // The scorer whose self-improvement issue the session works, and that
+    // issue's number (`provenance_recorded` v3): what a merge of this pull
+    // request resets the scorer's count at. Absent for any other session.
+    improves: v.optional(v.string()),
+    issue: v.optional(v.number()),
   })
     .index("by_session", ["factory", "session"])
     .index("by_factory_opened", ["factory", "opened"])
-    .index("by_factory_merged", ["factory", "mergedAt"]),
+    .index("by_factory_merged", ["factory", "mergedAt"])
+    .index("by_factory_improves", ["factory", "improves"]),
 
   // An answer a viewer posted from the inbox: the comment on the work item,
   // which is the answer itself — this only remembers that it was sent, so the

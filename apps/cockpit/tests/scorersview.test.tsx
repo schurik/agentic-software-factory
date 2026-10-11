@@ -28,6 +28,7 @@ function scorer(fields: Partial<ScorerView> & { name: string }): ScorerView {
     classes: [{ name: "above", fail: true }, { name: "within", fail: false }],
     threshold: { failures: 3, ofLast: 10 }, strip, counted,
     failures: counted.filter((each) => each.failing).length, shares: { before: null, counted: null }, failing: [],
+    merge: null, issue: null, past: [],
     ...fields,
   };
 }
@@ -45,7 +46,7 @@ const IDLE = scorer({ name: "limit-hits", sampleRate: 0, inactive: true, strip: 
 const SCORERS: Scorers = { described: true, sessions: 10, scorers: [CORRECTIONS, REVIEWER, IDLE] };
 
 function text(html: string): string {
-  return html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").replace(/ ([:.,])/g, "$1");
+  return html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").replace(/ ([:;.,])/g, "$1");
 }
 
 /** The view over `scorers` — the ones above unless said otherwise, undefined while the query asks — with `open` open. */
@@ -189,6 +190,81 @@ describe("the footer", () => {
   it("says quietly what the scorer is: its kind, its scope, the classes it fails and passes on", () => {
     expect(story(render(SCORERS, "corrections"))).toMatch(/code · issue · focus builder · every chapter · fails on above · passes on within\s*$/);
     expect(story(render(SCORERS, "reviewer-scope"))).toMatch(/judge · issue · focus reviewer · samples 20% · fails on plan_only · passes on checked_both\s*$/);
+  });
+});
+
+// ── self-improvement (#196) ─────────────────────────────────────────────────
+
+const ISSUE = {
+  number: 108, url: "https://github.com/acme/widgets/issues/108",
+  title: "Self-improvement: scorer corrections failed on 3 of the last 10 sessions it judged",
+  cause: "The builder stops after one failed test run instead of reading the failure.", surface: "factory", notDiagnosed: "",
+  at: Date.parse("2026-10-01T09:00:00Z"), pr: null,
+};
+const PR = { url: "https://github.com/acme/widgets/pull/14", number: 14 };
+const MERGE = { session: "s5", ...PR, at: Date.parse("2026-10-02T12:00:00Z"), index: 3 };
+
+/** `corrections` with `fields` — its issue, its merge, its past issues — over the strip above. */
+const improving = (fields: Partial<ScorerView>) => ({ ...SCORERS, scorers: [{ ...CORRECTIONS, ...fields }] });
+
+describe("a scorer's self-improvement issue", () => {
+  it("is in the Issue column as a forge reference, never a green dot", () => {
+    const row = render(improving({ issue: ISSUE })).split(">corrections<")[1];
+    expect(text(row)).toMatch(/ code issue · builder · every chapter #108 1 /);
+    expect(row).toContain('aria-label="issue"');
+    expect(row).not.toMatch(/text-ok|bg-ok/);
+  });
+
+  it("is said open with its pull request, in the sentence its scorer starts with", () => {
+    expect(story(render(improving({ issue: ISSUE }), "corrections"))).toMatch(/^ Issue #108 is open, and no session has opened a pull request for it yet\./);
+    const reviewed = { ...ISSUE, pr: { ...PR, state: "open" as const } };
+    expect(story(render(improving({ issue: reviewed }), "corrections"))).toMatch(/^ Issue #108 is open, with its pull request #14 open\./);
+    const refused = { ...ISSUE, pr: { ...PR, state: "closed" as const } };
+    expect(story(render(improving({ issue: refused }), "corrections"))).toMatch(/^ Issue #108 is open, its pull request #14 closed unmerged\./);
+  });
+
+  it("is a card of its title, its pull request's state and its diagnosis, clamped to two lines", () => {
+    const html = storyHtml(render(improving({ issue: { ...ISSUE, pr: { ...PR, state: "open" } } }), "corrections"));
+    const card = html.split('data-issue=""')[1];
+    const said = text(card);
+    expect(said).toContain(ISSUE.title);
+    expect(said).toContain("pull request #14 open");
+    expect(said).toContain(`a change to the factory: ${ISSUE.cause}`);
+    expect(card).toMatch(/class="[^"]*line-clamp-2[^"]*"/);
+    expect(card).toContain('href="https://github.com/acme/widgets/issues/108"');
+    expect(card).not.toMatch(/text-ok|bg-ok/);
+  });
+
+  it("says why there is no diagnosis, when none was made", () => {
+    const html = storyHtml(render(improving({ issue: { ...ISSUE, cause: "", surface: "", notDiagnosed: "the measurement budget is spent" } }), "corrections"));
+    expect(text(html.split('data-issue=""')[1])).toContain("Not diagnosed: the measurement budget is spent");
+  });
+
+  it("lists the scorer's past issues in its footer", () => {
+    const past = [{ ...ISSUE, number: 95, url: "https://github.com/acme/widgets/issues/95", pr: { ...PR, state: "merged" as const } }, { ...ISSUE, number: 90, url: "https://github.com/acme/widgets/issues/90" }];
+    const html = storyHtml(render(improving({ past }), "corrections"));
+    expect(text(html)).toMatch(/past issues #95, #90/);
+    expect(html).toContain('href="https://github.com/acme/widgets/issues/95"');
+    expect(html).not.toContain('data-issue=""');
+  });
+});
+
+describe("after a self-improvement merge", () => {
+  it("is said to count since it", () => {
+    expect(story(render(improving({ merge: MERGE }), "corrections")))
+      .toMatch(/^ Counting since #14 merged on Oct 2, 2026: 1 of the 4 sessions it judged since failed; 2 more to an issue\./);
+    const nothing = { merge: MERGE, counted: [], failures: 0, failing: [], strip: stripOf("o-xo-o-x-o", 0) };
+    expect(story(render(improving(nothing), "corrections"))).toMatch(/^ Counting since #14 merged on Oct 2, 2026: no chapter scored since\./);
+  });
+
+  it("is a purple rule on the strip where it merged, and none for a merge before the strip", () => {
+    const html = storyHtml(render(improving({ merge: MERGE }), "corrections"));
+    expect(html).toMatch(/data-merge="" [^>]*class="[^"]*bg-merged[^"]*"[^>]*style="left:30%"/);
+    expect(storyHtml(render(improving({ merge: { ...MERGE, index: null } }), "corrections"))).not.toContain("data-merge");
+  });
+
+  it("gives way to the sentence of an issue open since", () => {
+    expect(story(render(improving({ merge: MERGE, issue: ISSUE }), "corrections"))).toMatch(/^ Issue #108 is open/);
   });
 });
 

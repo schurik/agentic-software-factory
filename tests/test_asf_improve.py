@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 from engine import events, factory, improve, scorers, watch
@@ -22,7 +23,7 @@ from engine.data_types import EventLine, FactoryConfig, ScorerClass, ScorerSpec
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
                           forge_calls, forge_data, git, pr_json, scorer, session_dir, set_config,
-                          wire, with_origin)
+                          wire, with_origin, write_workflow)
 
 CONFIG = "asf/factory.yaml"
 CRITERIA = "A chapter the workflow refused is work a person has to pick up by hand.\n"
@@ -237,6 +238,103 @@ def test_failing_chapters_of_one_session_count_once(stamped: Path):
     assert [line.payload["chapter"] for line in failing] == [2, 3]
     assert filed(stamped) == []                          # two chapters, one session
     assert "1 of the last 1" in result.stdout
+
+
+# ── after a merge ────────────────────────────────────────────────────────────
+
+IMPROVER = "1a2b3c4d"
+
+
+def improved(repo: Path, issue: dict) -> str:
+    """The issue worked by a session of its own — a small workflow taking an
+    issue, as the `issue` workflow would — whose pull request (#9, as the
+    stand-in opens every one) the PR watcher then reaps merged, now. The
+    forge closes the issue with it. Returns when it merged."""
+    base = forge(repo)
+    set_config(repo, issues={"fetch_command": [*base, "view"]}, pull_requests={
+        "enabled": True, "project": "acme/widgets", "list_command": [*base, "list"],
+        "comment_command": [*base, "comment"], "state_command": [*base, "edit"],
+        "graphql_command": [*base, "graphql"]},
+        worktree={"integration": {"mode": "pr", "open_pr": True,
+                                  "pr_command": [*base, "pr-create"]}})
+    write_workflow(repo, "fix", {
+        "description": "implement an issue, verify, commit and open a pull request",
+        "input": "issue",
+        "stages": [{"implement": {"agent": "builder"}}, {"verify": {"blocks": ["test"]}},
+                   {"commit": {"of": "implement"}}, {"integrate": {}}]})
+    fake_roster(repo, builder=[build_reply("ok = 1\n", "fix: what the scorer found")])
+    forge_data(repo, "issue.json", issue)
+    if not git(repo, "remote"):
+        with_origin(repo)
+    prepared(repo)
+    result = asf(repo, "run", "fix", str(issue["number"]), "--adw-id", IMPROVER)
+    assert result.returncode == 0, result.stdout + result.stderr
+    [made] = [line.payload["sha"] for line in events.read(session_dir(repo, IMPROVER))
+              if line.kind == "committed"]
+    merged_at = datetime.now(timezone.utc).isoformat()
+    forge_data(repo, "listing.json", [])
+    forge_data(repo, "pr.json", pr_json(9, f"asf/{IMPROVER}", state="MERGED",
+                                        merged_at=merged_at, commits=[(made, ["a" * 40])]))
+    reaped = asf(repo, "prs", "once")
+    assert reaped.returncode == 0, reaped.stdout + reaped.stderr
+    issues = [{**each, "state": "CLOSED"} if each["number"] == issue["number"] else each
+              for each in filed(repo)]
+    (repo / ".forge" / "created.json").write_text(json.dumps(issues))
+    return merged_at
+
+
+def test_failures_before_a_self_improvement_merge_do_not_count_after_it(stamped: Path):
+    on_the_forge(stamped)
+    scorer(stamped, "refused", REFUSED, CRITERIA)
+    before = [refused_run(stamped), refused_run(stamped)]
+    [issue] = filed(stamped)
+
+    improved(stamped, issue)
+    [learned] = [line.payload for line in events.read(session_dir(stamped, IMPROVER))
+                 if line.kind == "provenance_recorded" and line.payload.get("issue_number")]
+    assert learned["improves"] == "refused"
+
+    # One failure since the merge is not the pattern the two before it were...
+    first = refuse(stamped)
+    assert len(filed(stamped)) == 1
+    assert "failed on 1 of the last 1 sessions it judged since #9 merged" in first.stdout
+    # ...two are, and the issue they file cites them alone.
+    second = refuse(stamped)
+    [again] = [each for each in filed(stamped) if each["number"] != issue["number"]]
+    assert again["title"] == ("Self-improvement: scorer refused failed on 2 of the last 2 "
+                              "sessions it judged since #9 merged")
+    for adw_id in (adw_id_of(first), adw_id_of(second)):
+        assert f"Session `{adw_id}`" in again["body"]
+    for adw_id in before:
+        assert adw_id not in again["body"]
+    assert not [call for call in calls(stamped, "comment") if improve.MARK in call[-1]]
+
+
+# ── what the record says it filed ────────────────────────────────────────────
+
+def test_filing_and_adding_to_an_issue_are_on_the_newest_failing_session_s_record(
+        stamped: Path):
+    on_the_forge(stamped)
+    scorer(stamped, "refused", REFUSED, CRITERIA)
+    first, second = refused_run(stamped), refused_run(stamped)
+    [issue] = filed(stamped)
+    third = refused_run(stamped)
+
+    def told(adw_id: str) -> list[dict]:
+        return [line.payload for line in events.read(session_dir(stamped, adw_id))
+                if line.kind == "improvement_filed"]
+
+    assert told(first) == []
+    [filing] = told(second)
+    assert filing == {
+        "scorer": "refused", "number": issue["number"], "url": issue["url"],
+        "title": issue["title"], "commented": False, "sessions": [second, first],
+        "cause": "", "surface": "", "not_diagnosed": filing["not_diagnosed"]}
+    assert filing["not_diagnosed"]                       # the fake roster has no diagnostician
+    [added] = told(third)
+    assert added == {"scorer": "refused", "number": issue["number"], "url": issue["url"],
+                     "title": issue["title"], "commented": True, "sessions": [third],
+                     "cause": "", "surface": "", "not_diagnosed": ""}
 
 
 # ── what stops it ────────────────────────────────────────────────────────────

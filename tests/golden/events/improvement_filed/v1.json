@@ -1,0 +1,17 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "improvement_filed",
+  "v": 1,
+  "payload": {
+    "scorer": "refused",
+    "number": 108,
+    "url": "https://github.com/acme/widgets/issues/108",
+    "title": "Self-improvement: scorer refused failed on 3 of the last 10 sessions it judged",
+    "commented": false,
+    "sessions": ["5c0075aa", "a9f259f0", "0badc0de"],
+    "cause": "The builder stops after one failed test run instead of reading the failure.",
+    "surface": "factory",
+    "not_diagnosed": ""
+  }
+}

@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 
 from engine import events
+from engine.data_types import ProvenanceRecorded
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
                           forge_data, issue_json, run_state, session_dir, set_config, wire,
@@ -137,6 +138,6 @@ def test_an_issue_run_says_who_wrote_the_issue_and_whom_it_is_assigned_to(stampe
     adw_id = adw_id_of(result)
     learned = [line for line in events.read(session_dir(stamped, adw_id))
                if line.kind == "provenance_recorded" and line.payload.get("issue_number")]
-    assert learned and learned[0].v == 2
+    assert learned and learned[0].v == ProvenanceRecorded.VERSION
     assert (learned[0].payload["issue_author"], learned[0].payload["issue_assignees"]) == (
         "bob", ["carol", "dave"])
