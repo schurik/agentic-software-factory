@@ -217,6 +217,10 @@ def phase_names(repo: Path, adw_id: str) -> list[str]:
 # asked for an issue's timeline, from timeline.json, and logged),
 # prints a url for `pr-create`, and appends every other call to calls.json —
 # `label-create` among them, so a test reads back which labels were defined.
+# `create` files an issue into created.json and prints its url; `list --label`
+# lists the open ones filed so far that carry every label asked for, after
+# listing.json; and a `comment` on one of them joins its comments, so a second
+# look finds what the first one said.
 # `refuse.json` names verbs it refuses with exit 1, the way a real one does
 # when it cannot do an edit.
 
@@ -231,10 +235,34 @@ if refuse.exists() and verb in json.loads(refuse.read_text()):
     sys.exit(1)
 log = home / "calls.json"
 entries = json.loads(log.read_text()) if log.exists() else []
+created = home / "created.json"
+filed = json.loads(created.read_text()) if created.exists() else []
+def values(flag):
+    return [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == flag]
 if verb == "view":
     print((home / "issue.json").read_text())
 elif verb == "list":
-    print((home / "listing.json").read_text() if (home / "listing.json").exists() else "[]")
+    listing = home / "listing.json"
+    listed = json.loads(listing.read_text()) if listing.exists() else []
+    wanted = values("--label")
+    listed += [issue for issue in filed if wanted and issue["state"] == "OPEN"
+               and set(wanted) <= {label["name"] for label in issue["labels"]}]
+    print(json.dumps(listed))
+elif verb == "create":
+    entries.append([verb, *argv])
+    number = 100 + len(filed)
+    filed.append({"number": number, "url": f"https://forge/acme/widgets/issues/{number}",
+                  "title": values("--title")[0], "body": values("--body")[0],
+                  "labels": [{"name": name} for name in values("--label")],
+                  "state": "OPEN", "comments": []})
+    created.write_text(json.dumps(filed))
+    print(filed[-1]["url"])
+elif verb == "comment":
+    entries.append([verb, *argv])
+    for issue in filed:
+        if str(issue["number"]) == argv[0]:
+            issue["comments"].append({"body": values("--body")[0]})
+    created.write_text(json.dumps(filed))
 elif verb == "label-list":
     print((home / "labels.json").read_text() if (home / "labels.json").exists() else "[]")
 elif verb == "graphql":

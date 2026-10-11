@@ -32,6 +32,9 @@ rewrites one, the shipped four included once they are there.
 A chapter is scored by the process that ends it (`after_chapter`), and one
 that ended before its scorer existed by `asf score` (`backfill`), with the
 score it would have had then — so a new scorer has a baseline on day one.
+Either way, a scorer that has just recorded a failing score is handed to
+self-improvement (`engine/improve.py`), which files an issue once its failures
+are a pattern.
 """
 
 from __future__ import annotations
@@ -45,9 +48,9 @@ from typing import TYPE_CHECKING, Callable, Literal, Mapping, Sequence, get_args
 
 from pydantic import ValidationError
 
-from . import artifacts, events, frontmatter, git_helper, judge, measurement, station
+from . import artifacts, events, frontmatter, git_helper, improve, judge, measurement, station
 from .data_types import (ChapterNotJudged, ChapterScored, DomainEvent, EventLine, FactoryConfig,
-                         LimitKind, ScorerClass, ScorerSpec)
+                         ImproveAfter, LimitKind, ScorerClass, ScorerSpec)
 
 if TYPE_CHECKING:
     from .runner import Run
@@ -246,6 +249,11 @@ class Scorer:
     spec: ScorerSpec
     criteria: str                   # the prose below the frontmatter
 
+    def threshold(self, cfg: FactoryConfig) -> ImproveAfter:
+        """The bar its failing scores are held to (`engine/improve.py`): its
+        own `improve_after:`, else the factory's `self_improvement:`."""
+        return self.spec.improve_after or cfg.self_improvement
+
     @property
     def rate(self) -> float:
         """The share of its workflow's chapters it scores: a judge's
@@ -419,6 +427,7 @@ class Scored:
     recorded: int = 0               # scores recorded
     unjudged: int = 0               # judges the measurement budget kept from the chapter
     said: int = 0                   # ...of which the record was told so just now
+    failing: set[str] = field(default_factory=set)      # scorers that recorded a failing score
 
 
 def score_chapter(scoring: Scoring, chapter: judge.Chapter, due: Sequence[Scorer]) -> Scored:
@@ -453,6 +462,8 @@ def score_chapter(scoring: Scoring, chapter: judge.Chapter, due: Sequence[Scorer
                 continue
         scoring.record(score)
         scored.recorded += 1
+        if score.failing:
+            scored.failing.add(scorer.name)
         scoring.say(f"chapter {number} scored by {scorer.name}: {score.class_}"
                     + (" (failing)" if score.failing else "")
                     + (f", judging it cost ${score.usage.total_cost:.4f}"
@@ -480,8 +491,11 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
         ended = artifacts.ended_chapters(run.session_dir)[number][1]
         chapter = judge.Chapter(run.session_dir,
                                 chapter_record(events.read(run.session_dir), number), ended)
-        score_chapter(Scoring(run.cfg, run.main_root, run.console.note, run.tracer.event),
-                      chapter, found)
+        scored = score_chapter(Scoring(run.cfg, run.main_root, run.console.note,
+                                       run.tracer.event), chapter, found)
+        improve.consider(run.cfg, run.main_root,
+                         [each for each in found if each.name in scored.failing],
+                         run.console.note)
     except Exception as error:              # noqa: BLE001 — see the docstring
         run.console.note(f"scoring failed, and the chapter stands as it ended: {error}")
 
@@ -494,6 +508,7 @@ class Tally:
     already: int = 0                # chapters every chosen scorer had scored before
     unjudged: int = 0               # chapters a judge was kept from by the measurement budget
     failed: int = 0                 # sessions that could not be read or written
+    failing: set[str] = field(default_factory=set)      # scorers that recorded a failing score
 
 
 def score_ended_chapters(cfg: FactoryConfig, sessions_dir: Path, chosen: Sequence[Scorer],
@@ -551,6 +566,7 @@ def _score_session(cfg: FactoryConfig, session_dir: Path, chosen: Sequence[Score
         scored = score_chapter(scoring, chapter, due)
         tally.scored += bool(scored.recorded)
         tally.unjudged += bool(scored.unjudged)
+        tally.failing |= scored.failing
         wrote = wrote or bool(scored.recorded or scored.said)
     return wrote
 
@@ -582,17 +598,22 @@ def backfill(cfg: FactoryConfig, chosen: Sequence[Scorer], broken: Sequence[Refu
     """`asf score`: give the `chosen` scorers a baseline from the sessions
     already on disk — every ended chapter of their workflow they have not
     scored, a judge's as it samples them — and say why each `broken` one
-    scores nothing. 1 when a scorer is broken, or a session could not be
-    scored."""
+    scores nothing. Once every session is scored, a scorer that recorded a
+    failing score is handed to self-improvement, so a baseline's failures
+    file one issue with all of them, never one per session. 1 when a scorer
+    is broken, or a session could not be scored."""
     for each in broken:
         print(f"✗ scorer {each.name} scores nothing until `asf check` accepts it\n"
               f"  {each.path}: {each.error}")
-    tally = score_ended_chapters(cfg, artifacts.sessions_root(git_helper.main_root(),
-                                                              cfg.data_dir), chosen, since)
+    main_root = git_helper.main_root()
+    tally = score_ended_chapters(cfg, artifacts.sessions_root(main_root, cfg.data_dir), chosen,
+                                 since)
     print(f"scored {tally.scored} chapter(s)" + (f" since {since.date()}" if since else "")
           + f"; {tally.already} already scored"
           + (f"; {tally.unjudged} chapter(s) not judged: the measurement budget is spent — "
              f"`asf score` judges them on a day it is not" if tally.unjudged else "")
           + (f"; {tally.failed} session(s) could not be scored — run it again"
              if tally.failed else ""))
+    improve.consider(cfg, main_root, [each for each in chosen if each.name in tally.failing],
+                     lambda line: print(f"  {line}"))
     return 1 if broken or tally.failed else 0

@@ -1167,9 +1167,9 @@ class ImproveAfter(BaseModel):
     Self-improvement). Several failing chapters of one session count once.
 
     `self_improvement:` in factory.yaml sets it for every scorer, and a
-    scorer's own `improve_after:` holds that one to another bar. Both the
-    Scorers view and self-improvement read it from the self-description, where
-    each scorer carries the one that applies to it.
+    scorer's own `improve_after:` holds that one to another bar
+    (`Scorer.threshold`). The Scorers view reads it from the self-description,
+    where each scorer carries the one that applies to it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1286,6 +1286,11 @@ class IssuesConfig(BaseModel):
     # config that had conflated them could not say so.
     comments_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "view"])
     body_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
+    # Filing an issue: the one the factory opens on itself, when a scorer keeps
+    # failing (`engine/improve.py`). Every other path works an issue a person
+    # opened; this is the only one that opens one. EMPTY MEANS SKIP: a tracker
+    # the factory cannot file on is told the pattern on the console instead.
+    create_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "create"])
     # Reading which labels the project DEFINES, and defining one. Every name in
     # `route`, `states`, `refined_label` and `pull_requests.states.failed` is
     # one this factory will hand to `--add-label`, and a forge answers that with
@@ -1751,6 +1756,25 @@ class IssueUpdate(BaseModel):
     comment: str = ""
     add_labels: list[str] = Field(default_factory=list)
     remove_labels: list[str] = Field(default_factory=list)
+
+
+class NewIssue(BaseModel):
+    """An issue the factory files itself — only ever its self-improvement
+    issue (`engine/improve.py`); every other path works one a person opened."""
+
+    title: str
+    body: str
+    labels: list[str] = Field(default_factory=list)
+    project: str = ""
+
+
+class OpenIssue(BaseModel):
+    """An open issue as a listing gives it: its number, its description and
+    the body of each comment on it, oldest first."""
+
+    number: int
+    body: str = ""
+    comments: list[str] = Field(default_factory=list)
 
 
 class IssueResult(BaseModel):

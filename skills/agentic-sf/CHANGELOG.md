@@ -114,6 +114,18 @@ before — `None` when there are none, never omitted.
   **Measurement cost**, one bar the length of the period's budget — judges, then benchmarks,
   then what is left, and "over by $x" past it — never inside cost per PR, and the session page
   says "not judged (budget)" under a chapter its judge was kept from.
+- **A scorer that keeps failing files one issue.** Once a scorer has failed on `failures` of
+  the last `of_last` distinct sessions it judged (`self_improvement:`, or its `improve_after:`;
+  several failing chapters of one session count once), the station files an issue on the
+  factory's own tracker holding the failing scores, the events each cites and the scorer's
+  criteria, labelled `asf:improve:<scorer>` and queued for the `issue` workflow (its route label
+  and `asf:queued`), where a person approves its plan like any other. At most one is open per
+  scorer: before filing, the station searches for it by its label, and comments on it with the
+  sessions it does not cite yet instead; a search that fails files nothing. It runs after a
+  failing score — from the run that ended the chapter, and from `asf score` once it has scored
+  every session — never changes how a chapter ended, and needs no cockpit. A new
+  `issues.create_command` (default `["gh", "issue", "create"]`) files it; empty files nothing.
+  No event changes.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -243,9 +255,12 @@ before — `None` when there are none, never omitted.
    factory opened that has since closed, 20 a pass — what the Measure tab counts merges from;
    a factory that runs no watcher records them with `just score` instead. Run `just score` once
    after the re-stamp either way: it gives the four scorers a baseline from every chapter that
-   ended before them. Pull requests opened before the re-stamp said nothing
-   when they opened, so they count as merged but never as autonomous. Pull requests that closed before
-   the re-stamp have no size, and are counted in no size. A factory with the CI
+   ended before them — and a scorer whose baseline already fails on 3 of its last 10 sessions
+   files its self-improvement issue then, queued for the `issue` workflow. To read the pattern
+   before anything is filed, set `issues.create_command: []` for that first run (the console
+   says where each scorer stands), then put it back. Pull requests opened before the re-stamp
+   said nothing when they opened, so they count as merged but never as autonomous. Pull requests
+   that closed before the re-stamp have no size, and are counted in no size. A factory with the CI
    workflow ships format 4 on its next default-branch push; until then the Measure tab shows
    what judging cost without a budget to draw it against.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
