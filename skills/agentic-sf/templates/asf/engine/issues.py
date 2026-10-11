@@ -341,10 +341,11 @@ def labelled(tree, config: IssuesConfig, label: str) -> list[OpenIssue]:
     `_view` does: a caller that would act on "there is none" must not be told
     so by a listing that failed."""
     argv = _aim([*config.list_command], resolve_project(config, tree))
-    argv += ["--label", label, "--state", "open", "--json", "number,body,comments",
+    argv += ["--label", label, "--state", "open", "--json", "number,url,title,body,comments",
              "--limit", "20"]
     listed = _read(config.list_command, argv, tree, f"the open issues labelled {label}")
-    return [OpenIssue(number=int(entry.get("number") or 0), body=str(entry.get("body") or ""),
+    return [OpenIssue(number=int(entry.get("number") or 0), url=str(entry.get("url") or ""),
+                      title=str(entry.get("title") or ""), body=str(entry.get("body") or ""),
                       comments=[str((each or {}).get("body") or "")
                                 for each in entry.get("comments") or []])
             for entry in listed or [] if isinstance(entry, dict)]
@@ -369,9 +370,11 @@ def create(tree, config: IssuesConfig, issue: NewIssue) -> IssueResult:
         result.notes.append(f"`{' '.join(config.create_command)}` failed: "
                             f"{(completed.stderr or completed.stdout).strip()[-500:]}")
         return result
-    match = _FILED.search(completed.stdout.strip())
+    printed = completed.stdout.strip()
+    match = _FILED.search(printed)
     result.ok = True
     result.number = int(match["number"]) if match else 0
+    result.url = printed.splitlines()[-1].strip() if match else ""
     result.labels_changed = list(issue.labels)
     result.notes.append(f"filed #{result.number}" if result.number else "filed an issue")
     return result

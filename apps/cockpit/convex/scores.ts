@@ -27,7 +27,11 @@ const WRITTEN_PER_TURN = 10;
 export async function score(ctx: MutationCtx, { factory, session }: Where, events: StoredEvent[], at: number): Promise<void> {
   const stored = await ctx.db.query("scores")
     .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session)).collect();
-  for (const row of scoredIn(stored.map(rowOf), events)) {
+  // When each chapter started: ingest writes the chapters' rows before it comes here.
+  const chapters = await ctx.db.query("chapters")
+    .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session)).collect();
+  const started = new Map(chapters.map((row) => [row.chapter, row.at]));
+  for (const row of scoredIn(stored.map(rowOf), events, started)) {
     const there = stored.find((each) => each.scorer === row.scorer);
     if (there === undefined) await ctx.db.insert("scores", { factory, session, at, ...row });
     else await ctx.db.replace(there._id, { factory, session, at, ...row });

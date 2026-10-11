@@ -137,6 +137,6 @@ def test_an_issue_run_says_who_wrote_the_issue_and_whom_it_is_assigned_to(stampe
     adw_id = adw_id_of(result)
     learned = [line for line in events.read(session_dir(stamped, adw_id))
                if line.kind == "provenance_recorded" and line.payload.get("issue_number")]
-    assert learned and learned[0].v == 2
+    assert learned and learned[0].v >= 2
     assert (learned[0].payload["issue_author"], learned[0].payload["issue_assignees"]) == (
         "bob", ["carol", "dave"])

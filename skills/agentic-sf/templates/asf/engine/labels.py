@@ -80,6 +80,14 @@ def improving(scorer: str) -> Label:
     return _label(f"{IMPROVE_PREFIX}{scorer}", "improve", scorer)
 
 
+def improved_by(names: list[str]) -> str:
+    """The scorer an issue carrying `names` is the self-improvement issue of,
+    by its `improving` label; "" for any other issue. What a session that
+    works it records (`provenance_recorded.improves`)."""
+    return next((name.removeprefix(IMPROVE_PREFIX) for name in names
+                 if name.startswith(IMPROVE_PREFIX) and name != IMPROVE_PREFIX), "")
+
+
 def referenced(cfg: FactoryConfig) -> list[Label]:
     """Every label name this config will try to apply, in reading order.
 

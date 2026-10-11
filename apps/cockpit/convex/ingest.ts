@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { chapter } from "./chapters";
+import { improve } from "./improvements";
 import { settleClaims } from "./claims";
 import { settle } from "./commands";
 import { measured } from "./measured";
@@ -90,6 +91,8 @@ export const append = internalMutation({
     await pull(ctx, { factory, session }, fresh, all);
     // What judging it cost: measurement, which Metrics draws against its budget (model/measured.ts).
     await measured(ctx, { factory, session }, fresh, activity);
+    // The self-improvement issues it says were filed: what the Scorers view draws each scorer's from (model/improvements.ts).
+    await improve(ctx, { factory, session }, fresh);
     const waiting = summary.waitingFor !== null;
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);

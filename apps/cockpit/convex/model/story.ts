@@ -539,8 +539,8 @@ const TELLERS: Record<string, Record<number, Teller>> = {
       state.extras.push({ chapter: resumed.number, item: state.resumed });
     },
   },
-  // v2 adds the issue's author and assignees, which the story does not tell.
-  provenance_recorded: { 1: provenance, 2: provenance },
+  // v2 adds the issue's author and assignees, v3 the scorer it improves: the story tells neither.
+  provenance_recorded: { 1: provenance, 2: provenance, 3: provenance },
   phase_started: {
     1: phaseStarted,
     2: phaseStarted,

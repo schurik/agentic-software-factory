@@ -258,6 +258,12 @@ function learnProvenance(summary: Summary, p: Payload): void {
 
 const describeProvenance = (p: Payload) => `provenance: ${p.str("request") || p.str("trigger")}`;
 
+function learnIssuePeople({ summary }: { summary: Summary }, p: Payload): void {
+  learnProvenance(summary, p);
+  const assignees = p.strs("issue_assignees");
+  learn(summary, { issueAuthor: p.str("issue_author"), ...(assignees.length ? { issueAssignees: assignees } : {}) });
+}
+
 const describePhaseStarted = (p: Payload) =>
   `${p.str("name")} started · ${p.str("kind")}` + (p.str("owner") ? ` ${p.str("owner")}` : "");
 const describePhaseGiven = (p: Payload) => describePhaseStarted(p) + (p.str("task") ? ` · ${p.str("task")}` : "");
@@ -338,13 +344,12 @@ const READERS: Record<string, Record<number, Reader>> = {
   provenance_recorded: {
     1: { fold: (state, p) => learnProvenance(state.summary, p), describe: describeProvenance },
     // v2: who wrote the issue, and whom it was assigned to — what the inbox ranks a viewer's own work by.
-    2: {
-      fold: ({ summary }, p) => {
-        learnProvenance(summary, p);
-        const assignees = p.strs("issue_assignees");
-        learn(summary, { issueAuthor: p.str("issue_author"), ...(assignees.length ? { issueAssignees: assignees } : {}) });
-      },
-      describe: describeProvenance,
+    2: { fold: learnIssuePeople, describe: describeProvenance },
+    // v3: the scorer whose self-improvement issue the session works — what the Scorers view
+    // reads a merge from, beside its pull request's row (model/pulls.ts, model/improvements.ts).
+    3: {
+      fold: learnIssuePeople,
+      describe: (p) => describeProvenance(p) + (p.str("improves") ? ` · improves scorer ${p.str("improves")}` : ""),
     },
   },
   // A chapter: one workflow the session passes through (the story, story.ts).
@@ -555,6 +560,17 @@ const READERS: Record<string, Record<number, Reader>> = {
   chapter_scored: {
     1: { describe: describeScore },
     2: { describe: describeScore },
+  },
+  // Self-improvement filed an issue for a scorer, or added new evidence to the open one: late, like a score.
+  improvement_filed: {
+    1: {
+      describe: (p) => {
+        const sessions = p.strs("sessions").length;
+        return p.bool("commented")
+          ? `added ${sessions} failing session${sessions === 1 ? "" : "s"} to issue #${p.num("number")} for scorer ${p.str("scorer")}`
+          : `filed issue #${p.num("number")} for scorer ${p.str("scorer")}, citing ${sessions} failing session${sessions === 1 ? "" : "s"}`;
+      },
+    },
   },
   // A judge that sampled a chapter and was not called on it: the day's measurement budget was spent.
   chapter_not_judged: {

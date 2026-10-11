@@ -18,6 +18,8 @@ export interface ChapterScore {
   failing: boolean;
   /** The seqs of the events it cites, in the order it cites them. */
   evidence: number[];
+  /** When the chapter started, epoch ms, as its row in `chapters` says; absent when the cockpit has none. */
+  startedAt?: number;
 }
 
 export interface ScoreRow {
@@ -36,8 +38,12 @@ export function foldedVersions(kind: string): number[] {
   return FOLDED[kind] ?? [];
 }
 
-/** The rows `events` change, folded onto `rows` — the session's as they stand — in seq order. */
-export function scoredIn(rows: ScoreRow[], events: StoredEvent[]): ScoreRow[] {
+/**
+ * The rows `events` change, folded onto `rows` — the session's as they stand —
+ * in seq order. `started` is when each chapter started, by number, where the
+ * cockpit knows: what a self-improvement merge is counted from.
+ */
+export function scoredIn(rows: ScoreRow[], events: StoredEvent[], started: ReadonlyMap<number, number> = new Map()): ScoreRow[] {
   const scored = new Map(rows.map((row) => [row.scorer, structuredClone(row)]));
   const changed = new Set<string>();
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
@@ -45,7 +51,10 @@ export function scoredIn(rows: ScoreRow[], events: StoredEvent[]): ScoreRow[] {
     const p = Payload.parse(event.payload);
     const scorer = p.str("scorer");
     const row = scored.get(scorer) ?? { scorer, failing: false, chapters: [] };
-    const score = { chapter: p.num("chapter"), class: p.str("class"), failing: p.bool("failing"), evidence: p.nums("evidence") };
+    const chapter = p.num("chapter");
+    const startedAt = started.get(chapter);
+    const score: ChapterScore = { chapter, class: p.str("class"), failing: p.bool("failing"), evidence: p.nums("evidence"),
+                                  ...(startedAt === undefined ? {} : { startedAt }) };
     row.chapters = [...row.chapters.filter((each) => each.chapter !== score.chapter), score].sort((a, b) => a.chapter - b.chapter);
     row.failing = row.chapters.some((each) => each.failing);
     scored.set(scorer, row);

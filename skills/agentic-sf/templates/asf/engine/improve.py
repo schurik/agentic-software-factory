@@ -34,6 +34,18 @@ score` once it has scored), over the sessions in this station's data dir, and
 never raises: measuring is never a reason for work to fail. A passing score
 asks nothing of the forge — it is no new evidence.
 
+A MERGE STARTS THE COUNT AGAIN. Once a pull request for the scorer's issue
+merges, only chapters that started after it count: the failures it was meant
+to fix are not evidence against it. The merge is read off the events alone —
+a session whose `provenance_recorded` says it `improves` the scorer (its
+issue carried the label) and whose `pull_request_closed` says it merged —
+which is how a cockpit reads it too. So a station counts from a merge it has
+the record of: the improving session's, or one `asf score --since` backfilled.
+
+What it filed, or added to, is recorded as an `improvement_filed` on the
+newest failing session it cites — a late event, like the score — so a
+cockpit draws the scorer's issue without asking the forge (ADR 0006).
+
 A tracker may be public, and the transcripts opt-in (`cockpit: {transcripts:
 true}`) lets a transcript reach a cockpit, not a tracker. So the issue names a
 transcript event a score cites by its seq and kind only, and never carries a
@@ -45,12 +57,15 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Sequence
+from typing import TYPE_CHECKING, Callable, Mapping, Sequence
 
-from . import artifacts, diagnose, events, issues, labels, measurement
+from . import artifacts, diagnose, events, issues, labels, measurement, station
 from .data_types import (ChapterScored, EventLine, FactoryConfig, HarnessOutput, ImproveAfter,
-                         IssueUpdate, NewIssue, OpenIssue, PromptRendered)
+                         ImprovementFiled, IssueUpdate, NewIssue, OpenIssue, PromptRendered,
+                         ProvenanceRecorded, PullRequestClosed, RunState, WorkflowStarted)
+from .utils import utc
 
 if TYPE_CHECKING:
     from .scorers import Scorer
@@ -84,20 +99,36 @@ class Failing:
 
 
 @dataclass
+class Merge:
+    """Where a scorer's self-improvement last merged: the session that worked
+    its issue, the number of that session's pull request, and when it merged."""
+
+    adw_id: str
+    number: int
+    merged_at: datetime
+
+
+@dataclass
 class Window:
-    """The sessions a threshold counts, and the failing ones among them."""
+    """The sessions a threshold counts, and the failing ones among them —
+    since the scorer's last self-improvement merge, when it has one."""
 
     threshold: ImproveAfter
     judged: list[str] = field(default_factory=list)       # newest first
     failing: list[Failing] = field(default_factory=list)  # newest first
+    since: Merge | None = None
 
     @property
     def met(self) -> bool:
         return len(self.failing) >= self.threshold.failures
 
     def failed_on(self) -> str:
-        """`2 of the last 7 sessions it judged`."""
-        return f"{len(self.failing)} of the last {len(self.judged)} sessions it judged"
+        """`2 of the last 7 sessions it judged`, `… since #9 merged`."""
+        said = f"{len(self.failing)} of the last {len(self.judged)} sessions it judged"
+        if self.since is None:
+            return said
+        return said + (f" since #{self.since.number} merged" if self.since.number
+                       else " since its self-improvement merged")
 
 
 def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
@@ -106,18 +137,28 @@ def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
     Scorers view counts by when it first stored each session, across every
     station of the factory, so the two can differ by a session that ran
     elsewhere or arrived late; this one is the station's to act on. A session
-    fails a session fails when any of its chapters' latest score does.
-    A chapter scored again (resumed and ended again, or `asf score` after the
-    scorer changed) is read by its latest score."""
-    counted = Window(threshold)
-    started = sorted(artifacts.scan(sessions_dir).items(),
-                     key=lambda each: (each[1].started_at, each[0]), reverse=True)
+    fails when any of its chapters' latest score does. A chapter scored again
+    (resumed and ended again, or `asf score` after the scorer changed) is read
+    by its latest score. After a self-improvement merge (`merged`) only the
+    chapters that started after it count, and a session with none is not one
+    the scorer judged since."""
+    states = artifacts.scan(sessions_dir)
+    counted = Window(threshold, since=merged(sessions_dir, scorer, states))
+    started = sorted(states.items(), key=lambda each: (each[1].started_at, each[0]),
+                     reverse=True)
     for adw_id, _ in started:
         lines = events.read(Path(sessions_dir) / adw_id)
         latest: dict[int, EventLine] = {}
+        opened: dict[int, datetime | None] = {}
         for line in lines:
-            if line.kind == ChapterScored.KIND and line.payload.get("scorer") == scorer:
+            if line.kind == WorkflowStarted.KIND:
+                opened.setdefault(int(line.payload.get("chapter") or 0), _moment(line.ts))
+            elif line.kind == ChapterScored.KIND and line.payload.get("scorer") == scorer:
                 latest[int(line.payload.get("chapter") or 0)] = line
+        if counted.since is not None:
+            after = counted.since.merged_at
+            latest = {number: line for number, line in latest.items()
+                      if (moment := opened.get(number)) is not None and moment > after}
         if not latest:
             continue
         counted.judged.append(adw_id)
@@ -128,6 +169,34 @@ def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
         if len(counted.judged) >= threshold.of_last:
             break
     return counted
+
+
+def merged(sessions_dir: Path, scorer: str, states: Mapping[str, RunState]) -> Merge | None:
+    """The latest merge of a pull request for `scorer`'s self-improvement
+    issue among the sessions on this station, from their events: one that
+    `improves` the scorer, whose pull request closed merged. None before any."""
+    latest: Merge | None = None
+    for adw_id, state in states.items():
+        if state.pr_state != "merged":          # what `record_pr_closed` keeps beside the event
+            continue
+        lines = events.read(Path(sessions_dir) / adw_id)
+        if not any(line.kind == ProvenanceRecorded.KIND
+                   and line.payload.get("improves") == scorer for line in lines):
+            continue
+        for line in lines:
+            if line.kind != PullRequestClosed.KIND or not line.payload.get("merged"):
+                continue
+            moment = _moment(str(line.payload.get("merged_at") or "")) or _moment(line.ts)
+            if moment is not None and (latest is None or moment > latest.merged_at):
+                latest = Merge(adw_id, int(line.payload.get("number") or 0), moment)
+    return latest
+
+
+def _moment(text: str) -> datetime | None:
+    try:
+        return utc(datetime.fromisoformat(text))
+    except ValueError:
+        return None
 
 
 # ── what the issue says ──────────────────────────────────────────────────────
@@ -299,21 +368,24 @@ def queue_labels(cfg: FactoryConfig) -> list[str]:
 @dataclass
 class Filing:
     """Where self-improvement files, and how it says what it did: on the
-    console of the run that ended the chapter, or `asf score`'s output."""
+    console of the run that ended the chapter, or `asf score`'s output.
+    `live` is the session the running process ships itself, if any: the
+    record of any other is flushed to a cockpit as it is written."""
 
     cfg: FactoryConfig
     main_root: Path
     say: Callable[[str], None]
+    live: Path | None = None
 
 
 def consider(cfg: FactoryConfig, main_root: Path, failed: Sequence["Scorer"],
-             say: Callable[[str], None]) -> None:
+             say: Callable[[str], None], live: Path | None = None) -> None:
     """After `failed` each recorded a failing score: file an issue for each
     one that has reached its threshold, or add the new evidence to the one
     that is open. Never raises."""
     if not failed:
         return
-    filing = Filing(cfg, Path(main_root), say)
+    filing = Filing(cfg, Path(main_root), say, live)
     for scorer in failed:
         try:
             _consider(filing, scorer)
@@ -360,6 +432,12 @@ def _consider(filing: Filing, scorer: "Scorer") -> None:
         say(f"scorer {scorer.name} failed on {counted.failed_on()}, and the issue was not "
             f"filed: {'; '.join(result.notes + defined.notes)}")
         return
+    told = ({"not_diagnosed": diagnosed} if isinstance(diagnosed, str) else
+            {"cause": diagnosed.cause, "surface": diagnosed.surface})
+    _record(filing, counted, ImprovementFiled(
+        scorer=scorer.name, number=result.number, url=result.url,
+        title=title(scorer, counted), sessions=[each.adw_id for each in counted.failing],
+        **told))
     say(f"scorer {scorer.name} failed on {counted.failed_on()}: filed #{result.number} "
         f"({label.name})"
         + (f", queued for the {WORKFLOW} workflow" if queued else
@@ -401,3 +479,23 @@ def _add_to(filing: Filing, scorer: "Scorer", counted: Window, issue: OpenIssue)
     filing.say(f"scorer {scorer.name} failed on {counted.failed_on()}: "
                + (f"added {len(new)} session(s) to #{number}" if result.ok else
                   f"could not add them to #{number}: {'; '.join(result.notes)}"))
+    if result.ok:
+        _record(filing, counted, ImprovementFiled(
+            scorer=scorer.name, number=number, url=issue.url, title=issue.title,
+            commented=True, sessions=[each.adw_id for each in new]))
+
+
+def _record(filing: Filing, counted: Window, filed: ImprovementFiled) -> None:
+    """Put what was filed on the record of the newest failing session it
+    cites, and flush it to a cockpit unless the running process ships that
+    session itself. The forge has it either way: a record that could not be
+    written is said, and nothing is filed again for it."""
+    session_dir = artifacts.sessions_root(filing.main_root, filing.cfg.data_dir) / \
+        counted.failing[0].adw_id
+    try:
+        events.emit(session_dir, filed)
+        if filing.live is None or Path(filing.live).resolve() != session_dir.resolve():
+            station.flush(session_dir)
+    except Exception as error:              # noqa: BLE001 — the issue stands
+        filing.say(f"#{filed.number} is on the tracker, and not on the record of session "
+                   f"{counted.failing[0].adw_id}: {error}")

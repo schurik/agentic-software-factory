@@ -22,6 +22,7 @@ import { type CostPerPr, costPerPrOf, type Costed, type Cycle, cycleOf, type Dea
 import { type MeasuredKind, overrunOf } from "./model/measured";
 import { Payload } from "./model/payload";
 import type { Period } from "./model/period";
+import { type ImprovingPull, type Improvements, improvementsOf } from "./model/improvements";
 import { type Cite, type Failing, ordered, type ScorerLine, scorerLine, STRIP, windowOf } from "./model/scorers";
 import { described } from "./model/session";
 import { spellingsOf } from "./spelling";
@@ -197,9 +198,10 @@ export interface Scorers {
 /**
  * `factory`'s Scorers view (#190): every scorer its default branch's
  * self-description names, over the factory's last `STRIP` sessions, with
- * the sessions counted toward the threshold the description resolved for it.
- * Null for someone who may not read the factory, or has not signed in to a
- * team's cockpit.
+ * the sessions counted toward the threshold the description resolved for it
+ * — since its last self-improvement merge — and its self-improvement issues
+ * (#196). Null for someone who may not read the factory, or has not signed
+ * in to a team's cockpit.
  */
 export const scorers = query({
   args: { factory: v.string(), signIn: v.optional(v.string()) },
@@ -229,7 +231,8 @@ export const scorers = query({
           for await (const row of inStrip) rows.set(row.session, row);
         }
       }
-      const line = scorerLine(scorer, strip.map((record) => record.session), [...rows.values()]);
+      const line = scorerLine(scorer, strip.map((record) => ({ session: record.session, at: record._creationTime })),
+                              [...rows.values()], await improvementsFor(ctx, spellings, scorer.name));
       const failing = await Promise.all(line.failing.map(async ({ seq, ...each }) =>
         ({ ...each, cite: seq === null ? null : await citeOf(ctx, rows.get(each.session)!.factory, each.session, seq) })));
       return { ...line, failing };
@@ -237,6 +240,19 @@ export const scorers = query({
     return { described: true, sessions: strip.length, scorers: ordered(lines) };
   },
 });
+
+/** `scorer`'s self-improvement: the issues filed for it, and the pull requests of the sessions that worked them. */
+async function improvementsFor(ctx: QueryCtx, spellings: string[], scorer: string): Promise<Improvements> {
+  const issues: Doc<"improvements">[] = [];
+  const pulls: ImprovingPull[] = [];
+  for (const spelling of spellings) {
+    issues.push(...await ctx.db.query("improvements").withIndex("by_factory_scorer", (q) => q.eq("factory", spelling).eq("scorer", scorer)).collect());
+    for (const row of await ctx.db.query("pulls").withIndex("by_factory_improves", (q) => q.eq("factory", spelling).eq("improves", scorer)).collect()) {
+      pulls.push({ session: row.session, issue: row.issue ?? 0, url: row.url, opened: row.opened, closed: row.closed, merged: row.merged, mergedAt: row.mergedAt });
+    }
+  }
+  return improvementsOf(issues.map(({ number, url, title, cause, surface, notDiagnosed, at }) => ({ number, url, title, cause, surface, notDiagnosed, at })), pulls);
+}
 
 /** The event at `seq` of a session, as a score cites it; null when the cockpit holds no such event. */
 async function citeOf(ctx: QueryCtx, factory: string, session: string, seq: number): Promise<Cite | null> {

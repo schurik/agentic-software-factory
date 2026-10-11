@@ -1,0 +1,17 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "provenance_recorded",
+  "v": 3,
+  "payload": {
+    "request": "#108 Self-improvement: scorer refused failed on 3 of the last 10 sessions it judged",
+    "trigger": "issue",
+    "issue_url": "https://github.com/acme/widgets/issues/108",
+    "issue_number": 108,
+    "issue_project": "acme/widgets",
+    "pr_url": "",
+    "issue_author": "asf-bot",
+    "issue_assignees": [],
+    "improves": "refused"
+  }
+}

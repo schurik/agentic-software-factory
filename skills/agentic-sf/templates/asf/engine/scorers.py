@@ -495,7 +495,7 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
                                        run.tracer.event), chapter, found)
         improve.consider(run.cfg, run.main_root,
                          [each for each in found if each.name in scored.failing],
-                         run.console.note)
+                         run.console.note, live=run.session_dir)
     except Exception as error:              # noqa: BLE001 — see the docstring
         run.console.note(f"scoring failed, and the chapter stands as it ended: {error}")
 

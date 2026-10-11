@@ -2,8 +2,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Scorers, ScorerView } from "@/convex/measure";
 import { leftOf, type Mark } from "@/convex/model/scorers";
+import type { Improvement } from "@/convex/model/improvements";
 import { About, Named } from "../About";
-import { sessionHref } from "../format";
+import { formatDay, sessionHref } from "../format";
+import { ForgeRef } from "../icons";
 import { SHOWN, writeShown } from "../session/shown";
 import { Card, cx, Notice, Tag } from "../ui";
 
@@ -12,8 +14,12 @@ import { Card, cx, Notice, Tag } from "../ui";
  * time — no two scorers are read together — nearest its threshold first and
  * the inactive last. A row is words in the columns every row shares; the open
  * one tells one story, top to bottom: where the scorer stands in a sentence,
- * the session strip, its failing counted sessions, and — quietly, last — what
- * it is. Pure: `scorers` is the query's answer, and `open` the scorer open.
+ * the session strip, its failing counted sessions, its self-improvement issue
+ * (#196), and — quietly, last — what it is and the issues it had before.
+ * Pure: `scorers` is the query's answer, and `open` the scorer open.
+ *
+ * An issue is drawn as a forge reference and never as a green dot: green
+ * means "ok" everywhere in the cockpit, and an open issue is not that.
  */
 export function ScorersView({ factory, scorers, open, onOpen }: {
   factory: string;
@@ -93,7 +99,7 @@ function Legend() {
       </>}>Judges</Named></span>
       <span className="hidden md:block"><Named title="Issue" about={<>
         <p>The scorer&apos;s open <b>self-improvement</b> issue, on the factory&apos;s own tracker: at most one per scorer, holding the evidence and a diagnosis, worked like any other issue — nothing changes until a person accepts its plan and merges its pull request.</p>
-        <p>Empty until the factory files one: self-improvement is still to come.</p>
+        <p>Empty while none is open. Once its pull request merges, the scorer counts only the chapters that started after it.</p>
       </>}>Issue</Named></span>
       <Named className="justify-self-end" title="Failing, counted" about={<>
         <p>The sessions <b>counted</b> toward the scorer&apos;s threshold: the last distinct sessions it judged, as many as its <code>improve_after:</code> says — or the factory&apos;s <code>self_improvement:</code>.</p>
@@ -116,8 +122,10 @@ function RowHead({ line }: { line: ScorerView }) {
         {line.focus ? <> · <span className="font-mono text-[13px] text-fg">{line.focus}</span></> : null}
         {line.inactive ? null : <> · {reach(line)}</>}
       </span>
-      {/* The issue: none until self-improvement files one. */}
-      <span className="hidden md:block" />
+      {/* The open issue, unlinked: the row is a button. */}
+      <span className="hidden min-w-0 text-sm md:block">
+        {line.issue ? <ForgeRef kind="issue" href="">#{line.issue.number}</ForgeRef> : null}
+      </span>
       <span className="justify-self-end"><Counted line={line} /></span>
     </>
   );
@@ -152,10 +160,35 @@ function Counted({ line }: { line: ScorerView }) {
 
 // ── the open scorer ─────────────────────────────────────────────────────────
 
+/** "pull request #14 open": where a self-improvement pull request stands, in words. */
+const PR_STATE = { open: "open", merged: "merged", closed: "closed unmerged" } as const;
+
+/** An issue's pull request, as a forge reference; the forge's own colour only once it merged or closed. */
+function PullRef({ pr, linked = true }: { pr: NonNullable<Improvement["pr"]>; linked?: boolean }) {
+  return <ForgeRef kind="pr" href={linked ? pr.url : ""} state={pr.state === "open" ? null : pr.state}>#{pr.number}</ForgeRef>;
+}
+
 /** Where the scorer stands, in one sentence that depends on its state. */
 function sentenceOf(line: ScorerView): ReactNode {
-  const { failures, counted } = line;
+  const { failures, counted, issue, merge } = line;
   if (line.inactive) return <>Inactive: <code>sample_rate: 0</code> judges no chapter. Give it a rate to turn it on.</>;
+  if (issue) {
+    const open = <b className="font-semibold">Issue #{issue.number} is open</b>;
+    if (!issue.pr) return <>{open}, and no session has opened a pull request for it yet.</>;
+    return issue.pr.state === "closed"
+      ? <>{open}, its pull request #{issue.pr.number} closed unmerged.</>
+      : <>{open}, with its pull request #{issue.pr.number} {PR_STATE[issue.pr.state]}.</>;
+  }
+  if (merge) {
+    const since = <b className="font-semibold">Counting since #{merge.number} merged</b>;
+    const on = <>{since} on {formatDay(new Date(merge.at).toISOString())}</>;
+    if (!counted.length) return <>{on}: no chapter scored since.</>;
+    const judged = `the ${counted.length} sessions it judged since`;
+    if (!failures) return <>{on}: no failing score in {judged}.</>;
+    const left = leftOf(line);
+    const said = <b className={cx("font-semibold", TEXT[failingTone(line)])}>{failures} of {judged} failed</b>;
+    return left ? <>{on}: {said}; {left} more to an issue.</> : <>{on}: {said}; the threshold for an issue is reached.</>;
+  }
   if (!counted.length) {
     return line.sampleRate >= 1
       ? <>No chapter scored yet. It judges every chapter of {line.workflow} as it ends.</>
@@ -207,17 +240,53 @@ function Story({ factory, line, sessions }: { factory: string; line: ScorerView;
           </Card>
         </section>
       ) : null}
+      {line.issue ? <IssueCard issue={line.issue} /> : null}
       <p className="border-t border-line pt-3 text-xs text-muted">
         {scope}
         {" · fails on "}{line.classes.filter((each) => each.fail).map((each) => each.name).join(", ")}
         {" · passes on "}{line.classes.filter((each) => !each.fail).map((each) => each.name).join(", ")}
+        {line.past.length ? <>{" · past issues "}{line.past.map((each, index) => (
+          <span key={each.number}>{index ? ", " : ""}<ForgeRef kind="issue" href={each.url} newTab>#{each.number}</ForgeRef></span>
+        ))}</> : null}
         {" "}
         <About title="What the scorer is">
           <p>Its <b>kind</b> — code or judge — its <b>workflow</b>, the agent it is <b>focused</b> on, and how much of the workflow it judges, as <code>asf/scorers/{line.name}/scorer.md</code> says and <code>asf check</code> resolved it.</p>
           <p>Each score is one of its <b>classes</b>: those it <b>fails on</b> are declared failing, those it <b>passes on</b> are not. A score is never a number.</p>
+          <p>Its <b>past issues</b> are the self-improvement issues filed for it before the one open, if any: each merged, or followed by a newer one.</p>
         </About>
       </p>
     </div>
+  );
+}
+
+/**
+ * The scorer's open self-improvement issue: its title, where its pull request
+ * stands, and the diagnosis it was filed with — clamped to two lines, since
+ * the whole of it is on the issue.
+ */
+function IssueCard({ issue }: { issue: Improvement }) {
+  const diagnosis = issue.cause ? `a change to the ${issue.surface || "factory"}: ${issue.cause}`
+    : issue.notDiagnosed ? `Not diagnosed: ${issue.notDiagnosed}` : "";
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h4 className="inline-flex items-center gap-1 text-sm font-medium">
+        Self-improvement issue
+        <About title="Self-improvement issue">
+          <p>The issue the factory filed on its own tracker once the scorer failed on enough distinct sessions: the evidence, the scorer&apos;s criteria and a <b>diagnosis</b> of what to change — in the factory or in the application. At most one is open per scorer; new evidence joins it as a comment.</p>
+          <p>It is worked like any other issue. Nothing changes until a person accepts its plan and merges its <b>pull request</b>; then the scorer counts only the chapters that started after the merge.</p>
+        </About>
+      </h4>
+      <Card data-issue="" className="flex flex-col gap-1 px-3 py-2.5">
+        <div className="flex min-w-0 items-baseline gap-2 text-sm">
+          <ForgeRef kind="issue" href={issue.url} newTab>#{issue.number}</ForgeRef>
+          <span className="min-w-0 truncate">{issue.title}</span>
+        </div>
+        <div className="text-xs text-muted">
+          {issue.pr ? <>pull request <PullRef pr={issue.pr} /> {PR_STATE[issue.pr.state]}</> : <>no pull request yet</>}
+        </div>
+        {diagnosis ? <p className="line-clamp-2 text-sm text-muted" title={diagnosis}>{diagnosis}</p> : null}
+      </Card>
+    </section>
   );
 }
 
@@ -232,7 +301,9 @@ const markOf = (mark: Mark) => (!mark.judged ? "not judged" : mark.counted ? "co
  * scorer did not judge; the counted ones stand tall under a bracket, older
  * ones short and faded. Failing is amber while below the threshold, red at it.
  * It carries the failing share over time and the progress toward the
- * threshold at once, which is why there is no other chart.
+ * threshold at once, which is why there is no other chart. A purple rule —
+ * the forge's colour for a merge — stands where the scorer's self-improvement
+ * merged, if that is on the strip: the counting starts again from there.
  */
 function Strip({ factory, line }: { factory: string; line: ScorerView }) {
   const { strip, threshold } = line;
@@ -242,20 +313,27 @@ function Strip({ factory, line }: { factory: string; line: ScorerView }) {
   const last = strip.findLastIndex((mark) => mark.counted);
   const further = line.counted.length > strip.filter((mark) => mark.counted).length;
   const at = (index: number) => `${(index / strip.length) * 100}%`;
+  const merged = line.merge?.index ?? null;
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-muted">
         <span className="inline-flex items-center gap-1">
           The factory&apos;s last {strip.length} sessions, oldest first{strip.some((mark) => !mark.judged) ? " · a low mark it did not judge" : ""}
+          {merged !== null ? ` · the rule where #${line.merge!.number} merged` : ""}
           <About title="Reading the strip">
             <p>One mark per session of the factory, oldest on the left, the same sessions for every scorer — so one session sits at one place in every strip.</p>
             <p><b>Tall</b> marks under the bracket are the sessions counted toward the threshold; <b>short, faded</b> ones are older. A <b>low line</b> is a session this scorer did not judge: another workflow&apos;s, one not sampled, or one still running.</p>
             <p>A failing score is <b>amber</b> while the scorer is below its threshold and <b>red</b> once it is at it; grey is a passing one. A bracket open on the left: the counted sessions reach back past the strip. The <b>failing share</b> compares the sessions before the bracket with those counted. Each mark opens its session.</p>
+            <p>A <b>purple rule</b> is where a pull request for the scorer&apos;s self-improvement issue merged: only chapters that started after it are counted.</p>
           </About>
         </span>
         <span className="tabular-nums">failing share {shareOf(line.shares.before)} before · <b className="font-medium text-fg">{shareOf(line.shares.counted)}</b> counted</span>
       </div>
-      <div className="flex h-8 items-end gap-[3px]">
+      <div className="relative flex h-8 items-end gap-[3px]">
+        {merged !== null ? (
+          <span data-merge="" title={`#${line.merge!.number} merged on ${formatDay(new Date(line.merge!.at).toISOString())}`}
+                className="absolute -inset-y-1 -ml-px w-0.5 rounded-full bg-merged" style={{ left: at(merged) }} />
+        ) : null}
         {strip.map((mark) => (
           <Link key={mark.session} href={sessionHref(factory, mark.session)} data-mark={markOf(mark)}
                 title={`session ${mark.session} · ${!mark.judged ? "not judged" : `${mark.failing ? "failing" : "passing"}${mark.counted ? ", counted" : ""}`}`}

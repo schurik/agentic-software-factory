@@ -141,6 +141,16 @@ before — `None` when there are none, never omitted.
   again. A factory with scorers and no diagnostician, or whose `asf/engine/diagnose.md` drifted
   from `DiagnosisOutput`, files its issues undiagnosed without calling it, and `asf check` warns
   of it. No event changes.
+- **A self-improvement merge starts the count again, and each scorer shows its issue.** Once a
+  pull request for a scorer's self-improvement issue merges, only chapters that started after the
+  merge count toward its next issue, on the station and in the cockpit alike, and the console says
+  `… sessions it judged since #14 merged`. A session that works an issue labelled
+  `asf:improve:<scorer>` records it: `provenance_recorded` v3 adds `improves`, the scorer. What
+  self-improvement filed, or added to an open issue, is the new `improvement_filed` event on the
+  newest failing session it cites. A 1.3.0 cockpit's Scorers view draws the issue inside the
+  scorer's item from those events alone: the Issue column, a card with its title, its pull
+  request's state and its diagnosis, a purple rule on the session strip where it merged, the
+  sentences "issue open with its PR" and "counting since a merge", and past issues in the footer.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -255,7 +265,9 @@ before — `None` when there are none, never omitted.
 3. Re-stamp with `--force` to pick up the stages on the record, the refusal, the warning, the
    settings in the self-description, registering without a token, the pull request events and
    the failure events, scoring, and judges — the `judge` agent and its task come with it — and
-   the diagnosis, with the `diagnostician` agent, its task and `asf/.skill-files`; nothing
+   the diagnosis, with the `diagnostician` agent, its task and `asf/.skill-files`, and counting
+   from a self-improvement merge — which counts only merges a session of the re-stamped factory
+   worked: one worked before it never said which scorer it improves; nothing
    else changes. The re-stamp — or `install.py` without `--force`, which stamps only what is
    missing — adds the four default scorers under `asf/scorers/` (`corrections`,
    `permission-rollbacks`, `limit-hits`, `not-accepted`, all on `issue`) and the example judge

@@ -337,6 +337,13 @@ asks nothing of the forge.
   score does, so several failing chapters of one session count once. Below the threshold it says
   so on the console (`scorer <name> failed on 1 of the last 4 sessions it judged; an issue is
   filed at 3 of the last 10`) and asks nothing of the forge.
+- **A merge starts the count again.** Once a pull request for the scorer's issue merges, only
+  chapters that started after it count (`… sessions it judged since #14 merged`), so the failures
+  it was meant to fix never file another issue. The merge is read off events, on the station as
+  in a cockpit: a session that worked an issue labelled `asf:improve:<scorer>` says so in its
+  `provenance_recorded` (v3, `improves`), and its `pull_request_closed` says when it merged. A
+  station counts from the merges it holds the record of — the PR watcher's, or `asf score`'s
+  backfill of a close no watcher saw.
 - **At most one open issue per scorer**, labelled `asf:improve:<scorer>`. Before filing, the
   station lists the open issues carrying that label (`issues.list_command`); if there is one, it
   comments with the failing sessions the issue does not cite yet, and says nothing when it cites
@@ -351,6 +358,14 @@ asks nothing of the forge.
   cockpit's: a cited `prompt_rendered` or `harness_output` is named by seq and kind only, and a
   judge's reasoning never leaves the session's record (invariant 11). The station defines the label the first time (`issues.labels_create_command`),
   then files it with `issues.create_command` (`gh issue create`).
+- **On the record**: what was filed — or added to an open issue — is an `improvement_filed`
+  (`{scorer, number, url, title, commented, sessions, cause, surface, not_diagnosed}`) appended to
+  the newest failing session it cites, a late event like the score, flushed to a cockpit as it is
+  written. The cockpit's Scorers view draws the scorer's issue from it — the Issue column as a
+  forge reference, never a green dot; a card with its title, its pull request's state from the
+  improving session's events and its diagnosis clamped to two lines; a purple rule on the strip
+  where it merged; past issues in the footer — and asks the forge nothing (ADR 0006). An issue is
+  open until a pull request for it merges or a newer one is filed for the scorer.
 - **Queued like any other**: it carries the route label whose workflow is `issue` and
   `issues.states.queued`, so the issues watcher takes it into the `issue` workflow, where a person
   approves its plan and merges its pull request. A config with no route to `issue` files it
