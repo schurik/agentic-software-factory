@@ -60,12 +60,24 @@ ROLES: dict[str, tuple[str, str]] = {
                           "survives re-queueing"),
     "pr-failed": ("b60205", "asf: a pr-review run ended red; remove this label to let "
                             "the watcher retry"),
+    "improve": ("d4c5f9", "asf self-improvement: the scorer {detail} keeps failing; "
+                          "one open issue per scorer"),
 }
+
+# One per scorer, so not a name the config holds: `improving` makes it, and
+# self-improvement defines it the first time it files (`engine/improve.py`).
+IMPROVE_PREFIX = "asf:improve:"
 
 
 def _label(name: str, role: str, detail: str = "") -> Label:
     color, why = ROLES[role]
     return Label(name=name, color=color, why=why.format(detail=detail), role=role)
+
+
+def improving(scorer: str) -> Label:
+    """The label on a scorer's self-improvement issue — how a station finds
+    the one that is open, whichever station filed it (ADR 0006)."""
+    return _label(f"{IMPROVE_PREFIX}{scorer}", "improve", scorer)
 
 
 def referenced(cfg: FactoryConfig) -> list[Label]:

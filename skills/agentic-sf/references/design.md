@@ -323,6 +323,37 @@ The threshold is when one scorer's failing scores stop being a bad day: `self_im
 `improve_after:` for a stricter or looser one. A scorer is **the operator's**: `install.py
 --force` never rewrites anything under `asf/scorers/`.
 
+### Self-improvement
+
+At the threshold the factory files an **issue on its own tracker** (`engine/improve.py`, ADR
+0006) — never a pull request, and never a change to itself. It runs on the station, after a
+failing score is recorded: by the process that ended the chapter, and by `asf score` once it has
+scored every session, so a baseline's failures file one issue with all of them. A passing score
+asks nothing of the forge.
+
+- **The window** is the last `of_last` distinct sessions the scorer judged, by when each started —
+  the sessions the Scorers view counts — and a session fails when any of its chapters' latest
+  score does, so several failing chapters of one session count once. Below the threshold it says
+  so on the console (`scorer <name> failed on 1 of the last 4 sessions it judged; an issue is
+  filed at 3 of the last 10`) and asks nothing of the forge.
+- **At most one open issue per scorer**, labelled `asf:improve:<scorer>`. Before filing, the
+  station lists the open issues carrying that label (`issues.list_command`); if there is one, it
+  comments with the failing sessions the issue does not cite yet, and says nothing when it cites
+  them all. Which sessions a body or a comment cites is written in it, in an `<!-- asf:improve
+  … sessions=… -->` mark, so the tracker is the only state two stations share. A listing that
+  fails files nothing: "there is none" from a search that never ran is how an issue is filed
+  twice.
+- **The issue** stands on its own: the pattern and the threshold that applied, the scorer's
+  criteria (its file, workflow, focus, kind, classes and prose), and each failing session newest
+  first, with each failing chapter's class, a judge's reasoning when the record holds it (the
+  transcripts opt-in), and the events its evidence cites — kind and payload, cut to fit a
+  tracker's body. The station defines the label the first time (`issues.labels_create_command`),
+  then files it with `issues.create_command` (`gh issue create`).
+- **Queued like any other**: it carries the route label whose workflow is `issue` and
+  `issues.states.queued`, so the issues watcher takes it into the `issue` workflow, where a person
+  approves its plan and merges its pull request. A config with no route to `issue` files it
+  unqueued, and says so. `issues.enabled: false` files nothing, and says so.
+
 A stamp ships four code scorers on `issue`, turned on, so a factory is measured from its first
 chapter: `corrections` (`corrections_above(2)`), `permission-rollbacks`
 (`permission_rolled_back`), `limit-hits` (`limit_hit`) and `not-accepted` (`not_accepted`). They

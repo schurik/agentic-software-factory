@@ -23,8 +23,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from . import (commands, factory, git_helper, integration, issues, publish, scorers, station,
-               workflow)
+from . import (commands, factory, git_helper, improve, integration, issues, publish, scorers,
+               station, workflow)
 from .data_types import (CheckedCheckout, Cockpit, DescribedAgent, DescribedForge, DescribedGate,
                          DescribedHitl, DescribedIntake, DescribedLabels, DescribedLanding,
                          DescribedLimits, DescribedMeasure, DescribedReviews, DescribedScorer,
@@ -100,7 +100,7 @@ def _scorer(scorer: scorers.Scorer, cfg: FactoryConfig) -> DescribedScorer:
         name=scorer.name, workflow=spec.workflow, focus=spec.focus, kind=spec.kind,
         predicate=spec.predicate, classes=scorer.classes,
         sample_rate=1.0 if spec.sample_rate is None else spec.sample_rate, model=spec.model,
-        improve_after=spec.improve_after or cfg.self_improvement)
+        improve_after=improve.threshold_of(cfg, scorer))
 
 
 def _trigger(loaded: workflow.Workflow, cfg: FactoryConfig) -> DescribedTrigger:

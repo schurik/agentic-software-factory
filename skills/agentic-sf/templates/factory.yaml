@@ -162,6 +162,11 @@ issues:
   # the description to three different places.
   comments_command: ["gh", "issue", "view"]
   body_command:     ["gh", "issue", "edit"]
+  # Filing an issue — the one place the factory opens one itself: when a scorer
+  # keeps failing (`self_improvement:` above), it files one labelled
+  # `asf:improve:<scorer>` and queues it for the `issue` workflow. Empty = it
+  # says the pattern on the console and files nothing.
+  create_command:   ["gh", "issue", "create"]
   # Reading which labels this project DEFINES, and defining one. EVERY LABEL
   # NAMED BELOW HAS TO EXIST BEFORE ANYTHING CAN APPLY IT: a route label the
   # forge never heard of cannot be applied by anyone, so the workflow behind it

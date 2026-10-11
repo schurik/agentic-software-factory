@@ -78,7 +78,8 @@ point, `asf/asf.py` (`list | check | run | doctor | resume | kill | up | status 
 one `agent.md`: frontmatter for the engine, prose for the model. Manifest is `asf/factory.yaml`
 (no agents in it). A scorer is one `asf/scorers/<name>/scorer.md` (`engine/scorers.py`): it
 judges a finished chapter of one workflow and records a `chapter_scored` that never changes how
-the chapter ended (ADR 0006). The engine is `session`, `worktree`, `gates`, `permissions`, `limits`, `hitl`,
+the chapter ended (ADR 0006); one that keeps failing files one issue on the factory's own tracker
+(`engine/improve.py`), never a change to the factory. The engine is `session`, `worktree`, `gates`, `permissions`, `limits`, `hitl`,
 `tracer`, `harnesses/{pi,claude_code,fake}`.
 
 ## Invariants the code (and the tests) enforce

@@ -36,8 +36,8 @@ from pathlib import Path
 
 from . import artifacts, git_helper
 from .data_types import (IssueComment, IssueContext, IssueOutput, IssueRef,
-                         IssueResult, IssuesConfig, IssueUpdate, PullRequestsConfig, Question,
-                         Said)
+                         IssueResult, IssuesConfig, IssueUpdate, NewIssue, PullRequestsConfig,
+                         Question, Said)
 from .utils import operator_env, write_atomic
 
 BODY_FILENAME = "issue.md"
@@ -330,6 +330,52 @@ def comment(tree, config: IssuesConfig, update: IssueUpdate) -> IssueResult:
     result.ok = True
     result.commented = True
     result.notes.append(f"commented on #{update.number}")
+    return result
+
+
+def labelled(tree, config: IssuesConfig, label: str, fields: str) -> list[dict]:
+    """The open issues carrying `label`, each with `fields`. RAISES, as `_view`
+    does: a caller that would act on "there is none" must not be told so by a
+    listing that failed."""
+    project = resolve_project(config, tree)
+    argv = _aim([*config.list_command], project)
+    argv += ["--label", label, "--state", "open", "--json", fields, "--limit", "20"]
+    completed = _run(argv, tree)
+    if completed.returncode != 0:
+        raise RuntimeError(f"`{' '.join(config.list_command)}` failed: "
+                           f"{(completed.stderr or completed.stdout).strip()[-300:]}")
+    try:
+        return [entry for entry in json.loads(completed.stdout or "[]")
+                if isinstance(entry, dict)]
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"`{' '.join(config.list_command)}` did not return JSON: "
+                           f"{error}") from error
+
+
+_FILED = re.compile(r"/(?P<number>\d+)\s*$")
+
+
+def create(tree, config: IssuesConfig, issue: NewIssue) -> IssueResult:
+    """File one issue with its labels. Returns evidence, like the other writes:
+    its number is read off the url the CLI prints, and 0 when it printed none."""
+    result = IssueResult()
+    if not config.create_command:
+        result.notes.append("no issues.create_command is configured")
+        return result
+    argv = _aim([*config.create_command], issue.project or resolve_project(config, tree))
+    argv += ["--title", issue.title, "--body", issue.body]
+    for label in issue.labels:
+        argv += ["--label", label]
+    completed = _run(argv, tree)
+    if completed.returncode != 0:
+        result.notes.append(f"`{' '.join(config.create_command)}` failed: "
+                            f"{(completed.stderr or completed.stdout).strip()[-500:]}")
+        return result
+    match = _FILED.search(completed.stdout.strip())
+    result.ok = True
+    result.number = int(match["number"]) if match else 0
+    result.labels_changed = list(issue.labels)
+    result.notes.append(f"filed #{result.number}" if result.number else "filed an issue")
     return result
 
 

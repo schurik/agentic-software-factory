@@ -214,3 +214,15 @@ is to be done but wait for the next day (or raise the budget) and `just score`;
 was written has no score from it until `just score` gives it one
 (`--scorer <name>` for that scorer alone): the score it would have had when it
 ended, added to the session's record and shown under the chapter like any other.
+
+A failing score is followed by where its scorer stands against its threshold
+(`self_improvement:`, or the scorer's `improve_after:`): `scorer <name> failed on
+2 of the last 7 sessions it judged; an issue is filed at 3 of the last 10`. At the
+threshold the factory files an issue on its own tracker — `filed #<n>
+(asf:improve:<scorer>), queued for the issue workflow` — or, when one is already
+open for that scorer, `added <k> session(s) to #<n>`. Tell the user about that
+issue: it is the factory asking a person to look at a pattern, it is worked by
+the `issue` workflow like any other, and nothing changes until a person approves
+its plan. `could not search the tracker` filed nothing on purpose — a second
+issue is worse than a late one; the next failing score, or `just score`, tries
+again once `gh` works. None of this changes how the run ended.

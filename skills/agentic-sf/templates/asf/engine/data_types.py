@@ -1286,6 +1286,11 @@ class IssuesConfig(BaseModel):
     # config that had conflated them could not say so.
     comments_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "view"])
     body_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
+    # Filing an issue: the one the factory opens on itself, when a scorer keeps
+    # failing (`engine/improve.py`). Every other path works an issue a person
+    # opened; this is the only one that opens one. EMPTY MEANS SKIP: a tracker
+    # the factory cannot file on is told the pattern on the console instead.
+    create_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "create"])
     # Reading which labels the project DEFINES, and defining one. Every name in
     # `route`, `states`, `refined_label` and `pull_requests.states.failed` is
     # one this factory will hand to `--add-label`, and a forge answers that with
@@ -1751,6 +1756,16 @@ class IssueUpdate(BaseModel):
     comment: str = ""
     add_labels: list[str] = Field(default_factory=list)
     remove_labels: list[str] = Field(default_factory=list)
+
+
+class NewIssue(BaseModel):
+    """An issue the factory files itself — only ever its self-improvement
+    issue (`engine/improve.py`); every other path works one a person opened."""
+
+    title: str
+    body: str
+    labels: list[str] = Field(default_factory=list)
+    project: str = ""
 
 
 class IssueResult(BaseModel):
