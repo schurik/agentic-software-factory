@@ -242,7 +242,8 @@ def values(flag):
 if verb == "view":
     print((home / "issue.json").read_text())
 elif verb == "list":
-    listed = json.loads((home / "listing.json").read_text()) if (home / "listing.json").exists() else []
+    listing = home / "listing.json"
+    listed = json.loads(listing.read_text()) if listing.exists() else []
     wanted = values("--label")
     listed += [issue for issue in filed if wanted and issue["state"] == "OPEN"
                and set(wanted) <= {label["name"] for label in issue["labels"]}]

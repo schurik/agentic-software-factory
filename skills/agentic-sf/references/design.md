@@ -345,9 +345,10 @@ asks nothing of the forge.
   twice.
 - **The issue** stands on its own: the pattern and the threshold that applied, the scorer's
   criteria (its file, workflow, focus, kind, classes and prose), and each failing session newest
-  first, with each failing chapter's class, a judge's reasoning when the record holds it (the
-  transcripts opt-in), and the events its evidence cites — kind and payload, cut to fit a
-  tracker's body. The station defines the label the first time (`issues.labels_create_command`),
+  first, with each failing chapter's class and the events its evidence cites — kind and payload,
+  cut to fit a tracker's body. A tracker may be public, and the transcripts opt-in is a
+  cockpit's: a cited `prompt_rendered` or `harness_output` is named by seq and kind only, and a
+  judge's reasoning never leaves the session's record (invariant 11). The station defines the label the first time (`issues.labels_create_command`),
   then files it with `issues.create_command` (`gh issue create`).
 - **Queued like any other**: it carries the route label whose workflow is `issue` and
   `issues.states.queued`, so the issues watcher takes it into the `issue` workflow, where a person

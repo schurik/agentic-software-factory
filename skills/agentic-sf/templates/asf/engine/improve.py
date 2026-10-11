@@ -23,6 +23,11 @@ It runs after a failing score is recorded (`scorers.after_chapter`, and `asf
 score` once it has scored), over the sessions in this station's data dir, and
 never raises: measuring is never a reason for work to fail. A passing score
 asks nothing of the forge — it is no new evidence.
+
+A tracker may be public, and the transcripts opt-in (`cockpit: {transcripts:
+true}`) lets a transcript reach a cockpit, not a tracker. So the issue names a
+transcript event a score cites by its seq and kind only, and never carries a
+judge's reasoning: both stay in the session's record, which the issue points to.
 """
 
 from __future__ import annotations
@@ -34,8 +39,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Sequence
 
 from . import artifacts, events, issues, labels
-from .data_types import (ChapterScored, EventLine, FactoryConfig, ImproveAfter, IssueUpdate,
-                         NewIssue)
+from .data_types import (ChapterScored, EventLine, FactoryConfig, HarnessOutput, ImproveAfter,
+                         IssueUpdate, NewIssue, OpenIssue, PromptRendered)
 
 if TYPE_CHECKING:
     from .scorers import Scorer
@@ -45,17 +50,15 @@ WORKFLOW = "issue"
 # The factory's own mark on the issue and on each comment it adds, naming the
 # sessions that text cites — what tells the next look which evidence is new.
 MARK = "<!-- asf:improve"
-_MARK = re.compile(r"<!-- asf:improve\b[^>]*?\bsessions=(?P<sessions>[\w,-]*)")
+_CITED = re.compile(re.escape(MARK) + r"\b[^>]*?\bsessions=(?P<sessions>[\w,-]*)")
 # What one issue says of the events a score cites: a forge caps a body
 # (GitHub's at 65,536 characters), and the session's own record has the rest.
 CITED_PER_CHAPTER = 12
 PAYLOAD_CHARS = 240
 MAX_BODY_CHARS = 60000
-
-
-def threshold_of(cfg: FactoryConfig, scorer: "Scorer") -> ImproveAfter:
-    """The bar `scorer` is held to: its own `improve_after:`, else the factory's."""
-    return scorer.spec.improve_after or cfg.self_improvement
+# What leaves the machine only for a cockpit, and only when the repository
+# opted in (CLAUDE.md, invariant 11): cited by seq and kind, never quoted.
+TRANSCRIPT_KINDS = frozenset({PromptRendered.KIND, HarnessOutput.KIND})
 
 
 # ── the window: the last `of_last` distinct sessions the scorer judged ───────
@@ -82,17 +85,21 @@ class Window:
     def met(self) -> bool:
         return len(self.failing) >= self.threshold.failures
 
-    def said(self) -> str:
+    def failed_on(self) -> str:
+        """`2 of the last 7 sessions it judged`."""
         return f"{len(self.failing)} of the last {len(self.judged)} sessions it judged"
 
 
 def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
-    """The last `threshold.of_last` sessions `scorer` judged, by when each
-    started — the order a cockpit's Scorers view counts them in — and which of
-    them failed: a session fails when any of its chapters' latest score does.
+    """The last `threshold.of_last` sessions `scorer` judged in this station's
+    data dir, by when each started, and which of them failed. A cockpit's
+    Scorers view counts by when it first stored each session, across every
+    station of the factory, so the two can differ by a session that ran
+    elsewhere or arrived late; this one is the station's to act on. A session
+    fails a session fails when any of its chapters' latest score does.
     A chapter scored again (resumed and ended again, or `asf score` after the
     scorer changed) is read by its latest score."""
-    seen = Window(threshold)
+    counted = Window(threshold)
     started = sorted(artifacts.scan(sessions_dir).items(),
                      key=lambda each: (each[1].started_at, each[0]), reverse=True)
     for adw_id, _ in started:
@@ -103,14 +110,14 @@ def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
                 latest[int(line.payload.get("chapter") or 0)] = line
         if not latest:
             continue
-        seen.judged.append(adw_id)
+        counted.judged.append(adw_id)
         failing = [latest[number] for number in sorted(latest)
                    if latest[number].payload.get("failing")]
         if failing:
-            seen.failing.append(Failing(adw_id, failing, {line.seq: line for line in lines}))
-        if len(seen.judged) >= threshold.of_last:
+            counted.failing.append(Failing(adw_id, failing, {line.seq: line for line in lines}))
+        if len(counted.judged) >= threshold.of_last:
             break
-    return seen
+    return counted
 
 
 # ── what the issue says ──────────────────────────────────────────────────────
@@ -121,23 +128,23 @@ def mark(scorer: str, cited: Sequence[Failing]) -> str:
 
 def cited_in(texts: Sequence[str]) -> set[str]:
     """The sessions the factory's marks in `texts` say were cited already."""
-    return {adw_id for text in texts for found in _MARK.finditer(text or "")
+    return {adw_id for text in texts for found in _CITED.finditer(text or "")
             for adw_id in found["sessions"].split(",") if adw_id}
 
 
-def title(scorer: "Scorer", seen: Window) -> str:
-    return f"Self-improvement: scorer {scorer.name} failed on {seen.said()}"
+def title(scorer: "Scorer", counted: Window) -> str:
+    return f"Self-improvement: scorer {scorer.name} failed on {counted.failed_on()}"
 
 
-def issue_body(cfg: FactoryConfig, scorer: "Scorer", seen: Window) -> str:
+def issue_body(cfg: FactoryConfig, scorer: "Scorer", counted: Window) -> str:
     """The whole case, standing on its own: the pattern, the scorer's criteria,
     and each failing score with the events it cites."""
-    threshold = seen.threshold
+    threshold = counted.threshold
     whose = ("its own `improve_after:`" if scorer.spec.improve_after
              else "`self_improvement:` in `asf/factory.yaml`")
     return _bounded("\n".join([
-        mark(scorer.name, seen.failing),
-        f"The scorer **{scorer.name}** failed on {seen.said()}. This factory files an "
+        mark(scorer.name, counted.failing),
+        f"The scorer **{scorer.name}** failed on {counted.failed_on()}. This factory files an "
         f"issue at {threshold.failures} of the last {threshold.of_last} ({whose}).",
         "",
         "A score never changed how its chapter ended: a scorer measures, a gate decides. "
@@ -151,15 +158,15 @@ def issue_body(cfg: FactoryConfig, scorer: "Scorer", seen: Window) -> str:
         "",
         "## The failing scores",
         "",
-        *_failing(cfg, seen.failing),
+        *_failing(cfg, counted.failing),
     ]))
 
 
-def comment_body(cfg: FactoryConfig, scorer: "Scorer", seen: Window,
+def comment_body(cfg: FactoryConfig, scorer: "Scorer", counted: Window,
                  new: Sequence[Failing]) -> str:
     return _bounded("\n".join([
         mark(scorer.name, new),
-        f"New evidence: the scorer **{scorer.name}** has now failed on {seen.said()}.",
+        f"New evidence: the scorer **{scorer.name}** has now failed on {counted.failed_on()}.",
         "",
         *_failing(cfg, new),
     ]))
@@ -169,44 +176,43 @@ def _criteria(scorer: "Scorer") -> list[str]:
     spec = scorer.spec
     classes = ", ".join(f"`{each.name}`" + (" (failing)" if each.fail else "")
                         for each in scorer.classes)
-    told = [f"From `{'/'.join(scorer.path.parts[-4:])}`:", "",       # asf/scorers/<name>/…
+    text = [f"From `{'/'.join(scorer.path.parts[-4:])}`:", "",       # asf/scorers/<name>/…
             f"- **Workflow:** `{spec.workflow}`" + (f", focused on `{spec.focus}`"
                                                    if spec.focus else ""),
             f"- **Kind:** {spec.kind}" + (f", `{spec.predicate}`" if spec.predicate else ""),
             f"- **Classes:** {classes}"]
     prose = scorer.criteria.strip()
     if prose:
-        told += ["", *(f"> {line}".rstrip() for line in prose.splitlines())]
-    return told
+        text += ["", *(f"> {line}".rstrip() for line in prose.splitlines())]
+    return text
 
 
 def _failing(cfg: FactoryConfig, failing: Sequence[Failing]) -> list[str]:
-    told: list[str] = []
+    text: list[str] = []
     for session in failing:
-        told += [f"### Session `{session.adw_id}`", "",
+        text += [f"### Session `{session.adw_id}`", "",
                  f"Its record: `{cfg.data_dir}/sessions/{session.adw_id}/events.jsonl`, on the "
                  f"station that ran it.", ""]
         for score in session.scores:
             payload = score.payload
-            told.append(f"- **Chapter {payload.get('chapter')}:** `{payload.get('class')}` "
+            text.append(f"- **Chapter {payload.get('chapter')}:** `{payload.get('class')}` "
                         f"(failing), scored at seq {score.seq}")
-            if payload.get("reasoning"):
-                told += [f"  > {line}".rstrip()
-                         for line in str(payload["reasoning"]).strip().splitlines()]
             evidence = [int(seq) for seq in payload.get("evidence") or []]
             for seq in evidence[:CITED_PER_CHAPTER]:
-                told.append(f"  - {_cited(session.lines.get(seq), seq)}")
+                text.append(f"  - {_cited(session.lines.get(seq), seq)}")
             if len(evidence) > CITED_PER_CHAPTER:
-                told.append(f"  - …and {len(evidence) - CITED_PER_CHAPTER} more, in its record")
+                text.append(f"  - …and {len(evidence) - CITED_PER_CHAPTER} more, in its record")
             if not evidence:
-                told.append("  - it cites no event")
-        told.append("")
-    return told
+                text.append("  - it cites no event")
+        text.append("")
+    return text
 
 
 def _cited(line: EventLine | None, seq: int) -> str:
     if line is None:
         return f"seq {seq} · not in the record"
+    if line.kind in TRANSCRIPT_KINDS:
+        return f"seq {seq} · `{line.kind}` · a transcript, read it in the record"
     payload = json.dumps(line.payload, ensure_ascii=False, sort_keys=True).replace("`", "'")
     if len(payload) > PAYLOAD_CHARS:
         payload = payload[:PAYLOAD_CHARS - 1] + "…"
@@ -249,10 +255,6 @@ def consider(cfg: FactoryConfig, main_root: Path, failed: Sequence["Scorer"],
     that is open. Never raises."""
     if not failed:
         return
-    if not cfg.issues.enabled:
-        say("self-improvement files on the tracker, and `issues.enabled` is false in "
-            "factory.yaml — nothing is filed")
-        return
     filing = Filing(cfg, Path(main_root), say)
     for scorer in failed:
         try:
@@ -263,53 +265,59 @@ def consider(cfg: FactoryConfig, main_root: Path, failed: Sequence["Scorer"],
 
 def _consider(filing: Filing, scorer: "Scorer") -> None:
     cfg, say = filing.cfg, filing.say
-    threshold = threshold_of(cfg, scorer)
-    seen = window(artifacts.sessions_root(filing.main_root, cfg.data_dir), scorer.name,
+    threshold = scorer.threshold(cfg)
+    counted = window(artifacts.sessions_root(filing.main_root, cfg.data_dir), scorer.name,
                   threshold)
-    if not seen.met:
-        say(f"scorer {scorer.name} failed on {seen.said()}; an issue is filed at "
+    if not counted.met:
+        say(f"scorer {scorer.name} failed on {counted.failed_on()}; an issue is filed at "
             f"{threshold.failures} of the last {threshold.of_last}")
+        return
+    if not cfg.issues.enabled:
+        say(f"scorer {scorer.name} failed on {counted.failed_on()}, and no issue is filed: "
+            f"`issues.enabled` is false in factory.yaml")
         return
     label = labels.improving(scorer.name)
     try:
-        open_ = issues.labelled(filing.main_root, cfg.issues, label.name, "number,body,comments")
+        already = issues.labelled(filing.main_root, cfg.issues, label.name)
     except RuntimeError as error:
-        say(f"scorer {scorer.name} failed on {seen.said()}, and filed nothing: could not "
+        say(f"scorer {scorer.name} failed on {counted.failed_on()}, and filed nothing: could not "
             f"search the tracker for {label.name} ({error})")
         return
-    if open_:
-        _add_to(filing, scorer, seen, open_[0])
+    if already:
+        _add_to(filing, scorer, counted, already[0])
         return
     if not cfg.issues.create_command:
-        say(f"scorer {scorer.name} failed on {seen.said()}, and no issue is filed: "
+        say(f"scorer {scorer.name} failed on {counted.failed_on()}, and no issue is filed: "
             f"`issues.create_command` is empty")
         return
-    labels.define(cfg, filing.main_root, label)     # one that already exists stays as it is
+    # One that already exists stays as it is, and refuses to be defined again:
+    # what that says matters only when filing then fails.
+    defined = labels.define(cfg, filing.main_root, label)
     queued = queue_labels(cfg)
     result = issues.create(filing.main_root, cfg.issues, NewIssue(
-        title=title(scorer, seen), body=issue_body(cfg, scorer, seen),
+        title=title(scorer, counted), body=issue_body(cfg, scorer, counted),
         labels=[label.name, *queued]))
     if not result.ok:
-        say(f"scorer {scorer.name} failed on {seen.said()}, and the issue was not filed: "
-            f"{'; '.join(result.notes)}")
+        say(f"scorer {scorer.name} failed on {counted.failed_on()}, and the issue was not "
+            f"filed: {'; '.join(result.notes + defined.notes)}")
         return
-    say(f"scorer {scorer.name} failed on {seen.said()}: filed #{result.number} ({label.name})"
+    say(f"scorer {scorer.name} failed on {counted.failed_on()}: filed #{result.number} "
+        f"({label.name})"
         + (f", queued for the {WORKFLOW} workflow" if queued else
            f" — no route label takes an issue to the {WORKFLOW} workflow, so it is not queued"))
 
 
-def _add_to(filing: Filing, scorer: "Scorer", seen: Window, issue: dict) -> None:
+def _add_to(filing: Filing, scorer: "Scorer", counted: Window, issue: OpenIssue) -> None:
     """Comment on the open `issue` with the failing sessions it does not cite yet."""
-    number = int(issue.get("number") or 0)
-    texts = [str(issue.get("body") or "")] + [str((each or {}).get("body") or "")
-                                              for each in issue.get("comments") or []]
-    cited = cited_in(texts)
-    new = [each for each in seen.failing if each.adw_id not in cited]
+    number = issue.number
+    cited = cited_in([issue.body, *issue.comments])
+    new = [each for each in counted.failing if each.adw_id not in cited]
     if not new:
-        filing.say(f"scorer {scorer.name} failed on {seen.said()}; #{number} already cites them")
+        filing.say(f"scorer {scorer.name} failed on {counted.failed_on()}; #{number} already "
+                   f"cites them")
         return
     result = issues.comment(filing.main_root, filing.cfg.issues, IssueUpdate(
-        number=number, comment=comment_body(filing.cfg, scorer, seen, new)))
-    filing.say(f"scorer {scorer.name} failed on {seen.said()}: "
+        number=number, comment=comment_body(filing.cfg, scorer, counted, new)))
+    filing.say(f"scorer {scorer.name} failed on {counted.failed_on()}: "
                + (f"added {len(new)} session(s) to #{number}" if result.ok else
                   f"could not add them to #{number}: {'; '.join(result.notes)}"))

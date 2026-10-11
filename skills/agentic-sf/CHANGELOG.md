@@ -258,9 +258,9 @@ before — `None` when there are none, never omitted.
    ended before them — and a scorer whose baseline already fails on 3 of its last 10 sessions
    files its self-improvement issue then, queued for the `issue` workflow. To read the pattern
    before anything is filed, set `issues.create_command: []` for that first run (the console
-   says where each scorer stands), then put it back. Pull requests opened before the re-stamp said nothing
-   when they opened, so they count as merged but never as autonomous. Pull requests that closed before
-   the re-stamp have no size, and are counted in no size. A factory with the CI
+   says where each scorer stands), then put it back. Pull requests opened before the re-stamp
+   said nothing when they opened, so they count as merged but never as autonomous. Pull requests
+   that closed before the re-stamp have no size, and are counted in no size. A factory with the CI
    workflow ships format 4 on its next default-branch push; until then the Measure tab shows
    what judging cost without a budget to draw it against.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an

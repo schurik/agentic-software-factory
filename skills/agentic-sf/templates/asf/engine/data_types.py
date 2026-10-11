@@ -1167,9 +1167,9 @@ class ImproveAfter(BaseModel):
     Self-improvement). Several failing chapters of one session count once.
 
     `self_improvement:` in factory.yaml sets it for every scorer, and a
-    scorer's own `improve_after:` holds that one to another bar. Both the
-    Scorers view and self-improvement read it from the self-description, where
-    each scorer carries the one that applies to it.
+    scorer's own `improve_after:` holds that one to another bar
+    (`Scorer.threshold`). The Scorers view reads it from the self-description,
+    where each scorer carries the one that applies to it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1766,6 +1766,15 @@ class NewIssue(BaseModel):
     body: str
     labels: list[str] = Field(default_factory=list)
     project: str = ""
+
+
+class OpenIssue(BaseModel):
+    """An open issue as a listing gives it: its number, its description and
+    the body of each comment on it, oldest first."""
+
+    number: int
+    body: str = ""
+    comments: list[str] = Field(default_factory=list)
 
 
 class IssueResult(BaseModel):

@@ -17,7 +17,8 @@ import json
 import subprocess
 from pathlib import Path
 
-from engine import events, factory, watch
+from engine import events, factory, improve, scorers, watch
+from engine.data_types import EventLine, FactoryConfig, ScorerClass, ScorerSpec
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
                           forge_calls, forge_data, git, pr_json, scorer, session_dir, set_config,
@@ -183,7 +184,10 @@ def test_an_open_issue_gets_the_new_evidence_as_a_comment_never_a_second_issue(s
 
 def test_an_issue_another_station_filed_is_found_by_its_label(stamped: Path):
     on_the_forge(stamped)
-    scorer(stamped, "refused", REFUSED, CRITERIA)
+    # The factory's own threshold, for a scorer that sets none.
+    set_config(stamped, self_improvement={"failures": 2, "of_last": 3})
+    scorer(stamped, "refused", {key: value for key, value in REFUSED.items()
+                                if key != "improve_after"}, CRITERIA)
     elsewhere = {"number": 7, "url": "https://forge/acme/widgets/issues/7", "title": "theirs",
                  "body": "<!-- asf:improve scorer=refused sessions=0badc0de -->\nfiled elsewhere",
                  "labels": [{"name": "asf:improve:refused"}], "state": "OPEN", "comments": []}
@@ -196,6 +200,7 @@ def test_an_issue_another_station_filed_is_found_by_its_label(stamped: Path):
     assert said[0] == "7"
     comment = said[said.index("--body") + 1]
     assert f"Session `{first}`" in comment and f"Session `{second}`" in comment
+    assert "2 of the last 2 sessions it judged" in comment
 
 
 # ── counting ─────────────────────────────────────────────────────────────────
@@ -259,7 +264,8 @@ def test_a_factory_off_the_tracker_files_nothing(stamped: Path):
     result = refuse(stamped)
 
     assert forge_calls(stamped) == [] and filed(stamped) == []
-    assert "issues.enabled" in result.stdout
+    assert "failed on 2 of the last 2 sessions it judged, and no issue is filed: " \
+           "`issues.enabled` is false" in result.stdout
 
 
 def test_a_tracker_it_cannot_file_on_is_told_the_pattern_on_the_console(stamped: Path):
@@ -272,3 +278,29 @@ def test_a_tracker_it_cannot_file_on_is_told_the_pattern_on_the_console(stamped:
 
     assert filed(stamped) == [] and calls(stamped, "label-create") == []
     assert "failed on 2 of the last 2 sessions it judged, and no issue is filed" in result.stdout
+
+
+# ── what never reaches the tracker ───────────────────────────────────────────
+
+def test_the_issue_never_quotes_a_transcript_or_a_judge_s_reasoning(tmp_path: Path):
+    # A tracker may be public; the transcripts opt-in is a cockpit's, not a tracker's.
+    prompt = EventLine(seq=4, ts="t", kind="prompt_rendered", v=1,
+                       payload={"text": "SECRET PROMPT TEXT"})
+    finished = EventLine(seq=9, ts="t", kind="workflow_finished", v=2,
+                         payload={"chapter": 1, "accepted": True})
+    score = EventLine(seq=11, ts="t", kind="chapter_scored", v=2, payload={
+        "chapter": 1, "scorer": "scope", "kind": "judge", "class": "lost", "failing": True,
+        "evidence": [4, 9], "reasoning": "THE JUDGE'S OWN WORDS"})
+    judge = scorers.Scorer("scope", tmp_path / "asf" / "scorers" / "scope" / "scorer.md",
+                           ScorerSpec(workflow="quick", kind="judge",
+                                      classes=[ScorerClass(name="lost", fail=True)]),
+                           "Did it stay on the prompt?\n")
+    counted = improve.Window(judge.threshold(FactoryConfig()), judged=["0badc0de"],
+                             failing=[improve.Failing("0badc0de", [score],
+                                                      {4: prompt, 9: finished, 11: score})])
+
+    body = improve.issue_body(FactoryConfig(), judge, counted)
+
+    assert "seq 4 · `prompt_rendered` · a transcript" in body
+    assert "SECRET PROMPT TEXT" not in body and "THE JUDGE'S OWN WORDS" not in body
+    assert "seq 9 · `workflow_finished` · `{\"accepted\": true" in body

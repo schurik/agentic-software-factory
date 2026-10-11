@@ -36,8 +36,8 @@ from pathlib import Path
 
 from . import artifacts, git_helper
 from .data_types import (IssueComment, IssueContext, IssueOutput, IssueRef,
-                         IssueResult, IssuesConfig, IssueUpdate, NewIssue, PullRequestsConfig,
-                         Question, Said)
+                         IssueResult, IssuesConfig, IssueUpdate, NewIssue, OpenIssue,
+                         PullRequestsConfig, Question, Said)
 from .utils import operator_env, write_atomic
 
 BODY_FILENAME = "issue.md"
@@ -156,17 +156,20 @@ def _view(command: list[str], tree, project: str, number: int, fields: str) -> d
     """
     argv = _aim([*command], project, number)
     argv += ["--json", fields]
+    return _read(command, argv, tree, f"issue #{number}{f' in {project}' if project else ''}")
+
+
+def _read(command: list[str], argv: list[str], tree, what: str):
+    """Run one read and parse its JSON, raising with `what` it was reading."""
     completed = _run(argv, tree)
     if completed.returncode != 0:
-        raise RuntimeError(
-            f"could not read issue #{number}"
-            f"{f' in {project}' if project else ''}: "
-            f"{(completed.stderr or completed.stdout).strip()[-500:]}")
+        raise RuntimeError(f"could not read {what}: "
+                           f"{(completed.stderr or completed.stdout).strip()[-500:]}")
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError as error:
         raise RuntimeError(f"`{' '.join(command)}` did not return JSON "
-                           f"for issue #{number}: {error}") from error
+                           f"for {what}: {error}") from error
 
 
 def fetch(run, config: IssuesConfig, ref: IssueRef) -> IssueContext:
@@ -333,23 +336,18 @@ def comment(tree, config: IssuesConfig, update: IssueUpdate) -> IssueResult:
     return result
 
 
-def labelled(tree, config: IssuesConfig, label: str, fields: str) -> list[dict]:
-    """The open issues carrying `label`, each with `fields`. RAISES, as `_view`
-    does: a caller that would act on "there is none" must not be told so by a
-    listing that failed."""
-    project = resolve_project(config, tree)
-    argv = _aim([*config.list_command], project)
-    argv += ["--label", label, "--state", "open", "--json", fields, "--limit", "20"]
-    completed = _run(argv, tree)
-    if completed.returncode != 0:
-        raise RuntimeError(f"`{' '.join(config.list_command)}` failed: "
-                           f"{(completed.stderr or completed.stdout).strip()[-300:]}")
-    try:
-        return [entry for entry in json.loads(completed.stdout or "[]")
-                if isinstance(entry, dict)]
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"`{' '.join(config.list_command)}` did not return JSON: "
-                           f"{error}") from error
+def labelled(tree, config: IssuesConfig, label: str) -> list[OpenIssue]:
+    """The open issues carrying `label`, with what each says. RAISES, as
+    `_view` does: a caller that would act on "there is none" must not be told
+    so by a listing that failed."""
+    argv = _aim([*config.list_command], resolve_project(config, tree))
+    argv += ["--label", label, "--state", "open", "--json", "number,body,comments",
+             "--limit", "20"]
+    listed = _read(config.list_command, argv, tree, f"the open issues labelled {label}")
+    return [OpenIssue(number=int(entry.get("number") or 0), body=str(entry.get("body") or ""),
+                      comments=[str((each or {}).get("body") or "")
+                                for each in entry.get("comments") or []])
+            for entry in listed or [] if isinstance(entry, dict)]
 
 
 _FILED = re.compile(r"/(?P<number>\d+)\s*$")

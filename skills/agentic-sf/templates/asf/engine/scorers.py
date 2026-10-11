@@ -50,7 +50,7 @@ from pydantic import ValidationError
 
 from . import artifacts, events, frontmatter, git_helper, improve, judge, measurement, station
 from .data_types import (ChapterNotJudged, ChapterScored, DomainEvent, EventLine, FactoryConfig,
-                         LimitKind, ScorerClass, ScorerSpec)
+                         ImproveAfter, LimitKind, ScorerClass, ScorerSpec)
 
 if TYPE_CHECKING:
     from .runner import Run
@@ -248,6 +248,11 @@ class Scorer:
     path: Path
     spec: ScorerSpec
     criteria: str                   # the prose below the frontmatter
+
+    def threshold(self, cfg: FactoryConfig) -> ImproveAfter:
+        """The bar its failing scores are held to (`engine/improve.py`): its
+        own `improve_after:`, else the factory's `self_improvement:`."""
+        return self.spec.improve_after or cfg.self_improvement
 
     @property
     def rate(self) -> float:
