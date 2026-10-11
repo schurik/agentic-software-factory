@@ -100,7 +100,7 @@ def judge(cfg: FactoryConfig, main_root: Path, chapter: Chapter, scorer: "Scorer
         agents.validate(bound, [AGENT])
     except SystemExit as error:
         raise RuntimeError(str(error)) from None
-    with _checkout(main_root, _last_commit(chapter.record)) as tree:
+    with checkout(main_root, _last_commit(chapter.record)) as tree:
         return _judged(bound, Workspace(main_root=main_root, repo_root=tree), chapter, scorer)
 
 
@@ -131,10 +131,10 @@ def _judged(cfg: FactoryConfig, workspace: Workspace, chapter: Chapter,
             output_type=JudgeOutput, prompt=scorer.criteria.strip(), task=str(TASK),
             gates=_gates(chapter, scorer), variables=_variables(chapter, scorer)))
     except (Exception, SystemExit) as error:
-        _ended(run, phase, clock, str(error)[:1000])
+        phase_ended(run, phase, clock, str(error)[:1000])
         artifacts.finish_run(record_dir, "fail", reason=str(error)[:1000])
         raise RuntimeError(f"the judge gave no score: {error}") from None
-    _ended(run, phase, clock)
+    phase_ended(run, phase, clock)
     artifacts.finish_run(record_dir, "success")
     assert isinstance(envelope, JudgeOutput)
     failing = next(each.fail for each in scorer.classes if each.name == envelope.class_)
@@ -142,21 +142,22 @@ def _judged(cfg: FactoryConfig, workspace: Workspace, chapter: Chapter,
                          class_=envelope.class_, failing=failing,
                          evidence=sorted(set(envelope.evidence)),
                          reasoning=envelope.reasoning if cfg.cockpit.transcripts else None,
-                         usage=_spent(record_dir))
+                         usage=spent(record_dir))
 
 
 @contextmanager
-def _checkout(main_root: Path, ref: str) -> Iterator[Path]:
+def checkout(main_root: Path, ref: str, who: str = AGENT) -> Iterator[Path]:
     """A detached worktree at `ref`, outside the repository, for one
-    judgement — removed however it ends, with whatever the judge left in it,
-    because nothing in it is anybody's work."""
-    place = Path(tempfile.mkdtemp(prefix="asf-judge-"))
+    judgement (or one diagnosis, `engine/diagnose.py`) — removed however it
+    ends, with whatever `who` left in it, because nothing in it is anybody's
+    work."""
+    place = Path(tempfile.mkdtemp(prefix=f"asf-{who}-"))
     tree = place / "tree"
     try:
         git_helper.worktree_add_detached(main_root, tree, ref)
     except RuntimeError as error:
         shutil.rmtree(place, ignore_errors=True)
-        raise RuntimeError(f"no tree to judge in: {error}") from None
+        raise RuntimeError(f"no tree for the {who} to read: {error}") from None
     try:
         yield tree
     finally:
@@ -201,9 +202,9 @@ def _record_dir(chapter: Chapter, scorer: "Scorer") -> Path:
     return place
 
 
-def _ended(run: Run, phase: Phase, clock: float, error: str = "") -> None:
-    """Close the judge's phase on its own record, and on the console: failed
-    when it says why."""
+def phase_ended(run: Run, phase: Phase, clock: float, error: str = "") -> None:
+    """Close a judge's phase — or a diagnosis's (`engine/diagnose.py`) — on
+    its own record, and on the console: failed when it says why."""
     phase.status, phase.ended_at = ("fail" if error else "success"), now_iso()
     phase.error = error or None
     run.tracer.event(PhaseEnded(phase_id=phase.phase_id, name=phase.params.name,
@@ -211,8 +212,9 @@ def _ended(run: Run, phase: Phase, clock: float, error: str = "") -> None:
     run.console.phase_ended(phase, time.monotonic() - clock)
 
 
-def _spent(record_dir: Path) -> UsageBreakdown:
-    """What every send of the judge cost, from its own record."""
+def spent(record_dir: Path) -> UsageBreakdown:
+    """What every send of a judge — or a diagnostician — cost, from its own
+    record."""
     spent = UsageBreakdown()
     for line in events.read(record_dir):
         if line.kind == UsageRecorded.KIND:

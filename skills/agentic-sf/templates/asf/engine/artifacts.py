@@ -558,6 +558,14 @@ def sessions_root(main_root, data_dir: str) -> Path:
     return anchor(main_root, f"{data_dir}/sessions")
 
 
+def diagnoses_root(main_root, data_dir: str) -> Path:
+    """Where each self-improvement diagnosis keeps its record, beside the
+    sessions it read and in none of them: it is about a scorer, across them
+    (`engine/diagnose.py`)."""
+    from .utils import anchor
+    return anchor(main_root, f"{data_dir}/diagnoses")
+
+
 def scan(sessions_dir: Path) -> dict[str, RunState]:
     """{adw_id: RunState} for every session on disk. {} when there are none.
 

@@ -59,8 +59,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from engine import (commands, describe, factory, git_helper, onboarding, operate,  # noqa: E402
-                    scorers, station, supervise, utils, watch, workflow)
+from engine import (commands, describe, diagnose, factory, git_helper, onboarding,  # noqa: E402
+                    operate, scorers, station, supervise, utils, watch, workflow)
 from engine.data_types import Invocation  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
@@ -113,6 +113,13 @@ def cmd_check(args) -> int:
         print(f"✓ scorer {each.name}: {scorers.said(each)}")
     for each in refused:
         print(f"✗ scorer {each.name}\n  {each.path}: {each.error}")
+    # A scorer that keeps failing files an issue, diagnosed first. Without a
+    # diagnostician that can answer, the issue is filed undiagnosed — worse,
+    # not broken, so it is a warning, and the self-description stays as it is.
+    undiagnosable = diagnose.refused(factory.root_of(args.config)) if found else []
+    if undiagnosable:
+        print("~ self-improvement files its issues undiagnosed until this is fixed:\n  "
+              + "\n  ".join(undiagnosable))
     return 1 if failed or refused else 0
 
 

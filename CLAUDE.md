@@ -79,7 +79,8 @@ one `agent.md`: frontmatter for the engine, prose for the model. Manifest is `as
 (no agents in it). A scorer is one `asf/scorers/<name>/scorer.md` (`engine/scorers.py`): it
 judges a finished chapter of one workflow and records a `chapter_scored` that never changes how
 the chapter ended (ADR 0006); one that keeps failing files one issue on the factory's own tracker
-(`engine/improve.py`), never a change to the factory. The engine is `session`, `worktree`,
+(`engine/improve.py`), diagnosed first by a read-only agent phase (`engine/diagnose.py`),
+never a change to the factory. The engine is `session`, `worktree`,
 `gates`, `permissions`, `limits`, `hitl`, `tracer`, `harnesses/{pi,claude_code,fake}`.
 
 ## Invariants the code (and the tests) enforce
@@ -157,7 +158,10 @@ bug already shipped once.
   deliberate exceptions: the assembled config (`factory.yaml`) is never rewritten. A fresh render
   that differs lands beside it as `.new` and is named loudly, because the file the installer told
   the operator to own is the one `--force` must not eat. And nothing under `asf/scorers/` is
-  (`install.USER_OWNED`): a scorer is the team's criteria, like the config.
+  (`install.USER_OWNED`): a scorer is the team's criteria, like the config. One file goes the
+  other way: `asf/.skill-files`, the installer's record of what the skill owns, is rewritten on
+  every run whenever it differs, `--force` or not — it says what the skill owns, not which
+  version of it is stamped.
 - **A release is a semver tag, `vX.Y.Z`, and `.claude-plugin/plugin.json` is its one version
   source**, bumped in the PR that cuts it along with its mirrors — `marketplace.json` and
   `templates/asf/.skill-version`, the file a stamp records the release in (a mirror because
