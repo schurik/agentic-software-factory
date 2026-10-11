@@ -164,8 +164,8 @@ function Counted({ line }: { line: ScorerView }) {
 const PR_STATE = { open: "open", merged: "merged", closed: "closed unmerged" } as const;
 
 /** An issue's pull request, as a forge reference; the forge's own colour only once it merged or closed. */
-function PullRef({ pr, linked = true }: { pr: NonNullable<Improvement["pr"]>; linked?: boolean }) {
-  return <ForgeRef kind="pr" href={linked ? pr.url : ""} state={pr.state === "open" ? null : pr.state}>#{pr.number}</ForgeRef>;
+function PullRef({ pr }: { pr: NonNullable<Improvement["pr"]> }) {
+  return <ForgeRef kind="pr" href={pr.url} state={pr.state === "open" ? null : pr.state}>#{pr.number}</ForgeRef>;
 }
 
 /** Where the scorer stands, in one sentence that depends on its state. */
@@ -265,7 +265,7 @@ function Story({ factory, line, sessions }: { factory: string; line: ScorerView;
  * the whole of it is on the issue.
  */
 function IssueCard({ issue }: { issue: Improvement }) {
-  const diagnosis = issue.cause ? `a change to the ${issue.surface || "factory"}: ${issue.cause}`
+  const diagnosis = issue.cause ? (issue.surface ? `a change to the ${issue.surface}: ${issue.cause}` : issue.cause)
     : issue.notDiagnosed ? `Not diagnosed: ${issue.notDiagnosed}` : "";
   return (
     <section className="flex flex-col gap-1.5">
@@ -323,11 +323,11 @@ function Strip({ factory, line }: { factory: string; line: ScorerView }) {
           <About title="Reading the strip">
             <p>One mark per session of the factory, oldest on the left, the same sessions for every scorer — so one session sits at one place in every strip.</p>
             <p><b>Tall</b> marks under the bracket are the sessions counted toward the threshold; <b>short, faded</b> ones are older. A <b>low line</b> is a session this scorer did not judge: another workflow&apos;s, one not sampled, or one still running.</p>
-            <p>A failing score is <b>amber</b> while the scorer is below its threshold and <b>red</b> once it is at it; grey is a passing one. A bracket open on the left: the counted sessions reach back past the strip. The <b>failing share</b> compares the sessions before the bracket with those counted. Each mark opens its session.</p>
+            <p>A failing score is <b>amber</b> while the scorer is below its threshold and <b>red</b> once it is at it; grey is a passing one. A bracket open on the left: the counted sessions reach back past the strip. The <b>failing share</b> compares the sessions before the bracket — before the merge, once there is one — with those counted. Each mark opens its session.</p>
             <p>A <b>purple rule</b> is where a pull request for the scorer&apos;s self-improvement issue merged: only chapters that started after it are counted.</p>
           </About>
         </span>
-        <span className="tabular-nums">failing share {shareOf(line.shares.before)} before · <b className="font-medium text-fg">{shareOf(line.shares.counted)}</b> counted</span>
+        <span className="tabular-nums">failing share {shareOf(line.shares.before)} before{merged !== null ? " the merge" : ""} · <b className="font-medium text-fg">{shareOf(line.shares.counted)}</b> counted</span>
       </div>
       <div className="relative flex h-8 items-end gap-[3px]">
         {merged !== null ? (

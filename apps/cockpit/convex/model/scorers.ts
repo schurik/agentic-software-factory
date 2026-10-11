@@ -90,7 +90,7 @@ export interface ScorerLine {
   counted: { session: string; failing: boolean }[];
   /** How many of the counted failed. */
   failures: number;
-  /** The share of failing sessions among the strip's judged sessions before the counted ones, and among the counted; null over none. */
+  /** The share of failing sessions among the strip's judged sessions before the counted ones — before the merge, once there is one — and among the counted; null over none. */
   shares: { before: number | null; counted: number | null };
   /** The counted sessions that failed, newest first. */
   failing: (Omit<Failing, "cite"> & { seq: number | null })[];
@@ -138,7 +138,10 @@ export function scorerLine(scorer: DescribedScorer, strip: Stored[], judged: Jud
     strip: marks,
     counted: latest.map((row) => ({ session: row.session, failing: row.failing })),
     failures: latest.filter((row) => row.failing).length,
-    shares: { before: share(marks.filter((mark) => mark.judged && !mark.counted)), counted: share(latest) },
+    shares: {
+      before: share(marks.filter((mark, index) => mark.judged && (merged === null ? !mark.counted : index < before))),
+      counted: share(latest),
+    },
     failing: latest.filter((row) => row.failing).reverse().map((row) => {
       const chapter = row.chapters.findLast((each) => each.failing)!;
       return { session: row.session, chapter: chapter.chapter, class: chapter.class, seq: chapter.evidence[0] ?? null };

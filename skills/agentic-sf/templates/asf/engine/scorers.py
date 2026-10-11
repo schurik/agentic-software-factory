@@ -493,9 +493,9 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
                                 chapter_record(events.read(run.session_dir), number), ended)
         scored = score_chapter(Scoring(run.cfg, run.main_root, run.console.note,
                                        run.tracer.event), chapter, found)
-        improve.consider(run.cfg, run.main_root,
-                         [each for each in found if each.name in scored.failing],
-                         run.console.note, live=run.session_dir)
+        improve.consider(improve.Filing(run.cfg, Path(run.main_root), run.console.note,
+                                        live=run.session_dir),
+                         [each for each in found if each.name in scored.failing])
     except Exception as error:              # noqa: BLE001 — see the docstring
         run.console.note(f"scoring failed, and the chapter stands as it ended: {error}")
 
@@ -614,6 +614,6 @@ def backfill(cfg: FactoryConfig, chosen: Sequence[Scorer], broken: Sequence[Refu
              f"`asf score` judges them on a day it is not" if tally.unjudged else "")
           + (f"; {tally.failed} session(s) could not be scored — run it again"
              if tally.failed else ""))
-    improve.consider(cfg, main_root, [each for each in chosen if each.name in tally.failing],
-                     lambda line: print(f"  {line}"))
+    improve.consider(improve.Filing(cfg, Path(main_root), lambda line: print(f"  {line}")),
+                     [each for each in chosen if each.name in tally.failing])
     return 1 if broken or tally.failed else 0

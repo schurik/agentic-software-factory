@@ -109,19 +109,20 @@ export interface Improvements {
 }
 
 const stateOf = (pull: ImprovingPull): PrState => (pull.merged ? "merged" : pull.closed !== null ? "closed" : "open");
+const numberOf = (pull: ImprovingPull) => Number(prNumber(pull.url)) || 0;
 
 /** One scorer's self-improvement, from its issue rows and the pull requests of the sessions that worked them. */
 export function improvementsOf(issues: Omit<IssueRow, "scorer">[], pulls: ImprovingPull[]): Improvements {
   const opened = pulls.filter((pull) => pull.url).sort((a, b) => (a.opened ?? 0) - (b.opened ?? 0));
-  const told = [...issues].sort((a, b) => b.at - a.at || b.number - a.number).map(({ ...row }): Improvement => {
+  const told = [...issues].sort((a, b) => b.at - a.at || b.number - a.number).map((row): Improvement => {
     const pull = opened.findLast((each) => each.issue === row.number);
-    return { ...row, pr: pull ? { url: pull.url, number: Number(prNumber(pull.url)) || 0, state: stateOf(pull) } : null };
+    return { ...row, pr: pull ? { url: pull.url, number: numberOf(pull), state: stateOf(pull) } : null };
   });
   const open = told[0] !== undefined && told[0].pr?.state !== "merged" ? told[0] : null;
   const merges = pulls.filter((pull) => pull.merged && pull.mergedAt !== null).sort((a, b) => a.mergedAt! - b.mergedAt!);
   const last = merges.at(-1);
   return {
     open, past: told.filter((each) => each !== open),
-    merge: last ? { session: last.session, url: last.url, number: Number(prNumber(last.url)) || 0, at: last.mergedAt! } : null,
+    merge: last ? { session: last.session, url: last.url, number: numberOf(last), at: last.mergedAt! } : null,
   };
 }

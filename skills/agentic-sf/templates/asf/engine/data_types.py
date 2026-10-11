@@ -1919,7 +1919,6 @@ class PullRequestResult(BaseModel):
 
     ok: bool = False
     number: int = 0
-    url: str = ""                   # a filed issue's, as the CLI printed it
     commented: bool = False
     replied: bool = False
     resolved: list[str] = Field(default_factory=list)   # thread ids

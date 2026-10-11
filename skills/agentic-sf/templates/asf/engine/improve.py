@@ -39,8 +39,10 @@ merges, only chapters that started after it count: the failures it was meant
 to fix are not evidence against it. The merge is read off the events alone —
 a session whose `provenance_recorded` says it `improves` the scorer (its
 issue carried the label) and whose `pull_request_closed` says it merged —
-which is how a cockpit reads it too. So a station counts from a merge it has
-the record of: the improving session's, or one `asf score --since` backfilled.
+which is how a cockpit reads it too (`run.json`'s `pr_state`, written beside
+that close, only narrows which records are read). So a station counts from a
+merge it has the record of: the improving session's, or one `asf score
+--since` backfilled.
 
 What it filed, or added to, is recorded as an `improvement_filed` on the
 newest failing session it cites — a late event, like the score — so a
@@ -378,14 +380,13 @@ class Filing:
     live: Path | None = None
 
 
-def consider(cfg: FactoryConfig, main_root: Path, failed: Sequence["Scorer"],
-             say: Callable[[str], None], live: Path | None = None) -> None:
+def consider(filing: Filing, failed: Sequence["Scorer"]) -> None:
     """After `failed` each recorded a failing score: file an issue for each
     one that has reached its threshold, or add the new evidence to the one
     that is open. Never raises."""
     if not failed:
         return
-    filing = Filing(cfg, Path(main_root), say, live)
+    say = filing.say
     for scorer in failed:
         try:
             _consider(filing, scorer)
@@ -432,12 +433,12 @@ def _consider(filing: Filing, scorer: "Scorer") -> None:
         say(f"scorer {scorer.name} failed on {counted.failed_on()}, and the issue was not "
             f"filed: {'; '.join(result.notes + defined.notes)}")
         return
-    told = ({"not_diagnosed": diagnosed} if isinstance(diagnosed, str) else
-            {"cause": diagnosed.cause, "surface": diagnosed.surface})
+    diagnosis = ({"not_diagnosed": diagnosed} if isinstance(diagnosed, str) else
+                 {"cause": diagnosed.cause, "surface": diagnosed.surface})
     _record(filing, counted, ImprovementFiled(
         scorer=scorer.name, number=result.number, url=result.url,
         title=title(scorer, counted), sessions=[each.adw_id for each in counted.failing],
-        **told))
+        **diagnosis))
     say(f"scorer {scorer.name} failed on {counted.failed_on()}: filed #{result.number} "
         f"({label.name})"
         + (f", queued for the {WORKFLOW} workflow" if queued else
