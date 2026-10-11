@@ -3,7 +3,7 @@
  *
  * The cockpit never interprets a workflow file. What it shows of a factory's
  * workflows — purpose, trigger, stages, agents, gates — its per-session
- * budget, from format 2 its settings, from format 3 its scorers and from format 4 its measurement budget are what the factory's own
+ * budget, from format 2 its settings, from format 3 its scorers, from format 4 its measurement budget and from format 5 its benchmarks are what the factory's own
  * `asf check --json` printed (`engine/describe.py`), shipped by the optional
  * CI workflow as a CI station with the factory's ingest token. It carries its own format version, and the
  * golden corpus holds one fixture per version (`tests/golden/self-description/
@@ -17,7 +17,7 @@ import { Payload } from "./payload";
 import { isRecord } from "./wire";
 
 /** The newest format this cockpit was written against. */
-export const KNOWN_FORMAT = 4;
+export const KNOWN_FORMAT = 5;
 /** The most a description may weigh as it arrives: it is kept whole, in one document. */
 export const MAX_DESCRIPTION_BYTES = 900_000;
 
@@ -180,6 +180,19 @@ export interface DescribedScorer {
   improveAfter: Threshold;
 }
 
+/**
+ * A benchmark `check` accepted (format 5): past sessions' requests, each pinned
+ * at the commit it started from, to be worked `repetitions` times under each of
+ * two or more variants — git refs of the factory's files, each labelled.
+ */
+export interface DescribedBenchmark {
+  name: string;
+  tasks: { session: string; request: string; commit: string }[];
+  /** A label is the ref itself where the definition gave none. */
+  variants: { ref: string; label: string }[];
+  repetitions: number;
+}
+
 export interface Description {
   format: number;
   /** Written in a format newer than this cockpit reads: upgrade the cockpit. */
@@ -195,6 +208,9 @@ export interface Description {
   /** [] before format 3, which described none. */
   scorers: DescribedScorer[];
   scorerProblems: { scorer: string; error: string }[];
+  /** [] before format 5, which described none. */
+  benchmarks: DescribedBenchmark[];
+  benchmarkProblems: { benchmark: string; error: string }[];
 }
 
 export function readDescription(text: string): Description {
@@ -216,6 +232,17 @@ export function readDescription(text: string): Description {
     problems: raw.list("problems").map((problem) => ({ workflow: problem.str("workflow"), error: problem.str("error") })),
     scorers: raw.list("scorers").map(readScorer),
     scorerProblems: raw.list("scorer_problems").map((problem) => ({ scorer: problem.str("scorer"), error: problem.str("error") })),
+    benchmarks: raw.list("benchmarks").map(readBenchmark),
+    benchmarkProblems: raw.list("benchmark_problems").map((problem) => ({ benchmark: problem.str("benchmark"), error: problem.str("error") })),
+  };
+}
+
+function readBenchmark(raw: Payload): DescribedBenchmark {
+  return {
+    name: raw.str("name"),
+    tasks: raw.list("tasks").map((task) => ({ session: task.str("session"), request: task.str("request"), commit: task.str("commit") })),
+    variants: raw.list("variants").map((variant) => ({ ref: variant.str("ref"), label: variant.str("label") || variant.str("ref") })),
+    repetitions: raw.num("repetitions"),
   };
 }
 

@@ -80,7 +80,10 @@ one `agent.md`: frontmatter for the engine, prose for the model. Manifest is `as
 judges a finished chapter of one workflow and records a `chapter_scored` that never changes how
 the chapter ended (ADR 0006); one that keeps failing files one issue on the factory's own tracker
 (`engine/improve.py`), diagnosed first by a read-only agent phase (`engine/diagnose.py`),
-never a change to the factory. The engine is `session`, `worktree`,
+never a change to the factory. A benchmark is one committed `asf/benchmarks/<name>.yaml`
+(`engine/benchmarks.py`): past sessions' requests pinned at their start commits, to be worked
+again under two or more variants (git refs), seeded by `asf benchmark new --from-scorer`.
+The engine is `session`, `worktree`,
 `gates`, `permissions`, `limits`, `hitl`, `tracer`, `harnesses/{pi,claude_code,fake}`.
 
 ## Invariants the code (and the tests) enforce

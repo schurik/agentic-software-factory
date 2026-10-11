@@ -508,8 +508,9 @@ The cockpit never reads a factory's workflow files. What it shows of them is the
 purpose, trigger, stage chain, agents with their `tools` and `writes`, gates, the per-session
 budget, and (from format 2) the factory's settings with every default resolved by its own code,
 grouped by what each decides: where work comes from, people at gates, how work lands, limits and
-data, the forge and tracker, and (from format 3) its scorers with their classes and thresholds
-resolved — pushed by the optional CI workflow a stamp carries with
+data, the forge and tracker, (from format 3) its scorers with their classes and thresholds
+resolved, and (from format 5) its benchmarks with each variant labelled — pushed by the optional
+CI workflow a stamp carries with
 `install.py --ci`. `POST /describe`
 with the factory's ingest token, `{station: {id, name, kind}, description}`, keeps the latest one per
 branch (`convex/describe.ts`), as the JSON text it arrived as; `convex/model/description.ts` reads

@@ -415,6 +415,64 @@ chapter: `corrections` (`corrections_above(2)`), `permission-rollbacks`
 are stamped from `templates/asf/scorers/` where there is none, and are the team's from then on —
 changed, focused or deleted like any scorer, and kept by every re-run, `--force` or not.
 
+### Benchmarks
+
+A scorer says a chapter failed; a **benchmark** says whether a change to the factory makes the
+failures go away (`CONTEXT.md`). It is one committed `asf/benchmarks/<name>.yaml`
+(`engine/benchmarks.py`), reviewed like code, which the skill never stamps and no re-run touches:
+
+```yaml
+tasks:                             # past sessions' requests, each pinned where it started
+  # failing: not_accepted
+  - session: 1a0ef8ea              # a session on this station's record
+    request: add a /health endpoint
+    commit: 7d795f2f…              # its first `session_started`'s base_commit
+  # control: accepted
+  - session: dc5d8139
+    request: rename the flag
+    commit: 5da4f052…
+variants:                          # two or more git refs of the factory's files
+  - {ref: main, label: main}
+  - {ref: asf/1a2b3c4d, label: 'PR #9'}   # a label is the ref where none is given
+repetitions: 3                     # how often each task is worked per variant; the noise
+```
+
+A **variant** is a git ref, so models, prose, task files and options all vary the same way: by
+being committed. Each task is worked `repetitions` times under each variant, which is what lets a
+reader tell a difference from the run-to-run noise; a benchmark names no winner.
+
+`asf benchmark new [<name>] --from-scorer <scorer>` seeds one. Its tasks are the sessions the
+scorer cited as failing — the ones its open self-improvement issue cites, read off every
+`improvement_filed` for the newest issue this station filed since the scorer's last merge
+(`improve.cited`), which is what that issue's pull request was written to fix however the window
+has moved since; else its self-improvement window as it stands (`improve.window`) — then the two
+newest it judged passing, as **controls**: a change is tested on the failures it is meant to fix
+and on work it must not break. A comment above each says which it is. A task's request is the
+session's prompt,
+else the one line its `provenance_recorded` says it was about (`#42 title`), and its commit is
+the base its work branch was cut from; a session whose record names none is left out, and said.
+Its variants default to the factory's base — `worktree.base_ref`, else the remote's default
+branch, else what the main checkout has out — and the branch of the scorer's **open
+self-improvement pull request**, read off the station's events as a merge is: a session that
+`improves` the scorer, opened a pull request (`pull_request_opened`) and has no
+`pull_request_closed`. Without one it writes nothing and asks for `--variant <ref>[=<label>]`,
+which, given, replaces the defaults. It refuses a scorer that cited no failing session, and never
+overwrites a definition: once written, it is the team's.
+
+`asf check` refuses a benchmark, as it does a scorer, before it costs anything: a key it does not
+know, no task, fewer than two variants, a session pinned twice or a label given twice, a session
+this station has no record of (a benchmark is worked from its source sessions' records, whose
+decisions answer its gates), and a commit or ref that does not resolve here — as given, or as
+`<remote>/<ref>`, where a pull request's branch may only be. A CI checkout holds no session's
+record and only the commit it checked out, so there (`station.kind`) the shape is checked and the
+sessions and refs are not, and `check` says so; the station that runs the benchmark checks them.
+The self-description lists the benchmarks it accepted, each variant labelled, and the ones it
+refused (format 5).
+
+Working a benchmark — `asf benchmark run <name>`, sessions that are never published, integrated
+or reported on the tracker, paid from the measurement budget and counted in no metric — is the
+next slice.
+
 ## The engine
 
 `asf/engine/` is the run machinery: session, worktree, permissions, gates,

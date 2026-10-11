@@ -56,7 +56,7 @@ from typing import Callable, Protocol
 
 from . import artifacts, events, git_helper
 from .data_types import (Cockpit, EventLine, FactoryConfig, ShipAck, ShipResult, Station,
-                         StationCredential, StationRecord)
+                         StationCredential, StationKind, StationRecord)
 from .cockpit import forge_host
 from .utils import anchor, engineer_name, ensure_dir, new_id, now_iso, operator_env, write_atomic
 
@@ -83,7 +83,13 @@ def identify(main_root: str | Path, data_dir: str) -> Station:
     record = _station_record(anchor(root, data_dir) / STATION_FILE)
     name = os.environ.get("ASF_STATION_NAME", "").strip()
     return Station(id=record.id, name=name or f"{_login()}@{host()}:{root.resolve().name}",
-                   kind="ci" if os.environ.get("CI", "").strip() else "local")
+                   kind=kind())
+
+
+def kind() -> StationKind:
+    """`ci` in a CI job, whose checkout lives for one job and holds no other
+    session's record; `local` anywhere else."""
+    return "ci" if os.environ.get("CI", "").strip() else "local"
 
 
 def _station_record(path: Path) -> StationRecord:

@@ -61,7 +61,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Iterator, Mapping, Sequence
 
 from . import artifacts, diagnose, events, issues, labels, measurement, station
 from .data_types import (ChapterScored, EventLine, FactoryConfig, HarnessOutput, ImproveAfter,
@@ -133,19 +133,29 @@ class Window:
                        else " since its self-improvement merged")
 
 
-def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
-    """The last `threshold.of_last` sessions `scorer` judged in this station's
-    data dir, by when each started, and which of them failed. A cockpit's
-    Scorers view counts by when it first stored each session, across every
-    station of the factory, so the two can differ by a session that ran
-    elsewhere or arrived late; this one is the station's to act on. A session
-    fails when any of its chapters' latest score does. A chapter scored again
-    (resumed and ended again, or `asf score` after the scorer changed) is read
-    by its latest score. After a self-improvement merge (`merged`) only the
-    chapters that started after it count, and a session with none is not one
-    the scorer judged since."""
-    states = artifacts.scan(sessions_dir)
-    counted = Window(threshold, since=merged(sessions_dir, scorer, states))
+@dataclass
+class Judged:
+    """One session a scorer judged: the latest score of each chapter it
+    counts, and the session's lines."""
+
+    adw_id: str
+    latest: dict[int, EventLine]                # chapter -> its latest score
+    lines: list[EventLine]
+
+    @property
+    def failing(self) -> list[EventLine]:
+        return [self.latest[number] for number in sorted(self.latest)
+                if self.latest[number].payload.get("failing")]
+
+
+def judged(sessions_dir: Path, scorer: str, after: datetime | None = None,
+           states: Mapping[str, RunState] | None = None) -> Iterator[Judged]:
+    """Every session `scorer` judged in this station's data dir, newest first
+    by when each started. A chapter scored again (resumed and ended again, or
+    `asf score` after the scorer changed) is read by its latest score. With
+    `after`, only the chapters that started after it count, and a session
+    with none is not one the scorer judged since."""
+    states = artifacts.scan(sessions_dir) if states is None else states
     started = sorted(states.items(), key=lambda each: (each[1].started_at, each[0]),
                      reverse=True)
     for adw_id, _ in started:
@@ -157,20 +167,45 @@ def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
                 opened.setdefault(int(line.payload.get("chapter") or 0), _moment(line.ts))
             elif line.kind == ChapterScored.KIND and line.payload.get("scorer") == scorer:
                 latest[int(line.payload.get("chapter") or 0)] = line
-        if counted.since is not None:
-            after = counted.since.merged_at
+        if after is not None:
             latest = {number: line for number, line in latest.items()
                       if (moment := opened.get(number)) is not None and moment > after}
-        if not latest:
-            continue
-        counted.judged.append(adw_id)
-        failing = [latest[number] for number in sorted(latest)
-                   if latest[number].payload.get("failing")]
-        if failing:
-            counted.failing.append(Failing(adw_id, failing, {line.seq: line for line in lines}))
+        if latest:
+            yield Judged(adw_id, latest, lines)
+
+
+def window(sessions_dir: Path, scorer: str, threshold: ImproveAfter) -> Window:
+    """The last `threshold.of_last` sessions `scorer` judged in this station's
+    data dir, by when each started, and which of them failed. A cockpit's
+    Scorers view counts by when it first stored each session, across every
+    station of the factory, so the two can differ by a session that ran
+    elsewhere or arrived late; this one is the station's to act on. A session
+    fails when any of its chapters' latest score does. After a
+    self-improvement merge (`merged`) only the chapters that started after it
+    count."""
+    states = artifacts.scan(sessions_dir)
+    counted = Window(threshold, since=merged(sessions_dir, scorer, states))
+    after = counted.since.merged_at if counted.since is not None else None
+    for session in judged(sessions_dir, scorer, after, states):
+        counted.judged.append(session.adw_id)
+        if session.failing:
+            counted.failing.append(Failing(session.adw_id, session.failing,
+                                           {line.seq: line for line in session.lines}))
         if len(counted.judged) >= threshold.of_last:
             break
     return counted
+
+
+def improving(sessions_dir: Path, scorer: str,
+              states: Mapping[str, RunState]) -> Iterator[tuple[str, RunState, list[EventLine]]]:
+    """The sessions among `states` that worked `scorer`'s self-improvement
+    issue — their `provenance_recorded` says they `improve` it — with their
+    lines."""
+    for adw_id, state in states.items():
+        lines = events.read(Path(sessions_dir) / adw_id)
+        if any(line.kind == ProvenanceRecorded.KIND and line.payload.get("improves") == scorer
+               for line in lines):
+            yield adw_id, state, lines
 
 
 def merged(sessions_dir: Path, scorer: str, states: Mapping[str, RunState]) -> Merge | None:
@@ -178,13 +213,9 @@ def merged(sessions_dir: Path, scorer: str, states: Mapping[str, RunState]) -> M
     issue among the sessions on this station, from their events: one that
     `improves` the scorer, whose pull request closed merged. None before any."""
     latest: Merge | None = None
-    for adw_id, state in states.items():
-        if state.pr_state != "merged":          # what `record_pr_closed` keeps beside the event
-            continue
-        lines = events.read(Path(sessions_dir) / adw_id)
-        if not any(line.kind == ProvenanceRecorded.KIND
-                   and line.payload.get("improves") == scorer for line in lines):
-            continue
+    closed = {adw_id: state for adw_id, state in states.items()
+              if state.pr_state == "merged"}     # what `record_pr_closed` keeps beside the event
+    for adw_id, _, lines in improving(sessions_dir, scorer, closed):
         for line in lines:
             if line.kind != PullRequestClosed.KIND or not line.payload.get("merged"):
                 continue
@@ -192,6 +223,29 @@ def merged(sessions_dir: Path, scorer: str, states: Mapping[str, RunState]) -> M
             if moment is not None and (latest is None or moment > latest.merged_at):
                 latest = Merge(adw_id, int(line.payload.get("number") or 0), moment)
     return latest
+
+
+def cited(sessions_dir: Path, scorer: str) -> tuple[int, list[str]]:
+    """The number of `scorer`'s open self-improvement issue — the newest this
+    station filed since the scorer's last merge — and every session it and the
+    comments added to it cite, newest first, off the `improvement_filed`
+    events; (0, []) when there is none."""
+    states = artifacts.scan(sessions_dir)
+    since = merged(sessions_dir, scorer, states)
+    filed: list[EventLine] = []
+    for adw_id in states:
+        filed += [line for line in events.read(Path(sessions_dir) / adw_id)
+                  if line.kind == ImprovementFiled.KIND and line.payload.get("scorer") == scorer]
+    filed.sort(key=lambda line: line.ts, reverse=True)
+    opened = next((line for line in filed if not line.payload.get("commented") and (
+        since is None or ((moment := _moment(line.ts)) is not None and moment > since.merged_at))),
+        None)
+    if opened is None:
+        return 0, []
+    number = int(opened.payload.get("number") or 0)
+    sessions = [str(adw_id) for line in filed if int(line.payload.get("number") or 0) == number
+                for adw_id in line.payload.get("sessions") or []]
+    return number, list(dict.fromkeys(sessions))
 
 
 def _moment(text: str) -> datetime | None:

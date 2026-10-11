@@ -151,6 +151,22 @@ before — `None` when there are none, never omitted.
   scorer's item from those events alone: the Issue column, a card with its title, its pull
   request's state and its diagnosis, a purple rule on the session strip where it merged, the
   sentences "issue open with its PR" and "counting since a merge", and past issues in the footer.
+- **A benchmark pins the sessions a scorer cited, to compare variants on.** A benchmark is a
+  committed `asf/benchmarks/<name>.yaml`: `tasks` (each a source session of this station, its
+  request and the commit it started from), `variants` (git refs, each with a `label`) and
+  `repetitions` (default 3). `asf benchmark new [<name>] --from-scorer <scorer>` (`just
+  benchmark`) seeds one with the sessions the scorer cited as failing — those its open
+  self-improvement issue cites, else its self-improvement window — and the two newest it judged
+  passing as controls, a comment
+  above each saying which; its variants default to the default branch and the branch of the
+  scorer's open self-improvement pull request (`PR #<n>`), found from the station's events, and
+  `--variant <ref>[=<label>]` names them instead. It never overwrites a definition. `asf check`
+  refuses a benchmark naming a session the station has no record of, a ref or commit that does
+  not resolve, fewer than two variants, a session or label given twice, or a key it does not
+  know; a CI checkout, which holds no session's record, checks the shape only and says so. `asf
+  check --json` is format 5: `benchmarks` and `benchmark_problems`. A 1.3.0 cockpit reads it;
+  an older one reads format 5 as far as it can and says it is newer. `asf/benchmarks/` joins
+  the default `protected_files`. Working a benchmark is still to come. No event changes.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -290,14 +306,16 @@ before — `None` when there are none, never omitted.
    said nothing when they opened, so they count as merged but never as autonomous. Pull requests
    that closed before the re-stamp have no size, and are counted in no size. A factory with the CI
    workflow ships format 4 on its next default-branch push; until then the Measure tab shows
-   what judging cost without a budget to draw it against.
+   what judging cost without a budget to draw it against. Add `asf/benchmarks/` to
+   `protected_files:` too, as the `.new` lists it: a benchmark measures, and no agent edits it.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`
    (`cookbooks/connect_cockpit.md`). A checkout that keeps its token needs nothing.
-5. `just onboard` comes with the re-stamp's justfile; a justfile that was kept (the repository's
-   own, or a stamped one that diverged) needs its `onboard` recipe copied from the fresh one, or
-   run `uv run asf/asf.py onboard`. The duplicate-station fix is the cockpit's: upgrade it.
+5. `just onboard` and `just benchmark` come with the re-stamp's justfile; a justfile that was
+   kept (the repository's own, or a stamped one that diverged) needs their recipes copied from
+   the fresh one, or run `uv run asf/asf.py onboard` and `uv run asf/asf.py benchmark`. The
+   duplicate-station fix is the cockpit's: upgrade it.
 6. A factory connected to a team cockpit without the CI workflow: stamp it, `install.py --harness
    <harness> --ci`, and set `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN`
    (`cookbooks/connect_cockpit.md` § CI). A cockpit older than this release never says whether the

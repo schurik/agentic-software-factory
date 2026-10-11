@@ -199,7 +199,8 @@ def test_the_writer_matches_the_golden_fixture_for_the_current_format():
 
 def test_the_stamped_factory_s_description_has_the_golden_fixture_s_shape(stamped: Path):
     """The writer, run on a real stamp (one workflow broken, so a problem is
-    described too, and a scorer beside one it refuses), emits exactly the fields the current fixture holds, at
+    described too, a scorer beside one it refuses, and a benchmark beside one
+    it refuses), emits exactly the fields the current fixture holds, at
     every depth — so a field added or dropped without a format bump fails
     here, not in a cockpit."""
     spec = stamped / "asf" / "workflows" / "quick" / "workflow.yaml"
@@ -208,9 +209,20 @@ def test_the_stamped_factory_s_description_has_the_golden_fixture_s_shape(stampe
                                     "predicate": "corrections_above(2)"})
     scorer(stamped, "orphan", {"workflow": "gone", "kind": "code",
                                "predicate": "corrections_above(2)"})
+    record = stamped / "asf" / "data" / "sessions" / "5c0be7ed" / "events.jsonl"
+    record.parent.mkdir(parents=True)
+    record.touch()
+    pinned = {"tasks": [{"session": "5c0be7ed", "request": "add app.py",
+                         "commit": git(stamped, "rev-parse", "HEAD")}],
+              "variants": [{"ref": "main"}, {"ref": "main", "label": "again"}]}
+    (stamped / "asf" / "benchmarks").mkdir()
+    (stamped / "asf" / "benchmarks" / "nightly.yaml").write_text(json.dumps(pinned))
+    (stamped / "asf" / "benchmarks" / "alone.yaml").write_text(
+        json.dumps({**pinned, "variants": pinned["variants"][:1]}))
     _, raw = described(stamped)
     golden = json.loads((GOLDEN / f"v{SelfDescription.FORMAT}.json").read_text())
 
+    assert [each["name"] for each in raw["benchmarks"]] == ["nightly"]
     assert fields(raw) == fields(golden)
 
 
