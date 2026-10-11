@@ -321,6 +321,13 @@ const sessionStartedWithRetention: Reader = {
   describe: sessionStarted.describe,
 };
 
+/** A score's row, the same at every version: what scored which chapter, as what, citing how much. */
+function describeScore(p: Payload): string {
+  const cited = p.nums("evidence").length;
+  return `chapter ${p.num("chapter")} scored by ${p.str("scorer")}: ${p.str("class")}` +
+    (p.bool("failing") ? ", failing" : "") + `, citing ${cited} event${cited === 1 ? "" : "s"}`;
+}
+
 const READERS: Record<string, Record<number, Reader>> = {
   session_started: {
     1: sessionStarted,
@@ -544,14 +551,10 @@ const READERS: Record<string, Record<number, Reader>> = {
     },
   },
   // A scorer's score of a chapter that has ended: late by nature, usually after `session_finished`.
+  // v2 may carry a judge's `reasoning`, under the transcripts opt-in; the row reads the same.
   chapter_scored: {
-    1: {
-      describe: (p) => {
-        const cited = p.nums("evidence").length;
-        return `chapter ${p.num("chapter")} scored by ${p.str("scorer")}: ${p.str("class")}` +
-          (p.bool("failing") ? ", failing" : "") + `, citing ${cited} event${cited === 1 ? "" : "s"}`;
-      },
-    },
+    1: { describe: describeScore },
+    2: { describe: describeScore },
   },
   // Transcript events: present only for a factory that opted in. Nothing but a
   // transcript view may be built from them — their bodies age out.

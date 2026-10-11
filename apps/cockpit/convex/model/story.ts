@@ -189,6 +189,8 @@ export interface Score {
   class: string;
   failing: boolean;
   evidence: number[];
+  /** A judge's account of its class (v2) — sent only by a factory that opted in to transcripts. */
+  reasoning?: string;
   cites: { phaseId: string; name: string }[];
 }
 
@@ -461,6 +463,22 @@ const tellStarted: Teller = (state, p) => {
   state.baseCommit = p.str("base_commit") || state.baseCommit;
 };
 
+/**
+ * A score of a chapter that has ended. It opens no chapter: a score of one this
+ * session never told is a chapter the cockpit has nothing to put it under. A
+ * judge's reasoning is told when the factory sent it, and is absent otherwise.
+ */
+const tellScore: Teller = (state, p) => {
+  const scored = state.chapters.find((each) => each.number === p.num("chapter"));
+  if (scored === undefined) return;
+  const reasoning = p.str("reasoning");
+  const score = { scorer: p.str("scorer"), kind: p.str("kind"), class: p.str("class"),
+                  failing: p.bool("failing"), evidence: p.nums("evidence"), ...(reasoning ? { reasoning } : {}) };
+  const again = scored.scores.findIndex((each) => each.scorer === score.scorer);
+  if (again === -1) scored.scores.push(score);
+  else scored.scores[again] = score;     // scored again: the latest stands, in its place
+};
+
 const TELLERS: Record<string, Record<number, Teller>> = {
   session_started: {
     1: tellStarted,
@@ -631,18 +649,9 @@ const TELLERS: Record<string, Record<number, Teller>> = {
       if (entry !== null) state.journal = file(state.journal, entry);
     },
   },
-  // A score of a chapter that has ended. It opens no chapter: a score of one this
-  // session never told is a chapter the cockpit has nothing to put it under.
   chapter_scored: {
-    1: (state, p) => {
-      const scored = state.chapters.find((each) => each.number === p.num("chapter"));
-      if (scored === undefined) return;
-      const score = { scorer: p.str("scorer"), kind: p.str("kind"), class: p.str("class"),
-                      failing: p.bool("failing"), evidence: p.nums("evidence") };
-      const again = scored.scores.findIndex((each) => each.scorer === score.scorer);
-      if (again === -1) scored.scores.push(score);
-      else scored.scores[again] = score;     // scored again: the latest stands, in its place
-    },
+    1: tellScore,
+    2: tellScore,       // v2: a judge's `reasoning`, when the factory sent it
   },
   session_finished: {
     // A killed process says only that the session ended: whatever phase it was

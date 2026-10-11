@@ -13,7 +13,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Literal, Optional, Type
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, ValidationInfo, field_validator,
+                      model_serializer, model_validator)
 
 PhaseKind = Literal["engineer", "agent", "code"]
 PhaseStatus = Literal["queued", "running", "success", "fail", "waiting"]
@@ -172,6 +173,24 @@ class PlanOutput(EnvelopeBase):
 class BuildOutput(EnvelopeBase):
     changed_files: list[str] = Field(default_factory=list)
     commit_message: str = ""        # consumed by the git commit phase
+
+
+class JudgeOutput(EnvelopeBase):
+    """A judge's score of one finished chapter (`engine/judge.py`): one of the
+    classes its scorer declares, why, and the seqs of the events it rests on.
+
+    Gated on what can be checked, never on whether the judgement is right: the
+    class is declared, and every cited seq is an event of the judged session,
+    in the judged chapter. The reasoning is the judge's own words about what
+    it read — prompts and raw output among them — so it reaches a cockpit only
+    under the transcripts opt-in (`ChapterScored`).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    class_: str = Field(alias="class", min_length=1)
+    reasoning: str = Field(min_length=1)
+    evidence: list[int] = Field(default_factory=list)       # seqs
 
 
 class ScoutFinding(BaseModel):
@@ -1534,6 +1553,10 @@ class RunSpec(BaseModel):
     # resume without the session that recorded it.
     resume: bool = False
     hitl: str = ""                  # the --hitl flag, or "" for the config's say
+    # Where the run's record lives. None is the session's own directory under
+    # data_dir; a judge's run keeps its record inside the session it judges
+    # (`engine/judge.py`), so none of it is an event of that session.
+    record_dir: Optional[Path] = None
 
 
 class SessionSpec(BaseModel):
@@ -2958,9 +2981,17 @@ class ChapterScored(DomainEvent):
 
     `usage` is what scoring it cost, which is measurement cost and never the
     work's: nothing for a code predicate.
+
+    v2: `reasoning`, a judge's account of its class. It is ABSENT, not empty,
+    unless the factory opted in to transcripts (`cockpit: {transcripts:
+    true}`): it quotes what the judge read, prompts and raw output included,
+    so it leaves the machine on the same terms they do. Without the opt-in it
+    stays in the session's directory, in the judge's own record. A code
+    predicate has none.
     """
 
     KIND: ClassVar[str] = "chapter_scored"
+    VERSION: ClassVar[int] = 2      # v2: reasoning
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -2970,7 +3001,15 @@ class ChapterScored(DomainEvent):
     class_: str = Field(alias="class")
     failing: bool
     evidence: list[int] = Field(default_factory=list)       # seqs, oldest first
+    reasoning: Optional[str] = None
     usage: UsageBreakdown = Field(default_factory=UsageBreakdown)
+
+    @model_serializer(mode="wrap")
+    def _reasoning_only_when_told(self, handler):
+        payload = handler(self)
+        if self.reasoning is None:
+            payload.pop("reasoning", None)
+        return payload
 
 
 class SessionFinished(DomainEvent):

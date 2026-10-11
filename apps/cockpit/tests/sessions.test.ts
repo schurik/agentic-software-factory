@@ -16,6 +16,7 @@ async function ship(t: Cockpit, token: string, events: WireEvent[]) {
 const DESCRIBED: Record<string, string> = {
   "artifact_written/v1.json": "output context_handoff/scout_findings.md written: 59 bytes, inline",
   "chapter_scored/v1.json": "chapter 1 scored by corrections: above, failing, citing 3 events",
+  "chapter_scored/v2.json": "chapter 1 scored by reviewer-scope: plan_only, failing, citing 2 events",
   "command_finished/v1.json": "test exited 1 after 4.25s",
   "command_result/v1.json": "command kill by schurik: done — stopped 2 processes",
   "committed/v1.json": "committed 3e1f0a9: docs: plan the health check (1 file)",

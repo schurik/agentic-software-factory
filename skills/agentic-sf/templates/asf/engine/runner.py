@@ -92,7 +92,7 @@ class Run:
         # context_handoff/ now sits outside the agent's working directory, so
         # the path handed to an agent must be absolute — see agents.execute.
         data_dir = anchor(spec.workspace.main_root, self.cfg.data_dir)
-        self.session_dir = ensure_dir(data_dir / "sessions" / spec.adw_id)
+        self.session_dir = ensure_dir(spec.record_dir or data_dir / "sessions" / spec.adw_id)
         self.context_handoff_dir = ensure_dir(self.session_dir / "context_handoff")
         # A joined or resumed run continues the phase sequence rather than
         # restarting at 1 — from the session's own event log.

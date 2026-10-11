@@ -372,6 +372,14 @@ describe("a chapter's scores", () => {
     expect(read(chapter(html({ events }), 2))).not.toContain("corrections");
   });
 
+  it("say a judge's reasoning beside its score when the factory sent it", () => {
+    const judged = fixture("chapter_scored", last + 1, 2);
+    const reasoning = (judged.payload as { reasoning: string }).reasoning;
+    const events = [...STAGED, { ...judged, payload: { ...(judged.payload as object), evidence: [] } }];
+
+    expect(read(chapter(html({ events }), 1))).toContain(`reviewer-scope: plan_only, failing ${reasoning}`);
+  });
+
   it("are not mentioned on a chapter no scorer judged", () => {
     expect(html()).not.toContain("data-scores");
   });

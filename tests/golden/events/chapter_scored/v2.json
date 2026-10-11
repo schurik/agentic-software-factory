@@ -1,0 +1,31 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "chapter_scored",
+  "v": 2,
+  "payload": {
+    "chapter": 1,
+    "scorer": "reviewer-scope",
+    "kind": "judge",
+    "class": "plan_only",
+    "failing": true,
+    "evidence": [
+      31,
+      38
+    ],
+    "reasoning": "The reviewer's raw output opens plan.md and nothing else, and its findings restate the plan's requirements without a file or a line of the diff.",
+    "usage": {
+      "input_tokens": 41200,
+      "output_tokens": 900,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 0,
+      "total_tokens": 42100,
+      "input_cost": 0.1236,
+      "output_cost": 0.0135,
+      "cache_read_cost": 0.0,
+      "cache_write_cost": 0.0,
+      "total_cost": 0.1371
+    }
+  }
+}

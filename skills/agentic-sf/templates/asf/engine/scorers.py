@@ -15,8 +15,11 @@ function over the chapter's domain events with fixed classes; it costs nothing.
 A stamp ships four of them on `issue` (`templates/asf/scorers/`), so a factory
 is measured from its first chapter.
 A JUDGE is a model reading the chapter against the prose, with the classes its
-frontmatter declares — checked here, not yet run: a chapter no scorer judged
-simply has no score, which is how a reader tells "not judged".
+frontmatter declares: the shipped `judge` agent, called by `engine/judge.py`,
+on the share of chapters its `sample_rate` draws (`sampled`). A chapter no
+scorer judged simply has no score, which is how a reader tells "not judged".
+A stamp ships one judge, at `sample_rate: 0`: what one looks like, judging
+nothing until a team gives it a rate.
 
 `load` is what `asf check` refuses a scorer with and what a run reads its
 scorers through, so a scorer `check` accepts is one a run will score with. A
@@ -30,6 +33,7 @@ score it would have had then — so a new scorer has a baseline on day one.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -38,7 +42,7 @@ from typing import TYPE_CHECKING, Callable, Literal, Mapping, Sequence, get_args
 
 from pydantic import ValidationError
 
-from . import artifacts, events, frontmatter, git_helper, station
+from . import artifacts, events, frontmatter, git_helper, judge, station
 from .data_types import (ChapterScored, EventLine, FactoryConfig, LimitKind, ScorerClass,
                          ScorerSpec)
 
@@ -240,6 +244,13 @@ class Scorer:
     criteria: str                   # the prose below the frontmatter
 
     @property
+    def rate(self) -> float:
+        """The share of its workflow's chapters it scores: a judge's
+        `sample_rate`, every chapter when it sets none, and every chapter for
+        a code predicate, which costs nothing."""
+        return 1.0 if self.spec.sample_rate is None else self.spec.sample_rate
+
+    @property
     def classes(self) -> list[ScorerClass]:
         """Its classes: a judge's as declared, a code predicate's as fixed."""
         if self.spec.kind == "code":
@@ -253,6 +264,20 @@ class Scorer:
         failing = next(each.fail for each in predicate.classes if each.name == classed.name)
         return ChapterScored(chapter=record.number, scorer=self.name, kind="code",
                              class_=classed.name, failing=failing, evidence=classed.evidence)
+
+
+def sampled(rate: float, adw_id: str, chapter: int, scorer: str) -> bool:
+    """Whether a judge at `rate` judges chapter `chapter` of session `adw_id`.
+
+    Drawn from a hash, never a random number, so it is the same answer every
+    time it is asked: `asf score` passes over a chapter its judge did not
+    sample as surely as the process that ended it did, and a chapter resumed
+    and ended again is sampled as it was. Each scorer draws its own chapters,
+    and a higher rate keeps every chapter a lower one drew."""
+    if rate <= 0:
+        return False
+    digest = hashlib.sha256(f"{scorer}\0{adw_id}\0{chapter}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") / 2 ** 64 < rate
 
 
 def said(scorer: Scorer) -> str:
@@ -298,7 +323,7 @@ def load(factory_root: Path, workflows: Mapping[str, Sequence[str]],
         except ValidationError as error:
             refused.append(Refused(place.name, path, _flat(error)))
             continue
-        problems = _problems(spec, criteria, workflows)
+        problems = _problems(spec, criteria, workflows, factory_root)
         if problems:
             refused.append(Refused(place.name, path, "; ".join(problems)))
         else:
@@ -319,8 +344,8 @@ def _read(path: Path) -> tuple[dict, str]:
     return meta, criteria
 
 
-def _problems(spec: ScorerSpec, criteria: str,
-              workflows: Mapping[str, Sequence[str]]) -> list[str]:
+def _problems(spec: ScorerSpec, criteria: str, workflows: Mapping[str, Sequence[str]],
+              factory_root: Path) -> list[str]:
     problems = []
     if spec.workflow not in workflows:
         problems.append(f"workflow {spec.workflow!r} is not one this factory loads "
@@ -358,7 +383,7 @@ def _problems(spec: ScorerSpec, criteria: str,
                         f"chapters judged, from 0 to 1")
     if not criteria.strip():
         problems.append("says nothing below the frontmatter — a judge's prose is its criteria")
-    return problems
+    return problems + judge.refused(factory_root)
 
 
 def _flat(error: ValidationError) -> str:
@@ -366,10 +391,52 @@ def _flat(error: ValidationError) -> str:
                      f"{each['msg']}" for each in error.errors())
 
 
+# ── scoring one ended chapter ────────────────────────────────────────────────
+
+@dataclass
+class Scoring:
+    """Where a chapter's scores come from and where they go: the config a judge
+    runs under, the checkout it reads, how a line is said, and how a score
+    joins the session's record."""
+
+    cfg: FactoryConfig
+    main_root: Path
+    say: Callable[[str], None]
+    record: Callable[[ChapterScored], object]
+
+
+def score_chapter(scoring: Scoring, chapter: judge.Chapter, due: Sequence[Scorer]) -> int:
+    """Score `chapter` with each of `due`, the free ones first: a code
+    predicate always, a judge scorer when it samples the chapter. One whose
+    judge could not score says why and leaves no score. How many scores were
+    recorded."""
+    recorded, number = 0, chapter.record.number
+    for scorer in sorted(due, key=lambda each: each.spec.kind != "code"):
+        if scorer.spec.kind == "code":
+            score = scorer.score(chapter.record)
+        elif not sampled(scorer.rate, chapter.session_dir.name, number, scorer.name):
+            scoring.say(f"scorer {scorer.name} did not sample chapter {number} — it judges "
+                        f"{scorer.rate:.0%} of {scorer.spec.workflow}'s chapters")
+            continue
+        else:
+            try:
+                score = judge.judge(scoring.cfg, scoring.main_root, chapter, scorer)
+            except RuntimeError as error:
+                scoring.say(f"scorer {scorer.name} did not judge chapter {number}: {error}")
+                continue
+        scoring.record(score)
+        recorded += 1
+        scoring.say(f"chapter {number} scored by {scorer.name}: {score.class_}"
+                    + (" (failing)" if score.failing else "")
+                    + (f", judging it cost ${score.usage.total_cost:.4f}"
+                       if score.kind == "judge" else ""))
+    return recorded
+
+
 # ── scoring a chapter that has just ended ────────────────────────────────────
 
 def after_chapter(run: "Run", workflow: "Workflow") -> None:
-    """Score the chapter this process worked, if it has ended, with every code
+    """Score the chapter this process worked, if it has ended, with every
     scorer bound to its workflow. Never raises: scoring is measurement, and a
     chapter does not fail of being measured. A chapter that stopped at a gate
     is still open, and is scored when it ends."""
@@ -381,16 +448,13 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
                               {workflow.name: workflow.required_agents}, only=workflow.name)
         for each in refused:
             run.console.note(f"scorer {each.name} did not score: {each.error}")
-        record = chapter_record(events.read(run.session_dir), number)
-        for scorer in found:
-            if scorer.spec.kind != "code":
-                run.console.note(f"scorer {scorer.name} is a judge: checked, not run — "
-                                 f"chapter {number} has no score from it")
-                continue
-            score = scorer.score(record)
-            run.tracer.event(score)
-            run.console.note(f"scored by {scorer.name}: {score.class_}"
-                             + (" (failing)" if score.failing else ""))
+        if not found:
+            return
+        ended = artifacts.ended_chapters(run.session_dir)[number][1]
+        chapter = judge.Chapter(run.session_dir,
+                                chapter_record(events.read(run.session_dir), number), ended)
+        score_chapter(Scoring(run.cfg, run.main_root, run.console.note, run.tracer.event),
+                      chapter, found)
     except Exception as error:              # noqa: BLE001 — see the docstring
         run.console.note(f"scoring failed, and the chapter stands as it ended: {error}")
 
@@ -400,28 +464,28 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
 @dataclass
 class Tally:
     scored: int = 0                 # chapters given at least one score
-    already: int = 0                # chapters every chosen code scorer had scored before
-    unjudged: dict[str, int] = field(default_factory=dict)    # judge -> chapters left
+    already: int = 0                # chapters every chosen scorer had scored before
     failed: int = 0                 # sessions that could not be read or written
 
 
-def score_ended_chapters(sessions_dir: Path, chosen: Sequence[Scorer],
+def score_ended_chapters(cfg: FactoryConfig, sessions_dir: Path, chosen: Sequence[Scorer],
                          since: datetime | None) -> Tally:
     """Score every chapter that has ended, in a session started on or after
     `since`, with each of `chosen` bound to its workflow that has not scored it
     since it last ended — so a second pass adds nothing, and a chapter resumed
-    and ended again is scored on how it ended last.
+    and ended again is scored on how it ended last. A judge scorer passes over
+    the chapters it did not sample on every pass alike (`sampled`).
 
-    Each score is the one `after_chapter` would have given the chapter as it
-    ended: a predicate reads the chapter's own lines, and nothing appended to
-    the session since (a score, a pull request's close) is one of them. It
+    Each code score is the one `after_chapter` would have given the chapter as
+    it ended: a predicate reads the chapter's own lines, and nothing appended
+    to the session since (a score, a pull request's close) is one of them. It
     joins the session's record as a late event, and is flushed to a cockpit
     then — the session's own shipper finished with it long ago."""
     tally = Tally()
     for adw_id in sorted(artifacts.started_since(sessions_dir, since)):
         session_dir = Path(sessions_dir) / adw_id
         try:
-            if _score_session(session_dir, chosen, tally):
+            if _score_session(cfg, session_dir, chosen, tally):
                 station.flush(session_dir)
         except Exception as error:          # noqa: BLE001 — one session never stops the rest
             tally.failed += 1
@@ -429,7 +493,8 @@ def score_ended_chapters(sessions_dir: Path, chosen: Sequence[Scorer],
     return tally
 
 
-def _score_session(session_dir: Path, chosen: Sequence[Scorer], tally: Tally) -> bool:
+def _score_session(cfg: FactoryConfig, session_dir: Path, chosen: Sequence[Scorer],
+                   tally: Tally) -> bool:
     """Score the session's ended chapters into `tally`; True when it wrote any."""
     lines = events.read(session_dir)
     latest: dict[tuple[int, str], int] = {}                   # (chapter, scorer) -> seq
@@ -439,25 +504,26 @@ def _score_session(session_dir: Path, chosen: Sequence[Scorer], tally: Tally) ->
                 line.seq
     wrote = False
     for number, (workflow, ended) in artifacts.ended_chapters(session_dir).items():
-        bound = [each for each in chosen if each.spec.workflow == workflow]
-        for judge in (each for each in bound if each.spec.kind != "code"):
-            tally.unjudged[judge.name] = tally.unjudged.get(judge.name, 0) + 1
-        code = [each for each in bound if each.spec.kind == "code"]
-        due = [each for each in code if latest.get((number, each.name), 0) < ended]
-        if code and not due:
+        # A judge that does not sample the chapter has nothing to give it, on
+        # this pass or any other: it is not due, and the chapter can be done.
+        bound = [each for each in chosen if each.spec.workflow == workflow and (
+            each.spec.kind == "code" or sampled(each.rate, session_dir.name, number, each.name))]
+        due = [each for each in bound if latest.get((number, each.name), 0) < ended]
+        if bound and not due:
             tally.already += 1
         if not due:
             continue
-        record = chapter_record(lines, number)
-        for scorer in due:
-            score = scorer.score(record)
-            events.emit(session_dir, score)
-            print(f"  {session_dir.name} chapter {number} ({workflow}): {scorer.name} — "
-                  f"{score.class_}"
-                  + (" (failing)" if score.failing else ""))
-        tally.scored += 1
-        wrote = True
+        chapter = judge.Chapter(session_dir, chapter_record(lines, number), ended)
+        scoring = Scoring(cfg, git_helper.main_root(), _printer_for(session_dir, workflow),
+                          lambda score: events.emit(session_dir, score))
+        if score_chapter(scoring, chapter, due):
+            tally.scored += 1
+            wrote = True
     return wrote
+
+
+def _printer_for(session_dir: Path, workflow: str) -> Callable[[str], None]:
+    return lambda line: print(f"  {session_dir.name} ({workflow}): {line}")
 
 
 def choose(factory_root: Path, workflows: Mapping[str, Sequence[str]],
@@ -482,17 +548,14 @@ def backfill(cfg: FactoryConfig, chosen: Sequence[Scorer], broken: Sequence[Refu
              since: datetime | None = None) -> int:
     """`asf score`: give the `chosen` scorers a baseline from the sessions
     already on disk — every ended chapter of their workflow they have not
-    scored — and say why each `broken` one scores nothing. A judge is checked,
-    not run, as after a chapter. 1 when a scorer is broken, or a session could
-    not be scored."""
+    scored, a judge's as it samples them — and say why each `broken` one
+    scores nothing. 1 when a scorer is broken, or a session could not be
+    scored."""
     for each in broken:
         print(f"✗ scorer {each.name} scores nothing until `asf check` accepts it\n"
               f"  {each.path}: {each.error}")
-    tally = score_ended_chapters(artifacts.sessions_root(git_helper.main_root(), cfg.data_dir),
-                                 chosen, since)
-    for name, count in sorted(tally.unjudged.items()):
-        print(f"scorer {name} is a judge: checked, not run — {count} chapter(s) have no "
-              f"score from it")
+    tally = score_ended_chapters(cfg, artifacts.sessions_root(git_helper.main_root(),
+                                                              cfg.data_dir), chosen, since)
     print(f"scored {tally.scored} chapter(s)" + (f" since {since.date()}" if since else "")
           + f"; {tally.already} already scored"
           + (f"; {tally.failed} session(s) could not be scored — run it again"
