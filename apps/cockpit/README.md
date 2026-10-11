@@ -573,10 +573,24 @@ by component (input, output, cache reads and writes, and what a harness never it
 size: S, M, L and XL at 100, 500 and 1,000 changed lines, as `pull_request_closed` v2 counts them —
 a v1 close never said, and is in no size. Measurement cost is never in it: a scorer's judge spends
 inside its `chapter_scored`, never as a `usage` event, so nothing a measurement costs reaches the
-row. The five dearest are listed, each linking to its session. Last, the chapters that started in
+row. The five dearest are listed, each linking to its session. Then the chapters that started in
 the period are **counted by trigger** — a prompt, an issue, a pull request's review, as each
 chapter's `workflow_started` says it answers — with a link to the Overview, whose split by workflow
 it does not repeat.
+
+Last, apart from all of it, **Measurement cost** (#193): what measuring the work cost in the period,
+drawn as one bar the length of the period's budget — the `measurement: {usd_per_day}` the default
+branch's self-description (format 4) resolved, times its days — filled by what judges spent, then
+benchmarks, then what is left. Spending past it is never drawn inside it: the bar is then what was
+spent, the budget a mark on it. "Over by $x" is what each UTC day spent past its own budget, summed —
+the station stops judges a day at a time, so the one call that overran a day shows though the days
+around it left budget unspent. A judge's spend is the `usage` of the `chapter_scored` it became,
+counted on the day it was judged (ingest keeps a `measured` row of each, `model/measured.ts`); a code
+predicate costs nothing. A judge that gave no score was paid for, and the station's check counts it,
+but it sends no event: the bar counts only what judging reached the cockpit as scores. A factory that never described its budget
+shows the spend alone. A chapter a judge sampled and the budget kept it from carries a
+`chapter_not_judged`, which the session page tells under the chapter as "not judged (budget)", with
+the day's spend on hover, until a later score stands in its place.
 
 **Scorers** (#190) has no period: a scorer counts sessions, not days. It lists every scorer the
 default branch's self-description names, as an accordion — one open at a time, since no two are

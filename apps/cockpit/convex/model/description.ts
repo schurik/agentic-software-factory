@@ -3,7 +3,7 @@
  *
  * The cockpit never interprets a workflow file. What it shows of a factory's
  * workflows — purpose, trigger, stages, agents, gates — its per-session
- * budget, from format 2 its settings and from format 3 its scorers are what the factory's own
+ * budget, from format 2 its settings, from format 3 its scorers and from format 4 its measurement budget are what the factory's own
  * `asf check --json` printed (`engine/describe.py`), shipped by the optional
  * CI workflow as a CI station with the factory's ingest token. It carries its own format version, and the
  * golden corpus holds one fixture per version (`tests/golden/self-description/
@@ -17,7 +17,7 @@ import { Payload } from "./payload";
 import { isRecord } from "./wire";
 
 /** The newest format this cockpit was written against. */
-export const KNOWN_FORMAT = 3;
+export const KNOWN_FORMAT = 4;
 /** The most a description may weigh as it arrives: it is kept whole, in one document. */
 export const MAX_DESCRIPTION_BYTES = 900_000;
 
@@ -138,6 +138,8 @@ export interface Settings {
   measure: {
     /** The threshold a scorer without its own `improve_after:` is held to. */
     selfImprovement: Threshold;
+    /** What measuring — judges and benchmarks — may spend in a UTC day, USD (`measurement:`); null before format 4. */
+    usdPerDay: number | null;
   } | null;
   /** The forge and tracker; the remote a branch goes to is `landing.remote`. */
   forge: {
@@ -299,7 +301,10 @@ function readSettings(raw: Payload, budget: Budget): Settings {
         failed: labels.str("failed"), refined: labels.str("refined"), prFailed: labels.str("pr_failed"),
       },
     },
-    measure: measure === null ? null : { selfImprovement: readThreshold(part(measure, "self_improvement")) },
+    measure: measure === null ? null : {
+      selfImprovement: readThreshold(part(measure, "self_improvement")),
+      usdPerDay: measure.obj("measurement")?.num("usd_per_day") ?? null,
+    },
   };
 }
 

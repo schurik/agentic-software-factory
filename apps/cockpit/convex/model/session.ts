@@ -556,6 +556,13 @@ const READERS: Record<string, Record<number, Reader>> = {
     1: { describe: describeScore },
     2: { describe: describeScore },
   },
+  // A judge that sampled a chapter and was not called on it: the day's measurement budget was spent.
+  chapter_not_judged: {
+    1: {
+      describe: (p) => `chapter ${p.num("chapter")} not judged by ${p.str("scorer")}: the measurement budget was spent ` +
+        `($${p.num("spent").toFixed(2)} of $${p.num("budget").toFixed(2)} on ${p.str("day")})`,
+    },
+  },
   // Transcript events: present only for a factory that opted in. Nothing but a
   // transcript view may be built from them — their bodies age out.
   prompt_rendered: {

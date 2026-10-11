@@ -1,9 +1,9 @@
 import Link from "next/link";
-import type { Metrics, Scorers } from "@/convex/measure";
+import type { Measurement, Metrics, Scorers } from "@/convex/measure";
 import type { Size, Stretch } from "@/convex/model/measure";
 import type { Components } from "@/convex/model/pulls";
 import { formatDollars as dollars, formatDuration, formatNumber, plural, prNumber, sessionHref } from "../format";
-import { cx, Loading, Notice, num, pillClass, Section, Table } from "../ui";
+import { Card, cx, Loading, Notice, num, pillClass, Section, Table } from "../ui";
 import { OVERVIEW_DAYS, type OverviewDays, PeriodFilter, Stat } from "./OverviewTab";
 import { ScorersView } from "./ScorersView";
 import { tabHref } from "./view";
@@ -36,6 +36,11 @@ const SIZE: Record<Size, string> = {
 
 /** What started a chapter: a prompt, an issue, a pull request's review (model/chapters.ts). */
 const TRIGGER: Record<string, string> = { prompt: "Prompt", issue: "Issue", pr: "Pull request review" };
+
+const MEASURING = "What measuring the factory's own work cost: a scorer's judge reading a finished chapter, and a " +
+  "benchmark's sessions. Paid from the factory's `measurement: {usd_per_day}` budget, never from the work's, and never " +
+  "in cost per PR. Once a day's spend reaches it, judges stop until the next day (UTC), and a chapter one skipped says " +
+  "\"not judged (budget)\" on its session's page; the call already running when it was reached may overrun it.";
 
 const TRIGGERED = "What started each chapter that began in the period: a prompt someone typed, an issue someone " +
   "labelled, or a round of review comments on a pull request.";
@@ -99,11 +104,12 @@ const REACHES = (
 /**
  * The Metrics view: the factory's pull requests, then — of the ones that
  * merged — their cycle time, their cost and the dearest of them, then its
- * chapters by trigger. A period with none of it is one sentence.
+ * chapters by trigger, and last, apart from all of it, what measuring them
+ * cost. A period with none of it is one sentence.
  */
 function MetricsView({ factory, metrics, period }: { factory: string; metrics: Metrics; period: string }) {
-  const { opened, merged, autonomous, autonomy, chapters } = metrics;
-  if (!opened && !merged && chapters.every((line) => !line.chapters)) {
+  const { opened, merged, autonomous, autonomy, chapters, measurement } = metrics;
+  if (!opened && !merged && chapters.every((line) => !line.chapters) && !measurement.judges && !measurement.benchmarks) {
     return <Notice>Nothing to measure in the {period}: no chapter started, and no pull request was opened or merged. {REACHES}</Notice>;
   }
   return (
@@ -128,7 +134,87 @@ function MetricsView({ factory, metrics, period }: { factory: string; metrics: M
           ))}
         </div>
       </Section>
+      <MeasurementCost measurement={measurement} />
     </>
+  );
+}
+
+/** In whole cents: what the bar compares, so a sum of float costs is never "over by $0.00". */
+const cents = (value: number) => Math.round(value * 100);
+
+/**
+ * Measurement cost: one bar the length of the period's budget — `usd_per_day`
+ * for each of its days — filled by what judges spent, then benchmarks, then
+ * what is left. Spending past the budget is never drawn inside it: the bar is
+ * then what was spent, the budget a mark on it. "Over by" is what the days
+ * spent past their own budget — a day's last judge can overrun it though the
+ * period is under — so it is said whenever a day overran, never hidden by the
+ * days that did not. A factory that never described its budget gets the spend alone.
+ */
+function MeasurementCost({ measurement: { judges, benchmarks, usdPerDay, days, budget, over } }: { measurement: Measurement }) {
+  const spent = judges + benchmarks;
+  const parts = [
+    { key: "judges", label: "Judges", value: judges, fill: "bg-accent" },
+    { key: "benchmarks", label: "Benchmarks", value: benchmarks, fill: "bg-accent/45" },
+  ];
+  if (budget === null || usdPerDay === null) {
+    return (
+      <Section title="Measurement cost">
+        <Card className="px-4 py-3">
+          <div className="text-2xl font-semibold tracking-tight tabular-nums" title={MEASURING}>{dollars(spent)}</div>
+          <Legend parts={parts} />
+          <p className="mt-2 text-xs text-muted">
+            The factory has not said what measuring may spend: its default branch describes no{" "}
+            <code>measurement: {"{usd_per_day}"}</code> yet — push its self-description from a stamp that has one.
+          </p>
+        </Card>
+      </Section>
+    );
+  }
+  const past = cents(spent) - cents(budget);
+  const left = Math.max(0, -past) / 100;
+  const scale = Math.max(budget, spent);
+  const share = (value: number) => (scale > 0 ? (value / scale) * 100 : 0);
+  const told = past > 0 ? parts : [...parts, { key: "left", label: "Left", value: left, fill: "bg-surface-3" }];
+  return (
+    <Section title="Measurement cost">
+      <Card className="px-4 py-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <div title={MEASURING}>
+            <span className="text-2xl font-semibold tracking-tight tabular-nums">{dollars(spent)}</span>{" "}
+            <span className="text-sm text-muted tabular-nums">of {dollars(budget)} · {dollars(usdPerDay)} a day × {plural(days, "day")}</span>
+          </div>
+          {cents(over) > 0 ? <span className="text-sm font-medium text-bad tabular-nums">over by {dollars(over)}</span>
+            : <span className="text-sm text-muted tabular-nums">{left === 0 ? "budget spent" : `${dollars(left)} left`}</span>}
+        </div>
+        <div role="img" className="relative mt-3 flex h-2.5 gap-0.5"
+             aria-label={`${parts.map((part) => `${part.label} ${dollars(part.value)}`).join(", ")} of a ${dollars(budget)} budget`}>
+          {told.filter((part) => part.value > 0).map((part) => (
+            <span key={part.key} data-measure={part.key} title={`${part.label}: ${dollars(part.value)}`}
+                  className={cx("block h-full rounded-[3px]", part.fill)} style={{ width: `${share(part.value)}%` }} />
+          ))}
+          {past > 0 ? (
+            <span data-measure="budget" title={`The budget: ${dollars(budget)}`}
+                  className="absolute -inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-fg" style={{ left: `${share(budget)}%` }} />
+          ) : null}
+        </div>
+        <Legend parts={told} />
+      </Card>
+    </Section>
+  );
+}
+
+/** What each part of the measurement came to, by name: a part is never told by its colour alone. */
+function Legend({ parts }: { parts: { key: string; label: string; value: number; fill: string }[] }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+      {parts.map((part) => (
+        <span key={part.key} className="inline-flex items-center gap-1.5">
+          <span aria-hidden className={cx("inline-block size-2.5 rounded-[3px]", part.fill)} />
+          {part.label} <span className="text-fg tabular-nums">{dollars(part.value)}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 

@@ -19,6 +19,7 @@ import { defaultCheck, repoOf } from "./factory";
 import { byTrigger, type TriggerLine } from "./model/chapters";
 import { readDescription } from "./model/description";
 import { type CostPerPr, costPerPrOf, type Costed, type Cycle, cycleOf, type Dear, dearestOf } from "./model/measure";
+import { type MeasuredKind, overrunOf } from "./model/measured";
 import { Payload } from "./model/payload";
 import type { Period } from "./model/period";
 import { type Cite, type Failing, ordered, type ScorerLine, scorerLine, STRIP, windowOf } from "./model/scorers";
@@ -43,10 +44,34 @@ export interface Metrics {
   expensive: Dear[];
   /** The chapters that started in the period, by trigger. The split by workflow is the Overview's. */
   chapters: TriggerLine[];
+  /** What measuring cost in the period — never in any of the above. */
+  measurement: Measurement;
+}
+
+/**
+ * What measuring the factory's own work cost in the period (#193), by what was
+ * paid for, USD list-price equivalent, against the budget the factory's
+ * default branch described (`measurement: {usd_per_day}`, format 4) for each
+ * of its days. Null where the factory never said its budget.
+ */
+export interface Measurement {
+  judges: number;
+  benchmarks: number;
+  usdPerDay: number | null;
+  /** How many days the period holds. */
+  days: number;
+  /** `usdPerDay` × `days`. */
+  budget: number | null;
+  /**
+   * What the days of the period spent past their own budget, summed (model/measured.ts):
+   * a judge that started under the budget may overrun it. 0 when none did, or no budget is known.
+   */
+  over: number;
 }
 
 const NONE: Metrics = {
   cut: false, opened: 0, merged: 0, autonomous: 0, autonomy: null, cycle: cycleOf([]), cost: costPerPrOf([]), expensive: [], chapters: byTrigger([]),
+  measurement: { judges: 0, benchmarks: 0, usdPerDay: null, days: 0, budget: null, over: 0 },
 };
 
 /**
@@ -67,7 +92,8 @@ export const metrics = query({
     const opened = await pullsIn(ctx, factory, period, "opened");
     const merged = await pullsIn(ctx, factory, period, "mergedAt");
     const chapters = await chaptersStartedIn(ctx, factory, period);
-    if (opened === null || merged === null || chapters === null) return { ...NONE, cut: true };
+    const measured = await measuredRowsIn(ctx, factory, period);
+    if (opened === null || merged === null || chapters === null || measured === null) return { ...NONE, cut: true };
     const autonomous = merged.filter((row) => row.autonomous).length;
     const costed = merged.flatMap(costedOf);
     return {
@@ -77,9 +103,46 @@ export const metrics = query({
       cost: costPerPrOf(costed),
       expensive: dearestOf(costed),
       chapters: byTrigger(chapters),
+      // `days` are the midnights that start each day and the one after the last: one more than the days.
+      measurement: measurementOf(measured, await usdPerDayOf(ctx, factory), days.length - 1),
     };
   },
 });
+
+/** What `measured` cost by kind, against `usdPerDay` for each of `days` days. */
+function measurementOf(measured: Doc<"measured">[], usdPerDay: number | null, days: number): Measurement {
+  const spent = (kind: MeasuredKind) => measured.filter((row) => row.kind === kind).reduce((total, row) => total + row.cost, 0);
+  return {
+    judges: spent("judge"), benchmarks: spent("benchmark"), usdPerDay, days,
+    budget: usdPerDay === null ? null : usdPerDay * days,
+    over: usdPerDay === null ? 0 : overrunOf(measured, usdPerDay),
+  };
+}
+
+/** The measurement budget `factory`'s default branch described (format 4); null when it described none. */
+async function usdPerDayOf(ctx: QueryCtx, factory: string): Promise<number | null> {
+  const described = await describedOf(ctx, factory);
+  return described?.settings?.measure?.usdPerDay ?? null;
+}
+
+/** The self-description `factory`'s CI pushed for its default branch, read; null before one was. */
+async function describedOf(ctx: QueryCtx, factory: string) {
+  const check = await defaultCheck(ctx, factory, (await repoOf(ctx, factory))?.defaultBranch || null);
+  return check === null ? null : readDescription(check.description);
+}
+
+/** What measuring `factory`'s work cost in `period`, row by row; null past `SUMMED`. */
+async function measuredRowsIn(ctx: QueryCtx, factory: string, period: Period): Promise<Doc<"measured">[] | null> {
+  const found: Doc<"measured">[] = [];
+  for (const spelling of await spellingsOf(ctx, factory)) {
+    const rows = ctx.db.query("measured").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", period.from).lt("at", period.to));
+    for await (const row of rows) {
+      if (found.length === SUMMED) return null;
+      found.push(row);
+    }
+  }
+  return found;
+}
 
 /** A row with its cost, or none for one an older cockpit wrote before it kept what a pull request cost. */
 function costedOf(row: Doc<"pulls">): Costed[] {
@@ -145,8 +208,8 @@ export const scorers = query({
     if (who.mode === "team" && who.viewer === null) return null;
     const factory = await readable(ctx, who, named);
     if (factory === null) return null;
-    const check = await defaultCheck(ctx, factory, (await repoOf(ctx, factory))?.defaultBranch || null);
-    if (check === null) return { described: false, sessions: 0, scorers: [] };
+    const described = await describedOf(ctx, factory);
+    if (described === null) return { described: false, sessions: 0, scorers: [] };
     const spellings = await spellingsOf(ctx, factory);
 
     const latest: Doc<"sessions">[] = [];
@@ -156,7 +219,7 @@ export const scorers = query({
     const strip = latest.sort((a, b) => a._creationTime - b._creationTime).slice(-STRIP);
     const from = strip[0]?._creationTime ?? Infinity;
 
-    const lines = await Promise.all(readDescription(check.description).scorers.map(async (scorer) => {
+    const lines = await Promise.all(described.scorers.map(async (scorer) => {
       const rows = new Map<string, Doc<"scores">>();
       for (const spelling of spellings) {
         const of = () => ctx.db.query("scores").withIndex("by_factory_scorer", (q) => q.eq("factory", spelling).eq("scorer", scorer.name));

@@ -3,6 +3,7 @@ import { internalMutation } from "./_generated/server";
 import { chapter } from "./chapters";
 import { settleClaims } from "./claims";
 import { settle } from "./commands";
+import { measured } from "./measured";
 import { retained } from "./model/retention";
 import { advance, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
@@ -87,6 +88,8 @@ export const append = internalMutation({
     else await chapter(ctx, { factory, session }, await all());
     // Its pull request's row: what the Measure tab counts (model/pulls.ts).
     await pull(ctx, { factory, session }, fresh, all);
+    // What judging it cost: measurement, which Metrics draws against its budget (model/measured.ts).
+    await measured(ctx, { factory, session }, fresh, activity);
     const waiting = summary.waitingFor !== null;
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);

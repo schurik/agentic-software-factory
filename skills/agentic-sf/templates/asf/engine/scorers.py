@@ -16,8 +16,11 @@ A stamp ships four of them on `issue` (`templates/asf/scorers/`), so a factory
 is measured from its first chapter.
 A JUDGE is a model reading the chapter against the prose, with the classes its
 frontmatter declares: the shipped `judge` agent, called by `engine/judge.py`,
-on the share of chapters its `sample_rate` draws (`sampled`). A chapter no
-scorer judged simply has no score, which is how a reader tells "not judged".
+on the share of chapters its `sample_rate` draws (`sampled`), and paid from the
+factory's measurement budget (`engine/measurement.py`), never the work's. A
+chapter no scorer judged simply has no score, which is how a reader tells "not
+judged"; one a judge sampled and skipped because the day's budget was spent
+says so (`ChapterNotJudged`), and is judged by a later `asf score`.
 A stamp ships one judge, at `sample_rate: 0`: what one looks like, judging
 nothing until a team gives it a rate.
 
@@ -42,9 +45,9 @@ from typing import TYPE_CHECKING, Callable, Literal, Mapping, Sequence, get_args
 
 from pydantic import ValidationError
 
-from . import artifacts, events, frontmatter, git_helper, judge, station
-from .data_types import (ChapterScored, EventLine, FactoryConfig, LimitKind, ScorerClass,
-                         ScorerSpec)
+from . import artifacts, events, frontmatter, git_helper, judge, measurement, station
+from .data_types import (ChapterNotJudged, ChapterScored, DomainEvent, EventLine, FactoryConfig,
+                         LimitKind, ScorerClass, ScorerSpec)
 
 if TYPE_CHECKING:
     from .runner import Run
@@ -396,27 +399,51 @@ def _flat(error: ValidationError) -> str:
 @dataclass
 class Scoring:
     """Where a chapter's scores come from and where they go: the config a judge
-    runs under, the checkout it reads, how a line is said, and how a score
-    joins the session's record."""
+    runs under, the checkout it reads, how a line is said, and how a score —
+    or why a judge was not called — joins the session's record. `unjudged` is
+    the scorers whose record already says, since the chapter last ended, that
+    the budget kept their judge from it: a second pass says it once more on
+    the console, never on the record."""
 
     cfg: FactoryConfig
     main_root: Path
     say: Callable[[str], None]
-    record: Callable[[ChapterScored], object]
+    record: Callable[[DomainEvent], object]
+    unjudged: frozenset[str] = frozenset()
 
 
-def score_chapter(scoring: Scoring, chapter: judge.Chapter, due: Sequence[Scorer]) -> int:
+@dataclass
+class Scored:
+    """What scoring one chapter came to."""
+
+    recorded: int = 0               # scores recorded
+    unjudged: int = 0               # judges the measurement budget kept from the chapter
+    said: int = 0                   # ...of which the record was told so just now
+
+
+def score_chapter(scoring: Scoring, chapter: judge.Chapter, due: Sequence[Scorer]) -> Scored:
     """Score `chapter` with each of `due`, the free ones first: a code
-    predicate always, a judge scorer when it samples the chapter. One whose
-    judge could not score says why and leaves no score. How many scores were
-    recorded."""
-    recorded, number = 0, chapter.record.number
+    predicate always, a judge scorer when it samples the chapter and the day's
+    measurement budget is not spent — checked before every judge call, since
+    the last one spent some of it. One whose judge could not score says why
+    and leaves no score."""
+    scored, number = Scored(), chapter.record.number
     for scorer in sorted(due, key=lambda each: each.spec.kind != "code"):
         if scorer.spec.kind == "code":
             score = scorer.score(chapter.record)
         elif not sampled(scorer.rate, chapter.session_dir.name, number, scorer.name):
             scoring.say(f"scorer {scorer.name} did not sample chapter {number} — it judges "
                         f"{scorer.rate:.0%} of {scorer.spec.workflow}'s chapters")
+            continue
+        elif (day := measurement.today(scoring.cfg, scoring.main_root)).spent_out:
+            scoring.say(f"scorer {scorer.name} did not judge chapter {number}: the measurement "
+                        f"budget is spent — ${day.spent:.2f} of ${day.budget:.2f} on {day.day} "
+                        f"(UTC), `measurement.usd_per_day` in factory.yaml")
+            if scorer.name not in scoring.unjudged:
+                scoring.record(ChapterNotJudged(chapter=number, scorer=scorer.name, day=day.day,
+                                                spent=day.spent, budget=day.budget))
+                scored.said += 1
+            scored.unjudged += 1
             continue
         else:
             try:
@@ -425,12 +452,12 @@ def score_chapter(scoring: Scoring, chapter: judge.Chapter, due: Sequence[Scorer
                 scoring.say(f"scorer {scorer.name} did not judge chapter {number}: {error}")
                 continue
         scoring.record(score)
-        recorded += 1
+        scored.recorded += 1
         scoring.say(f"chapter {number} scored by {scorer.name}: {score.class_}"
                     + (" (failing)" if score.failing else "")
                     + (f", judging it cost ${score.usage.total_cost:.4f}"
                        if score.kind == "judge" else ""))
-    return recorded
+    return scored
 
 
 # ── scoring a chapter that has just ended ────────────────────────────────────
@@ -465,6 +492,7 @@ def after_chapter(run: "Run", workflow: "Workflow") -> None:
 class Tally:
     scored: int = 0                 # chapters given at least one score
     already: int = 0                # chapters every chosen scorer had scored before
+    unjudged: int = 0               # chapters a judge was kept from by the measurement budget
     failed: int = 0                 # sessions that could not be read or written
 
 
@@ -498,9 +526,11 @@ def _score_session(cfg: FactoryConfig, session_dir: Path, chosen: Sequence[Score
     """Score the session's ended chapters into `tally`; True when it wrote any."""
     lines = events.read(session_dir)
     latest: dict[tuple[int, str], int] = {}                   # (chapter, scorer) -> seq
+    unjudged: dict[tuple[int, str], int] = {}                 # ...of its ChapterNotJudged
+    marks = {ChapterScored.KIND: latest, ChapterNotJudged.KIND: unjudged}
     for line in lines:
-        if line.kind == ChapterScored.KIND:
-            latest[int(line.payload.get("chapter") or 0), str(line.payload.get("scorer"))] = \
+        if (mark := marks.get(line.kind)) is not None:
+            mark[int(line.payload.get("chapter") or 0), str(line.payload.get("scorer"))] = \
                 line.seq
     wrote = False
     for number, (workflow, ended) in artifacts.ended_chapters(session_dir).items():
@@ -514,11 +544,14 @@ def _score_session(cfg: FactoryConfig, session_dir: Path, chosen: Sequence[Score
         if not due:
             continue
         chapter = judge.Chapter(session_dir, chapter_record(lines, number), ended)
+        said = frozenset(scorer for (at, scorer), seq in unjudged.items()
+                         if at == number and seq > ended)
         scoring = Scoring(cfg, git_helper.main_root(), _printer_for(session_dir, workflow),
-                          lambda score: events.emit(session_dir, score))
-        if score_chapter(scoring, chapter, due):
-            tally.scored += 1
-            wrote = True
+                          lambda event: events.emit(session_dir, event), said)
+        scored = score_chapter(scoring, chapter, due)
+        tally.scored += bool(scored.recorded)
+        tally.unjudged += bool(scored.unjudged)
+        wrote = wrote or bool(scored.recorded or scored.said)
     return wrote
 
 
@@ -558,6 +591,8 @@ def backfill(cfg: FactoryConfig, chosen: Sequence[Scorer], broken: Sequence[Refu
                                                               cfg.data_dir), chosen, since)
     print(f"scored {tally.scored} chapter(s)" + (f" since {since.date()}" if since else "")
           + f"; {tally.already} already scored"
+          + (f"; {tally.unjudged} chapter(s) not judged: the measurement budget is spent — "
+             f"`asf score` judges them on a day it is not" if tally.unjudged else "")
           + (f"; {tally.failed} session(s) could not be scored — run it again"
              if tally.failed else ""))
     return 1 if broken or tally.failed else 0

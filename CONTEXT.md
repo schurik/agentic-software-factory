@@ -56,6 +56,13 @@ scorer's classes is declared failing or not; a score is never a number. A chapte
 long after it ended, and its score joins that session's record.
 _Avoid_: verdict (a person's answer at a gate), grade, rating, evaluation
 
+**Measurement budget**:
+What measuring a factory's own work — its judges and its benchmarks — may spend in one UTC day,
+apart from the work's own budget and never counted in what the work cost. Once a day's spend
+reaches it, no judge starts until the next day, and a chapter one skipped is "not judged (budget)"
+until it is judged later.
+_Avoid_: scoring budget, eval budget, quota
+
 **Self-improvement**:
 A factory turning one scorer's repeated failing scores, across distinct sessions, into an issue
 on its own tracker: the evidence, the scorer's criteria and a diagnosis of what to change in the
