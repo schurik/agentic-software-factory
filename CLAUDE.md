@@ -158,7 +158,10 @@ bug already shipped once.
   deliberate exceptions: the assembled config (`factory.yaml`) is never rewritten. A fresh render
   that differs lands beside it as `.new` and is named loudly, because the file the installer told
   the operator to own is the one `--force` must not eat. And nothing under `asf/scorers/` is
-  (`install.USER_OWNED`): a scorer is the team's criteria, like the config.
+  (`install.USER_OWNED`): a scorer is the team's criteria, like the config. One file goes the
+  other way: `asf/.skill-files`, the installer's record of what the skill owns, is rewritten on
+  every run whenever it differs, `--force` or not — it says what the skill owns, not which
+  version of it is stamped.
 - **A release is a semver tag, `vX.Y.Z`, and `.claude-plugin/plugin.json` is its one version
   source**, bumped in the PR that cuts it along with its mirrors — `marketplace.json` and
   `templates/asf/.skill-version`, the file a stamp records the release in (a mirror because

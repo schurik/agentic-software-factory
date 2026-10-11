@@ -367,11 +367,13 @@ asks nothing of the forge.
   at most. Then **code rules**, never the model:
   - **factory code** — any `.py` under `asf/` — is where every gate is and what decides
     acceptance: it is **reported**, never proposed, because a change to what blocks work is a
-    person's deliberate change, in code;
+    person's deliberate change, in code. Named beside other files, the proposed change is
+    headed as being for those files only;
   - a **stage's own task file** of the scorer's workflow, when the skill owns it, is
     **redirected** to the workflow's override, `asf/workflows/<workflow>/tasks/<key>.md`
     (`engine/tasks.py`), in the file list and in the proposed change's own words, so the fix
-    survives the next `install.py --force`;
+    survives the next `install.py --force` — unless the skill stamps that override too (as it
+    does `pr-review`'s `implement`), when the change stays where it was named;
   - any file **the skill owns** marks the diagnosis **upstreamable** — as does the diagnostician,
     of a change to the factory — a note for a person to carry the change to the skill; nothing
     files anything upstream.

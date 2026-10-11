@@ -195,8 +195,7 @@ def _diagnosis(diagnosed: "diagnose.Diagnosis | str") -> list[str]:
     surface = "the factory" if diagnosed.surface == "factory" else "the application"
     text = ["## Diagnosis", "", f"**Cause:** {diagnosed.cause}", "",
             f"**Surface:** {surface}", "",
-            ("**Proposed change:**" if diagnosed.proposes else
-             "**Reported, not proposed** — it is in factory code, where every gate is:"),
+            _heading(diagnosed),
             "", *(f"> {line}".rstrip() for line in diagnosed.proposed_change.splitlines()),
             "", "**Files:**", ""]
     text += [f"- {_ruling(each)}" for each in diagnosed.files]
@@ -205,6 +204,17 @@ def _diagnosis(diagnosed: "diagnose.Diagnosis | str") -> list[str]:
                      "stamped from as well — a note for a person to carry there. Nothing "
                      "here files anything upstream."]
     return text + [""]
+
+
+def _heading(diagnosed: "diagnose.Diagnosis") -> str:
+    """What the change is: proposed, reported, or proposed for some files and
+    reported for the factory code beside them — never proposed for that."""
+    if not diagnosed.proposed:
+        return "**Reported, not proposed** — it is in factory code, where every gate is:"
+    if not diagnosed.reported:
+        return "**Proposed change:**"
+    return (f"**Proposed change** — for {', '.join(f'`{each.path}`' for each in diagnosed.proposed)} "
+            f"only; what it says of the factory code below is reported, never proposed:")
 
 
 def _ruling(named: "diagnose.Named") -> str:

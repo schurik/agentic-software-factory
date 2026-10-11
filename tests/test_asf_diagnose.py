@@ -208,3 +208,29 @@ def test_a_diagnostician_that_cannot_answer_is_warned_of_and_never_called(
     body = filed_after_a_pattern(stamped)
     assert "None was made: " in body and said in body
     assert not (stamped / "asf" / "data" / "diagnoses").exists()   # nothing was spent
+
+
+def test_a_gate_named_beside_a_task_file_is_still_only_reported(stamped: Path):
+    body = filed_after_a_pattern(stamped, diagnosed(["asf/stages/verify/stage.py",
+                                                     "asf/stages/verify/fix.md"]))
+
+    diagnosis = body[body.index("## Diagnosis"):body.index("## The scorer's criteria")]
+    assert "**Proposed change** — for `asf/workflows/quick/tasks/fix.md` only" in diagnosis
+    assert "`asf/stages/verify/stage.py` — factory code, where gates decide" in diagnosis
+
+
+def test_a_redirect_lands_only_where_a_re_stamp_leaves_it(tmp_path: Path):
+    from engine import diagnose
+    from engine.data_types import DiagnosisOutput
+
+    # pr-review's own override of `implement` is one the skill stamps, too.
+    owned = {"asf/stages/implement/task.md", "asf/workflows/pr-review/tasks/implement.md"}
+    answer = DiagnosisOutput(status="success", summary="s", cause="c", surface="factory",
+                             files=["asf/stages/implement/task.md"], proposed_change="p")
+
+    ruled = diagnose.ruled(answer, owned.__contains__, {
+        "asf/stages/implement/task.md": "asf/workflows/pr-review/tasks/implement.md"})
+
+    [named] = ruled.files
+    assert (named.path, named.ruling, ruled.upstreamable) == (
+        "asf/stages/implement/task.md", "proposed", True)

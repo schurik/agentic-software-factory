@@ -203,8 +203,8 @@ def _record_dir(chapter: Chapter, scorer: "Scorer") -> Path:
 
 
 def phase_ended(run: Run, phase: Phase, clock: float, error: str = "") -> None:
-    """Close the judge's phase on its own record, and on the console: failed
-    when it says why."""
+    """Close a judge's phase — or a diagnosis's (`engine/diagnose.py`) — on
+    its own record, and on the console: failed when it says why."""
     phase.status, phase.ended_at = ("fail" if error else "success"), now_iso()
     phase.error = error or None
     run.tracer.event(PhaseEnded(phase_id=phase.phase_id, name=phase.params.name,
@@ -213,7 +213,8 @@ def phase_ended(run: Run, phase: Phase, clock: float, error: str = "") -> None:
 
 
 def spent(record_dir: Path) -> UsageBreakdown:
-    """What every send of the judge cost, from its own record."""
+    """What every send of a judge — or a diagnostician — cost, from its own
+    record."""
     spent = UsageBreakdown()
     for line in events.read(record_dir):
         if line.kind == UsageRecorded.KIND:

@@ -133,7 +133,7 @@ before — `None` when there are none, never omitted.
   the repository does not have, or claims a surface its files are not on. Code then rules on what
   it may propose: factory code (any `.py` under `asf/`, where every gate is) is reported in the
   issue, never proposed; a stage's own task file is redirected to the workflow's override
-  (`asf/workflows/<name>/tasks/<key>.md`), which `install.py --force` leaves alone; and a change
+  (`asf/workflows/<name>/tasks/<key>.md`), unless the skill stamps that override too; and a change
   to any file the skill owns is marked upstreamable, for a person to carry to the skill. What the
   skill owns is `asf/.skill-files`, which the installer now writes. A diagnosis is paid from the
   measurement budget; once the day's is spent, or when none could be made, the issue is filed

@@ -70,10 +70,12 @@ AGENT = "diagnostician"
 TASK = Path(__file__).with_name("diagnose.md")
 RETRIES = 2                     # gate corrections, after the first answer
 FACTORY_DIR = PurePosixPath(factory.DEFAULT_CONFIG).parent.as_posix()      # "asf"
-# What install.py records it stamped under `asf/`: what `--force` overwrites.
+# What install.py records it stamped under `asf/` (`install.SKILL_FILES`):
+# what `--force` overwrites.
 SKILL_FILES = ".skill-files"
 # What stays the operator's under `asf/` in a stamp that records nothing.
-OPERATORS = (f"{FACTORY_DIR}/factory.yaml", f"{FACTORY_DIR}/scorers/")
+# Mirrors install.py's own config and `USER_OWNED`, which is not stamped.
+KEPT_BY_A_RESTAMP = (f"{FACTORY_DIR}/factory.yaml", f"{FACTORY_DIR}/scorers/")
 
 Ruling = Literal["proposed", "redirected", "reported"]
 
@@ -95,16 +97,20 @@ class Diagnosis:
     code's rulings applied, and what it cost the measurement budget."""
 
     cause: str
-    surface: str
+    surface: Literal["factory", "application"]
     proposed_change: str
     files: list[Named] = field(default_factory=list)
     upstreamable: bool = False
     cost: float = 0.0
 
     @property
-    def proposes(self) -> bool:
-        """Whether anything is proposed at all, or every file is reported."""
-        return any(each.ruling != "reported" for each in self.files)
+    def proposed(self) -> list[Named]:
+        """The files a change is proposed to — every one but those reported."""
+        return [each for each in self.files if each.ruling != "reported"]
+
+    @property
+    def reported(self) -> list[Named]:
+        return [each for each in self.files if each.ruling == "reported"]
 
 
 def refused(factory_root: Path) -> list[str]:
@@ -135,7 +141,7 @@ def diagnose(cfg: FactoryConfig, main_root: Path, scorer: "Scorer",
     except SystemExit as error:
         raise RuntimeError(str(error)) from None
     with judge.checkout(main_root, "HEAD", AGENT) as tree:
-        envelope, cost = _diagnosed(bound, Workspace(main_root=main_root, repo_root=tree),
+        envelope, cost = _answered(bound, Workspace(main_root=main_root, repo_root=tree),
                                     scorer, counted)
     return ruled(envelope, owned_by_the_skill(main_root),
                  overrides(main_root, scorer.spec.workflow), cost)
@@ -147,14 +153,16 @@ def ruled(envelope: DiagnosisOutput, skill_owned: Callable[[str], bool],
           redirect: dict[str, str], cost: float = 0.0) -> Diagnosis:
     """The diagnosis the issue carries: factory code reported, a skill-owned
     task file of the scorer's workflow redirected to its override (in the
-    proposed change's words too), and upstreamable when the skill owns any
-    file it names — or the diagnostician says so of a change to the factory."""
+    proposed change's words too) — unless the skill stamps that override as
+    well, when no file survives a re-stamp and the change stays where it was
+    named — and upstreamable when the skill owns any file it names, or the
+    diagnostician says so of a change to the factory."""
     change, files = envelope.proposed_change, []
     for named in dict.fromkeys(_normal(path) for path in envelope.files):
         owned = skill_owned(named)
         if _is_factory(named) and named.endswith(".py"):
             files.append(Named(named, named, "reported", owned))
-        elif owned and named in redirect:
+        elif owned and named in redirect and not skill_owned(redirect[named]):
             files.append(Named(redirect[named], named, "redirected", owned))
             change = change.replace(named, redirect[named])
         else:
@@ -174,7 +182,7 @@ def owned_by_the_skill(main_root: Path) -> Callable[[str], bool]:
                    if line.strip() and not line.startswith("#")}
         return lambda path: path in stamped
     return lambda path: _is_factory(path) and not any(
-        path == mine or path.startswith(mine) for mine in OPERATORS)
+        path == mine or path.startswith(mine) for mine in KEPT_BY_A_RESTAMP)
 
 
 def overrides(main_root: Path, workflow_name: str) -> dict[str, str]:
@@ -219,7 +227,7 @@ def _bound(cfg: FactoryConfig) -> FactoryConfig:
     return cfg.model_copy(update={"agents": list(roster.values())})
 
 
-def _diagnosed(cfg: FactoryConfig, workspace: Workspace, scorer: "Scorer",
+def _answered(cfg: FactoryConfig, workspace: Workspace, scorer: "Scorer",
                counted: "Window") -> tuple[DiagnosisOutput, float]:
     """The diagnostician's envelope and what every send of it cost, on a run
     whose record is a directory of its own."""
