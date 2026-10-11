@@ -101,6 +101,19 @@ before — `None` when there are none, never omitted.
   `reviewer-scope`, at `sample_rate: 0`**: shown as inactive on the Scorers view until a team
   gives it a rate. A 1.3.0 cockpit reads `chapter_scored` v2, and shows a judge's reasoning under
   its score on the session page when the factory sent it.
+- **Measuring is paid from its own budget, never the work's.** `measurement: {usd_per_day: 5}`
+  in factory.yaml is what judges (and, to come, benchmarks) may spend in a UTC day. It is
+  checked before every judge call, against what every judge that started that day cost, read
+  off the judges' own records under each session's `judges/`: once the day's spend reaches it,
+  no judge starts until the next day, and the chapter it sampled gets a `chapter_not_judged`
+  `{chapter, scorer, reason: "budget", day, spent, budget}` on its record instead — code
+  scorers still score it. `asf score` judges it on a day with budget left, and says it again on
+  the console until then, never on the record. A judge already running finishes, so the last
+  call can overrun the budget; `0` judges nothing. `asf check --json` is format 4: the budget,
+  resolved, under `settings.measure.measurement`. A 1.3.0 cockpit's Metrics view ends on
+  **Measurement cost**, one bar the length of the period's budget — judges, then benchmarks,
+  then what is left, and "over by $x" past it — never inside cost per PR, and the session page
+  says "not judged (budget)" under a chapter its judge was kept from.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -224,7 +237,8 @@ before — `None` when there are none, never omitted.
    or wants other criteria, edits or deletes them — they are the team's from then on, and no
    later `--force` touches them. Add `asf/scorers/` to your `protected_files:`, as
    `asf/factory.yaml.new` does, so no agent can edit what measures it. `asf/factory.yaml.new`
-   carries the `self_improvement:` block; without it the defaults (3 of the last 10) apply. The
+   carries the `self_improvement:` and `measurement:` blocks; without them the defaults (3 of the
+   last 10, and $5 a day for judging) apply. The
    PR watcher's first pass after it (`just prs`, or `just up`) records every pull request the
    factory opened that has since closed, 20 a pass — what the Measure tab counts merges from;
    a factory that runs no watcher records them with `just score` instead. Run `just score` once
@@ -232,7 +246,8 @@ before — `None` when there are none, never omitted.
    ended before them. Pull requests opened before the re-stamp said nothing
    when they opened, so they count as merged but never as autonomous. Pull requests that closed before
    the re-stamp have no size, and are counted in no size. A factory with the CI
-   workflow ships format 3 on its next default-branch push.
+   workflow ships format 4 on its next default-branch push; until then the Measure tab shows
+   what judging cost without a budget to draw it against.
 4. To connect a checkout without an ingest token, the team's cockpit must be this release's: an
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`

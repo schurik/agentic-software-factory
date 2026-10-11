@@ -121,7 +121,7 @@ describe("the golden self-descriptions", () => {
   it("reads the scorers from format 3, with what they left unsaid resolved, and the ones check refused", () => {
     const read = readDescription(corpus["v3.json"]);
 
-    expect(read.settings!.measure).toEqual({ selfImprovement: { failures: 3, ofLast: 10 } });
+    expect(read.settings!.measure).toEqual({ selfImprovement: { failures: 3, ofLast: 10 }, usdPerDay: null });
     expect(read.scorers).toEqual([
       { name: "corrections", workflow: "issue", focus: "builder", kind: "code", predicate: "corrections_above(2)",
         classes: [{ name: "above", fail: true }, { name: "within", fail: false }],
@@ -131,6 +131,11 @@ describe("the golden self-descriptions", () => {
         sampleRate: 0.2, model: "sonnet", improveAfter: { failures: 2, ofLast: 5 } },
     ]);
     expect(read.scorerProblems).toEqual([{ scorer: "orphan", error: expect.stringMatching(/^workflow 'gone' is not one/) }]);
+  });
+
+  it("reads what measuring may spend in a day from format 4, and no budget before it", () => {
+    expect(readDescription(corpus["v4.json"]).settings!.measure).toEqual({ selfImprovement: { failures: 3, ofLast: 10 }, usdPerDay: 5 });
+    expect(readDescription(corpus["v3.json"]).settings!.measure!.usdPerDay).toBeNull();
   });
 
   it("reads no scorers and no measure out of a format before 3", () => {

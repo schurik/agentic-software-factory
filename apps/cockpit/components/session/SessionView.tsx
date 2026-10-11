@@ -11,9 +11,9 @@ import type { SteeringView } from "@/convex/model/command";
 import type { Budget } from "@/convex/model/description";
 import { isLive, type SessionView as View, until } from "@/convex/model/session";
 import { markOfStatus, miniOf } from "@/convex/model/graph";
-import type { Chapter, Score } from "@/convex/model/story";
+import type { Chapter, Score, Unjudged } from "@/convex/model/story";
 import type { Purged } from "@/convex/retention";
-import { branchHref, formatCost, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
+import { branchHref, formatCost, formatDollars as dollars, formatDuration, issueNumber, plural, pretty, prNumber, secondsBetween } from "../format";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { factoryHref } from "../factory/view";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
@@ -285,7 +285,8 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, openPha
           {latest && !sessionDone ? null : <StatusIcon status={markOfStatus(chapter.status)} />}
         </span>
       </Collapsible.Trigger>
-      {chapter.scores.length ? <Scores scores={chapter.scores} openPhase={openPhase} /> : null}
+      {chapter.scores.length || chapter.unjudged.length
+        ? <Scores scores={chapter.scores} unjudged={chapter.unjudged} openPhase={openPhase} /> : null}
       <Collapsible.Panel className="overflow-hidden">
         <div className="px-4 pb-4 md:px-5 md:pb-5">{children}</div>
       </Collapsible.Panel>
@@ -299,8 +300,10 @@ function ChapterRow({ chapter, open, onOpen, until, latest, sessionDone, openPha
  * in the colour of a fault — and the phases its evidence is in, each opening that
  * phase. Never green: a score that is not failing is a measurement, not an "ok".
  * A judge's reasoning follows it on a line of its own, when the factory sent it.
+ * A judge the measurement budget kept from the chapter says "not judged
+ * (budget)", and what the day had spent, on hover.
  */
-function Scores({ scores, openPhase }: { scores: Score[]; openPhase: OpenPhase }) {
+function Scores({ scores, unjudged, openPhase }: { scores: Score[]; unjudged: Unjudged[]; openPhase: OpenPhase }) {
   return (
     <p data-scores="" className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 text-sm md:px-5 md:pl-11">
       <span className="text-xs font-medium tracking-wider text-faint uppercase">Scores</span>
@@ -323,6 +326,12 @@ function Scores({ scores, openPhase }: { scores: Score[]; openPhase: OpenPhase }
             </span>
           ) : null}
           {score.reasoning ? <span className="block text-muted">{score.reasoning}</span> : null}
+        </span>
+      ))}
+      {unjudged.map((each) => (
+        <span key={each.scorer} className="text-muted"
+              title={`The day's measurement budget was spent when its judge came due: ${dollars(each.spent)} of ${dollars(each.budget)} on ${each.day} (UTC). \`asf score\` judges it on a day with budget left.`}>
+          {each.scorer}: not judged ({each.reason})
         </span>
       ))}
     </p>

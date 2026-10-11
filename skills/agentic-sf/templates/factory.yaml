@@ -39,6 +39,14 @@ self_improvement:
   failures: 3
   of_last: 10
 
+# What measuring may spend in a UTC day — judges and benchmarks — apart from
+# the work's `budget:` above, so measuring never takes from the work. It is
+# checked before every judge call: once the day's spend reaches it, judges stop
+# until the next day, and a chapter its judge skipped says "not judged
+# (budget)". 0 spends nothing on judging.
+measurement:
+  usd_per_day: 5
+
 # Where a human may stop a run. A stage names its gate (`plan` in the plan
 # stage); a workflow turns it on with `hitl: true` on that stage; this block is
 # the default underneath, and `--hitl` on the command line beats both.

@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { lastDays } from "../convex/model/period";
 import { foldedVersions as chapterVersions } from "../convex/model/chapters";
+import { foldedVersions as measuredVersions } from "../convex/model/measured";
 import { foldedVersions as pullVersions } from "../convex/model/pulls";
 import { foldedVersions as scoreVersions } from "../convex/model/scores";
 import { type Cockpit, corpus, fixture, ingest, type WireEvent } from "./helpers";
-import { fakeForge, localOf } from "./station";
+import { fakeForge, localOf, post } from "./station";
 
 // The Measure tab's Metrics (#184): how many pull requests the factory opened
 // in a period, how many merged, and autonomy — the share of the merged ones
@@ -60,7 +61,7 @@ interface Call {
  */
 function session(id: string, number: number, {
   commits, reviewed = [], opened = true, openedAt = "2026-10-01T10:00:00.000Z", kickoff = "2026-10-01T09:00:00.000Z",
-  calls = [], closed, input = "issue", before, scored = 0,
+  calls = [], closed, input = "issue", before, scored = 0, scoredAt = "2026-10-04T09:00:00Z",
 }: {
   commits: string[]; reviewed?: string[]; opened?: boolean; openedAt?: string; kickoff?: string; calls?: Call[];
   closed?: Closed; input?: string;
@@ -68,6 +69,8 @@ function session(id: string, number: number, {
   before?: number;
   /** What a scorer's judge spent on its first chapter, once the pull request closed: measurement, not work. */
   scored?: number;
+  /** When it was judged. */
+  scoredAt?: string;
 }): WireEvent[] {
   const url = `https://github.com/acme/widgets/pull/${number}`;
   const events: WireEvent[] = [];
@@ -101,7 +104,7 @@ function session(id: string, number: number, {
   }
   if (scored) {
     const usage = { ...fixture("chapter_scored", 1).payload.usage as Record<string, unknown>, output_cost: scored, total_cost: scored };
-    add(fixture("chapter_scored", 1), "2026-10-04T09:00:00Z", { chapter: 1, kind: "judge", evidence: [1], usage });
+    add(fixture("chapter_scored", 1), scoredAt, { chapter: 1, kind: "judge", evidence: [1], usage });
   }
   return events;
 }
@@ -303,7 +306,10 @@ describe("cost per PR", () => {
       commits: [sha("1")], closed: merged(1), calls: [{ cost: 1, output: 1 }], scored: 9,
     }));
 
-    expect((await metrics(t)).cost).toMatchObject({ prs: 1, median: 1, components: { output: 1, other: 0 } });
+    const said = await metrics(t);
+    expect(said.cost).toMatchObject({ prs: 1, median: 1, components: { output: 1, other: 0 } });
+    expect(said.expensive.map((line) => line.cost)).toEqual([1]);
+    expect(said.measurement.judges).toBe(9);                  // measured, and only there
   });
 
   it("is by size, at 100, 500 and 1,000 changed lines — and a close that never said its size is no size at all", async () => {
@@ -434,11 +440,60 @@ describe("chapters by trigger", () => {
   });
 });
 
+describe("measurement cost", () => {
+  const V4 = (import.meta.glob("../../../tests/golden/self-description/v4.json",
+    { eager: true, query: "?raw", import: "default" }) as Record<string, string>)["../../../tests/golden/self-description/v4.json"];
+  const CI = { id: "st_ci0001", name: "runner@fv-az123:widgets", kind: "ci" };
+
+  async function described(t: Cockpit, token: string, usdPerDay: number) {
+    const description = JSON.parse(V4);
+    description.settings.measure.measurement.usd_per_day = usdPerDay;
+    expect((await post(t, "/describe", token, { station: CI, description })).status).toBe(200);
+  }
+
+  it("is what judges spent in the period, drawn against the budget the factory described for each of its days", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await described(t, ingestToken, 5);
+    await ship(t, ingestToken, "a1", session("a1", 1, { commits: [sha("1")], scored: 9 }));
+    await ship(t, ingestToken, "a2", session("a2", 2, { commits: [sha("2")], scored: 0.5 }));
+
+    expect((await metrics(t)).measurement).toEqual({ judges: 9.5, benchmarks: 0, usdPerDay: 5, days: 7, budget: 35, over: 4.5 });
+  });
+
+  it("is over by what each UTC day spent past its own budget, though the period as a whole was under", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await described(t, ingestToken, 5);
+    // Oct 4: $4 then the call that overran it, $1.50 — $0.50 over. Oct 5: $1, well under.
+    await ship(t, ingestToken, "a1", session("a1", 1, { commits: [sha("1")], scored: 4, scoredAt: "2026-10-04T09:00:00Z" }));
+    await ship(t, ingestToken, "a2", session("a2", 2, { commits: [sha("2")], scored: 1.5, scoredAt: "2026-10-04T23:30:00Z" }));
+    await ship(t, ingestToken, "a3", session("a3", 3, { commits: [sha("3")], scored: 1, scoredAt: "2026-10-05T00:30:00Z" }));
+
+    expect((await metrics(t)).measurement).toMatchObject({ judges: 6.5, budget: 35, over: 0.5 });
+  });
+
+  it("counts a judge's spend on the day it was judged, not the day its session started", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    await ship(t, ingestToken, "a1", session("a1", 1, { commits: [sha("1")], scored: 9 }));    // judged Oct 4
+
+    expect((await metrics(t, lastDays(7, at("2026-10-03T12:00:00Z"), "UTC"))).measurement.judges).toBe(0);
+    expect((await metrics(t, lastDays(7, at("2026-10-10T12:00:00Z"), "UTC"))).measurement.judges).toBe(9);
+  });
+
+  it("has no budget to draw against until the factory describes one, and a code score costs nothing", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    const events = session("a1", 1, { commits: [sha("1")] });
+    events.push({ ...fixture("chapter_scored", events.length + 1), ts: "2026-10-04T09:00:00Z" });
+    await ship(t, ingestToken, "a1", events);
+
+    expect((await metrics(t)).measurement).toEqual({ judges: 0, benchmarks: 0, usdPerDay: null, days: 7, budget: null, over: 0 });
+  });
+});
+
 describe("the rows' readers", () => {
   it.each(Object.keys(corpus))("fold %s if they fold its kind at all", (name) => {
     const { kind, v: version } = corpus[name];
     for (const [where, folded] of [["model/pulls.ts", pullVersions(kind)], ["model/chapters.ts", chapterVersions(kind)],
-                                ["model/scores.ts", scoreVersions(kind)]] as const) {
+                                ["model/scores.ts", scoreVersions(kind)], ["model/measured.ts", measuredVersions(kind)]] as const) {
       if (folded.length) expect(folded, `${kind} v${version} has a reader but no fold in ${where}`).toContain(version);
     }
   });

@@ -192,6 +192,20 @@ export default defineSchema({
     .index("by_session", ["factory", "session", "scorer"])
     .index("by_factory_scorer", ["factory", "scorer", "at"]),
 
+  // What measuring a factory's own work cost (model/measured.ts): one row for
+  // each judgement a scorer's judge was paid for, at the time it was judged,
+  // written by ingest as each `chapter_scored` arrives — what Metrics draws
+  // against the factory's `measurement:` budget. Never in a session's spend.
+  measured: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    seq: v.number(),
+    kind: v.union(v.literal("judge"), v.literal("benchmark")),
+    at: v.number(),
+    cost: v.number(),
+  })
+    .index("by_factory_at", ["factory", "at"]),
+
   // A session's pull request, as the Measure tab counts it (model/pulls.ts):
   // when its own integration opened it, how and when it closed, whether it was
   // autonomous — and the commits the session made, which decide that — and

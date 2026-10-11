@@ -37,12 +37,24 @@ const METRICS: Metrics = {
     { session: "a1", url: "https://github.com/acme/widgets/pull/5", cost: 1, lines: 40, size: "S", autonomous: true },
   ],
   chapters: [{ trigger: "prompt", chapters: 1 }, { trigger: "issue", chapters: 3 }, { trigger: "pr", chapters: 2 }],
+  measurement: { judges: 3, benchmarks: 0, usdPerDay: 5, days: 7, budget: 35, over: 0 },
 };
+
+/** The tab over the metrics above, measuring having cost `judges` against $5 a day for the week. */
+const measured = (judges: number, measurement: Partial<Metrics["measurement"]> = {}) =>
+  render({ ...METRICS, measurement: { ...METRICS.measurement, judges, ...measurement } });
+
+/** The width a segment of the bar is drawn at, in percent of the bar. */
+function width(html: string, part: string): number | null {
+  const found = html.match(new RegExp(`data-measure="${part}"[^>]*style="width:([0-9.]+)%"`));
+  return found ? Number(found[1]) : null;
+}
 
 /** A factory whose pull requests came to nothing in the period: none opened, none merged. */
 const NO_PRS: Metrics = {
   ...METRICS, opened: 0, merged: 0, autonomous: 0, autonomy: null,
   cost: { ...METRICS.cost, prs: 0, median: null }, expensive: [],
+  measurement: { ...METRICS.measurement, judges: 0 },
 };
 
 function text(html: string): string {
@@ -146,6 +158,67 @@ describe("the factory page's Measure tab", () => {
 
     expect(text(html)).toMatch(/Chapters by trigger.*Prompt 1 .*Issue 3 .*Pull request review 2/);
     expect(html).toMatch(/href="\/factories\/acme\/widgets"[^>]*>[^<]*by workflow/);
+  });
+
+  it("draws measurement cost as one bar the length of the period's budget: judges, then benchmarks, then what is left", () => {
+    const html = measured(3, { benchmarks: 0.5 });
+    const said = text(html);
+
+    expect(said).toContain("Measurement cost $3.50 of $35.00 · $5.00 a day × 7 days $31.50 left");
+    expect(said).toMatch(/Judges \$3\.00 .*Benchmarks \$0\.50 .*Left \$31\.50/);
+    expect(width(html, "judges")).toBeCloseTo((3 / 35) * 100, 3);
+    expect(width(html, "benchmarks")).toBeCloseTo((0.5 / 35) * 100, 3);
+    expect(width(html, "left")).toBeCloseTo((31.5 / 35) * 100, 3);
+    expect(html.indexOf('data-measure="judges"')).toBeLessThan(html.indexOf('data-measure="benchmarks"'));
+    expect(html.indexOf('data-measure="benchmarks"')).toBeLessThan(html.indexOf('data-measure="left"'));
+    expect(html).not.toContain('data-measure="budget"');
+    expect(html).toMatch(/title="What measuring the factory&#x27;s own work cost/);
+  });
+
+  it("says the budget is spent when measuring reached it, with nothing left to draw", () => {
+    const html = measured(35);
+
+    expect(text(html)).toContain("$35.00 of $35.00 · $5.00 a day × 7 days budget spent");
+    expect(width(html, "judges")).toBe(100);
+    expect(width(html, "left")).toBeNull();
+    expect(text(html)).not.toContain("over by");
+  });
+
+  it("never draws an overspent budget as under it: the bar is what was spent, the budget a mark on it, and over by $x", () => {
+    const html = measured(36.5, { over: 1.5 });
+    const said = text(html);
+
+    expect(said).toContain("$36.50 of $35.00 · $5.00 a day × 7 days over by $1.50");
+    expect(width(html, "judges")).toBe(100);
+    expect(width(html, "left")).toBeNull();
+    expect(html).toMatch(new RegExp(`data-measure="budget"[^>]*style="left:${(35 / 36.5) * 100}%`));
+    expect(html).toMatch(/class="[^"]*text-bad[^"]*">over by \$1\.50</);
+  });
+
+  it("says over by what a day overran its own budget, though the period as a whole is under it", () => {
+    const html = measured(6.5, { over: 0.5 });
+    const said = text(html);
+
+    expect(said).toContain("$6.50 of $35.00 · $5.00 a day × 7 days over by $0.50");
+    expect(said).toContain("Left $28.50");
+    expect(width(html, "left")).toBeCloseTo((28.5 / 35) * 100, 3);
+    expect(html).not.toContain('data-measure="budget"');           // the period's budget was not reached
+  });
+
+  it("says what measuring cost even before the factory said what it may, and never inside cost per PR", () => {
+    const said = text(measured(2, { usdPerDay: null, budget: null, over: 0 }));
+
+    expect(said).toContain("Measurement cost");
+    expect(said).toMatch(/Judges \$2\.00 .*Benchmarks \$0\.00/);
+    expect(said).toContain("measurement: {usd_per_day}");
+    expect(said).toContain("Cost per PR $2.50");                // the work's, untouched by it
+  });
+
+  it("shows measurement cost in a period whose only spending was on measuring", () => {
+    const said = text(render({ ...NO_PRS, chapters: NO_CHAPTERS, measurement: { ...METRICS.measurement, judges: 1 } }));
+
+    expect(said).not.toContain("Nothing to measure");
+    expect(said).toContain("Measurement cost $1.00 of $35.00");
   });
 
   it("asks for a shorter period when there was more than it counts at once, and says when it may not read the factory", () => {

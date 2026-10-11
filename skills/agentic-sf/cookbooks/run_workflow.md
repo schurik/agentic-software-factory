@@ -204,7 +204,12 @@ by the four a stamp ships: `corrections` (`above` past two), `permission-rollbac
 rollback or a limit says `(failing)` beside it, citing the very event. A score is a measurement, not
 the outcome — never report a run accepted as failed, or the reverse, because of
 one. A scorer that could not run says so (`scorer <name> did not score: …`, or `did
-not judge chapter <n>: …` for a judge that gave no score);
+not judge chapter <n>: …` for a judge that gave no score). A judge is paid from the
+day's measurement budget (`measurement: {usd_per_day}` in factory.yaml, a UTC day),
+never the run's: once the day's spend reaches it, judges stop — `did not judge chapter
+<n>: the measurement budget is spent — $5.02 of $5.00 on <day>` — and the session
+holds a `chapter_not_judged` saying so. That is not a failure of the run, and nothing
+is to be done but wait for the next day (or raise the budget) and `just score`;
 `just check` names what is wrong with it. A chapter that ended before a scorer
 was written has no score from it until `just score` gives it one
 (`--scorer <name>` for that scorer alone): the score it would have had when it

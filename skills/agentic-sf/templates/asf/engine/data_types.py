@@ -1185,6 +1185,26 @@ class ImproveAfter(BaseModel):
         return self
 
 
+class MeasurementConfig(BaseModel):
+    """What measuring the factory's own work may spend in a day: one budget
+    for judges and benchmarks alike, apart from the work's (`budget:`), so a
+    chapter that spent all of its own can still be judged, and measuring never
+    takes from the work (ADR 0006).
+
+    A day is a UTC day, read off when each judge started. The budget is
+    checked before every judge call (`engine/measurement.py`): once the day's
+    spend has reached it, judges stop until the next day, and a chapter its
+    judge skipped says so on its record (`ChapterNotJudged`). A call that
+    started under the budget runs to its end, so the last one can overrun it.
+    0 spends nothing on judging; unlike `budget:`, 0 is not "no ceiling" — a
+    budget is what it pays.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    usd_per_day: float = Field(default=5.0, ge=0)
+
+
 ScorerKind = Literal["judge", "code"]
 
 
@@ -1399,6 +1419,7 @@ class FactoryConfig(BaseModel):
     issues: IssuesConfig = Field(default_factory=IssuesConfig)
     pull_requests: PullRequestsConfig = Field(default_factory=PullRequestsConfig)
     self_improvement: ImproveAfter = Field(default_factory=ImproveAfter)
+    measurement: MeasurementConfig = Field(default_factory=MeasurementConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
 
 
@@ -2383,10 +2404,12 @@ class DescribedForge(BaseModel):
 
 
 class DescribedMeasure(BaseModel):
-    """Measuring the factory's own work (`self_improvement:`): the threshold a
-    scorer without an `improve_after:` of its own is held to."""
+    """Measuring the factory's own work: the threshold a scorer without an
+    `improve_after:` of its own is held to (`self_improvement:`), and what
+    measuring may spend in a day (`measurement:`)."""
 
     self_improvement: ImproveAfter
+    measurement: MeasurementConfig
 
 
 class DescribedSettings(BaseModel):
@@ -2426,9 +2449,9 @@ class ScorerProblem(BaseModel):
 
 
 class SelfDescription(BaseModel):
-    FORMAT: ClassVar[int] = 3       # v2: settings; v3: scorers, settings.measure
+    FORMAT: ClassVar[int] = 4       # v2: settings; v3: scorers, settings.measure; v4: measurement
 
-    format: int = 3
+    format: int = 4
     skill_version: str = ""         # asf/.skill-version; "" from a stamp before 1.1
     checked: CheckedCheckout
     ok: bool                        # every workflow and scorer loaded: what `check` exits 0 on
@@ -2965,6 +2988,30 @@ class LimitHit(DomainEvent):
     reached: float
 
 
+class ChapterNotJudged(DomainEvent):
+    """A judge scorer that sampled a finished chapter was not called on it,
+    and why (`engine/scorers.py`). The one reason is `budget`: the day's
+    measurement spend had reached `measurement.usd_per_day` (ADR 0006).
+
+    `day` is the UTC day whose budget it was, `spent` what measuring had spent
+    in it when the judge came due, and `budget` the day's budget, both USD.
+    Nothing was spent on the chapter: there is no judge's record beside it.
+    A chapter its judge did not sample has no event at all — it was never
+    going to be judged. `asf score` judges it once a day has budget again,
+    and its `chapter_scored` then stands in its place; until then a second
+    pass says nothing more.
+    """
+
+    KIND: ClassVar[str] = "chapter_not_judged"
+
+    chapter: int
+    scorer: str
+    reason: Literal["budget"] = "budget"
+    day: str                        # YYYY-MM-DD, UTC
+    spent: float
+    budget: float
+
+
 class ChapterScored(DomainEvent):
     """One scorer's score of a finished chapter (`engine/scorers.py`): its class,
     whether that class is failing, and the seqs of the events it rests on — the
@@ -3126,4 +3173,4 @@ EVENT_KINDS: dict[str, type[DomainEvent]] = {model.KIND: model for model in (
     GateOpened, SessionSuspended, DecisionRecorded, JournalNoted, UsageRecorded,
     ArtifactWritten, Committed, ToolCalled, ProcessStarted, ProcessEnded, CommandFinished,
     CommandResult, SessionFinished, PullRequestOpened, PullRequestClosed, PermissionRolledBack,
-    LimitHit, ChapterScored, PromptRendered, HarnessOutput)}
+    LimitHit, ChapterScored, ChapterNotJudged, PromptRendered, HarnessOutput)}

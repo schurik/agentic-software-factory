@@ -380,6 +380,14 @@ describe("a chapter's scores", () => {
     expect(read(chapter(html({ events }), 1))).toContain(`reviewer-scope: plan_only, failing ${reasoning}`);
   });
 
+  it("say a judge the measurement budget kept from the chapter was not judged, and why", () => {
+    const events = [...STAGED, fixture("chapter_not_judged", last + 1)];
+    const said = read(chapter(html({ events }), 1));
+
+    expect(said).toContain("Scores reviewer-scope: not judged (budget)");
+    expect(chapter(html({ events }), 1)).toMatch(/title="[^"]*\$5\.03 of \$5\.00 on 2026-09-29/);
+  });
+
   it("are not mentioned on a chapter no scorer judged", () => {
     expect(html()).not.toContain("data-scores");
   });

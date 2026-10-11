@@ -511,6 +511,31 @@ describe("edges a recording does not reach", () => {
     ]);
   });
 
+  it("tells a chapter its judge was kept from by the measurement budget, until a later score stands in its place", async () => {
+    const t = cockpit();
+    const token = await factory(t);
+    const unjudged = fixture("chapter_not_judged", 6);
+    const judged = fixture("chapter_scored", 8, 2);
+    await ship(t, token, [
+      fixture("session_started", 1), chapter(2, 1),
+      started(3, "x_01_review", "review"), ended(4, "x_01_review", "review"),
+      { ...fixture("workflow_finished", 5, 2), payload: { workflow: "gated", chapter: 1, status: "success", reason: "", accepted: true } },
+      unjudged,
+      { ...fixture("chapter_scored", 7), payload: { ...(fixture("chapter_scored", 7).payload as object), evidence: [] } },
+    ]);
+
+    const [spent] = (await story(t)).chapters;
+    expect(spent.unjudged).toEqual([{ scorer: "reviewer-scope", reason: "budget", day: "2026-09-29", spent: 5.0312, budget: 5 }]);
+    expect(spent.scores.map((score) => score.scorer)).toEqual(["corrections"]);   // a code predicate costs nothing
+
+    // `asf score`, on a day with budget again.
+    await ship(t, token, [{ ...judged, payload: { ...(judged.payload as object), evidence: [3] } }]);
+
+    const [paid] = (await story(t)).chapters;
+    expect(paid.unjudged).toEqual([]);
+    expect(paid.scores.map((score) => score.scorer)).toEqual(["corrections", "reviewer-scope"]);
+  });
+
   it("keeps an agent phase's card though it wrote the chapter's request", async () => {
     const t = cockpit();
     const token = await factory(t);

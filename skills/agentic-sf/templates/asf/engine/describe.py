@@ -154,7 +154,8 @@ def _settings(cfg: FactoryConfig, main_root: Path,
             review_project=issues.resolve_project(pr, main_root),
             labels=DescribedLabels(**states.model_dump(), refined=cfg.issues.refined_label,
                                    pr_failed=pr.states.failed)),
-        measure=DescribedMeasure(self_improvement=cfg.self_improvement))
+        measure=DescribedMeasure(self_improvement=cfg.self_improvement,
+                                 measurement=cfg.measurement))
 
 
 def _unique(names: list[str]) -> list[str]:

@@ -271,6 +271,21 @@ that ended it, and a higher rate keeps every chapter a lower one drew. A chapter
 event at all. **A stamp ships one judge, `reviewer-scope`, at `sample_rate: 0`**: checked by `asf
 check`, shown as inactive on the Scorers view, and judging nothing until the team gives it a rate.
 
+Judging is paid from a budget of its own, never the work's (ADR 0006): `measurement: {usd_per_day:
+5}` in factory.yaml, one UTC day's spend for judges and benchmarks alike, which the self-description
+(format 4) carries resolved under `settings.measure.measurement`. It is checked before every judge
+call (`engine/measurement.py`), against what every judge that started that day cost — read off the
+judges' own records under each session's `judges/`, a judge that gave no score included, never off
+a ledger of its own. Once the day's spend has reached the budget no judge starts: the chapter gets a
+`chapter_not_judged` `{chapter, scorer, reason: "budget", day, spent, budget}` and its code scores
+as usual, and `asf score` judges it on a later day with budget left — saying it again on the console
+until then, but not on the record. A judge that started under the budget runs to its end, so the
+last one can overrun it; two processes judging at once can each find budget left. A cockpit learns
+what judging cost only from the scores' `usage`, so a judge that gave no score is in the station's
+check and not in the cockpit's Measurement cost. `usd_per_day: 0`
+judges nothing — unlike `budget:`, 0 is not "no ceiling". A chapter its judge did not sample still
+has no event: it was never going to be judged.
+
 When a chapter ends — accepted, refused, or a phase failed — the station scores it with every
 scorer bound to its workflow — the code scorers first, then each judge that samples it — after its
 `workflow_finished` (`scorers.after_chapter`, from

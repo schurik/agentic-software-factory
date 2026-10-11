@@ -194,6 +194,19 @@ export interface Score {
   cites: { phaseId: string; name: string }[];
 }
 
+/**
+ * A judge scorer that sampled the chapter and was not called on it
+ * (`chapter_not_judged`): the measurement budget of `day` (UTC) was spent —
+ * `spent` of `budget`, USD. A later score by the same scorer stands in its place.
+ */
+export interface Unjudged {
+  scorer: string;
+  reason: string;         // budget
+  day: string;
+  spent: number;
+  budget: number;
+}
+
 export interface Chapter {
   number: number;         // 0 for a factory that did not say (older than chapters)
   workflow: string;
@@ -215,6 +228,8 @@ export interface Chapter {
   // Its scores, one per scorer, the latest of each standing — usually told
   // after the session finished: a chapter is scored once it has ended.
   scores: Score[];
+  // The judges kept from it by the measurement budget, each until it scores the chapter.
+  unjudged: Unjudged[];
   cost: number;
   asked: Asked | null;
   // The code phase that read what was asked — the issue, or the threads. Its
@@ -314,6 +329,7 @@ interface ChapterState {
   reason: string;
   accepted: boolean | null;
   scores: Omit<Score, "cites">[];
+  unjudged: Unjudged[];
   issueNumber: number;
   issueUrl: string;
   prUrl: string;
@@ -369,7 +385,7 @@ function chapter(state: StoryState, number: number, workflow = ""): ChapterState
   let found = state.chapters.find((each) => each.number === number);
   if (found === undefined) {
     found = { number, workflow: workflow || state.workflow, input: "", stages: [], startedAt: "", endedAt: "",
-              status: "running", reason: "", accepted: null, scores: [], issueNumber: 0, issueUrl: "", prUrl: "" };
+              status: "running", reason: "", accepted: null, scores: [], unjudged: [], issueNumber: 0, issueUrl: "", prUrl: "" };
     state.chapters.push(found);
   }
   return found;
@@ -477,6 +493,20 @@ const tellScore: Teller = (state, p) => {
   const again = scored.scores.findIndex((each) => each.scorer === score.scorer);
   if (again === -1) scored.scores.push(score);
   else scored.scores[again] = score;     // scored again: the latest stands, in its place
+  scored.unjudged = scored.unjudged.filter((each) => each.scorer !== score.scorer);
+};
+
+/**
+ * A judge the measurement budget kept from a chapter that has ended. It opens
+ * no chapter, and stands in place of that scorer's score of an earlier end.
+ */
+const tellUnjudged: Teller = (state, p) => {
+  const skipped = state.chapters.find((each) => each.number === p.num("chapter"));
+  if (skipped === undefined) return;
+  const unjudged = { scorer: p.str("scorer"), reason: p.str("reason"), day: p.str("day"),
+                     spent: p.num("spent"), budget: p.num("budget") };
+  skipped.scores = skipped.scores.filter((each) => each.scorer !== unjudged.scorer);
+  skipped.unjudged = [...skipped.unjudged.filter((each) => each.scorer !== unjudged.scorer), unjudged];
 };
 
 const TELLERS: Record<string, Record<number, Teller>> = {
@@ -653,6 +683,9 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     1: tellScore,
     2: tellScore,       // v2: a judge's `reasoning`, when the factory sent it
   },
+  chapter_not_judged: {
+    1: tellUnjudged,
+  },
   session_finished: {
     // A killed process says only that the session ended: whatever phase it was
     // in ended there too, the way the session did.
@@ -787,6 +820,7 @@ export function finish(state: StoryState, summary: Summary): Story {
       answering: answering(each), startedAt: each.startedAt || (mine[0]?.at ?? ""),
       endedAt: each.endedAt, status: each.status, reason: each.reason, accepted: each.accepted,
       scores: each.scores.map((score) => ({ ...score, cites: citesOf(state, score.evidence) })),
+      unjudged: each.unjudged,
       cost: mine.reduce((total, phase) => total + phase.cost, 0),
       asked: requester?.request ?? null,
     };

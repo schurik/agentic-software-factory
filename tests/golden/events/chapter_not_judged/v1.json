@@ -1,0 +1,14 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "chapter_not_judged",
+  "v": 1,
+  "payload": {
+    "chapter": 1,
+    "scorer": "reviewer-scope",
+    "reason": "budget",
+    "day": "2026-09-29",
+    "spent": 5.0312,
+    "budget": 5.0
+  }
+}

@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -400,6 +401,85 @@ def test_sampling_is_the_same_answer_every_time_it_is_asked():
     assert chosen(0.2, "other") != fifth                     # each scorer draws its own
 
 
+# ── the measurement budget: what judging may spend in a day ──────────────────
+
+def today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def test_once_the_day_s_measurement_is_spent_no_judge_is_called_and_the_record_says_why(
+        stamped: Path):
+    set_config(stamped, measurement={"usd_per_day": 0.01})
+    scorer(stamped, "refused", {"workflow": "quick", "kind": "code", "predicate": "not_accepted"})
+    first = a_judged_chapter(stamped, judged("on_prompt", [BUILT]))     # $0.01: the day's all
+    assert set(scores(stamped, adw_id_of(first))) == {"refused", "on-prompt"}
+
+    second = a_judged_chapter(stamped, judged("lost", [BUILT]))
+
+    adw_id = adw_id_of(second)
+    assert set(scores(stamped, adw_id)) == {"refused"}            # a code predicate costs nothing
+    [unjudged] = lines_of(stamped, adw_id, "chapter_not_judged")
+    assert unjudged.payload == {"chapter": 1, "scorer": "on-prompt", "reason": "budget",
+                                "day": today(), "spent": 0.01, "budget": 0.01}
+    assert not (session_dir(stamped, adw_id) / "judges").exists()   # the judge was never called
+    assert "the measurement budget is spent" in second.stdout
+    assert run_state(stamped, adw_id)["status"] == "success"
+
+
+def test_a_budget_of_nothing_judges_nothing(stamped: Path):
+    set_config(stamped, measurement={"usd_per_day": 0})
+
+    result = a_judged_chapter(stamped, judged("lost", [BUILT]))
+
+    adw_id = adw_id_of(result)
+    assert not lines_of(stamped, adw_id, "chapter_scored")
+    [unjudged] = lines_of(stamped, adw_id, "chapter_not_judged")
+    assert (unjudged.payload["spent"], unjudged.payload["budget"]) == (0, 0)
+
+
+def test_score_says_once_why_a_chapter_went_unjudged_and_judges_it_once_there_is_budget(
+        stamped: Path):
+    refused, accepted = refused_and_accepted(stamped)
+    fake_roster(stamped, judge=[judged("lost", [OPENED]), judged("lost", [OPENED])])
+    scorer(stamped, "on-prompt", ON_PROMPT, CRITERIA)
+    set_config(stamped, measurement={"usd_per_day": 0})
+    commit_all(stamped)
+
+    spent = asf(stamped, "score")
+
+    assert spent.returncode == 0, spent.stdout + spent.stderr
+    for adw_id in (refused, accepted):
+        assert not lines_of(stamped, adw_id, "chapter_scored")
+        [unjudged] = lines_of(stamped, adw_id, "chapter_not_judged")
+        assert unjudged.payload["reason"] == "budget"
+    assert "2 chapter(s) not judged: the measurement budget is spent" in spent.stdout
+
+    again = asf(stamped, "score")
+
+    assert again.returncode == 0, again.stdout + again.stderr
+    for adw_id in (refused, accepted):                         # said once, not on every pass
+        assert len(lines_of(stamped, adw_id, "chapter_not_judged")) == 1
+
+    set_config(stamped, measurement={"usd_per_day": 5})
+    commit_all(stamped)
+    paid = asf(stamped, "score")
+
+    assert paid.returncode == 0, paid.stdout + paid.stderr
+    for adw_id in (refused, accepted):
+        [score] = [line.payload for line in lines_of(stamped, adw_id, "chapter_scored")]
+        assert score["class"] == "lost"
+    assert "scored 2 chapter(s)" in paid.stdout
+
+
+def test_a_measurement_budget_below_nothing_is_refused_in_factory_yaml(stamped: Path):
+    set_config(stamped, measurement={"usd_per_day": -1})
+
+    result = asf(stamped, "check")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "measurement" in result.stdout and "usd_per_day" in result.stdout
+
+
 # ── scoring past chapters: `asf score` ───────────────────────────────────────
 
 def refused_and_accepted(repo: Path) -> tuple[str, str]:
@@ -665,10 +745,12 @@ def test_the_self_description_lists_scorers_with_their_thresholds_resolved(stamp
     # A team that deleted the scorers a stamp ships has none, and is still described.
     shutil.rmtree(stamped / "asf" / "scorers")
     plain = json.loads(asf(stamped, "check", "--json").stdout)
-    assert plain["settings"]["measure"] == {"self_improvement": {"failures": 3, "of_last": 10}}
+    assert plain["settings"]["measure"] == {"self_improvement": {"failures": 3, "of_last": 10},
+                                            "measurement": {"usd_per_day": 5.0}}
     assert (plain["scorers"], plain["scorer_problems"]) == ([], [])
 
-    set_config(stamped, self_improvement={"failures": 2, "of_last": 8})
+    set_config(stamped, self_improvement={"failures": 2, "of_last": 8},
+               measurement={"usd_per_day": 0.5})
     scorer(stamped, "corrections", {"workflow": "issue", "focus": "builder", "kind": "code",
                                     "predicate": "corrections_above(2)"})
     scorer(stamped, "reviewer-scope", {**JUDGE, "focus": "reviewer", "sample_rate": 0.2,
@@ -683,7 +765,8 @@ def test_the_self_description_lists_scorers_with_their_thresholds_resolved(stamp
     assert checked.returncode == 1, checked.stdout + checked.stderr
     raw = json.loads(checked.stdout)
     assert raw["ok"] is False and raw["problems"] == []
-    assert raw["settings"]["measure"] == {"self_improvement": {"failures": 2, "of_last": 8}}
+    assert raw["settings"]["measure"] == {"self_improvement": {"failures": 2, "of_last": 8},
+                                          "measurement": {"usd_per_day": 0.5}}
     assert raw["scorers"] == [
         {"name": "corrections", "workflow": "issue", "focus": "builder", "kind": "code",
          "predicate": "corrections_above(2)",
