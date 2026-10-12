@@ -13,7 +13,9 @@
 
    Every text token clears WCAG AA (4.5:1) on --surface and --bg, --faint included; a filled
    button or badge clears it too, which is why dark mode draws amber and red badges in dark text
-   (--bg) and its buttons on --accent-strong. tests/contrast.test.ts reads this file to hold it. */
+   (--bg) and its buttons on --accent-strong. So does a status pill's word on its own -soft wash,
+   wherever the pill sits — a card, the page, a hovered row — which is what darkened light mode's
+   ok and bad and lightened dark mode's accent. tests/contrast.test.ts reads this file to hold it. */
 @import "tailwindcss";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -50,12 +52,12 @@
   --accent-strong: #2f5bd3;
   --accent-fg: #ffffff;
   --accent-soft: color-mix(in oklab, #2f5bd3 9%, transparent);
-  --ok: #1a7f45;
-  --ok-soft: color-mix(in oklab, #1a7f45 10%, transparent);
+  --ok: #17733e;
+  --ok-soft: color-mix(in oklab, #17733e 10%, transparent);
   --wait: #925500;
   --wait-soft: color-mix(in oklab, #d98a00 13%, transparent);
-  --bad: #c42b2b;
-  --bad-soft: color-mix(in oklab, #c42b2b 9%, transparent);
+  --bad: #c02a2a;
+  --bad-soft: color-mix(in oklab, #c02a2a 9%, transparent);
   --merged: #8250df;
   --series-1: #2f5bd3;
   --series-2: #e46309;
@@ -78,10 +80,10 @@
   --fg: #ececef;
   --muted: #a0a0aa;
   --faint: #86868f;
-  --accent: #5b83f2;
+  --accent: #7194f4;
   --accent-strong: #3a64d8;
   --accent-fg: #ffffff;
-  --accent-soft: color-mix(in oklab, #5b83f2 16%, transparent);
+  --accent-soft: color-mix(in oklab, #7194f4 16%, transparent);
   --ok: #45c07a;
   --ok-soft: color-mix(in oklab, #45c07a 13%, transparent);
   --wait: #e5a73f;
@@ -89,7 +91,7 @@
   --bad: #f06a6a;
   --bad-soft: color-mix(in oklab, #f06a6a 13%, transparent);
   --merged: #a98bf5;
-  --series-1: #5b83f2;
+  --series-1: #7194f4;
   --series-2: #bd4d00;
   --add-bg: #12261a;
   --add-word: #1f4d2e;
