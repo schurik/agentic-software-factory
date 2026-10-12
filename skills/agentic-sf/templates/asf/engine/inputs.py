@@ -35,9 +35,9 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import artifacts, benchmark_session, events, git_helper, hitl, issues, pull_requests
+from . import artifacts, benchmark_session, git_helper, hitl, issues, pull_requests
 from .data_types import (EnvelopeBase, IssueContext, IssueRef, IssueUpdate, PhaseParams,
-                         ProvenanceRecorded, PullRequestRef, PullRequestUpdate, FactoryConfig)
+                         PullRequestRef, PullRequestUpdate, FactoryConfig)
 from .utils import write_atomic
 
 KINDS = ("prompt", "issue", "pr")
@@ -105,20 +105,15 @@ def open_recorded_issue(run) -> Opened:
             raise benchmark_session.NotComparable(
                 f"session {source.name} kept no issue text ({kept}) — there is no request "
                 f"to work again")
-        state = artifacts.read_run(source)
-        learned = [line.payload for line in events.read(source)
-                   if line.kind == ProvenanceRecorded.KIND and line.payload.get("issue_number")]
-        said = learned[-1] if learned else {}
-        number = int(said.get("issue_number") or (state.issue_number if state else 0))
+        text = kept.read_text()
+        recorded = benchmark_session.issue_of(source)
         body_path = run.context_handoff_dir / issues.BODY_FILENAME
-        write_atomic(body_path, kept.read_text())
+        write_atomic(body_path, text)
         artifacts.record_artifacts(run, "request", [str(body_path)])
         issue = IssueContext(
-            number=number, project=str(said.get("issue_project") or ""),
-            url=str(said.get("issue_url") or (state.issue_url if state else "")),
-            title=str(said.get("request") or "").removeprefix(f"#{number} "),
-            author=str(said.get("issue_author") or ""), body_path=str(body_path),
-            carries_requirements=issues.REQUIREMENTS_OPEN in kept.read_text())
+            number=recorded.number, project=recorded.project, url=recorded.url,
+            title=recorded.title, author=recorded.author, body_path=str(body_path),
+            carries_requirements=issues.REQUIREMENTS_OPEN in text)
         ph.log(source=source.name, url=issue.url, title=issue.title, body=issue.body_path)
     prompt = (f"Resolve work item #{issue.number}. Its title, labels and body are in "
               f"the envelope you were handed; the body is the artifact that envelope "

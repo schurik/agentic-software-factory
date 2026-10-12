@@ -177,18 +177,18 @@ before — `None` when there are none, never omitted.
   the station's own engine. It takes `trigger: benchmark`, and `session_started` v4 carries
   `benchmark: {benchmark, variant, ref, commit, task, repetition}`, kept in its `run.json` so a
   resume is held to the same rules. It is never published, integrated or reported on the tracker
-  — no push (refused outright from its process), no pull request, no comment or label, no
-  requirements written back, no claim — and an issue's chapter reads the reporter's text from the
+  — no push, pull request, comment or label (a push or forge command from its process is refused
+  outright, whatever a variant's own stage asks), no requirements written back, no claim — and an issue's chapter reads the reporter's text from the
   source session's record, as the source read it. A gate is read for the source's trigger and
   answered by the decision the source's person recorded at the same gate and round, verdict and
   words; a gate no person answered there (one the variant adds, a round the source never reached,
   one a policy passed) stops the session as **not comparable**, its `workflow_finished` reason
   starting with those words. Its spend is the measurement budget's, asked before every session:
   once the day's is spent nothing more starts, and the command says how many were not worked and
-  exits 1. Each session is scored by the station's own scorers once it ends, and no
+  exits 1; run again, it works only what has not ended at the same commit of each variant. Each session is scored by the station's own scorers once it ends, and no
   self-improvement window counts it. A 1.3.0 cockpit reads `session_started` v4 and counts a
   benchmark's session in no metric — no spend, phase, chapter, pull request or score row; not on
-  the Overview or a scorer's strip — and draws its agent calls as the Measurement cost's
+  the Overview, a station's counts, a scorer's strip or Needs attention — and draws its agent calls as the Measurement cost's
   benchmarks.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's

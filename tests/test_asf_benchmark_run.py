@@ -52,12 +52,12 @@ def source_run(repo: Path, prompt: str, content: str = "ok = 1\n") -> str:
     return adw_id_of(result)
 
 
-def candidate(repo: Path, change) -> None:
-    """A branch of the factory's files, `candidate`, made by `change(repo)` —
+def on_a_branch(repo: Path, change) -> None:
+    """A branch of the factory's files, `change`, made by `change(repo)` —
     what a self-improvement pull request's branch is — leaving main checked out."""
-    git(repo, "checkout", "-q", "-b", "candidate")
+    git(repo, "checkout", "-q", "-b", "change")
     change(repo)
-    commit_all(repo, "candidate: what the change proposes")
+    commit_all(repo, "change: what a self-improvement pull request proposes")
     git(repo, "checkout", "-q", "main")
 
 
@@ -81,10 +81,10 @@ def kinds(repo: Path, adw_id: str) -> list[str]:
 
 def test_each_task_is_worked_n_times_per_variant_under_that_variant_s_files(stamped: Path):
     source = source_run(stamped, "add app.py")
-    candidate(stamped, lambda repo: fake_roster(
-        repo, builder=[build_reply("ok = 2\n", "feat: app, as the candidate builds it")]))
+    on_a_branch(stamped, lambda repo: fake_roster(
+        repo, builder=[build_reply("ok = 2\n", "feat: app, as the change builds it")]))
     benchmark(stamped, "app", {"tasks": [task_of(stamped, source, "add app.py")],
-                               "variants": [{"ref": "main"}, {"ref": "candidate", "label": "PR"}],
+                               "variants": [{"ref": "main"}, {"ref": "change", "label": "PR"}],
                                "repetitions": 2})
     commit_all(stamped, "benchmark app")
 
@@ -126,6 +126,27 @@ def issue_factory(repo: Path) -> None:
     with_origin(repo)
 
 
+REACHING_OUT = """
+
+_commit = run
+
+
+def run(ctx, opts):
+    from engine import git_helper, issues
+    from engine.data_types import IssueUpdate
+    issues.comment(ctx.run.main_root, ctx.run.cfg.issues,
+                   IssueUpdate(number=12, comment="a stage of the variant's own, reaching out"))
+    git_helper.push(ctx.run.main_root, "origin", ctx.run.workspace.branch)
+    return _commit(ctx, opts)
+"""
+
+
+def reaching_out(repo: Path) -> None:
+    """The variant's commit stage comments on the issue and pushes, first."""
+    stage = repo / "asf" / "stages" / "commit" / "stage.py"
+    stage.write_text(stage.read_text() + REACHING_OUT)
+
+
 def test_a_benchmark_never_pushes_integrates_or_writes_to_the_tracker(stamped: Path):
     issue_factory(stamped)
     fake_roster(stamped, builder=[build_reply("ok = 1\n", "fix: health")])
@@ -134,8 +155,10 @@ def test_a_benchmark_never_pushes_integrates_or_writes_to_the_tracker(stamped: P
     assert ran.returncode == 0, ran.stdout + ran.stderr
     source = adw_id_of(ran)
     assert run_state(stamped, source)["pr_url"]           # the source did all three
+    # A variant whose own stage reaches out — what an older one's might do.
+    on_a_branch(stamped, reaching_out)
     benchmark(stamped, "fix", {"tasks": [task_of(stamped, source, "#12 health")],
-                               "variants": [{"ref": "main"}, {"ref": "main", "label": "again"}],
+                               "variants": [{"ref": "main"}, {"ref": "change"}],
                                "repetitions": 1})
     commit_all(stamped, "benchmark fix")
     git(stamped, "push", "-q", "origin", "main")
@@ -209,10 +232,10 @@ def test_a_gate_a_person_answered_is_answered_as_they_did(stamped: Path):
 def test_a_gate_no_person_answered_in_the_source_stops_the_session_as_not_comparable(
         stamped: Path):
     source = source_run(stamped, "add app.py")
-    candidate(stamped, lambda repo: write_workflow(repo, "quick", {**GATED, "description":
+    on_a_branch(stamped, lambda repo: write_workflow(repo, "quick", {**GATED, "description":
                                                                    "quick, with a gate"}))
     benchmark(stamped, "app", {"tasks": [task_of(stamped, source, "add app.py")],
-                               "variants": [{"ref": "main"}, {"ref": "candidate"}],
+                               "variants": [{"ref": "main"}, {"ref": "change"}],
                                "repetitions": 1})
     commit_all(stamped, "benchmark app")
 
@@ -222,17 +245,18 @@ def test_a_gate_no_person_answered_in_the_source_stops_the_session_as_not_compar
     ended = {started["benchmark"]["variant"]: adw_id
              for adw_id, started in benchmark_sessions(stamped).items()}
     assert run_state(stamped, ended["main"])["status"] == "success"
-    assert run_state(stamped, ended["candidate"])["status"] == "fail"
-    finished = [line.payload for line in events.read(session_dir(stamped, ended["candidate"]))
+    assert run_state(stamped, ended["change"])["status"] == "fail"
+    finished = [line.payload for line in events.read(session_dir(stamped, ended["change"]))
                 if line.kind == "workflow_finished"]
     assert finished[-1]["reason"].startswith("not comparable: ")
     assert "integrate gate, round 1" in finished[-1]["reason"]
-    assert "candidate: 1 not comparable" in result.stdout
+    assert "change: 1 not comparable" in result.stdout
 
 
 # ── measurement ──────────────────────────────────────────────────────────────
 
-def test_the_measurement_budget_stops_a_benchmark_once_it_is_spent(stamped: Path):
+def test_the_measurement_budget_stops_a_benchmark_and_a_later_run_works_the_rest(
+        stamped: Path):
     source = source_run(stamped, "add app.py")
     set_config(stamped, measurement={"usd_per_day": 0.01})
     benchmark(stamped, "app", {"tasks": [task_of(stamped, source, "add app.py")],
@@ -247,6 +271,16 @@ def test_the_measurement_budget_stops_a_benchmark_once_it_is_spent(stamped: Path
     assert "the measurement budget is spent" in result.stdout
     assert "1 of 2 session(s) not worked" in result.stdout
 
+    # Run again with budget left — the station's, uncommitted, so main is the
+    # same variant — it works only what it did not.
+    set_config(stamped, measurement={"usd_per_day": 5})
+    again = local(stamped, "benchmark", "run", "app")
+
+    assert again.returncode == 0, again.stdout + again.stderr
+    worked = benchmark_sessions(stamped)
+    assert sorted(each["benchmark"]["variant"] for each in worked.values()) == ["again", "main"]
+    assert "1 already worked" in again.stdout
+
 
 BROKEN = [build_reply("1/0\n", "feat: broken"), build_reply("2/0\n", "feat: still broken")]
 
@@ -259,8 +293,8 @@ def test_benchmark_sessions_are_scored_by_the_station_s_scorers_and_counted_in_n
         "create_command": [*base, "create"], "comment_command": [*base, "comment"],
         "state_command": [*base, "edit"], "labels_create_command": [*base, "label-create"]})
     source = source_run(stamped, "add app.py")
-    candidate(stamped, lambda repo: fake_roster(repo, builder=BROKEN))
-    # The scorer is the station's, written after the candidate was cut: its
+    on_a_branch(stamped, lambda repo: fake_roster(repo, builder=BROKEN))
+    # The scorer is the station's, written after the change was cut: its
     # files have none. Three failing sessions in the last three would file.
     scorer(stamped, "refused", {"workflow": "quick", "kind": "code", "predicate": "not_accepted",
                                 "improve_after": {"failures": 3, "of_last": 3}})
@@ -269,8 +303,8 @@ def test_benchmark_sessions_are_scored_by_the_station_s_scorers_and_counted_in_n
     first = local(stamped, "run", "quick", "add app.py, broken")
     assert first.returncode == 1, first.stdout + first.stderr
     benchmark(stamped, "app", {"tasks": [task_of(stamped, source, "add app.py")],
-                               "variants": [{"ref": "candidate"},
-                                            {"ref": "candidate", "label": "again"}],
+                               "variants": [{"ref": "change"},
+                                            {"ref": "change", "label": "again"}],
                                "repetitions": 1})
     commit_all(stamped, "benchmark app")
 

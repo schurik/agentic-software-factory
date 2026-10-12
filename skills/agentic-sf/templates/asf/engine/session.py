@@ -33,8 +33,8 @@ import signal
 import sys
 from pathlib import Path
 
-from . import (artifacts, benchmark_session, commands, events, git_helper, preflight, publish,
-               station, worktree)
+from . import (artifacts, benchmark_session, commands, git_helper, preflight, publish, station,
+               worktree)
 from .data_types import (BenchmarkSession, FactoryConfig, RunSpec, SessionSpec, SessionStarted,
                          WorktreeRequest)
 from .hitl import HitlPolicy
@@ -98,7 +98,8 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     # does — is held to that from before its branch exists: cut where the
     # session it re-works started, and never published (benchmark_session.py).
     recorded = artifacts.read_run(anchor(main_root, f"{cfg.data_dir}/sessions/{adw_id}"))
-    benchmark = benchmark_session.of(cfg, main_root, adw_id)
+    benchmark = (recorded.benchmark if recorded and recorded.benchmark
+                 else benchmark_session.asked())
     if benchmark is not None:
         benchmark_session.adopt(benchmark)
     # ...and, under `worktree.publish: on_create`, put on the remote — the last
@@ -175,12 +176,12 @@ def _source_commit(cfg: FactoryConfig, main_root: Path,
     started from, as the source's own record says — "" for every other run."""
     if benchmark is None:
         return ""
-    sessions = artifacts.sessions_root(main_root, cfg.data_dir)
-    for line in events.read(sessions / benchmark.task):
-        if line.kind == SessionStarted.KIND and line.payload.get("base_commit"):
-            return str(line.payload["base_commit"])
-    raise SystemExit(f"session {benchmark.task} names no commit it started from, so it "
-                     f"cannot be worked again where it started. Nothing was created.")
+    commit = benchmark_session.started_from(
+        artifacts.sessions_root(main_root, cfg.data_dir) / benchmark.task)
+    if not commit:
+        raise SystemExit(f"session {benchmark.task} names no commit it started from, so it "
+                         f"cannot be worked again where it started. Nothing was created.")
+    return commit
 
 
 def _launched_by() -> str:

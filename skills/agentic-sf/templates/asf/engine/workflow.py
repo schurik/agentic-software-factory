@@ -388,10 +388,8 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
 
         # The tracker hears about the run either way: a run that could not finish
         # is exactly the one whose reporter most needs to know where it stopped.
-        # A benchmark's session is no news to anyone there.
-        if run.benchmark is not None:
-            pass
-        elif workflow.input == "issue":
+        # A benchmark's session is no news to anyone there (input is never pr).
+        if workflow.input == "issue" and run.benchmark is None:
             inputs.report_issue(run, cfg, opened, accepted)
         elif workflow.input == "pr":
             build = ctx.latest.get(BuildOutput)

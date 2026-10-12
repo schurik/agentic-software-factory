@@ -34,6 +34,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from . import benchmark_session
 from .data_types import FactoryConfig, IssueResult, Label, LabelSurvey
 from .issues import resolve_project
 from .utils import operator_env
@@ -121,7 +122,10 @@ def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess:
     """As everywhere else on a forge path: never raises, and runs under the
     operator's environment rather than the ephemeral venv `uv run` hands us.
     A CLI that is not installed is an answer too — `doctor` on a bare machine
-    is exactly when it is asked."""
+    is exactly when it is asked. A benchmark's session makes no forge call."""
+    refused = benchmark_session.refused(argv)
+    if refused is not None:
+        return refused
     try:
         return subprocess.run(argv, cwd=str(cwd), env=operator_env(),
                               capture_output=True, text=True)

@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import subprocess
 
-from . import artifacts, git_helper, pull_requests
+from . import artifacts, benchmark_session, git_helper, pull_requests
 from .data_types import (FactoryConfig, IntegrationMode, IntegrationRequest, IntegrationResult,
                          ProvenanceRecorded, PullRequestOpened)
 from .utils import operator_env
@@ -336,8 +336,8 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
                 argv += ["--title", fallback_title]
     # The forge CLI is already authenticated in the engineer's shell, so it runs
     # under their environment rather than the ADW's ephemeral `uv run` venv.
-    completed = subprocess.run(argv, cwd=tree, env=operator_env(),
-                               capture_output=True, text=True)
+    completed = benchmark_session.refused(argv) or subprocess.run(
+        argv, cwd=tree, env=operator_env(), capture_output=True, text=True)
     output = (completed.stderr or completed.stdout).strip()
     if completed.returncode != 0:
         # The record is not the only way a branch gets a pull request: someone

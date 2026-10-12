@@ -488,8 +488,9 @@ rules without being told again:
   (`inputs.open_recorded_issue`), never the issue as it reads now.
 - **Nothing of it leaves the machine.** It is never published (`Workspace.isolated`), never
   integrated (the `integrate` stage lands nothing and says why), never reported on the tracker or
-  asked about there, `refine` writes no requirements back, and it takes no claim; a push from its
-  process is refused outright (`git_helper.push`), whatever a variant's stage asks for.
+  asked about there, `refine` writes no requirements back, and it takes no claim; a push or a
+  forge command from its process is refused outright (`benchmark_session.refused`, asked by every
+  forge runner and `git_helper.push`), whatever a variant's stage asks for.
 - **Its gates are answered as its source's were.** A gate's policy is read for the source's
   trigger, and a gate that stops is answered by the decision a person recorded at the same gate
   and round of the source — their verdict and their words, now about this session's subject.
@@ -498,11 +499,13 @@ rules without being told again:
   `workflow_finished` reason starting with those words.
 - **It is measurement.** What it spends is the measurement budget's (`engine/measurement.py`
   reads each benchmark session's `run.json`), asked before every session: once the day's is
-  spent nothing more starts, the command says how many were not worked and exits 1. Once a
+  spent nothing more starts, the command says how many were not worked and exits 1; run again, it
+  works only what has not ended already at the same commit of each variant. Once a
   session ends, the station's own scorers score it (`scorers.score_session`) — the criteria the
   team trusts, whatever a variant's are — and no self-improvement window counts it
   (`improve.judged`). A cockpit counts it in no metric: no spend, phase, chapter, pull request
-  or score row is written for it, and its agent calls are the Measurement cost's benchmarks.
+  or score row is written for it, it is never a failure that needs attention, and its agent calls
+  are the Measurement cost's benchmarks.
 
 It prints one line a session — variant, task, repetition, session, how it ended (accepted, not
 accepted, not comparable, failed) and what it cost — then each variant's ends and spend. It never

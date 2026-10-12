@@ -308,7 +308,7 @@ def cmd_benchmark(args) -> int:
                              else f"no benchmark {args.name} under {benchmarks.directory(root)}"
                                   f" — it has: {', '.join(e.name for e in found) or 'none'}")
         chosen, _ = scorers.choose(root, _bound(args.config))
-        return benchmarks.run(cfg, main_root, root, named[0], chosen)
+        return benchmarks.run(benchmarks.Bench(cfg, main_root, root), named[0], chosen)
     found, refused = scorers.choose(root, _bound(args.config), [args.from_scorer])
     if not found:
         raise SystemExit(f"scorer {args.from_scorer} is refused by `asf check`: "

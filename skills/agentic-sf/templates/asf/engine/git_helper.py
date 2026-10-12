@@ -315,12 +315,8 @@ def push(cwd: Pathish, remote: str, branch: str,
 
 def _isolated(args: list[str]) -> subprocess.CompletedProcess | None:
     """A refused push, when this process works a benchmark's session; else None."""
-    from .benchmark_session import isolated        # lazily: it reads the session record
-    if not isolated():
-        return None
-    return subprocess.CompletedProcess(["git", *args], 1, "",
-                                       "refused: a benchmark's session never leaves this "
-                                       "machine (engine/benchmark_session.py)")
+    from .benchmark_session import refused         # lazily: git_helper imports nothing else
+    return refused(["git", *args])
 
 
 def tracks(cwd: Pathish, branch: str, remote: str) -> bool:

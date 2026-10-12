@@ -272,7 +272,8 @@ variant's tally. Tell the user before starting what it will cost: each session
 is paid from the measurement budget (`measurement.usd_per_day`), which is asked
 before every session, so a benchmark larger than a day's budget stops partway —
 `the measurement budget is spent … 9 of 24 session(s) not worked`, exit 1 — and
-is run again on a later day. The sessions are isolated: never published,
+is run again on a later day, when it works only the sessions that have not ended
+(`15 already worked`); a variant whose ref moved since is worked again. The sessions are isolated: never published,
 integrated or reported on the tracker, so nothing reaches the forge, and each
 is run by the variant's files under `asf/` with this station's engine. Their
 gates are answered as the source session's person answered them; a session

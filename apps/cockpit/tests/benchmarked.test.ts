@@ -100,6 +100,17 @@ describe("a benchmark's sessions", () => {
     expect(corrections.counted.map((each) => each.session)).toEqual(["a1"]);
   });
 
+  it("are never a failure that needs attention, though one stopped as not comparable", async () => {
+    const { t, ingestToken } = await localOf(fakeForge());
+    vi.setSystemTime(at("2026-10-02T12:00:00Z"));
+    const failed = session("b1", 2, 1, OF(1)).map((event) => event.kind === "session_finished"
+      ? { ...event, payload: { ...event.payload, status: "fail", reason: "not comparable: no decision" } } : event);
+    expect((await ingest(t, ingestToken, { session: "b1", events: failed })).status).toBe(200);
+
+    const row = (await t.query(api.factories.list, {}))!.factories.find((each) => each.repo === "acme/widgets")!;
+    expect(row.facts.failed).toEqual([]);
+  });
+
   it("stay out once the backfills come to a session an older cockpit stored", async () => {
     const { t } = await shipped();
     await t.run(async (ctx) => {
