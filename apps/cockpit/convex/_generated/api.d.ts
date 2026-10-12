@@ -11,6 +11,7 @@
 import type * as activity from "../activity.js";
 import type * as artifacts from "../artifacts.js";
 import type * as auth from "../auth.js";
+import type * as benchmarked from "../benchmarked.js";
 import type * as chapters from "../chapters.js";
 import type * as claims from "../claims.js";
 import type * as commands from "../commands.js";
@@ -38,6 +39,7 @@ import type * as measure from "../measure.js";
 import type * as measured from "../measured.js";
 import type * as model_answer from "../model/answer.js";
 import type * as model_attention from "../model/attention.js";
+import type * as model_benchmarks from "../model/benchmarks.js";
 import type * as model_chapters from "../model/chapters.js";
 import type * as model_claim from "../model/claim.js";
 import type * as model_command from "../model/command.js";
@@ -47,6 +49,7 @@ import type * as model_digest from "../model/digest.js";
 import type * as model_drift from "../model/drift.js";
 import type * as model_factories from "../model/factories.js";
 import type * as model_filter from "../model/filter.js";
+import type * as model_format from "../model/format.js";
 import type * as model_gate from "../model/gate.js";
 import type * as model_graph from "../model/graph.js";
 import type * as model_improvements from "../model/improvements.js";
@@ -97,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   artifacts: typeof artifacts;
   auth: typeof auth;
+  benchmarked: typeof benchmarked;
   chapters: typeof chapters;
   claims: typeof claims;
   commands: typeof commands;
@@ -124,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   measured: typeof measured;
   "model/answer": typeof model_answer;
   "model/attention": typeof model_attention;
+  "model/benchmarks": typeof model_benchmarks;
   "model/chapters": typeof model_chapters;
   "model/claim": typeof model_claim;
   "model/command": typeof model_command;
@@ -133,6 +138,7 @@ declare const fullApi: ApiFromModules<{
   "model/drift": typeof model_drift;
   "model/factories": typeof model_factories;
   "model/filter": typeof model_filter;
+  "model/format": typeof model_format;
   "model/gate": typeof model_gate;
   "model/graph": typeof model_graph;
   "model/improvements": typeof model_improvements;

@@ -1,18 +1,16 @@
 import Link from "next/link";
-import type { Measurement, Metrics, Scorers } from "@/convex/measure";
+import type { Benchmarks, Measurement, Metrics, Scorers } from "@/convex/measure";
 import type { Size, Stretch } from "@/convex/model/measure";
 import type { Components } from "@/convex/model/pulls";
 import { formatDollars as dollars, formatDuration, formatNumber, plural, prNumber, sessionHref } from "../format";
 import { Card, cx, Loading, Notice, num, pillClass, Section, Table } from "../ui";
+import { BenchmarksView } from "./BenchmarksView";
 import { OVERVIEW_DAYS, type OverviewDays, PeriodFilter, Stat } from "./OverviewTab";
 import { ScorersView } from "./ScorersView";
 import { tabHref } from "./view";
 
-/**
- * The Measure tab's views, in the order its sub-navigation lists them: Metrics,
- * then Scorers (#190); Benchmarks joins them here (#182).
- */
-export const MEASURE_VIEWS = { metrics: "Metrics", scorers: "Scorers" } as const;
+/** The Measure tab's views, in the order its sub-navigation lists them: Metrics, Scorers (#190), Benchmarks (#199). */
+export const MEASURE_VIEWS = { metrics: "Metrics", scorers: "Scorers", benchmarks: "Benchmarks" } as const;
 export type MeasureView = keyof typeof MEASURE_VIEWS;
 
 const AUTONOMY = "The share of merged pull requests that were autonomous: opened by the factory's own session, " +
@@ -46,13 +44,15 @@ const TRIGGERED = "What started each chapter that began in the period: a prompt 
   "labelled, or a round of review comments on a pull request.";
 
 /**
- * A factory's Measure tab (#184, #188, #190): how the factory measures its own
- * work. One filter row — the view, then, on Metrics, the period, the
- * Overview's own: a scorer counts sessions, not days — over the view open.
- * Pure: `metrics` and `scorers` are the queries' answers, undefined while
- * they are asked and null for a factory the viewer may not read.
+ * A factory's Measure tab (#184, #188, #190, #199): how the factory measures
+ * its own work. One filter row — the view, then, on Metrics, the period, the
+ * Overview's own: a scorer counts sessions and a benchmark repetitions, not
+ * days — over the view open. Pure: `metrics`, `scorers` and `benchmarks` are
+ * the queries' answers, undefined while they are asked and null for a factory
+ * the viewer may not read.
  */
-export function MeasureTab({ factory, metrics, scorers, openScorer, onOpenScorer, view, onView, days, midnights, timeZone, onDays }: {
+export function MeasureTab({ factory, metrics, scorers, openScorer, onOpenScorer, benchmarks, openBenchmark, onOpenBenchmark, now,
+                             view, onView, days, midnights, timeZone, onDays }: {
   /** The factory's repository, `owner/name`: what its sessions and its Overview are addressed by. */
   factory: string;
   metrics: Metrics | null | undefined;
@@ -60,6 +60,12 @@ export function MeasureTab({ factory, metrics, scorers, openScorer, onOpenScorer
   /** The scorer open in the Scorers view's accordion, by name: one at a time, or none. */
   openScorer: string | null;
   onOpenScorer: (scorer: string | null) => void;
+  benchmarks: Benchmarks | null | undefined;
+  /** The benchmark open in the Benchmarks view's accordion, by name: one at a time, or none. */
+  openBenchmark: string | null;
+  onOpenBenchmark: (benchmark: string | null) => void;
+  /** Epoch ms: what a finished benchmark says how long ago it finished against. */
+  now: number;
   view: MeasureView;
   onView: (view: MeasureView) => void;
   days: OverviewDays;
@@ -82,7 +88,11 @@ export function MeasureTab({ factory, metrics, scorers, openScorer, onOpenScorer
         </nav>
         {view === "metrics" ? <PeriodFilter days={days} midnights={midnights} timeZone={timeZone} onDays={onDays} /> : null}
       </div>
-      {view === "scorers" ? (
+      {view === "benchmarks" ? (
+        benchmarks === undefined ? <Loading />
+          : benchmarks === null ? <Notice>This is not a factory you can read.</Notice>
+          : <BenchmarksView factory={factory} benchmarks={benchmarks} open={openBenchmark} onOpen={onOpenBenchmark} now={now} />
+      ) : view === "scorers" ? (
         scorers === undefined ? <Loading />
           : scorers === null ? <Notice>This is not a factory you can read.</Notice>
           : <ScorersView factory={factory} scorers={scorers} open={openScorer} onOpen={onOpenScorer} />

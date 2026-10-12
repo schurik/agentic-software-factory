@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { lastDays } from "../convex/model/period";
+import { foldedVersions as benchmarkVersions } from "../convex/model/benchmarks";
 import { foldedVersions as chapterVersions } from "../convex/model/chapters";
 import { foldedVersions as improvementVersions } from "../convex/model/improvements";
 import { foldedVersions as measuredVersions } from "../convex/model/measured";
@@ -495,7 +496,7 @@ describe("the rows' readers", () => {
     const { kind, v: version } = corpus[name];
     for (const [where, folded] of [["model/pulls.ts", pullVersions(kind)], ["model/chapters.ts", chapterVersions(kind)],
                                 ["model/scores.ts", scoreVersions(kind)], ["model/measured.ts", measuredVersions(kind)],
-                                ["model/improvements.ts", improvementVersions(kind)]] as const) {
+                                ["model/improvements.ts", improvementVersions(kind)], ["model/benchmarks.ts", benchmarkVersions(kind)]] as const) {
       if (folded.length) expect(folded, `${kind} v${version} has a reader but no fold in ${where}`).toContain(version);
     }
   });

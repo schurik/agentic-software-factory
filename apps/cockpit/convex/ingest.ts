@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
+import { benchmarked } from "./benchmarked";
 import { chapter } from "./chapters";
 import { improve } from "./improvements";
 import { settleClaims } from "./claims";
@@ -98,6 +99,8 @@ export const append = internalMutation({
     // What judging it cost, or working it as a benchmark's: measurement, which Metrics draws against its budget
     // (model/measured.ts).
     await measured(ctx, { factory, session }, fresh, activity, !work);
+    // ...and, of a benchmark's session, what the Benchmarks view compares (model/benchmarks.ts).
+    if (!work) await benchmarked(ctx, { factory, session }, fresh, all, summary);
     // The self-improvement issues it says were filed: what the Scorers view draws each scorer's from (model/improvements.ts).
     await improve(ctx, { factory, session }, fresh);
     const waiting = summary.waitingFor !== null;

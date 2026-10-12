@@ -190,6 +190,15 @@ before — `None` when there are none, never omitted.
   benchmark's session in no metric — no spend, phase, chapter, pull request or score row; not on
   the Overview, a station's counts, a scorer's strip or Needs attention — and draws its agent calls as the Measurement cost's
   benchmarks.
+- **A cockpit compares a benchmark's variants.** A 1.3.0 cockpit's Measure tab gains
+  **Benchmarks**: every benchmark the self-description names, newest first, each row the benchmark,
+  a cell per variant and how many of its sessions were worked. Open, it compares each scorer's
+  failing share, the share accepted, corrections, cost and duration per variant as value ±
+  run-to-run noise — the mean over the repetitions ± one standard deviation — drawn as a dot and a
+  whisker and read in words against the first variant ("27 pts lower · more than the noise", more
+  than the noise when |Δ| > √(σa² + σb²)). It never says which is better and declares no winner.
+  Variants are drawn in two new categorical colours, never a status colour. Built from the
+  benchmark sessions' own events; no event changes.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
