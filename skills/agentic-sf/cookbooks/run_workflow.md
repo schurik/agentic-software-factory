@@ -281,4 +281,7 @@ that reaches a gate no person answered there — one the variant adds, or a roun
 the source never reached — ends `not comparable`, which is a fact about the
 comparison, not a failure of the variant. They are scored by this station's
 scorers and count toward no metric and no self-improvement. Report each
-variant's tally as it is, never which one won.
+variant's tally as it is, never which one won. With a cockpit, the factory
+page's Measure tab, **Benchmarks**, is where the team reads the comparison:
+each metric per variant as value ± run-to-run noise, the difference in words
+("$0.80 less · within the noise") — point them there.

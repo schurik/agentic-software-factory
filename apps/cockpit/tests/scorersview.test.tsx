@@ -52,6 +52,7 @@ function text(html: string): string {
 /** The view over `scorers` — the ones above unless said otherwise, undefined while the query asks — with `open` open. */
 const render = (scorers: Scorers | null | undefined = SCORERS, open: string | null = null) => renderToStaticMarkup(
   <MeasureTab factory="acme/widgets" metrics={undefined} scorers={scorers} openScorer={open} onOpenScorer={() => {}}
+              benchmarks={undefined} openBenchmark={null} onOpenBenchmark={() => {}} now={0}
               view="scorers" onView={() => {}} days={7} midnights={WEEK} timeZone="UTC" onDays={() => {}} />,
 );
 
@@ -272,6 +273,7 @@ describe("what the view says when there is nothing to show", () => {
   it("waits while it asks, and refuses a factory the viewer cannot read", () => {
     expect(text(renderToStaticMarkup(
       <MeasureTab factory="acme/widgets" metrics={undefined} scorers={undefined} openScorer={null} onOpenScorer={() => {}}
+              benchmarks={undefined} openBenchmark={null} onOpenBenchmark={() => {}} now={0}
                   view="scorers" onView={() => {}} days={7} midnights={WEEK} timeZone="UTC" onDays={() => {}} />,
     ))).toContain("Loading");
     expect(text(render(null))).toContain("This is not a factory you can read.");

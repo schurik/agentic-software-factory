@@ -16,6 +16,7 @@ import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { SUMMED } from "./cost";
 import { defaultCheck, repoOf } from "./factory";
+import { type BenchmarkedRow, type BenchmarkLine, compare, newestFirst } from "./model/benchmarks";
 import { byTrigger, type TriggerLine } from "./model/chapters";
 import { readDescription } from "./model/description";
 import { type CostPerPr, costPerPrOf, type Costed, type Cycle, cycleOf, type Dear, dearestOf } from "./model/measure";
@@ -267,3 +268,41 @@ async function citeOf(ctx: QueryCtx, factory: string, session: string, seq: numb
   if (event === null) return null;
   return { seq, detail: described(event) || event.kind, phaseId: Payload.parse(event.payload).str("phase_id") };
 }
+
+// ── the Benchmarks view ─────────────────────────────────────────────────────
+
+export interface Benchmarks {
+  /** Whether the factory has described itself on its default branch: what names its benchmarks. */
+  described: boolean;
+  /** Newest first, the never worked last. */
+  benchmarks: BenchmarkLine[];
+}
+
+/**
+ * `factory`'s Benchmarks view (#199): every benchmark its default branch's
+ * self-description names (format 5), compared over the benchmark sessions the
+ * cockpit holds of it — mean ± run-to-run noise per variant and metric, with
+ * readings in words (model/benchmarks.ts). Null for someone who may not read
+ * the factory, or has not signed in to a team's cockpit.
+ */
+export const benchmarks = query({
+  args: { factory: v.string(), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory: named, signIn }): Promise<Benchmarks | null> => {
+    const who = await viewing(ctx, signIn);
+    if (who.mode === "team" && who.viewer === null) return null;
+    const factory = await readable(ctx, who, named);
+    if (factory === null) return null;
+    const described = await describedOf(ctx, factory);
+    if (described === null) return { described: false, benchmarks: [] };
+    const spellings = await spellingsOf(ctx, factory);
+    const lines = await Promise.all(described.benchmarks.map(async (benchmark) => {
+      const rows: BenchmarkedRow[] = [];
+      for (const spelling of spellings) {
+        rows.push(...await ctx.db.query("benchmarked")
+          .withIndex("by_factory_benchmark", (q) => q.eq("factory", spelling).eq("benchmark", benchmark.name)).collect());
+      }
+      return compare(benchmark, rows);
+    }));
+    return { described: true, benchmarks: newestFirst(lines) };
+  },
+});

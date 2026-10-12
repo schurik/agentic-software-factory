@@ -32,7 +32,8 @@ const DAY = 24 * 3600_000;
  * (#119); Workflows, from the factory's own self-description, each with its
  * last 30 days (#120); Measure, how the factory measures its own work — the
  * pull requests it opened and merged, and their autonomy, over the
- * Overview's period (#184), and its scorers over its last sessions (#190); Stations, a
+ * Overview's period (#184), its scorers over its last sessions (#190) and its
+ * benchmarks, each variant against the others (#199); Stations, a
  * card each with the registrations waiting on top; and Config, whose files a
  * writer edits into a pull request. The tab open is the address's (`?tab=`), so a link — Now's
  * "Stations →" — lands on the tab that answers it. Live: the queries keep
@@ -57,6 +58,8 @@ export function FactoryPage({ factory }: { factory: string }) {
   const [measure, setMeasure] = useState<MeasureView>("metrics");
   const scorers = useQuery(api.measure.scorers, { factory, signIn });
   const [scorer, setScorer] = useState<string | null>(null);
+  const benchmarks = useQuery(api.measure.benchmarks, { factory, signIn });
+  const [benchmark, setBenchmark] = useState<string | null>(null);
   // The Workflows tab's record is always the last 30 days: the Overview's own query, when it shows those too.
   const record = useQuery(api.overview.page, { factory, days: lastDays(30, now, timeZone), signIn });
   const stations = useQuery(api.activity.stations, { factory, signIn, period });
@@ -120,8 +123,9 @@ export function FactoryPage({ factory }: { factory: string }) {
                  panels={{
                    overview: <OverviewTab overview={overview} days={days} midnights={midnights} now={now} timeZone={timeZone} onDays={setDays} />,
                    measure: (
-                     <MeasureTab factory={page.repo} metrics={metrics} scorers={scorers} openScorer={scorer} onOpenScorer={setScorer} view={measure} onView={setMeasure} days={days} midnights={midnights}
-                                 timeZone={timeZone} onDays={setDays} />
+                     <MeasureTab factory={page.repo} metrics={metrics} scorers={scorers} openScorer={scorer} onOpenScorer={setScorer}
+                                 benchmarks={benchmarks} openBenchmark={benchmark} onOpenBenchmark={setBenchmark} now={now}
+                                 view={measure} onView={setMeasure} days={days} midnights={midnights} timeZone={timeZone} onDays={setDays} />
                    ),
                    workflows: (
                      <WorkflowsTab check={page.check} factory={page.repo} stations={page.stations} now={now} record={record ?? undefined}

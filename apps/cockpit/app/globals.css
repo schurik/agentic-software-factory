@@ -6,6 +6,11 @@
    hue is allowed, and only for one thing: --merged (purple) is the forge's own colour for a merged
    pull request and a completed issue, so a ref reads the way it does on the forge.
 
+   A benchmark's variants are categorical series, never a status: --series-1 (the accent blue) and
+   --series-2 (orange), marks and fills only, never text. Each clears 3:1 as a graphic, and the two
+   stay apart for protanopia and deuteranopia, and from every status colour. A third variant needs
+   a third.
+
    Every text token clears WCAG AA (4.5:1) on --surface and --bg, --faint included; a filled
    button or badge clears it too, which is why dark mode draws amber and red badges in dark text
    (--bg) and its buttons on --accent-strong. tests/contrast.test.ts reads this file to hold it. */
@@ -52,6 +57,8 @@
   --bad: #c42b2b;
   --bad-soft: color-mix(in oklab, #c42b2b 9%, transparent);
   --merged: #8250df;
+  --series-1: #2f5bd3;
+  --series-2: #e46309;
   --add-bg: #e9f7ee;
   --add-word: #b4e8c6;
   --del-bg: #fdecec;
@@ -82,6 +89,8 @@
   --bad: #f06a6a;
   --bad-soft: color-mix(in oklab, #f06a6a 13%, transparent);
   --merged: #a98bf5;
+  --series-1: #5b83f2;
+  --series-2: #bd4d00;
   --add-bg: #12261a;
   --add-word: #1f4d2e;
   --del-bg: #2c1515;
@@ -112,6 +121,8 @@
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
   --color-merged: var(--merged);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
   --color-add-bg: var(--add-bg);
   --color-add-word: var(--add-word);
   --color-del-bg: var(--del-bg);

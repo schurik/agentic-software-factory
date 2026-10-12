@@ -4,6 +4,7 @@ import { appValidator } from "./forge/app";
 import { itemStateValidator, roleValidator } from "./forge/forge";
 import { claimKindValidator, releasedValidator, requeueValidator } from "./model/claim";
 import { commandStateValidator, reportValidator, verbValidator } from "./model/command";
+import { benchmarkValidator } from "./model/session";
 import { storedEventFields } from "./model/wire";
 
 export const expiringValidator = v.object({ token: v.string(), expiresAt: v.union(v.null(), v.number()) });
@@ -226,6 +227,27 @@ export default defineSchema({
     cost: v.number(),
   })
     .index("by_factory_at", ["factory", "at"]),
+
+  // A benchmark's session, folded (model/benchmarks.ts): which variant, task and
+  // repetition it re-worked, how it ended, what it spent and took, its corrections
+  // and its scores — what the Measure tab's Benchmarks view compares, without
+  // reading an event. Written by ingest with each batch, a late score included.
+  // No backfill: no released factory wrote `session_started` v4 before a cockpit kept these.
+  benchmarked: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    ...benchmarkValidator.fields,
+    startedAt: v.number(),
+    endedAt: v.union(v.null(), v.number()),
+    status: v.string(),
+    refusal: v.union(v.null(), v.literal("not accepted"), v.literal("not comparable"), v.literal("failed")),
+    cost: v.number(),
+    rejected: v.number(),
+    rounds: v.array(v.string()),
+    scores: v.array(v.object({ scorer: v.string(), chapter: v.number(), failing: v.boolean() })),
+  })
+    .index("by_session", ["factory", "session"])
+    .index("by_factory_benchmark", ["factory", "benchmark"]),
 
   // A session's pull request, as the Measure tab counts it (model/pulls.ts):
   // when its own integration opened it, how and when it closed, whether it was

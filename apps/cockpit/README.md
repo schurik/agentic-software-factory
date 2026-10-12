@@ -555,8 +555,8 @@ ran. The agents fold into a table — where each runs, its model and thinking, i
 may write — and a prompt workflow's Run opens the header's dialog on that factory and workflow.
 
 **Measure** (`convex/measure.ts`) is how the factory measures its own work, under a sub-navigation
-that opens on **Metrics**, over the Overview's period, then **Scorers** — Benchmarks joins them
-there (#182). Metrics counts the pull requests the factory's own sessions opened in the period,
+that opens on **Metrics**, over the Overview's period, then **Scorers** and **Benchmarks**.
+Metrics counts the pull requests the factory's own sessions opened in the period,
 those that merged in it, and **autonomy**: the share of the merged ones that were autonomous pull
 requests — opened by the session's own integration (`pull_request_opened`), and every commit of it
 at merge one the session's `committed` events name, or a merge from the base branch. Review rounds driven by
@@ -611,11 +611,32 @@ class, a link to its chapter, and the first event it cites, linking to that even
 quiet footer of what the scorer is. Every term has an (i), opened on hover or a tap, and a row's
 terms are explained on the column names above the rows.
 
+**Benchmarks** (#199) has no period either: a benchmark counts repetitions. It lists every
+benchmark the default branch's self-description names (format 5) as an accordion, newest first —
+by when it last started a session — and the never worked last. A row sits on the comparison's own
+grid: the benchmark ("2 tasks × 2 variants × 3 repetitions"), one cell per variant over the column
+it is compared in, and **Sessions worked** — working, stopped partway, finished, and how many of
+tasks × variants × repetitions have ended. The open one compares, per variant, each scorer's
+failing share (of the sessions it scored), the share accepted, corrections (envelopes refused and
+rounds of gates failed) a session, cost a session and duration a session, each as **value ±
+run-to-run noise**: the mean over the repetitions of what each came to across the tasks, ± one
+sample standard deviation of the same, unknown from one repetition. Each is drawn as a dot and a
+whisker on the row's own scale, and read in words against the first variant — "27 pts lower ·
+more than the noise", "$0.80 less · within the noise" — more than the noise when
+`|Δ| > √(σa² + σb²)`. No reading carries a sign or says "better"; which way is better is said only
+in each metric's (i), and "No winner is declared" is on every benchmark. A session that reached a
+gate no person answered in the session it re-works ends not comparable: worked, and in no metric.
+A variant is compared at the commit its ref last resolved to — once the ref moves, the station
+works it again from the start. Variants are drawn in the categorical `--series-1` and `--series-2`,
+never a status colour, which `tests/contrast.test.ts` holds to 3:1 as a graphic and apart for
+protanopia and deuteranopia. The pinned tasks sit behind a toggle.
+
 Ingest folds the five kinds a pull request is made of into one row a session
 (`convex/model/pulls.ts`), each `workflow_started` into a row a chapter
 (`convex/model/chapters.ts`), and each `chapter_scored` into a row a session and scorer
 (`convex/model/scores.ts`) — failing when any chapter's latest score is, since a threshold counts
-distinct sessions — so the tab reads no event and never asks the forge (ADR 0006); a score cites
+distinct sessions — and a benchmark's session into a row of its own (`convex/model/benchmarks.ts`),
+its scores folded in as they come after it ended, so the tab reads no event and never asks the forge (ADR 0006); a score cites
 its evidence by seq, and only the first cited event of a failing counted session is read. A pull
 request's row an older cockpit wrote is folded again from the session's first event on its next
 batch; its chapters and its scores are written by `chapters:backfill` and `scores:backfill`, which

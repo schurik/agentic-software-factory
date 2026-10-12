@@ -510,7 +510,12 @@ rules without being told again:
 It prints one line a session — variant, task, repetition, session, how it ended (accepted, not
 accepted, not comparable, failed) and what it cost — then each variant's ends and spend. It never
 declares a winner: reading each variant against the run-to-run noise is a person's comparison —
-the cockpit's Benchmarks view, still to come, draws it from those sessions' events.
+the cockpit's Benchmarks view (on the factory's Measure tab) draws it from those sessions' events:
+per variant, each scorer's failing share, the share accepted, corrections, cost and duration, each
+the mean over the repetitions ± one standard deviation of what each repetition came to, and a
+reading in words against the first variant ("27 pts lower · more than the noise", more than the
+noise when `|Δ| > √(σa² + σb²)`). A not comparable session is worked and compared in no metric; a
+variant whose ref moved is compared at its latest commit.
 
 ## The engine
 
