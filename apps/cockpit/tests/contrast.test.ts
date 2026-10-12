@@ -36,7 +36,40 @@ const DIFF: [text: string, ground: string][] = [
   ["fg", "add-bg"], ["muted", "add-bg"], ["fg", "del-bg"], ["muted", "del-bg"], ["fg", "add-word"], ["fg", "del-word"],
 ];
 
-describe.each(Object.entries(THEMES))("the %s theme", (_, theme) => {
+/**
+ * The `--name: color-mix(in oklab, #hex N%, transparent)` washes in the first block `selector`
+ * opens, as their colour and how much of it there is: mixed with transparent, a wash is its colour
+ * at that opacity.
+ */
+function washes(selector: string): Record<string, [hex: string, alpha: number]> {
+  const start = css.indexOf(`${selector} {`);
+  const block = css.slice(start, css.indexOf("}", start));
+  return Object.fromEntries([...block.matchAll(/--([\w-]+):\s*color-mix\(in oklab,\s*(#[0-9a-f]{6})\s+([\d.]+)%,\s*transparent\)\s*;/gi)]
+    .map(([, name, hex, percent]) => [name, [hex, Number(percent) / 100]]));
+}
+
+/** `hex` at `alpha` over `ground`, as the browser paints it. */
+function over([hex, alpha]: [string, number], ground: string): string {
+  const channel = (color: string, at: number) => parseInt(color.slice(at, at + 2), 16);
+  return `#${[1, 3, 5].map((at) => Math.round(channel(hex, at) * alpha + channel(ground, at) * (1 - alpha))
+    .toString(16).padStart(2, "0")).join("")}`;
+}
+
+const WASHES = { light: washes(":root"), dark: washes('[data-theme="dark"]') };
+// A status pill (and the Now count, the avatar, a danger button's hover): its word in the status
+// colour on that colour's own wash. The pill sits on a card, on the page, or in a row a pointer has
+// lit — so the wash is over --surface, --bg or --surface-2.
+const PILLS: [text: string, wash: string][] = [["ok", "ok-soft"], ["wait", "wait-soft"], ["bad", "bad-soft"], ["accent", "accent-soft"]];
+
+describe.each(Object.entries(THEMES))("the %s theme", (themeName, theme) => {
+  it.each(PILLS)("draws a pill's --%s on --%s at AA, wherever the pill sits", (text, wash) => {
+    const washed = WASHES[themeName as keyof typeof WASHES][wash];
+    expect(washed, `--${wash}`).toBeDefined();
+    for (const ground of ["bg", "surface", "surface-2"]) {
+      expect(contrast(theme[text], over(washed, theme[ground])), `--${text} on --${wash} over --${ground}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it.each(TEXT)("draws --%s text at AA on the page and on a card", (name) => {
     for (const ground of ["bg", "surface"]) {
       expect(theme[name], `--${name}`).toBeDefined();
