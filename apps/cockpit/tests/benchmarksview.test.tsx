@@ -30,7 +30,7 @@ const SCOPE: BenchmarkLine = {
   name: "reviewer-scope", latest: NOW - 3_600_000, tasks: TASKS, repetitions: 2,
   variants: [{ label: "main", ref: "main", commit: "a".repeat(40) }, { label: "PR #9", ref: "asf/1a2b3c4d", commit: "9".repeat(40) }],
   state: "finished",
-  progress: { planned: 8, worked: 8, running: 0, notComparable: 1, startedAt: NOW - 7_200_000, finishedAt: NOW - 3_000_000 },
+  progress: { planned: 8, worked: 8, running: 0, notComparable: 1, unpaired: 1, startedAt: NOW - 7_200_000, finishedAt: NOW - 3_000_000 },
   metrics: [
     line("scorer:corrections", "share", [0.75, 0.3536], [0, 0], "75 pts lower", "more than the noise"),
     line("accepted", "share", [0.75, 0.3536], [1, 0], "25 pts higher", "within the noise"),
@@ -42,13 +42,13 @@ const SCOPE: BenchmarkLine = {
 
 const WORKING: BenchmarkLine = {
   ...SCOPE, name: "builder-writes", latest: NOW - 60_000, state: "working",
-  progress: { planned: 8, worked: 3, running: 1, notComparable: 0, startedAt: NOW - 600_000, finishedAt: null },
+  progress: { planned: 8, worked: 3, running: 1, notComparable: 0, unpaired: 1, startedAt: NOW - 600_000, finishedAt: null },
 };
 
 const FRESH: BenchmarkLine = {
   ...SCOPE, name: "fresh", latest: null, state: "not worked",
   variants: SCOPE.variants.map((variant) => ({ ...variant, commit: null })),
-  progress: { planned: 6, worked: 0, running: 0, notComparable: 0, startedAt: null, finishedAt: null },
+  progress: { planned: 6, worked: 0, running: 0, notComparable: 0, unpaired: 0, startedAt: null, finishedAt: null },
   metrics: SCOPE.metrics.map((metric) => ({ ...metric, values: [null, null], readings: [null, null] })),
 };
 
@@ -133,6 +133,7 @@ describe("the Benchmarks view", () => {
 
   it("says what is left out: a session that could not be compared, a benchmark not worked yet", () => {
     expect(comparison(render(BENCHMARKS, "reviewer-scope"))).toMatch(/1 session could not be compared/);
+    expect(comparison(render(BENCHMARKS, "reviewer-scope"))).toMatch(/1 session is in no value yet: a task's repetition is compared once every variant has a session of it/);
     expect(comparison(render(BENCHMARKS, "fresh"))).toMatch(/Not worked yet: .*asf benchmark run fresh/);
   });
 

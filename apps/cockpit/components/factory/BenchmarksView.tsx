@@ -249,6 +249,12 @@ function Comparison({ factory, line }: { factory: string; line: BenchmarkLine })
             session it re-works. It is counted as worked, and in no metric.
           </p>
         ) : null}
+        {line.progress.unpaired ? (
+          <p>
+            {plural(line.progress.unpaired, "session")} {line.progress.unpaired === 1 ? "is" : "are"} in no value yet: a task&apos;s
+            repetition is compared once every variant has a session of it to compare.
+          </p>
+        ) : null}
         {tasks ? (
           <ul className="grid gap-1.5 pb-1 md:grid-cols-2">
             {line.tasks.map((task) => (
@@ -316,9 +322,9 @@ function Said({ reading, named }: { reading: Reading | null; named: boolean }) {
 function RangePlot({ metric, line }: { metric: MetricLine; line: BenchmarkLine }) {
   const present = metric.values.filter((value): value is Value => value !== null);
   if (!present.length) return null;
-  const spread = (value: Value) => value.noise ?? 0;
-  let lo = Math.min(...present.map((value) => value.mean - spread(value)));
-  let hi = Math.max(...present.map((value) => value.mean + spread(value)));
+  const noiseOf = (value: Value) => value.noise ?? 0;
+  let lo = Math.min(...present.map((value) => value.mean - noiseOf(value)));
+  let hi = Math.max(...present.map((value) => value.mean + noiseOf(value)));
   const pad = (hi - lo) * 0.15 || Math.abs(hi) * 0.15 || 1;
   lo -= pad; hi += pad;
   // Nothing compared here is below zero, and a share is never past 100%.
@@ -336,7 +342,7 @@ function RangePlot({ metric, line }: { metric: MetricLine; line: BenchmarkLine }
         return (
           <span key={label} className="absolute inset-x-0" style={{ top: `${8 + index * 12}px` }}>
             <span className={cx("absolute h-1 -translate-y-1/2 rounded-full", series(index).whisker)}
-                  style={{ left: at(value.mean - spread(value)), width: `calc(${at(value.mean + spread(value))} - ${at(value.mean - spread(value))})` }} />
+                  style={{ left: at(value.mean - noiseOf(value)), width: `calc(${at(value.mean + noiseOf(value))} - ${at(value.mean - noiseOf(value))})` }} />
             <span data-dot={label} title={said}
                   className={cx("absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-surface", series(index).dot)}
                   style={{ left: at(value.mean) }} />

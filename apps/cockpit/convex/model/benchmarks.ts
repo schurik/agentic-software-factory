@@ -20,7 +20,10 @@
  *
  * A session that could not be compared (`not comparable`: a gate no person
  * answered in the session it re-works) is worked, never compared; one still
- * running is neither. A variant is compared at the commit its ref last
+ * running is neither. Variants are compared over the same work: a task's
+ * repetition counts only once every variant has a session of it to compare —
+ * for a scorer's share, one the scorer scored — so a task one variant could
+ * not compare, or has not reached yet, is in neither's value. A variant is compared at the commit its ref last
  * resolved to: once its ref moves, `asf benchmark run` works it again from the
  * start (engine/benchmarks.py), and the sessions at the older commit are a
  * comparison of their own that no longer stands.
@@ -76,12 +79,13 @@ const at = (iso: string): number | null => {
  * folded in, in seq order; `summary` is the session's, already advanced past
  * them. Null for a session that is not a benchmark's.
  */
-export function benchmarkedIn(row: BenchmarkedRow | null, events: StoredEvent[], summary: Summary): BenchmarkedRow | null {
+export function benchmarkRowIn(row: BenchmarkedRow | null, events: StoredEvent[], summary: Summary): BenchmarkedRow | null {
   if (summary.benchmark === null) return null;
   const next: BenchmarkedRow = {
     refusal: null, rejected: 0, rounds: [], scores: [], ...structuredClone(row ?? {}),
     ...summary.benchmark,
-    startedAt: at(summary.startedAt) ?? row?.startedAt ?? 0,
+    // A start the summary could not read is its first event's: never the epoch, which would make it decades long.
+    startedAt: at(summary.startedAt) ?? row?.startedAt ?? Math.min(...events.map((event) => at(event.ts) ?? Infinity)),
     endedAt: at(summary.endedAt),
     status: summary.status,
     cost: summary.totalCost,
@@ -176,6 +180,8 @@ export interface Progress {
   worked: number;
   running: number;
   notComparable: number;
+  /** Ended and comparable, but in no value: no other variant has a session of its task and repetition to compare with yet. */
+  unpaired: number;
   /** Epoch ms: its first session's start, and the end of its last once every one was worked. */
   startedAt: number | null;
   finishedAt: number | null;
@@ -203,13 +209,14 @@ function spread(values: number[]): Value | null {
   return { mean, noise: Math.sqrt(variance), repetitions: values.length };
 }
 
-/** `b` against `a`, in `unit`'s words. */
+/** `b` against `a`, in `unit`'s words — and a difference too small to say is never more than the noise. */
 function reading(unit: Unit, a: Value, b: Value, variant: string, against: string): Reading {
   const difference = b.mean - a.mean;
   const size = sizeOf(unit, Math.abs(difference));
-  const words = size === sizeOf(unit, 0) ? "the same" : `${size} ${WORDS[unit][difference < 0 ? 0 : 1]}`;
+  const same = size === sizeOf(unit, 0);
+  const words = same ? "the same" : `${size} ${WORDS[unit][difference < 0 ? 0 : 1]}`;
   const noise: Noise = a.noise === null || b.noise === null ? "noise not known: one repetition"
-    : Math.abs(difference) > Math.hypot(a.noise, b.noise) ? "more than the noise" : "within the noise";
+    : !same && Math.abs(difference) > Math.hypot(a.noise, b.noise) ? "more than the noise" : "within the noise";
   return { variant, against, words, noise };
 }
 
@@ -234,27 +241,38 @@ export function compare(benchmark: DescribedBenchmark, rows: BenchmarkedRow[]): 
   const slots = [...kept.values()];
   const planned = benchmark.tasks.length * benchmark.variants.length * benchmark.repetitions;
   const worked = slots.filter(ended);
+  // Each task's repetition, with a session of every variant to compare — or fewer, and so compared in none.
+  const compared = worked.filter((row) => outcomeOf(row) !== "not comparable");
+  const byWork = new Map<string, Map<string, BenchmarkedRow>>();
+  for (const row of compared) {
+    const work = `${row.repetition} ${row.task}`;
+    byWork.set(work, (byWork.get(work) ?? new Map()).set(row.variant, row));
+  }
+  const paired = [...byWork.values()].filter((each) => each.size === variants.length);
   const progress: Progress = {
     planned, worked: worked.length, running: slots.length - worked.length,
-    notComparable: worked.filter((row) => outcomeOf(row) === "not comparable").length,
+    notComparable: worked.length - compared.length,
+    unpaired: compared.length - paired.length * variants.length,
     startedAt: slots.length ? Math.min(...slots.map((row) => row.startedAt)) : null,
     finishedAt: worked.length >= planned && worked.length ? Math.max(...worked.map((row) => row.endedAt ?? row.startedAt)) : null,
   };
   const state: BenchmarkState = !slots.length ? "not worked" : progress.running ? "working"
     : worked.length >= planned ? "finished" : "partway";
 
-  const compared = worked.filter((row) => outcomeOf(row) !== "not comparable");
   const scorers = [...new Set(compared.flatMap((row) => row.scores.map((score) => score.scorer)))].sort();
-  /** Per variant: what each repetition came to, where `of` counts a session at all, averaged into a value. */
+  /**
+   * Per variant: what each repetition came to over the paired work `of` counts
+   * for every variant — null where it counts a session not at all — averaged into a value.
+   */
   const metric = (key: string, scorer: string | null, unit: Unit, of: (row: BenchmarkedRow) => number | null): MetricLine => {
-    const values = variants.map(({ label }) => {
-      const byRepetition = new Map<number, number[]>();
-      for (const row of compared.filter((each) => each.variant === label)) {
-        const value = of(row);
-        if (value !== null) byRepetition.set(row.repetition, [...(byRepetition.get(row.repetition) ?? []), value]);
-      }
-      return spread([...byRepetition.keys()].sort((a, b) => a - b).map((repetition) => average(byRepetition.get(repetition)!)));
-    });
+    const byRepetition = variants.map(() => new Map<number, number[]>());
+    for (const work of paired) {
+      const said = variants.map(({ label }) => of(work.get(label)!));
+      if (said.some((value) => value === null)) continue;
+      const { repetition } = work.get(variants[0].label)!;
+      said.forEach((value, index) => byRepetition[index].set(repetition, [...(byRepetition[index].get(repetition) ?? []), value!]));
+    }
+    const values = byRepetition.map((each) => spread([...each.keys()].sort((a, b) => a - b).map((repetition) => average(each.get(repetition)!))));
     const [first] = values;
     const readings = values.map((value, index) => (index === 0 || first === null || value === null ? null
       : reading(unit, first, value, variants[index].label, variants[0].label)));

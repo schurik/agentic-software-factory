@@ -55,7 +55,7 @@ describe.each(Object.entries(THEMES))("the %s theme", (_, theme) => {
 
 // A benchmark's variants (#199) are categorical series: marks and fills, never text. A mark
 // clears WCAG's 3:1 for graphics on the page and on a card, and the two stay apart for a reader
-// with protanopia or deuteranopia — OKLab ΔE×100 of 8 or more under the Machado, Oliveira &
+// with protanopia, deuteranopia or tritanopia — OKLab ΔE×100 of 8 or more under the Machado, Oliveira &
 // Fernandes (2009) simulation at full severity — and 15 for everyone else: a variant is told by
 // its place and its colour at once, never by a colour one reader cannot see. Nor is it ever read
 // as a status: each series stays 12 from ok, wait and bad — not 15, which no orange clears in the
@@ -99,7 +99,7 @@ describe.each(Object.entries(THEMES))("the %s theme's variant series", (_, theme
     }
   });
 
-  it.each(["protan", "deutan"])("keeps the two apart for %sopia", (vision) => {
+  it.each(["protan", "deutan", "tritan"])("keeps the two apart for %sopia", (vision) => {
     expect(apart(theme["series-1"], theme["series-2"], vision)).toBeGreaterThanOrEqual(8);
   });
 

@@ -625,7 +625,9 @@ whisker on the row's own scale, and read in words against the first variant — 
 more than the noise", "$0.80 less · within the noise" — more than the noise when
 `|Δ| > √(σa² + σb²)`. No reading carries a sign or says "better"; which way is better is said only
 in each metric's (i), and "No winner is declared" is on every benchmark. A session that reached a
-gate no person answered in the session it re-works ends not comparable: worked, and in no metric.
+gate no person answered in the session it re-works ends not comparable: worked, and in no metric. Variants are compared over the same work: a task's repetition counts only once every
+variant has a session of it to compare — for a scorer's share, one that scorer scored — so a
+benchmark still being worked compares what both have done, and says how many sessions wait.
 A variant is compared at the commit its ref last resolved to — once the ref moves, the station
 works it again from the start. Variants are drawn in the categorical `--series-1` and `--series-2`,
 never a status colour, which `tests/contrast.test.ts` holds to 3:1 as a graphic and apart for

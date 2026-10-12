@@ -232,7 +232,8 @@ export default defineSchema({
   // repetition it re-worked, how it ended, what it spent and took, its corrections
   // and its scores — what the Measure tab's Benchmarks view compares, without
   // reading an event. Written by ingest with each batch, a late score included.
-  // No backfill: no released factory wrote `session_started` v4 before a cockpit kept these.
+  // No backfill job: no released factory wrote `session_started` v4 before a cockpit kept these,
+  // and a session with no row yet is folded from its first event with its next batch (benchmarked.ts).
   benchmarked: defineTable({
     factory: v.string(),
     session: v.string(),

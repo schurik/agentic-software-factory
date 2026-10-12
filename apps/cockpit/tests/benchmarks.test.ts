@@ -173,8 +173,10 @@ describe("the Benchmarks view", () => {
     const [scope] = (await benchmarks(t)).benchmarks;
     expect(scope.progress).toMatchObject({ planned: 8, worked: 7, running: 1, notComparable: 0 });
     expect(scope.state).toBe("working");
+    // A task is compared once every variant has worked it: main's second repetition is its first task alone, $2.
     const cost = scope.metrics.find((each) => each.key === "cost")!;
-    expect(cost.values[1]!.mean).toBeCloseTo(0.75);
+    expect(cost.values).toEqual([{ mean: 2, noise: 0, repetitions: 2 }, { mean: 0.75, noise: expect.closeTo(0.3536, 3), repetitions: 2 }]);
+    expect(scope.progress.unpaired).toBe(1);
   });
 
   it("counts a session that could not be compared as worked, and compares the rest", async () => {
@@ -187,6 +189,20 @@ describe("the Benchmarks view", () => {
     expect(scope.state).toBe("finished");
     expect(scope.progress.finishedAt).toBe(FIRST + 80 * 60_000);
     expect(scope.metrics.find((each) => each.key === "accepted")!.values[1]).toEqual({ mean: 1, noise: 0, repetitions: 2 });
+    // ...over the same tasks for both: main's session of the task PR #9 could not compare is left out too.
+    expect(scope.metrics.find((each) => each.key === "cost")!.values[0]).toEqual({ mean: 2, noise: 0, repetitions: 2 });
+    expect(scope.progress.unpaired).toBe(1);
+  });
+
+  it("reads a difference too small to say as the same, and never as more than the noise", async () => {
+    const { t, token } = await described();
+    await worked(t, token, [1, 2].flatMap((repetition) => [
+      { id: `m${repetition}`, of: MAIN, task: TASKS[0], repetition, start: repetition * 20, cost: 1, benchmark: "older" },
+      { id: `p${repetition}`, of: PR, task: TASKS[0], repetition, start: repetition * 20 + 10, cost: 1.003, benchmark: "older" },
+    ]));
+
+    const older = (await benchmarks(t)).benchmarks.find((each) => each.name === "older")!;
+    expect(older.metrics.find((each) => each.key === "cost")!.readings[1]).toMatchObject({ words: "the same", noise: "within the noise" });
   });
 
   it("compares a variant at the commit it was last worked at, once its ref moved", async () => {

@@ -514,8 +514,9 @@ the cockpit's Benchmarks view (on the factory's Measure tab) draws it from those
 per variant, each scorer's failing share, the share accepted, corrections, cost and duration, each
 the mean over the repetitions ± one standard deviation of what each repetition came to, and a
 reading in words against the first variant ("27 pts lower · more than the noise", more than the
-noise when `|Δ| > √(σa² + σb²)`). A not comparable session is worked and compared in no metric; a
-variant whose ref moved is compared at its latest commit.
+noise when `|Δ| > √(σa² + σb²)`), over the tasks' repetitions every variant has a session of to
+compare. A not comparable session is worked and compared in no metric; a variant whose ref moved
+is compared at its latest commit.
 
 ## The engine
 
