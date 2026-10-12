@@ -246,3 +246,20 @@ decides acceptance, which only a person changes, deliberately; and
 there — nothing was filed upstream. `not diagnosed, …` says why there is none
 (the day's measurement budget, or a diagnosis the gates never accepted); the
 issue was filed all the same.
+
+To find out whether a self-improvement pull request fixes what its scorer
+found, pin a benchmark: `just benchmark new --from-scorer <scorer>` writes
+`asf/benchmarks/<scorer>.yaml` — `wrote asf/benchmarks/<scorer>.yaml: 2
+session(s) <scorer> cited as failing and 2 it judged passing, as controls —
+each worked 3 time(s) under main, PR #14`. Show the user the file: each task is
+a past session's request at the commit it started from, with a comment saying
+whether it is a failure the change should fix or a control it must not break,
+and the variants are the default branch and that pull request's branch. It is
+theirs to edit and commit. `only 1 passing session … to pin as a control` means
+the change is tested on less of the work it must not break; say so. With no open
+self-improvement pull request for the scorer it writes nothing and asks for the
+variants by name — `--variant main --variant <branch>=<label>` — and with no
+failing session cited there is nothing to benchmark. It never overwrites a
+benchmark; `just check` checks one (`✓ benchmark <name>: 4 tasks × 2 variants
+(main, PR #14) × 3`). A benchmark is never a verdict: working it, and reading
+each variant's numbers against the noise, is a person's comparison to make.

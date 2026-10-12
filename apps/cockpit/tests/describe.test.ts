@@ -138,6 +138,22 @@ describe("the golden self-descriptions", () => {
     expect(readDescription(corpus["v3.json"]).settings!.measure!.usdPerDay).toBeNull();
   });
 
+  it("reads the benchmarks from format 5, each variant labelled, and the ones check refused", () => {
+    const read = readDescription(corpus["v5.json"]);
+
+    expect(read.benchmarks).toEqual([{
+      name: "reviewer-scope",
+      tasks: [
+        { session: "5c0be7ed", request: "#42 The /health endpoint returns 500", commit: "9d885f9e1c2b3a4d5e6f708192a3b4c5d6e7f809" },
+        { session: "7e1a2b3c", request: "add a /ready endpoint", commit: "a514b96f0e1d2c3b4a5968778695a4b3c2d1e0f1" },
+      ],
+      variants: [{ ref: "main", label: "main" }, { ref: "asf/1a2b3c4d", label: "PR #9" }],
+      repetitions: 3,
+    }]);
+    expect(read.benchmarkProblems).toEqual([{ benchmark: "alone", error: expect.stringMatching(/two or more variants/) }]);
+    expect([readDescription(corpus["v4.json"]).benchmarks, readDescription(corpus["v4.json"]).benchmarkProblems]).toEqual([[], []]);
+  });
+
   it("reads no scorers and no measure out of a format before 3", () => {
     const read = readDescription(corpus["v2.json"]);
 

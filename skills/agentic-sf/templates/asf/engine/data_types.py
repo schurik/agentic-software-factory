@@ -1004,8 +1004,8 @@ class HarnessDefaults(BaseModel):
 
 def default_protected_files() -> list[str]:
     return ["asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/", "asf/scorers/",
-            "asf/cockpit/", "asf/factory.yaml", "asf/asf.py", "asf/.skill-version",
-            ".github/workflows/asf-check.yml"]
+            "asf/benchmarks/", "asf/cockpit/", "asf/factory.yaml", "asf/asf.py",
+            "asf/.skill-version", ".github/workflows/asf-check.yml"]
 
 
 # `none` is refused when the config is loaded — see `integration.none_is_refused`.
@@ -1256,6 +1256,38 @@ class ScorerSpec(BaseModel):
     sample_rate: Optional[float] = None                          # judge only, 0..1
     model: str = ""                                              # judge only
     improve_after: Optional[ImproveAfter] = None
+
+
+class BenchmarkTask(BaseModel):
+    """One past session's request, pinned at the commit it started from — real
+    work, worked again under each variant (`CONTEXT.md`, Benchmark)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session: str = Field(min_length=1)      # the source session's adw_id, on this station
+    request: str = ""                       # what it was about, as its record says
+    commit: str = Field(min_length=1)       # the base its work branch was cut from
+
+
+class BenchmarkVariant(BaseModel):
+    """One configuration of the factory under benchmark: a git ref of its
+    files, and what a person calls it (`CONTEXT.md`, Variant)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str = Field(min_length=1)
+    label: str = ""                         # "" = the ref itself
+
+
+class BenchmarkSpec(BaseModel):
+    """`asf/benchmarks/<name>.yaml`, as written: what `engine/benchmarks.py`
+    checks, and what `asf benchmark new --from-scorer` writes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: list[BenchmarkTask] = Field(default_factory=list)
+    variants: list[BenchmarkVariant] = Field(default_factory=list)
+    repetitions: int = Field(default=3, ge=1)      # how often each task is worked per variant
 
 
 class IssueStates(BaseModel):
@@ -2494,19 +2526,38 @@ class ScorerProblem(BaseModel):
     error: str
 
 
-class SelfDescription(BaseModel):
-    FORMAT: ClassVar[int] = 4       # v2: settings; v3: scorers, settings.measure; v4: measurement
+class DescribedBenchmark(BaseModel):
+    """One benchmark `check` accepted, each variant's label resolved."""
 
-    format: int = 4
+    name: str
+    tasks: list[BenchmarkTask]
+    variants: list[BenchmarkVariant]
+    repetitions: int
+
+
+class BenchmarkProblem(BaseModel):
+    """A benchmark `check` refused, and every reason it gave."""
+
+    benchmark: str
+    error: str
+
+
+class SelfDescription(BaseModel):
+    FORMAT: ClassVar[int] = 5       # v2: settings; v3: scorers, settings.measure; v4: measurement;
+    #                                 v5: benchmarks
+
+    format: int = 5
     skill_version: str = ""         # asf/.skill-version; "" from a stamp before 1.1
     checked: CheckedCheckout
-    ok: bool                        # every workflow and scorer loaded: what `check` exits 0 on
+    ok: bool                        # every workflow, scorer and benchmark loaded: `check`'s exit 0
     budget: BudgetConfig            # per session — the only ceiling the factory enforces
     settings: DescribedSettings
     workflows: list[DescribedWorkflow]
     problems: list[WorkflowProblem] = Field(default_factory=list)
     scorers: list[DescribedScorer] = Field(default_factory=list)
     scorer_problems: list[ScorerProblem] = Field(default_factory=list)
+    benchmarks: list[DescribedBenchmark] = Field(default_factory=list)
+    benchmark_problems: list[BenchmarkProblem] = Field(default_factory=list)
 
 
 # ── Domain events (engine/events.py) ─────────────────────────────────────────

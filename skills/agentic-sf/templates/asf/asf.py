@@ -39,6 +39,10 @@ Usage:
                                                  scored, and record how pull requests no
                                                  watcher saw close ended, for sessions
                                                  started since
+    uv run asf/asf.py benchmark new [<name>] --from-scorer <scorer>
+                        [--variant <ref>[=<label>]]... [--repetitions 3]
+                                                 pin the sessions a scorer cited as failing,
+                                                 and two passing ones, as a benchmark
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
     uv run asf/asf.py station                    the station loop alone: ships, starts no watcher
     uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
@@ -59,8 +63,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from engine import (commands, describe, diagnose, factory, git_helper, onboarding,  # noqa: E402
-                    operate, scorers, station, supervise, utils, watch, workflow)
+from engine import (benchmarks, commands, describe, diagnose, factory,  # noqa: E402
+                    git_helper, onboarding, operate, scorers, station, supervise, utils, watch,
+                    workflow)
 from engine.data_types import Invocation  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
@@ -120,7 +125,17 @@ def cmd_check(args) -> int:
     if undiagnosable:
         print("~ self-improvement files its issues undiagnosed until this is fixed:\n  "
               + "\n  ".join(undiagnosable))
-    return 1 if failed or refused else 0
+    # A benchmark belongs to no one workflow: checked with the whole factory.
+    benched, unbenched = ([], []) if args.workflow else benchmarks.load(
+        factory.root_of(args.config), factory.load(args.config), git_helper.main_root())
+    for each in benched:
+        print(f"✓ benchmark {each.name}: {benchmarks.said(each)}")
+    for each in unbenched:
+        print(f"✗ benchmark {each.name}\n  {each.path}: {each.error}")
+    if (benched or unbenched) and not benchmarks.on_record():
+        print("~ benchmarks: their sessions and refs are not checked in CI, which holds no "
+              "session's record — `asf check` on the station that runs them checks them")
+    return 1 if failed or refused or unbenched else 0
 
 
 def cmd_describe(args) -> int:
@@ -253,20 +268,40 @@ def cmd_status(args) -> int:
     return supervise.status(factory.load(args.config))
 
 
+def _bound(config: str) -> dict[str, list[str]]:
+    """Each workflow that loads, and the agents it binds: what a scorer is
+    checked against."""
+    bound: dict[str, list[str]] = {}
+    for name, _ in workflow.available(config):
+        try:
+            bound[name] = workflow.load(name, config).required_agents
+        except SystemExit:
+            pass                # its scorers are refused for it, and say so
+    return bound
+
+
 def cmd_score(args) -> int:
     """Measure what already happened: every ended chapter a scorer has not
     scored, then every pull request no watcher saw close. The scoring goes
     first — it needs no forge, so a forge that cannot be read costs no score."""
     cfg = factory.load(args.config)
-    bound: dict[str, list[str]] = {}
-    for name, _ in workflow.available(args.config):
-        try:
-            bound[name] = workflow.load(name, args.config).required_agents
-        except SystemExit:
-            pass                # its scorers are refused for it, and say so
-    chosen, broken = scorers.choose(factory.root_of(args.config), bound, args.scorer)
+    chosen, broken = scorers.choose(factory.root_of(args.config), _bound(args.config),
+                                    args.scorer)
     code = scorers.backfill(cfg, chosen, broken, args.since)
     return max(code, watch.backfill(cfg, args.since))
+
+
+def cmd_benchmark(args) -> int:
+    """`benchmark new`: pin what a scorer cited as a benchmark, to be committed."""
+    cfg, root = factory.load(args.config), factory.root_of(args.config)
+    found, refused = scorers.choose(root, _bound(args.config), [args.from_scorer])
+    if not found:
+        raise SystemExit(f"scorer {args.from_scorer} is refused by `asf check`: "
+                         f"{refused[0].error}")
+    benchmarks.seed(cfg, git_helper.main_root(), root, benchmarks.Seed(
+        name=args.name or args.from_scorer, scorer=found[0], variants=args.variant,
+        repetitions=args.repetitions))
+    return 0
 
 
 def _since(text: str) -> datetime:
@@ -409,6 +444,21 @@ def build_parser() -> argparse.ArgumentParser:
                        help="score with this scorer only (repeatable); default: every one. "
                             "It narrows the scoring: pull requests are still recorded")
     score.set_defaults(func=cmd_score)
+    bench = _config_on(sub.add_parser("benchmark", help="past sessions' requests, pinned, to be "
+                                                        "worked again under two or more variants"))
+    verbs = bench.add_subparsers(dest="action", required=True)
+    new = _config_on(verbs.add_parser(
+        "new", help="write asf/benchmarks/<name>.yaml from the sessions a scorer cited as "
+                    "failing, and two it judged passing as controls"))
+    new.add_argument("name", nargs="?", default="", help="default: the scorer's name")
+    new.add_argument("--from-scorer", required=True, metavar="SCORER",
+                     help="the scorer whose failing sessions it pins")
+    new.add_argument("--variant", action="append", default=[], metavar="REF[=LABEL]",
+                     help="a git ref of the factory's files (repeatable); default: the default "
+                          "branch and the scorer's open self-improvement pull request's branch")
+    new.add_argument("--repetitions", type=int, default=3,
+                     help="how often each task is worked per variant (default 3)")
+    new.set_defaults(func=cmd_benchmark)
     trees = _config_on(sub.add_parser("worktrees", help="list, prune or remove run worktrees"))
     trees.add_argument("action", choices=["list", "prune", "remove"])
     trees.add_argument("adw_id", nargs="?", help="remove: which run's worktree")

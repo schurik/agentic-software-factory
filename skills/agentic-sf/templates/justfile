@@ -173,6 +173,11 @@ prs-watch *ARGS:
 score *ARGS:
     {{asf}} score "$@"
 
+# pin the sessions a scorer cited as failing, and two passing ones, as a benchmark to commit:
+# just benchmark new --from-scorer corrections [--variant main --variant asf/1a2b3c4d=fix]
+benchmark *ARGS:
+    {{asf}} benchmark "$@"
+
 # ── worktrees ───────────────────────────────────────────────────────────────
 # One per run, kept on failure. Branches are never deleted by any of these.
 
