@@ -175,6 +175,8 @@ score *ARGS:
 
 # pin the sessions a scorer cited as failing, and two passing ones, as a benchmark to commit:
 # just benchmark new --from-scorer corrections [--variant main --variant asf/1a2b3c4d=fix]
+# and work it — isolated sessions per variant, paid from the measurement budget:
+# just benchmark run corrections
 benchmark *ARGS:
     {{asf}} benchmark "$@"
 

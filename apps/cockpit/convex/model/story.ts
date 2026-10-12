@@ -514,6 +514,7 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     1: tellStarted,
     2: tellStarted,                 // v2 adds station_kind, which the story has no use for
     3: tellStarted,                 // v3 adds the transcript's retention: the summary's, not the story's
+    4: tellStarted,                 // v4 adds what a benchmark's session re-works: the summary's too
   },
   workflow_started: {
     1: workflowStarted,

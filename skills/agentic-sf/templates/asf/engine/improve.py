@@ -154,10 +154,13 @@ def judged(sessions_dir: Path, scorer: str, after: datetime | None = None,
     by when each started. A chapter scored again (resumed and ended again, or
     `asf score` after the scorer changed) is read by its latest score. With
     `after`, only the chapters that started after it count, and a session
-    with none is not one the scorer judged since."""
+    with none is not one the scorer judged since. A benchmark's session is
+    never one: it is a measurement of a variant, not the factory's work, and
+    counts toward no self-improvement (`CONTEXT.md`, Benchmark)."""
     states = artifacts.scan(sessions_dir) if states is None else states
-    started = sorted(states.items(), key=lambda each: (each[1].started_at, each[0]),
-                     reverse=True)
+    started = sorted(((adw_id, state) for adw_id, state in states.items()
+                      if state.benchmark is None),
+                     key=lambda each: (each[1].started_at, each[0]), reverse=True)
     for adw_id, _ in started:
         lines = events.read(Path(sessions_dir) / adw_id)
         latest: dict[int, EventLine] = {}

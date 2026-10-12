@@ -469,9 +469,48 @@ sessions and refs are not, and `check` says so; the station that runs the benchm
 The self-description lists the benchmarks it accepted, each variant labelled, and the ones it
 refused (format 5).
 
-Working a benchmark — `asf benchmark run <name>`, sessions that are never published, integrated
-or reported on the tracker, paid from the measurement budget and counted in no metric — is the
-next slice.
+`asf benchmark run <name>` works it: each task `repetitions` times under each variant, one
+session at a time — repetition by repetition, task by task, variant by variant, so a benchmark the
+budget stopped has compared what it worked. Each is an ordinary `asf run` of the workflow the
+task's source session first ran, with the source's request, launched with what it re-works in its
+environment (`engine/benchmark_session.py`). Such a session takes `trigger: benchmark` and says
+what it re-works on its `session_started` (v4: `benchmark: {benchmark, variant, ref, commit,
+task, repetition}`), which its `run.json` keeps, so a resumed process of it is held to the same
+rules without being told again:
+
+- **It is worked against the variant's files.** Everything under `asf/` at the variant's commit
+  is written once into `<data_dir>/benchmarks/<name>/<commit>/` and the session runs with
+  `--config` there: the variant's options, workflows, agents, task files and stages. The engine
+  running them is the station's own — it is what keeps the session from reaching outward, so it
+  is never a variant's, and a branch cut before benchmarks existed cannot publish what it worked.
+- **It starts where its source started.** Its branch is cut from the commit the task pins. An
+  issue's chapter reads the reporter's text as the source read it, from the source's record
+  (`inputs.open_recorded_issue`), never the issue as it reads now.
+- **Nothing of it leaves the machine.** It is never published (`Workspace.isolated`), never
+  integrated (the `integrate` stage lands nothing and says why), never reported on the tracker or
+  asked about there, `refine` writes no requirements back, and it takes no claim; a push or a
+  forge command from its process is refused outright (`benchmark_session.refused`, asked by every
+  forge runner and `git_helper.push`), whatever a variant's stage asks for.
+- **Its gates are answered as its source's were.** A gate's policy is read for the source's
+  trigger, and a gate that stops is answered by the decision a person recorded at the same gate
+  and round of the source — their verdict and their words, now about this session's subject.
+  A gate no person answered there — one the variant adds, a round the source never reached, or
+  one a policy passed — has no answer to give: the session stops as **not comparable**, its
+  `workflow_finished` reason starting with those words.
+- **It is measurement.** What it spends is the measurement budget's (`engine/measurement.py`
+  reads each benchmark session's `run.json`), asked before every session: once the day's is
+  spent nothing more starts, the command says how many were not worked and exits 1; run again, it
+  works only what has not ended already at the same commit of each variant. Once a
+  session ends, the station's own scorers score it (`scorers.score_session`) — the criteria the
+  team trusts, whatever a variant's are — and no self-improvement window counts it
+  (`improve.judged`). A cockpit counts it in no metric: no spend, phase, chapter, pull request
+  or score row is written for it, it is never a failure that needs attention, and its agent calls
+  are the Measurement cost's benchmarks.
+
+It prints one line a session — variant, task, repetition, session, how it ended (accepted, not
+accepted, not comparable, failed) and what it cost — then each variant's ends and spend. It never
+declares a winner: reading each variant against the run-to-run noise is a person's comparison —
+the cockpit's Benchmarks view, still to come, draws it from those sessions' events.
 
 ## The engine
 

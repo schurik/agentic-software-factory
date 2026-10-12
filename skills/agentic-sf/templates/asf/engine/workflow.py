@@ -35,8 +35,8 @@ from typing import Any, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import (agents, claims, factory, git_helper, inputs, issues, pull_requests, scorers,
-               session, tasks)
+from . import (agents, benchmark_session, claims, factory, git_helper, inputs, issues,
+               pull_requests, scorers, session, tasks)
 from .data_types import (AgentConfig, BuildOutput, ChapterInput, ClaimAsk, EnvelopeBase,
                          FactoryConfig, Invocation, PhaseParams, SessionSpec)
 from .utils import new_id
@@ -331,13 +331,20 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
     cfg = workflow.cfg
     request, adw_id = invocation.request, invocation.adw_id
     context, number = None, 0
+    # A benchmark's session works its source's request from the record, and
+    # asks neither the forge nor a cockpit for anything (benchmark_session.py).
+    benchmark = benchmark_session.of(cfg, git_helper.main_root(), adw_id)
+    if benchmark is not None and workflow.input == "pr":
+        raise SystemExit(f"workflow {workflow.name!r} takes input: pr, and a benchmark works "
+                         f"a session's request again — a prompt or an issue, never a round of "
+                         f"review. Nothing was created.")
     if workflow.input != "prompt":
         number = inputs.number_of(request, workflow.input)      # before a session exists
     if workflow.input == "pr":
         # The pull request names its own session, and that is decided before
         # one exists: a refusal costs one forge call and leaves nothing behind.
         adw_id, context = inputs.locate_pr(cfg, number, adw_id)
-    if workflow.input != "prompt":
+    if workflow.input != "prompt" and benchmark is None:
         adw_id = adw_id or new_id(8)            # the session the claim is for
         claims.for_run(cfg, ClaimAsk(kind=workflow.input, number=number, session=adw_id,
                                      repo=_project(cfg, workflow.input)), invocation)
@@ -350,7 +357,9 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
     # scored once it has, by every scorer bound to this workflow. A chapter
     # stopped at a gate has not ended: the process that ends it scores it.
     try:
-        if workflow.input == "issue":
+        if workflow.input == "issue" and run.benchmark is not None:
+            opened = inputs.open_recorded_issue(run)
+        elif workflow.input == "issue":
             opened = inputs.open_issue(run, cfg, number)
         elif workflow.input == "pr":
             opened = inputs.open_pr(run, cfg, context)
@@ -379,14 +388,18 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
 
         # The tracker hears about the run either way: a run that could not finish
         # is exactly the one whose reporter most needs to know where it stopped.
-        if workflow.input == "issue":
+        # A benchmark's session is no news to anyone there (input is never pr).
+        if workflow.input == "issue" and run.benchmark is None:
             inputs.report_issue(run, cfg, opened, accepted)
         elif workflow.input == "pr":
             build = ctx.latest.get(BuildOutput)
             inputs.report_pr(run, cfg, opened, accepted, build.summary if build else "")
         return run.finish(accepted=accepted, reason=reason)
     finally:
-        scorers.after_chapter(run, workflow)
+        # A benchmark's session is scored by the station that launched it, with
+        # the station's scorers — never by the variant's (benchmarks.run).
+        if run.benchmark is None:
+            scorers.after_chapter(run, workflow)
 
 
 def _project(cfg: FactoryConfig, kind: str) -> str:

@@ -34,7 +34,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from . import artifacts, git_helper
+from . import artifacts, benchmark_session, git_helper
 from .data_types import (IssueComment, IssueContext, IssueOutput, IssueRef,
                          IssueResult, IssuesConfig, IssueUpdate, NewIssue, OpenIssue,
                          PullRequestsConfig, Question, Said)
@@ -93,9 +93,11 @@ _REMOTE_PATTERNS = (
 
 
 def _run(argv: list[str], cwd) -> subprocess.CompletedProcess:
-    """Run a forge CLI command. Never raises — a rejected call is data."""
-    return subprocess.run(argv, cwd=str(cwd), env=operator_env(),
-                          capture_output=True, text=True)
+    """Run a forge CLI command. Never raises — a rejected call is data. A
+    benchmark's session makes none: refused, as the forge would refuse it."""
+    refused = benchmark_session.refused(argv) if argv[:1] != ["git"] else None
+    return refused or subprocess.run(argv, cwd=str(cwd), env=operator_env(),
+                                     capture_output=True, text=True)
 
 
 def resolve_project(config: IssuesConfig | PullRequestsConfig, main_root) -> str:

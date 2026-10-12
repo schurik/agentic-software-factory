@@ -49,7 +49,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import artifacts, events, issues, journal
+from . import artifacts, benchmark_session, events, issues, journal
 from . import publish as publishing       # `publish` here is asking the questions
 from .data_types import (Decision, DecisionRecorded, EnvelopeBase, Gate,
                          HitlConfig, IssueRef,
@@ -345,6 +345,10 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
         run.console.note(f"subject: {path}")
 
     recorded = read_decision(run.session_dir, subject.gate, subject.round)
+    if recorded is None and getattr(run, "benchmark", None) is not None:
+        # A benchmark's session asks nobody: the person who answered this round
+        # in the session it re-works answers it again, or nobody can.
+        return _consume(run, phase, _as_answered(run, subject, fingerprint), subject.kind)
     if recorded is not None:
         if recorded.consumed_at and run.resuming:
             # This round was already walked by an earlier process, and the
@@ -382,6 +386,29 @@ def decide(run, phase: Phase, subject: Subject) -> Decision:
         f"round {subject.round}"))
     _notify(run, waiting)
     raise Suspended(waiting, subject.questions, published)
+
+
+def _as_answered(run, subject: Subject, fingerprint: str) -> Decision:
+    """The decision a person recorded for this gate and round in the session
+    a benchmark's `run` re-works — their verdict and their words, now about
+    this session's subject. One a policy passed there is not a person's, and
+    none at all is no answer: both stop the session as not comparable."""
+    source = benchmark_session.source_dir(run)
+    answered = read_decision(source, subject.gate, subject.round)
+    what = (f"the {subject.gate} {'questions' if subject.kind == 'questions' else 'gate'}, "
+            f"round {subject.round}")
+    if answered is None:
+        raise benchmark_session.NotComparable(
+            f"session {source.name} recorded no decision at {what} — a benchmark's session "
+            f"answers a gate only as a person answered it there")
+    if answered.channel == "auto":
+        raise benchmark_session.NotComparable(
+            f"session {source.name} passed {what} by policy, and no person answered it there")
+    run.console.note(f"gate {subject.gate} round {subject.round}: answered as in session "
+                     f"{source.name} — {answered.verdict} by {answered.by}")
+    return Decision(gate=subject.gate, round=subject.round, verdict=answered.verdict,
+                    notes=answered.notes, by=answered.by, channel=benchmark_session.TRIGGER,
+                    subject_digest=fingerprint)
 
 
 def publish(run, waiting: WaitingFor, questions: list) -> None:
@@ -591,7 +618,7 @@ def gated(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
     `<gate>_revise_<n>` between them. Every one replays on `--resume` by its
     name, so a suspended run re-enters the exact round it left.
     """
-    if run.hitl.mode(gate.name, run.trigger) == "auto":
+    if run.hitl.mode(gate.name, _trigger_of(run)) == "auto":
         return _pass_by_policy(run, gate, envelope)
     if run.hitl.every and _already_approved(run, gate, envelope):
         # `--hitl every` put a checkpoint of the same name after the phase that
@@ -691,6 +718,15 @@ def asked(run, subject: Subject) -> Decision:
                           f"know has not claimed anything yet"
                           + (f": {decision.notes}" if decision.notes else ""))
     return decision
+
+
+def _trigger_of(run) -> str:
+    """The trigger a gate's policy is read for: a benchmark's session's gates
+    stop where its source's did, so they are read for the source's trigger."""
+    if getattr(run, "benchmark", None) is None:
+        return run.trigger
+    source = benchmark_session.source_state(run)
+    return source.trigger if source else run.trigger
 
 
 def _already_approved(run, gate: Gate, envelope: EnvelopeBase) -> bool:

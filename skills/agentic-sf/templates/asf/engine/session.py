@@ -33,8 +33,10 @@ import signal
 import sys
 from pathlib import Path
 
-from . import artifacts, commands, git_helper, preflight, publish, station, worktree
-from .data_types import FactoryConfig, RunSpec, SessionSpec, SessionStarted, WorktreeRequest
+from . import (artifacts, benchmark_session, commands, git_helper, preflight, publish, station,
+               worktree)
+from .data_types import (BenchmarkSession, FactoryConfig, RunSpec, SessionSpec, SessionStarted,
+                         WorktreeRequest)
 from .hitl import HitlPolicy
 from .runner import Run
 from .tracer import Tracer
@@ -92,20 +94,32 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     except ValueError as error:
         raise SystemExit(str(error)) from None
     warnings = preflight.before_run(cfg, main_root)
+    # A benchmark's session — as its launcher says, or as its record already
+    # does — is held to that from before its branch exists: cut where the
+    # session it re-works started, and never published (benchmark_session.py).
+    recorded = artifacts.read_run(anchor(main_root, f"{cfg.data_dir}/sessions/{adw_id}"))
+    benchmark = (recorded.benchmark if recorded and recorded.benchmark
+                 else benchmark_session.asked())
+    if benchmark is not None:
+        benchmark_session.adopt(benchmark)
     # ...and, under `worktree.publish: on_create`, put on the remote — the last
     # refusal that is still free, because it happens before the branch is cut.
     workspace = worktree.ensure(WorktreeRequest(
         main_root=main_root, adw_id=adw_id, config=cfg.worktree,
-        publish_on_create=publish.mode(cfg, main_root) == publish.ON_CREATE))
+        publish_on_create=publish.mode(cfg, main_root) == publish.ON_CREATE,
+        isolated=benchmark is not None,
+        base_commit=_source_commit(cfg, main_root, benchmark)))
     tracer = Tracer(anchor(main_root, f"{cfg.data_dir}/sessions/{adw_id}"))
     run = Run(RunSpec(cfg=cfg, adw_id=adw_id, engineer=engineer_name(),
                       workspace=workspace, resume=resume, hitl=hitl), tracer)
+    run.benchmark = benchmark
+    if benchmark is not None:
+        run.trigger = benchmark_session.TRIGGER
     # What the session already knows about itself, from its own directory. An
     # issue-triggered session that a later ADW re-enters must still know it was
     # issue-triggered — integration.py refuses to merge on that — and a session
     # whose branch is already a pull request must know THAT, or it proposes the
     # branch a second time instead of pushing to the PR it has.
-    recorded = artifacts.read_run(run.session_dir)
     if recorded:
         run.adopt_provenance(recorded.trigger, recorded.issue_url, recorded.pr_url)
     triggered_by = recorded.triggered_by if recorded else _launched_by()
@@ -123,7 +137,8 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
         base_commit=workspace.base_commit, trigger=run.trigger, triggered_by=triggered_by,
         issue_url=run.issue_url, pr_url=run.pr_url, request=spec.request, station_id=here.id,
         station_name=here.name, station_kind=here.kind,
-        transcript_retention_days=cfg.cockpit.transcript_retention_days or 0))
+        transcript_retention_days=cfg.cockpit.transcript_retention_days or 0,
+        benchmark=benchmark))
     artifacts.open_chapter(run.session_dir, workflow, spec)
     # And from here every event this process appends is on its way to the
     # cockpit, when there is one — from a thread, so nothing below waits on it.
@@ -153,6 +168,20 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     if run.hitl.override or cfg.hitl.default or any(cfg.hitl.gates.values()):
         run.console.note(run.hitl.summary())
     return run
+
+
+def _source_commit(cfg: FactoryConfig, main_root: Path,
+                   benchmark: BenchmarkSession | None) -> str:
+    """The commit a benchmark's session is cut from: the one its source session
+    started from, as the source's own record says — "" for every other run."""
+    if benchmark is None:
+        return ""
+    commit = benchmark_session.started_from(
+        artifacts.sessions_root(main_root, cfg.data_dir) / benchmark.task)
+    if not commit:
+        raise SystemExit(f"session {benchmark.task} names no commit it started from, so it "
+                         f"cannot be worked again where it started. Nothing was created.")
+    return commit
 
 
 def _launched_by() -> str:

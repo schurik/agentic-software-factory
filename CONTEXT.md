@@ -60,8 +60,8 @@ _Avoid_: verdict (a person's answer at a gate), grade, rating, evaluation
 What measuring a factory's own work — its judges, the diagnoses of its self-improvement and its
 benchmarks — may spend in one UTC day,
 apart from the work's own budget and never counted in what the work cost. Once a day's spend
-reaches it, no judge starts until the next day, and a chapter one skipped is "not judged (budget)"
-until it is judged later.
+reaches it, no judge, diagnosis or benchmark's session starts until the next day, and a chapter a
+judge skipped is "not judged (budget)" until it is judged later.
 _Avoid_: scoring budget, eval budget, quota
 
 **Self-improvement**:

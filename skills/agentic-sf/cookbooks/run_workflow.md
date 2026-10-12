@@ -263,3 +263,22 @@ failing session cited there is nothing to benchmark. It never overwrites a
 benchmark; `just check` checks one (`✓ benchmark <name>: 4 tasks × 2 variants
 (main, PR #14) × 3`). A benchmark is never a verdict: working it, and reading
 each variant's numbers against the noise, is a person's comparison to make.
+
+Once it is committed, `just benchmark run <name>` works it on this station:
+every task, `repetitions` times, under each variant — `benchmark <name>: 4 tasks
+× 2 variants (main, PR #14) × 3 — 24 session(s), no winner declared`, then one
+line per session (`PR #14 · 1a0ef8ea #2: 7c1d9e0a accepted, $0.41`) and each
+variant's tally. Tell the user before starting what it will cost: each session
+is paid from the measurement budget (`measurement.usd_per_day`), which is asked
+before every session, so a benchmark larger than a day's budget stops partway —
+`the measurement budget is spent … 9 of 24 session(s) not worked`, exit 1 — and
+is run again on a later day, when it works only the sessions that have not ended
+(`15 already worked`); a variant whose ref moved since is worked again. The sessions are isolated: never published,
+integrated or reported on the tracker, so nothing reaches the forge, and each
+is run by the variant's files under `asf/` with this station's engine. Their
+gates are answered as the source session's person answered them; a session
+that reaches a gate no person answered there — one the variant adds, or a round
+the source never reached — ends `not comparable`, which is a fact about the
+comparison, not a failure of the variant. They are scored by this station's
+scorers and count toward no metric and no self-improvement. Report each
+variant's tally as it is, never which one won.

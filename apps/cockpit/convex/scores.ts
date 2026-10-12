@@ -13,6 +13,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { type ScoreRow, scoredIn } from "./model/scores";
+import { benchmarkedIn } from "./model/session";
 import type { StoredEvent } from "./model/wire";
 import type { Where } from "./phases";
 
@@ -59,7 +60,8 @@ export const backfill = internalMutation({
       const events = await ctx.db.query("events")
         .withIndex("by_session_seq", (q) => q.eq("factory", record.factory).eq("session", record.session).lte("seq", record.acked))
         .collect();
-      await score(ctx, record, events, record._creationTime);
+      // A benchmark's session adds no row a metric reads (ingest.ts).
+      if (!benchmarkedIn(events)) await score(ctx, record, events, record._creationTime);
       await ctx.db.patch(record._id, { scored: true });
     }
     if (unwritten.length === WRITTEN_PER_TURN) await ctx.scheduler.runAfter(0, internal.scores.backfill, {});

@@ -109,7 +109,8 @@ def start_run(session_dir: Path, started: SessionStarted) -> RunState:
                      status="running", started_at=started.started_at,
                      repo_root=started.repo_root, branch=started.branch,
                      trigger=started.trigger, triggered_by=started.triggered_by,
-                     issue_url=started.issue_url, pr_url=started.pr_url)
+                     issue_url=started.issue_url, pr_url=started.pr_url,
+                     benchmark=started.benchmark)
     previous = read_run(session_dir)
     if previous:
         state.workflows = previous.workflows + [
@@ -122,6 +123,7 @@ def start_run(session_dir: Path, started: SessionStarted) -> RunState:
         state.issue_project = state.issue_project or previous.issue_project
         state.pr_url = state.pr_url or previous.pr_url
         state.pr_state = previous.pr_state
+        state.benchmark = state.benchmark or previous.benchmark
         # A session stopped at a gate is picked up by the process that answers
         # it, and that process has to reach the gate knowing what was asked.
         state.waiting_for = state.waiting_for or previous.waiting_for

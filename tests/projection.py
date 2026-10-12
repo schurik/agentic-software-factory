@@ -87,7 +87,8 @@ def _started(out: Projection, body: dict) -> None:
            "trigger": body["trigger"], "triggered_by": body["triggered_by"],
            "issue_url": body["issue_url"],
            "pr_url": body["pr_url"], "pr_state": "", "issue_number": 0, "issue_project": "",
-           "waiting_for": None, "total_tokens": 0, "total_cost": 0.0}
+           "waiting_for": None, "total_tokens": 0, "total_cost": 0.0,
+           "benchmark": body.get("benchmark")}
     if previous is not None:
         run["workflows"] = previous["workflows"] + [
             name for name in run["workflows"] if name not in previous["workflows"]]
@@ -97,6 +98,7 @@ def _started(out: Projection, body: dict) -> None:
         run["waiting_for"] = previous["waiting_for"]
         run["total_tokens"] = previous["total_tokens"]
         run["total_cost"] = previous["total_cost"]
+        run["benchmark"] = run["benchmark"] or previous["benchmark"]
     out.run = run
 
 

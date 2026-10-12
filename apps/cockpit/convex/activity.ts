@@ -22,7 +22,7 @@ import { mayRevoke } from "./stations";
 import type { Drifted, Facts, Failed } from "./model/attention";
 import { drift } from "./model/drift";
 import { permitted } from "./model/inbox";
-import { endedAt, readSummary, type Summary } from "./model/session";
+import { endedAt, isBenchmark, readSummary, type Summary } from "./model/session";
 import { readable, viewing, type Viewing } from "./viewer";
 
 /** How many of a factory's sessions a page looks back over, most recently active first. */
@@ -99,7 +99,8 @@ function held(known: Recorded): boolean {
 
 function failures(known: Recorded[]): Failed[] {
   return known
-    .filter((each) => each.summary.status === "fail")
+    // A benchmark's session that failed, or stopped as not comparable, is a measurement's result: nobody's work broke.
+    .filter((each) => each.summary.status === "fail" && !isBenchmark(each.summary))
     .map((each) => ({ session: each.session, title: each.summary.request, workflow: workflowOf(each.summary), station: each.summary.stationName, endedAt: endedAt(each) }))
     .sort((a, b) => b.endedAt - a.endedAt)
     .slice(0, FAILURES);
@@ -254,7 +255,8 @@ export const stations = query({
         found.release = each.summary.skillVersion;
       }
       const ended = endedAt(each);
-      if (ended >= period.from && ended < period.to) {
+      // A benchmark's session is measurement: it counts in no station's sessions or failures (CONTEXT.md, Benchmark).
+      if (ended >= period.from && ended < period.to && !isBenchmark(each.summary)) {
         found.period.sessions += 1;
         if (each.summary.status === "fail") found.period.failed += 1;
       }

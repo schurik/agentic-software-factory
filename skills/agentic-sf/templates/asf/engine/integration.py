@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import subprocess
 
-from . import artifacts, git_helper, pull_requests
+from . import artifacts, benchmark_session, git_helper, pull_requests
 from .data_types import (FactoryConfig, IntegrationMode, IntegrationRequest, IntegrationResult,
                          ProvenanceRecorded, PullRequestOpened)
 from .utils import operator_env
@@ -104,6 +104,13 @@ def integrate(run, params: IntegrationRequest) -> IntegrationResult:
     if downgrade:
         result.notes.append(downgrade)
 
+    if workspace.isolated:
+        # A benchmark's session is a measurement: its branch is never landed,
+        # proposed or pushed, whichever variant's workflow asks (benchmark_session.py).
+        result.ok = True
+        result.notes.append(f"a benchmark's session is never integrated — {workspace.branch} "
+                            f"stays on this machine")
+        return result
     if not workspace.enabled:
         result.notes.append("this run has no worktree, so it has no branch to land — "
                             "its commits are already on the branch it ran on")
@@ -151,7 +158,8 @@ def keep_published(run) -> IntegrationResult:
     result = IntegrationResult(mode="pr", branch=workspace.branch,
                                base_ref=workspace.base_ref, ok=True)
 
-    if not workspace.enabled or not git_helper.has_remote(tree, config.remote):
+    if (not workspace.enabled or workspace.isolated
+            or not git_helper.has_remote(tree, config.remote)):
         return result
     published = git_helper.remote_tip(tree, config.remote, workspace.branch)
     if not published:
@@ -328,8 +336,8 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
                 argv += ["--title", fallback_title]
     # The forge CLI is already authenticated in the engineer's shell, so it runs
     # under their environment rather than the ADW's ephemeral `uv run` venv.
-    completed = subprocess.run(argv, cwd=tree, env=operator_env(),
-                               capture_output=True, text=True)
+    completed = benchmark_session.refused(argv) or subprocess.run(
+        argv, cwd=tree, env=operator_env(), capture_output=True, text=True)
     output = (completed.stderr or completed.stdout).strip()
     if completed.returncode != 0:
         # The record is not the only way a branch gets a pull request: someone

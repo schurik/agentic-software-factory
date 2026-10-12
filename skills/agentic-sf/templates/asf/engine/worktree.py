@@ -69,7 +69,16 @@ def ensure(request: WorktreeRequest) -> Workspace:
     are off, when this is not a git repository, or when the repository has no
     commit to branch from — every one of which is a legitimate way to run an
     ADW, and none of which is worth failing a run over.
+
+    An isolated request (a benchmark's session) is never published, and says
+    so on the workspace however it was reached — created, re-created from its
+    branch or re-attached — since every later process of the session asks it.
     """
+    workspace = _ensure(request)
+    return workspace.model_copy(update={"isolated": True}) if request.isolated else workspace
+
+
+def _ensure(request: WorktreeRequest) -> Workspace:
     main = Path(request.main_root).resolve()
     config = request.config
     plain = Workspace(main_root=main, repo_root=main)
@@ -108,7 +117,10 @@ def ensure(request: WorktreeRequest) -> Workspace:
         base_commit = recorded.get("base_commit") or git_helper.merge_base(
             path, base_ref, "HEAD")
     else:
-        base_ref = _base_ref_of(main, config)
+        # A pinned commit (a benchmark's session, which starts where the session
+        # it re-works started) is its own base ref: there is no branch to name.
+        base_ref = (request.base_commit if request.isolated and request.base_commit
+                    else _base_ref_of(main, config))
         base_commit = git_helper.rev(main, base_ref)
         # Before the branch exists, so a push the remote refuses leaves nothing
         # behind — see publish.on_create on why the base has to get there.
@@ -145,7 +157,7 @@ def _refuse_if_held(main: Path, branch: str) -> None:
 def _publish(request: WorktreeRequest, branch: str, base_commit: str = "") -> None:
     """Under `worktree.publish: on_create`, the branch goes to the remote before
     the run starts — or the run is refused (`publish.on_create`)."""
-    if request.publish_on_create:
+    if request.publish_on_create and not request.isolated:
         publish.on_create(Path(request.main_root).resolve(), request.config, branch,
                           base_commit)
 

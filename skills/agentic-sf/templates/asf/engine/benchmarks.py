@@ -28,24 +28,37 @@ or fewer than two variants. A CI checkout holds no session's record and only
 the commit it checked out, so there (`station.kind`) a benchmark's shape is
 checked and its sessions and refs are not: the station that runs it checks
 them.
+
+`asf benchmark run <name>` works one (`run`): each task, each repetition,
+under each variant, as an `asf run` whose session is a benchmark's —
+`engine/benchmark_session.py` says what that keeps it from. The measurement
+budget is asked before every session, and each is scored by the station's own
+scorers once it has ended.
 """
 
 from __future__ import annotations
 
+import io
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tarfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import yaml
 from pydantic import ValidationError
 
-from . import artifacts, events, git_helper, improve, station
-from .data_types import (BenchmarkSpec, BenchmarkTask, BenchmarkVariant, FactoryConfig,
-                         ProvenanceRecorded, PullRequestClosed, PullRequestOpened, SessionStarted)
-
-from .utils import write_atomic
+from . import (artifacts, benchmark_session, events, git_helper, hitl, improve, measurement,
+               scorers, station)
+from .data_types import (BenchmarkSession, BenchmarkSpec, BenchmarkTask, BenchmarkVariant,
+                         FactoryConfig, ProvenanceRecorded, PullRequestClosed, PullRequestOpened,
+                         SessionStarted, WorkflowStarted)
+from .utils import anchor, new_id, write_atomic
 
 if TYPE_CHECKING:
     from .scorers import Scorer
@@ -353,3 +366,187 @@ def render(asked: Seed, pinned: list[Pinned], variants: list[BenchmarkVariant]) 
                                 "repetitions": asked.repetitions},
                                sort_keys=False, allow_unicode=True).rstrip())
     return "\n".join(text) + "\n"
+
+
+# ── worked again: `asf benchmark run` ────────────────────────────────────────
+
+@dataclass(frozen=True)
+class Bench:
+    """Where a benchmark is worked: the station's config, its checkout, and
+    the factory root its runner and files are under."""
+
+    cfg: FactoryConfig
+    main_root: Path
+    factory_root: Path
+
+    @property
+    def sessions(self) -> Path:
+        return artifacts.sessions_root(self.main_root, self.cfg.data_dir)
+
+
+@dataclass
+class Worked:
+    """One session a benchmark worked: what it re-worked, and how it ended."""
+
+    variant: BenchmarkVariant
+    task: BenchmarkTask
+    repetition: int
+    session: str = ""               # "" when `asf run` refused it before it began
+    outcome: benchmark_session.Outcome | Literal["refused"] = "refused"
+    cost: float = 0.0
+
+
+def run(bench: Bench, benchmark: Benchmark, chosen: list["Scorer"]) -> int:
+    """Work each of `benchmark`'s tasks `repetitions` times under each
+    variant, one session at a time: repetition by repetition, task by task,
+    variant by variant, so a benchmark the budget stopped has compared what it
+    worked. Each session is scored by `chosen` — the station's scorers, the
+    criteria the team already trusts, whatever a variant's are — once it ends.
+
+    The measurement budget is asked before every session, and once the day's
+    is spent nothing more starts: 1, with what was not worked said. 0 once
+    every session was worked, whatever each came to — an outcome is a result,
+    never a failure of the run. A variant whose ref does not resolve, or whose
+    files cannot be read, is refused (SystemExit) before anything is worked."""
+    remote = bench.cfg.worktree.integration.remote
+    commits: dict[str, str] = {}
+    configs: dict[str, Path] = {}
+    for variant in benchmark.variants:
+        commits[variant.label] = resolve(bench.main_root, variant.ref, remote)
+        if not commits[variant.label]:
+            raise SystemExit(f"variant ref {variant.ref} does not resolve here, nor as "
+                             f"{remote}/{variant.ref} — nothing was worked")
+        configs[variant.label] = factory_files(bench, benchmark.name, commits[variant.label])
+    runner = str(bench.factory_root / "asf.py")         # the station's engine, always
+    spec, worked = benchmark.spec, []
+    order = [(repetition, task, variant) for repetition in range(1, spec.repetitions + 1)
+             for task in spec.tasks for variant in benchmark.variants]
+    ended = _already(bench, benchmark.name)
+    already = {(repetition, task.session, variant.label): adw_id
+               for repetition, task, variant in order
+               if (adw_id := ended.get((variant.label, commits[variant.label], task.session,
+                                        repetition)))}
+    print(f"benchmark {benchmark.name}: {said(benchmark)} — {len(order)} session(s)"
+          + (f", {len(already)} already worked" if already else "") + ", no winner declared")
+    for done, (repetition, task, variant) in enumerate(order):
+        # Worked already, at this very commit of the variant: a run the budget
+        # stopped goes on from where it stopped, and pays for nothing twice.
+        if (repetition, task.session, variant.label) in already:
+            worked.append(_ended(bench, already[repetition, task.session, variant.label],
+                                 Worked(variant, task, repetition)))
+            continue
+        day = measurement.today(bench.cfg, bench.main_root)
+        if day.spent_out:
+            print(f"the measurement budget is spent — ${day.spent:.2f} of ${day.budget:.2f} on "
+                  f"{day.day} (UTC), `measurement.usd_per_day` in factory.yaml: "
+                  f"{len(order) - done} of {len(order)} session(s) not worked")
+            _summary(benchmark, worked)
+            return 1
+        reworks = BenchmarkSession(benchmark=benchmark.name, variant=variant.label,
+                                   ref=variant.ref, commit=commits[variant.label],
+                                   task=task.session, repetition=repetition)
+        one = _work(bench, [runner, "--config", str(configs[variant.label])], reworks,
+                    Worked(variant, task, repetition))
+        if one.session:
+            scorers.score_session(bench.cfg, bench.sessions / one.session, chosen)
+        worked.append(one)
+        print(f"  {variant.label} · {task.session} #{repetition}: "
+              f"{one.session or '(no session)'} {one.outcome}, ${one.cost:.2f}")
+    _summary(benchmark, worked)
+    return 0
+
+
+def factory_files(bench: Bench, name: str, commit: str) -> Path:
+    """The variant's factory files — everything under the factory's root at
+    `commit` — as a directory of their own, and the path of its factory.yaml:
+    what a session of that variant is run by. Written once per commit and
+    kept, since a resumed session is run by the same files.
+
+    Its stages, agents, task files, workflows and options are the variant's;
+    the engine running them is the station's. It is what keeps a benchmark's
+    session from reaching outward, so it is never a variant's — a branch cut
+    before benchmarks existed would otherwise publish what it worked."""
+    relative = bench.factory_root.resolve().relative_to(bench.main_root.resolve())
+    home = anchor(bench.main_root, f"{bench.cfg.data_dir}/{BENCHMARKS_DIR}/{name}/{commit[:12]}")
+    config = home / relative / "factory.yaml"
+    if config.is_file():
+        return config
+    archived = subprocess.run(["git", "archive", "--format=tar", commit, "--", str(relative)],
+                              cwd=bench.main_root, capture_output=True)
+    if archived.returncode != 0:
+        raise SystemExit(f"cannot read the factory's files at {commit[:12]}: "
+                         f"{archived.stderr.decode(errors='replace').strip()}")
+    staging = home.with_name(home.name + ".partial")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(archived.stdout)) as tar:
+        tar.extractall(staging, filter="data")
+    if not (staging / relative / "factory.yaml").is_file():
+        shutil.rmtree(staging, ignore_errors=True)
+        raise SystemExit(f"{commit[:12]} has no {relative}/factory.yaml — a variant is a ref "
+                         f"of a factory's files")
+    staging.rename(home)
+    return config
+
+
+def _work(bench: Bench, runner: list[str], reworks: BenchmarkSession, one: Worked) -> Worked:
+    """One session: the task's source workflow and request, run by the
+    station's runner under the variant's files (`runner`), as a benchmark's
+    (benchmark_session.py)."""
+    sessions = bench.sessions
+    workflow, request = _source(sessions, one.task)
+    if not workflow:
+        print(f"  session {one.task.session} names no workflow it ran — nothing to work again")
+        return one
+    adw_id = new_id(8)
+    argv = [sys.executable, *runner, "run", workflow, request, "--adw-id", adw_id]
+    env = {**os.environ, hitl.UNATTENDED_ENV: "1", **benchmark_session.environment(reworks)}
+    subprocess.run(argv, cwd=str(bench.main_root), env=env, stdin=subprocess.DEVNULL)
+    return _ended(bench, adw_id, one)
+
+
+def _ended(bench: Bench, adw_id: str, one: Worked) -> Worked:
+    """`one`, as session `adw_id` ended — refused, when `asf run` left no record."""
+    state = artifacts.read_run(bench.sessions / adw_id)
+    if state is None:
+        return one
+    one.session, one.cost = adw_id, state.total_cost
+    one.outcome = benchmark_session.outcome(bench.sessions / adw_id)
+    return one
+
+
+def _already(bench: Bench, name: str) -> dict[tuple[str, str, str, int], str]:
+    """The sessions of benchmark `name` that have ended on this station, by
+    (variant, its commit, task, repetition)."""
+    found = {}
+    for adw_id, state in artifacts.scan(bench.sessions).items():
+        of = state.benchmark
+        if of is not None and of.benchmark == name and state.status in ("success", "fail"):
+            found[(of.variant, of.commit, of.task, of.repetition)] = adw_id
+    return found
+
+
+def _source(sessions: Path, task: BenchmarkTask) -> tuple[str, str]:
+    """The workflow the task's source session first ran, and what it was
+    asked: the issue's number for a chapter that answered an issue, else the
+    request the task pins."""
+    lines = events.read(Path(sessions) / task.session)
+    opened = next((line.payload for line in lines if line.kind == WorkflowStarted.KIND), {})
+    started = next((line.payload for line in lines if line.kind == SessionStarted.KIND), {})
+    workflow = str(opened.get("workflow") or started.get("workflow") or "")
+    if opened.get("input") == "issue":
+        return workflow, str(benchmark_session.issue_of(Path(sessions) / task.session).number)
+    return workflow, task.request
+
+
+def _summary(benchmark: Benchmark, worked: list[Worked]) -> None:
+    """Each variant's sessions by how they ended, and what they cost — the
+    numbers, never which variant is better."""
+    for variant in benchmark.variants:
+        mine = [one for one in worked if one.variant.label == variant.label]
+        if not mine:
+            continue
+        ends = sorted({one.outcome for one in mine})
+        print(f"{variant.label}: " + ", ".join(
+            f"{sum(one.outcome == end for one in mine)} {end}" for end in ends)
+              + f" — ${sum(one.cost for one in mine):.2f}")

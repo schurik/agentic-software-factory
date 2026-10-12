@@ -536,6 +536,16 @@ def score_ended_chapters(cfg: FactoryConfig, sessions_dir: Path, chosen: Sequenc
     return tally
 
 
+def score_session(cfg: FactoryConfig, session_dir: Path, chosen: Sequence[Scorer]) -> Tally:
+    """Score one session's ended chapters the way `asf score` does, and flush
+    what that added to a cockpit — how `asf benchmark run` scores each of its
+    sessions with the station's scorers once it has ended."""
+    tally = Tally()
+    if _score_session(cfg, session_dir, chosen, tally):
+        station.flush(session_dir)
+    return tally
+
+
 def _score_session(cfg: FactoryConfig, session_dir: Path, chosen: Sequence[Scorer],
                    tally: Tally) -> bool:
     """Score the session's ended chapters into `tally`; True when it wrote any."""
