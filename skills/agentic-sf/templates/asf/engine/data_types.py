@@ -1290,6 +1290,21 @@ class BenchmarkSpec(BaseModel):
     repetitions: int = Field(default=3, ge=1)      # how often each task is worked per variant
 
 
+class BenchmarkSession(BaseModel):
+    """What makes a session one of a benchmark's (`trigger: benchmark`): which
+    benchmark, under which variant, re-working which task, which time. Said by
+    its `session_started` (v4) and kept in its `run.json`, so every later
+    process of the session is held to what the first one was
+    (`engine/benchmarks.py`, on what such a session is kept from)."""
+
+    benchmark: str
+    variant: str                    # its label
+    ref: str = ""                   # the git ref the variant names
+    commit: str = ""                # ...as it resolved: the factory's files the session ran by
+    task: str                       # the source session's adw_id
+    repetition: int = 1             # 1..repetitions
+
+
 class IssueStates(BaseModel):
     """The label state machine: what a person sees of a work item's progress.
 
@@ -1502,6 +1517,9 @@ class Workspace(BaseModel):
     base_ref: str = ""              # what it was cut from, as asked for
     base_commit: str = ""           # ...pinned to a sha at creation
     created: bool = False           # False = re-attached to a worktree that existed
+    # A benchmark's session: its branch never leaves the machine — it is not
+    # published (`publish.publishes`), and nothing integrates it.
+    isolated: bool = False
 
     @property
     def joined(self) -> bool:
@@ -1518,6 +1536,11 @@ class WorktreeRequest(BaseModel):
     # Put the branch on the remote before the run starts — `publish.mode` said
     # `on_create`. Resolved by the caller: what decides it is not git's to know.
     publish_on_create: bool = False
+    # A benchmark's session: kept off the remote whatever `publish_on_create`
+    # says (`Workspace.isolated`), and a new branch is cut from `base_commit`
+    # rather than from the base ref — where the session it re-works started.
+    isolated: bool = False
+    base_commit: str = ""
 
 
 class WorktreeInfo(BaseModel):
@@ -1577,7 +1600,7 @@ class RunState(BaseModel):
     ended_at: str = ""
     repo_root: str = ""             # the worktree the run works in
     branch: str = ""
-    trigger: str = "engineer"       # engineer | issue | pr_review
+    trigger: str = "engineer"       # engineer | issue | pr_review | benchmark
     # WHO started the session, by forge login: whoever labelled the issue a
     # watcher dequeued, else the operator who ran it. Recorded by the session's
     # first process and kept by every later one — answering a gate, resuming,
@@ -1609,6 +1632,9 @@ class RunState(BaseModel):
     # what `budget:` is enforced against.
     total_tokens: int = 0
     total_cost: float = 0.0
+    # A benchmark's session: what it re-works, under which variant. None for
+    # every other session. Learned once, by its first process, and kept.
+    benchmark: Optional[BenchmarkSession] = None
 
     @property
     def adw_name(self) -> str:
@@ -2611,7 +2637,7 @@ class SessionStarted(DomainEvent):
     """
 
     KIND: ClassVar[str] = "session_started"
-    VERSION: ClassVar[int] = 3      # v2: station_kind; v3: transcript_retention_days
+    VERSION: ClassVar[int] = 4      # v2: station_kind; v3: transcript_retention_days; v4: benchmark
 
     adw_id: str
     workflow: str
@@ -2635,6 +2661,10 @@ class SessionStarted(DomainEvent):
     # `cockpit.transcript_retention_days` as this process ran under it; 0 when
     # factory.yaml sets none, and the cockpit's own maximum applies.
     transcript_retention_days: int = 0
+    # A benchmark's session (`trigger: benchmark`): what it re-works, under
+    # which variant — what a cockpit builds the Benchmarks view from, and
+    # leaves out of every metric. None for every other session.
+    benchmark: Optional[BenchmarkSession] = None
 
 
 class ProvenanceRecorded(DomainEvent):

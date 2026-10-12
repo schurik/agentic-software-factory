@@ -67,7 +67,7 @@ export interface PullRow {
 
 /** The versions of each kind the row folds: every one a factory writes, of a kind it takes anything from. */
 const FOLDED: Record<string, number[]> = {
-  session_started: [1, 2, 3], provenance_recorded: [1, 2, 3], committed: [1], usage: [1], pull_request_opened: [1],
+  session_started: [1, 2, 3, 4], provenance_recorded: [1, 2, 3], committed: [1], usage: [1], pull_request_opened: [1],
   pull_request_closed: [1, 2],
 };
 

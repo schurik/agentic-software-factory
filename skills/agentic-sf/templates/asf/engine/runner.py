@@ -19,11 +19,11 @@ import os
 import time
 from contextlib import contextmanager
 
-from . import (agents, artifacts, git_helper, hitl, journal, labels, limits, publish, replay,
-               worktree)
+from . import (agents, artifacts, benchmark_session, git_helper, hitl, journal, labels, limits,
+               publish, replay, worktree)
 from .console import Console
-from .data_types import (COMMIT_FILES, AgentCall, AgentConfig, AgentResult, Committed,
-                         Decision, DomainEvent, EnvelopeBase, Gate, Phase, PhaseEnded,
+from .data_types import (COMMIT_FILES, AgentCall, AgentConfig, AgentResult, BenchmarkSession,
+                         Committed, Decision, DomainEvent, EnvelopeBase, Gate, Phase, PhaseEnded,
                          PhaseParams, PhaseStarted, ProvenanceRecorded, RunSpec,
                          SessionSuspended, Subject, UsageRecorded, WaitingFor)
 from .utils import anchor, ensure_dir, now_iso, write_atomic
@@ -77,6 +77,10 @@ class Run:
         # — and integration reads it, because a prompt written by whoever can
         # file an issue does not get to move the base branch.
         self.trigger = "engineer"
+        # What a benchmark's session re-works, under which variant; None for
+        # every other run. Set by `session.ensure` — see benchmark_session.py
+        # for what it keeps such a session from.
+        self.benchmark: BenchmarkSession | None = None
         self.issue_number = 0
         self.issue_url = ""
         # Where this session's work already went. Empty until an integration
@@ -396,8 +400,11 @@ class Run:
             phase.error = str(error)[:1000]
             phase.ended_at = now_iso()
             self._ended(phase, error=phase.error)
-            artifacts.finish_run(self.session_dir, "fail",
-                                 reason=f"{params.name} failed: {phase.error}")
+            # A benchmark's session that cannot be compared says so first: it
+            # is how its outcome is told from a refusal (benchmark_session.py).
+            reason = (phase.error if isinstance(error, benchmark_session.NotComparable)
+                      else f"{params.name} failed: {phase.error}")
+            artifacts.finish_run(self.session_dir, "fail", reason=reason)
             self.console.phase_ended(phase, time.monotonic() - clock)
             # A person ending the run is not a failure to come back to: its
             # published branch goes. Any other failure keeps it, for `resume`.

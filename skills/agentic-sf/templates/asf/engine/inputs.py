@@ -35,9 +35,10 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import git_helper, hitl, issues, pull_requests
-from .data_types import (EnvelopeBase, IssueRef, IssueUpdate, PhaseParams, PullRequestRef,
-                         PullRequestUpdate, FactoryConfig)
+from . import artifacts, benchmark_session, events, git_helper, hitl, issues, pull_requests
+from .data_types import (EnvelopeBase, IssueContext, IssueRef, IssueUpdate, PhaseParams,
+                         ProvenanceRecorded, PullRequestRef, PullRequestUpdate, FactoryConfig)
+from .utils import write_atomic
 
 KINDS = ("prompt", "issue", "pr")
 REFUSED = 2                                  # nothing spent, nothing recorded
@@ -83,6 +84,42 @@ def open_issue(run, cfg: FactoryConfig, number: int) -> Opened:
     # the envelope, framed as a user's description of a problem. Interpolating
     # even the title here would walk untrusted text past that framing into
     # every agent's {{prompt}}.
+    prompt = (f"Resolve work item #{issue.number}. Its title, labels and body are in "
+              f"the envelope you were handed; the body is the artifact that envelope "
+              f"names.")
+    return Opened(prompt=prompt, previous=issues.as_envelope(issue), context=issue)
+
+
+def open_recorded_issue(run) -> Opened:
+    """A benchmark's session's issue: the reporter's text as the session it
+    re-works read it, from that session's own record — never the issue as it
+    reads now, and never with a word to the tracker. The run is not bound to
+    the issue (`record_issue`): it reports nothing there and is asked nothing
+    there. A source that kept no text has no request to work again."""
+    source = benchmark_session.source_dir(run)
+    with run.phase(PhaseParams(name="issue", kind="code", owner="tracker",
+                               description="Read the reporter's words as the session this "
+                                           "one re-works read them, from its record")) as ph:
+        kept = source / "context_handoff" / issues.BODY_FILENAME
+        if not kept.is_file():
+            raise benchmark_session.NotComparable(
+                f"session {source.name} kept no issue text ({kept}) — there is no request "
+                f"to work again")
+        state = artifacts.read_run(source)
+        learned = [line.payload for line in events.read(source)
+                   if line.kind == ProvenanceRecorded.KIND and line.payload.get("issue_number")]
+        said = learned[-1] if learned else {}
+        number = int(said.get("issue_number") or (state.issue_number if state else 0))
+        body_path = run.context_handoff_dir / issues.BODY_FILENAME
+        write_atomic(body_path, kept.read_text())
+        artifacts.record_artifacts(run, "request", [str(body_path)])
+        issue = IssueContext(
+            number=number, project=str(said.get("issue_project") or ""),
+            url=str(said.get("issue_url") or (state.issue_url if state else "")),
+            title=str(said.get("request") or "").removeprefix(f"#{number} "),
+            author=str(said.get("issue_author") or ""), body_path=str(body_path),
+            carries_requirements=issues.REQUIREMENTS_OPEN in kept.read_text())
+        ph.log(source=source.name, url=issue.url, title=issue.title, body=issue.body_path)
     prompt = (f"Resolve work item #{issue.number}. Its title, labels and body are in "
               f"the envelope you were handed; the body is the artifact that envelope "
               f"names.")

@@ -43,6 +43,9 @@ Usage:
                         [--variant <ref>[=<label>]]... [--repetitions 3]
                                                  pin the sessions a scorer cited as failing,
                                                  and two passing ones, as a benchmark
+    uv run asf/asf.py benchmark run <name>       work each task again, under each variant:
+                                                 isolated sessions, scored, paid from the
+                                                 measurement budget, no winner declared
     uv run asf/asf.py worktrees list|prune|remove <adw_id> [--force]
     uv run asf/asf.py station                    the station loop alone: ships, starts no watcher
     uv run asf/asf.py station sync               ship every session a cockpit has not acknowledged
@@ -292,8 +295,20 @@ def cmd_score(args) -> int:
 
 
 def cmd_benchmark(args) -> int:
-    """`benchmark new`: pin what a scorer cited as a benchmark, to be committed."""
+    """`benchmark new`: pin what a scorer cited as a benchmark, to be committed.
+    `benchmark run`: work it, scored by the station's scorers."""
     cfg, root = factory.load(args.config), factory.root_of(args.config)
+    if args.action == "run":
+        main_root = git_helper.main_root()
+        found, refused = benchmarks.load(root, cfg, main_root)
+        named = [each for each in found if each.name == args.name]
+        if not named:
+            why = next((each.error for each in refused if each.name == args.name), "")
+            raise SystemExit(f"benchmark {args.name} is refused by `asf check`: {why}" if why
+                             else f"no benchmark {args.name} under {benchmarks.directory(root)}"
+                                  f" — it has: {', '.join(e.name for e in found) or 'none'}")
+        chosen, _ = scorers.choose(root, _bound(args.config))
+        return benchmarks.run(cfg, main_root, root, named[0], chosen)
     found, refused = scorers.choose(root, _bound(args.config), [args.from_scorer])
     if not found:
         raise SystemExit(f"scorer {args.from_scorer} is refused by `asf check`: "
@@ -459,6 +474,13 @@ def build_parser() -> argparse.ArgumentParser:
     new.add_argument("--repetitions", type=int, default=3,
                      help="how often each task is worked per variant (default 3)")
     new.set_defaults(func=cmd_benchmark)
+    worked = _config_on(verbs.add_parser(
+        "run", help="work each task of asf/benchmarks/<name>.yaml its repetitions under each "
+                    "variant: sessions never published, integrated or reported, their gates "
+                    "answered as the source session's were, scored by this station's scorers "
+                    "and paid from the measurement budget"))
+    worked.add_argument("name", help="the benchmark: asf/benchmarks/<name>.yaml")
+    worked.set_defaults(func=cmd_benchmark)
     trees = _config_on(sub.add_parser("worktrees", help="list, prune or remove run worktrees"))
     trees.add_argument("action", choices=["list", "prune", "remove"])
     trees.add_argument("adw_id", nargs="?", help="remove: which run's worktree")

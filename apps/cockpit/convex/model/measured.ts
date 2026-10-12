@@ -8,12 +8,14 @@
  * no session's spend and in no cost per PR (model/pulls.ts); it is here, on the
  * day it was judged — its event's own time, usually long after the session
  * ended. A code predicate costs nothing and leaves no row. A benchmark's
- * sessions will be paid from the same budget, and add rows of their own kind.
+ * session (#198) is paid from the same budget: each of its agent calls — the
+ * `usage` a session of the work would spend — is a row of its own kind, and
+ * none of it is in a session's spend (ingest.ts writes it none).
  */
 import { Payload } from "./payload";
 import type { StoredEvent } from "./wire";
 
-/** What was paid for: a scorer's judge, or (to come) a benchmark's session. */
+/** What was paid for: a scorer's judge, or a benchmark's session. */
 export type MeasuredKind = "judge" | "benchmark";
 
 export interface MeasuredRow {
@@ -27,7 +29,7 @@ export interface MeasuredRow {
 }
 
 /** The versions of each kind the rows fold. */
-const FOLDED: Record<string, number[]> = { chapter_scored: [1, 2] };
+const FOLDED: Record<string, number[]> = { chapter_scored: [1, 2], usage: [1] };
 
 /** The versions of `kind` the rows fold, or [] for a kind they take nothing from (tests/measure.test.ts holds the corpus to it). */
 export function foldedVersions(kind: string): number[] {
@@ -48,16 +50,22 @@ export function overrunOf(rows: Pick<MeasuredRow, "at" | "cost">[], usdPerDay: n
   return [...byDay.values()].reduce((over, spent) => over + Math.max(0, spent - usdPerDay), 0);
 }
 
-/** The rows `events` add. An event whose timestamp cannot be read counts at `fallback` (when the cockpit took it in). */
-export function measuredIn(events: StoredEvent[], fallback: number): MeasuredRow[] {
+/**
+ * The rows `events` add: a judge's, and — of a benchmark's session, which
+ * `benchmark` says it is — each agent call's. An event whose timestamp cannot
+ * be read counts at `fallback` (when the cockpit took it in).
+ */
+export function measuredIn(events: StoredEvent[], fallback: number, benchmark: boolean): MeasuredRow[] {
   const rows: MeasuredRow[] = [];
   for (const event of events) {
     if (!foldedVersions(event.kind).includes(event.v)) continue;
     const p = Payload.parse(event.payload);
-    const cost = p.obj("usage")?.num("total_cost") ?? 0;
-    if (p.str("kind") !== "judge" || cost <= 0) continue;
+    const kind: MeasuredKind | null = event.kind === "usage" ? (benchmark ? "benchmark" : null)
+      : p.str("kind") === "judge" ? "judge" : null;
+    const cost = event.kind === "usage" ? p.num("cost") : p.obj("usage")?.num("total_cost") ?? 0;
+    if (kind === null || cost <= 0) continue;
     const ts = Date.parse(event.ts);
-    rows.push({ seq: event.seq, kind: "judge", at: Number.isNaN(ts) ? fallback : ts, cost });
+    rows.push({ seq: event.seq, kind, at: Number.isNaN(ts) ? fallback : ts, cost });
   }
   return rows;
 }

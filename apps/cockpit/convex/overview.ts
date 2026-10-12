@@ -17,7 +17,7 @@ import { query, type QueryCtx } from "./_generated/server";
 import { type PersonCost, rolledUp, SUMMED, spentOn, type StationCost } from "./cost";
 import { type Day, dailyOf, type Outcomes, outcomesOf, type WorkflowLine, workflowsOf } from "./model/overview";
 import type { Period } from "./model/period";
-import { endedAt, readSummary, type Summary } from "./model/session";
+import { endedAt, isBenchmark, readSummary, type Summary } from "./model/session";
 import type { Spend } from "./model/spend";
 import { type StageFigures, stagesOf } from "./model/workflows";
 import { spellingsOf } from "./spelling";
@@ -93,6 +93,7 @@ async function endedIn(ctx: QueryCtx, factory: string, period: Period): Promise<
     for await (const record of records) {
       if ((read += 1) > SUMMED) return null;
       const summary = readSummary(record.summary);
+      if (isBenchmark(summary)) continue;           // measurement, never the work
       const ended = endedAt({ summary, activity: record.activity });
       if (ended >= period.from && ended < period.to) found.push(summary);
     }

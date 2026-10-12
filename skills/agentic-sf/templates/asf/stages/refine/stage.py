@@ -194,6 +194,10 @@ def _record(ctx, number: int, draft: RequirementsOutput) -> None:
         if not block.strip():
             ph.log(ok=False, notes="the analyst named no readable requirements file")
             return
+        if ctx.run.benchmark is not None:
+            ph.log(ok=True, number=number, notes="a benchmark's session writes nothing to "
+                                                 "the tracker — the requirements stay here")
+            return
         written = issues.set_body(ctx.run.main_root, config, ref, block)
         marked = issues.mark_refined(ctx.run.main_root, config, ref)
         ph.log(ok=written.ok and marked.ok, number=number,

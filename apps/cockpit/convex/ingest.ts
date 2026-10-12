@@ -6,7 +6,7 @@ import { settleClaims } from "./claims";
 import { settle } from "./commands";
 import { measured } from "./measured";
 import { retained } from "./model/retention";
-import { advance, readSummary } from "./model/session";
+import { advance, isBenchmark, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
 import { phase } from "./phases";
@@ -66,7 +66,11 @@ export const append = internalMutation({
     // ...and its finish, or an abort, what frees the claim it was started under.
     await settleClaims(ctx, factory, session, fresh);
     const activity = Date.now();
-    for (const spent of spentIn(fresh, folded, activity)) {
+    // A benchmark's session is measurement, never the work (CONTEXT.md, Benchmark): it adds no
+    // row any metric reads — spend, phases, chapters, its pull request, its scores — and what it
+    // spent is measurement's, below.
+    const work = !isBenchmark(summary);
+    for (const spent of work ? spentIn(fresh, folded, activity) : []) {
       const buckets = await ctx.db
         .query("spend")
         .withIndex("by_session_at", (q) => q.eq("factory", factory).eq("session", session).eq("at", spent.at))
@@ -81,16 +85,19 @@ export const append = internalMutation({
       .query("events")
       .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).lte("seq", acked))
       .collect();
-    // Its phases' rows, the same way — from its first event, for a session an older cockpit stored without them.
-    if (record === null || record.phased) await phase(ctx, { factory, session }, fresh, folded);
-    else await phase(ctx, { factory, session }, await all(), null);
-    // Its chapters' rows, the same way: what the Measure tab counts by trigger (model/chapters.ts).
-    if (record === null || record.chaptered) await chapter(ctx, { factory, session }, fresh);
-    else await chapter(ctx, { factory, session }, await all());
-    // Its pull request's row: what the Measure tab counts (model/pulls.ts).
-    await pull(ctx, { factory, session }, fresh, all);
-    // What judging it cost: measurement, which Metrics draws against its budget (model/measured.ts).
-    await measured(ctx, { factory, session }, fresh, activity);
+    if (work) {
+      // Its phases' rows, the same way — from its first event, for a session an older cockpit stored without them.
+      if (record === null || record.phased) await phase(ctx, { factory, session }, fresh, folded);
+      else await phase(ctx, { factory, session }, await all(), null);
+      // Its chapters' rows, the same way: what the Measure tab counts by trigger (model/chapters.ts).
+      if (record === null || record.chaptered) await chapter(ctx, { factory, session }, fresh);
+      else await chapter(ctx, { factory, session }, await all());
+      // Its pull request's row: what the Measure tab counts (model/pulls.ts).
+      await pull(ctx, { factory, session }, fresh, all);
+    }
+    // What judging it cost, or working it as a benchmark's: measurement, which Metrics draws against its budget
+    // (model/measured.ts).
+    await measured(ctx, { factory, session }, fresh, activity, !work);
     // The self-improvement issues it says were filed: what the Scorers view draws each scorer's from (model/improvements.ts).
     await improve(ctx, { factory, session }, fresh);
     const waiting = summary.waitingFor !== null;
@@ -102,8 +109,8 @@ export const append = internalMutation({
     // Its scores' rows: what the Scorers view reads (model/scores.ts). Written after the session's own
     // document, unlike the rows above, because each is ordered by when the session was first stored.
     const at = record?._creationTime ?? (await ctx.db.get(id))!._creationTime;
-    if (record === null || record.scored) await score(ctx, { factory, session }, fresh, at);
-    else await score(ctx, { factory, session }, await all(), at);
+    if (work && (record === null || record.scored)) await score(ctx, { factory, session }, fresh, at);
+    else if (work) await score(ctx, { factory, session }, await all(), at);
     return { acked };
   },
 });

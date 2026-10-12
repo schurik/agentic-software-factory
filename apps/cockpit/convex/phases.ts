@@ -12,7 +12,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { type PhaseRow, phasedIn } from "./model/phases";
-import { EMPTY_SUMMARY, type Summary } from "./model/session";
+import { benchmarkedIn, EMPTY_SUMMARY, type Summary } from "./model/session";
 import type { StoredEvent } from "./model/wire";
 
 /** How many sessions one turn of the backfill reads the events of. */
@@ -63,7 +63,8 @@ export const backfill = internalMutation({
       const events = await ctx.db.query("events")
         .withIndex("by_session_seq", (q) => q.eq("factory", record.factory).eq("session", record.session).lte("seq", record.acked))
         .collect();
-      await phase(ctx, record, events, null);
+      // A benchmark's session adds no row a metric reads (ingest.ts).
+      if (!benchmarkedIn(events)) await phase(ctx, record, events, null);
       await ctx.db.patch(record._id, { phased: true });
     }
     if (unwritten.length === WRITTEN_PER_TURN) await ctx.scheduler.runAfter(0, internal.phases.backfill, {});

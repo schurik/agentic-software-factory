@@ -66,8 +66,12 @@ def publishes(cfg: FactoryConfig, workspace: Workspace) -> bool:
     remote-tracking ref for a branch it pushes, so that ref going missing says
     nothing about what the remote holds — and a session that decided from it
     would stop committing its gates' subjects without a word.
+
+    A benchmark's session (`workspace.isolated`) is never one: its branch is a
+    measurement, and nothing of it leaves the machine.
     """
-    return (workspace.enabled and mode(cfg, workspace.main_root) == ON_CREATE
+    return (workspace.enabled and not workspace.isolated
+            and mode(cfg, workspace.main_root) == ON_CREATE
             and git_helper.has_remote(workspace.main_root, cfg.worktree.integration.remote))
 
 

@@ -102,7 +102,7 @@ before — `None` when there are none, never omitted.
   gives it a rate. A 1.3.0 cockpit reads `chapter_scored` v2, and shows a judge's reasoning under
   its score on the session page when the factory sent it.
 - **Measuring is paid from its own budget, never the work's.** `measurement: {usd_per_day: 5}`
-  in factory.yaml is what judges (and, to come, benchmarks) may spend in a UTC day. It is
+  in factory.yaml is what judges (and benchmarks) may spend in a UTC day. It is
   checked before every judge call, against what every judge that started that day cost, read
   off the judges' own records under each session's `judges/`: once the day's spend reaches it,
   no judge starts until the next day, and the chapter it sampled gets a `chapter_not_judged`
@@ -166,7 +166,30 @@ before — `None` when there are none, never omitted.
   know; a CI checkout, which holds no session's record, checks the shape only and says so. `asf
   check --json` is format 5: `benchmarks` and `benchmark_problems`. A 1.3.0 cockpit reads it;
   an older one reads format 5 as far as it can and says it is newer. `asf/benchmarks/` joins
-  the default `protected_files`. Working a benchmark is still to come. No event changes.
+  the default `protected_files`. No event changes.
+- **A benchmark is worked: isolated sessions per variant, scored and counted in no metric.**
+  `asf benchmark run <name>` (`just benchmark run <name>`) works each task `repetitions` times
+  under each variant, one session at a time — repetition by repetition, so a benchmark stopped
+  partway has compared what it worked — and prints each session's outcome and cost, then each
+  variant's tally; it never declares a winner. Each session is an `asf run` of the workflow the
+  task's source session first ran, with its request, cut from the task's commit and run by the
+  variant's files under `asf/` (written once into `asf/data/benchmarks/<name>/<commit>/`) with
+  the station's own engine. It takes `trigger: benchmark`, and `session_started` v4 carries
+  `benchmark: {benchmark, variant, ref, commit, task, repetition}`, kept in its `run.json` so a
+  resume is held to the same rules. It is never published, integrated or reported on the tracker
+  — no push (refused outright from its process), no pull request, no comment or label, no
+  requirements written back, no claim — and an issue's chapter reads the reporter's text from the
+  source session's record, as the source read it. A gate is read for the source's trigger and
+  answered by the decision the source's person recorded at the same gate and round, verdict and
+  words; a gate no person answered there (one the variant adds, a round the source never reached,
+  one a policy passed) stops the session as **not comparable**, its `workflow_finished` reason
+  starting with those words. Its spend is the measurement budget's, asked before every session:
+  once the day's is spent nothing more starts, and the command says how many were not worked and
+  exits 1. Each session is scored by the station's own scorers once it ends, and no
+  self-improvement window counts it. A 1.3.0 cockpit reads `session_started` v4 and counts a
+  benchmark's session in no metric — no spend, phase, chapter, pull request or score row; not on
+  the Overview or a scorer's strip — and draws its agent calls as the Measurement cost's
+  benchmarks.
 - **A session whose branch is checked out elsewhere is refused, in words.** An engineer who
   checked out `asf/<id>` in the main checkout to fix review feedback by hand left that session's
   next run (a `pr-review` the watcher launched, say) dying in `git worktree add` with a raw
@@ -273,8 +296,8 @@ before — `None` when there are none, never omitted.
 ### Upgrade
 
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
-   new factory, or a cockpit older than that shows each chapter's and phase's start as an event it
-   cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
+   new factory, or a cockpit older than that shows each session's, chapter's and phase's start as
+   an event it cannot read. A local cockpit (`asf up`) pulls the new minimum by itself.
 2. Update the skill copy before stamping from it (`cookbooks/upgrade.md` § Update the skill
    first) — a vendored one with `npx skills add schurik/agentic-software-factory --skill
    agentic-sf --agent claude-code pi -y`, not `npx skills update`.
@@ -283,7 +306,9 @@ before — `None` when there are none, never omitted.
    the failure events, scoring, and judges — the `judge` agent and its task come with it — and
    the diagnosis, with the `diagnostician` agent, its task and `asf/.skill-files`, and counting
    from a self-improvement merge — which counts only merges a session of the re-stamped factory
-   worked: one worked before it never said which scorer it improves; nothing
+   worked: one worked before it never said which scorer it improves — and working a benchmark,
+   which needs the re-stamped engine on the station that runs it (a variant may be any ref: its
+   engine is never the one that runs); nothing
    else changes. The re-stamp — or `install.py` without `--force`, which stamps only what is
    missing — adds the four default scorers under `asf/scorers/` (`corrections`,
    `permission-rollbacks`, `limit-hits`, `not-accepted`, all on `issue`) and the example judge
@@ -312,7 +337,7 @@ before — `None` when there are none, never omitted.
    older one refuses a registration that holds none, and `just station-register` says so. Then
    leave `ASF_COCKPIT_TOKEN` out of that checkout's `.env` and run `just station-register`
    (`cookbooks/connect_cockpit.md`). A checkout that keeps its token needs nothing.
-5. `just onboard` and `just benchmark` come with the re-stamp's justfile; a justfile that was
+5. `just onboard` and `just benchmark` (`new` and `run`) come with the re-stamp's justfile; a justfile that was
    kept (the repository's own, or a stamped one that diverged) needs their recipes copied from
    the fresh one, or run `uv run asf/asf.py onboard` and `uv run asf/asf.py benchmark`. The
    duplicate-station fix is the cockpit's: upgrade it.

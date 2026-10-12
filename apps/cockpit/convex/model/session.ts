@@ -40,6 +40,17 @@ export const waitingForValidator = v.object({
   answered: v.union(v.null(), v.object({ by: v.string(), verdict: v.string() })),
 });
 
+export const benchmarkValidator = v.object({
+  benchmark: v.string(),              // the benchmark's name
+  variant: v.string(),                // the variant's label
+  ref: v.string(),                    // the git ref it names
+  commit: v.string(),                 // ...as it resolved: the factory's files the session ran by
+  task: v.string(),                   // the session it re-works
+  repetition: v.number(),             // 1..repetitions
+});
+
+export type BenchmarkOf = Infer<typeof benchmarkValidator>;
+
 export const summaryValidator = v.object({
   status: v.string(),                 // unknown until session_started | running | waiting | success | fail
   workflows: v.array(v.string()),     // every workflow the session passed through, in order
@@ -70,6 +81,9 @@ export const summaryValidator = v.object({
   // session's transcript (`session_started` v3): the lowest any of its
   // processes ran under, 0 when none set one and the deployment's own applies.
   transcriptDays: v.number(),
+  // What a benchmark's session re-works, under which variant (`session_started` v4);
+  // null for the factory's own work. Such a session is measurement: no metric counts it (`isBenchmark`).
+  benchmark: v.union(v.null(), benchmarkValidator),
 });
 
 export type Summary = Infer<typeof summaryValidator>;
@@ -84,8 +98,22 @@ export const EMPTY_SUMMARY: Summary = {
   status: "unknown", workflows: [], workflow: "", chapter: 0, stages: [], request: "", branch: "", baseRef: "", trigger: "",
   triggeredBy: "", issueAuthor: "", issueAssignees: [], issueUrl: "", prUrl: "", stationId: "", stationName: "", stationKind: "", skillVersion: "",
   startedAt: "", endedAt: "", lastEventAt: "", waitingFor: null,
-  totalTokens: 0, totalCost: 0, unread: 0, transcriptDays: 0,
+  totalTokens: 0, totalCost: 0, unread: 0, transcriptDays: 0, benchmark: null,
 };
+
+/**
+ * Whether the session is a benchmark's: one task worked again under one
+ * variant, a measurement and never the factory's work — so it adds no row to
+ * what a metric reads (ingest.ts), and its spend is measurement's (model/measured.ts).
+ */
+export function isBenchmark(summary: Summary): boolean {
+  return summary.benchmark !== null;
+}
+
+/** Whether `events` — a session's, from its first — are a benchmark's session's: what a backfill decides by, since a summary an older cockpit folded never learned it. */
+export function benchmarkedIn(events: StoredEvent[]): boolean {
+  return isBenchmark(advance(EMPTY_SUMMARY, events));
+}
 
 // ── the session page ─────────────────────────────────────────────────────────
 
@@ -334,12 +362,33 @@ function describeScore(p: Payload): string {
     (p.bool("failing") ? ", failing" : "") + `, citing ${cited} event${cited === 1 ? "" : "s"}`;
 }
 
+/** v4: what a benchmark's session re-works, under which variant — what it is, from its first event. */
+const sessionStartedForBenchmark: Reader = {
+  fold: (state, p) => {
+    sessionStartedWithRetention.fold!(state, p);
+    const of = p.obj("benchmark");
+    if (of !== null) {
+      state.summary.benchmark = {
+        benchmark: of.str("benchmark"), variant: of.str("variant"), ref: of.str("ref"),
+        commit: of.str("commit"), task: of.str("task"), repetition: of.num("repetition"),
+      };
+    }
+  },
+  describe: (p) => {
+    const of = p.obj("benchmark");
+    return sessionStarted.describe(p) + (of === null ? "" :
+      ` · benchmark ${of.str("benchmark")}: session ${of.str("task")} again, under ${of.str("variant")} (repetition ${of.num("repetition")})`);
+  },
+};
+
 const READERS: Record<string, Record<number, Reader>> = {
   session_started: {
     1: sessionStarted,
     // v2: station_kind — a session that ran in CI has no station to resume it.
     2: sessionStarted,
     3: sessionStartedWithRetention,
+    // v4: `benchmark` — a benchmark's session, which no metric counts.
+    4: sessionStartedForBenchmark,
   },
   provenance_recorded: {
     1: { fold: (state, p) => learnProvenance(state.summary, p), describe: describeProvenance },

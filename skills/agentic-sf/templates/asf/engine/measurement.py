@@ -3,13 +3,15 @@ day (`measurement: {usd_per_day: 5}` in factory.yaml, ADR 0006).
 
 One budget pays for judges, self-improvement's diagnoses and benchmarks,
 apart from the work's `budget:`, and it is checked before every judge call
-(`engine/scorers.py`) and every diagnosis (`engine/improve.py`). What
-measuring spent is read off the records it left — each judge's own run, kept
-inside the session it judged under `judges/` (`engine/judge.py`), and each
-diagnosis's under the data dir's `diagnoses/` (`engine/diagnose.py`), with
-when it started and what it cost — never off a ledger of its own: the session
-directory is the record (invariant 2). A judge that gave no score, or a
-diagnosis the gates never accepted, was paid for all the same, and counts.
+(`engine/scorers.py`), every diagnosis (`engine/improve.py`) and every
+benchmark's session (`engine/benchmarks.py`). What measuring spent is read
+off the records it left — each judge's own run, kept inside the session it
+judged under `judges/` (`engine/judge.py`), each diagnosis's under the data
+dir's `diagnoses/` (`engine/diagnose.py`), and each benchmark's session's own
+`run.json`, with when it started and what it cost — never off a ledger of its
+own: the session directory is the record (invariant 2). A judge that gave no
+score, a diagnosis the gates never accepted, or a benchmark's session that was
+not comparable was paid for all the same, and counts.
 
 A day is a UTC day, as every timestamp the factory writes is. Two processes
 judging at once may both find budget left; what bounds an overrun is that no
@@ -38,7 +40,7 @@ class Day:
 
     @property
     def spent_out(self) -> bool:
-        """Whether no further judge or diagnosis may start today."""
+        """Whether no further judge, diagnosis or benchmark's session may start today."""
         return self.spent >= self.budget
 
 
@@ -50,10 +52,13 @@ def today(cfg: FactoryConfig, main_root: Path) -> Day:
 
 
 def _records(cfg: FactoryConfig, main_root: Path) -> list[Path]:
-    """Every record measuring left: each judge's, and each diagnosis's."""
+    """Every record measuring left: each judge's, each diagnosis's, and each
+    benchmark's session's — its own work, apart from its judges."""
     sessions = artifacts.sessions_root(main_root, cfg.data_dir)
+    benchmarked = [sessions / adw_id for adw_id, state in artifacts.scan(sessions).items()
+                   if state.benchmark is not None]
     return [*sessions.glob(f"*/{JUDGES_DIR}/*"),
-            *artifacts.diagnoses_root(main_root, cfg.data_dir).glob("*")]
+            *artifacts.diagnoses_root(main_root, cfg.data_dir).glob("*"), *benchmarked]
 
 
 def spent_on(records: list[Path], day: str) -> float:

@@ -24,7 +24,7 @@ import { Payload } from "./model/payload";
 import type { Period } from "./model/period";
 import { type ImprovingPull, type Improvements, improvementsOf } from "./model/improvements";
 import { type Cite, type Failing, ordered, type ScorerLine, scorerLine, STRIP, windowOf } from "./model/scorers";
-import { described } from "./model/session";
+import { described, isBenchmark, readSummary } from "./model/session";
 import { spellingsOf } from "./spelling";
 import { readable, viewing } from "./viewer";
 
@@ -214,9 +214,15 @@ export const scorers = query({
     if (described === null) return { described: false, sessions: 0, scorers: [] };
     const spellings = await spellingsOf(ctx, factory);
 
+    // The factory's own work: a benchmark's session is measurement, in no scorer's strip or window.
     const latest: Doc<"sessions">[] = [];
     for (const spelling of spellings) {
-      latest.push(...await ctx.db.query("sessions").withIndex("by_factory", (q) => q.eq("factory", spelling)).order("desc").take(STRIP));
+      let taken = 0;
+      for await (const record of ctx.db.query("sessions").withIndex("by_factory", (q) => q.eq("factory", spelling)).order("desc")) {
+        if (isBenchmark(readSummary(record.summary))) continue;
+        latest.push(record);
+        if ((taken += 1) === STRIP) break;
+      }
     }
     const strip = latest.sort((a, b) => a._creationTime - b._creationTime).slice(-STRIP);
     const from = strip[0]?._creationTime ?? Infinity;

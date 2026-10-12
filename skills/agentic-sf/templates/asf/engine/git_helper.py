@@ -305,9 +305,22 @@ def push(cwd: Pathish, remote: str, branch: str,
     convenience: a branch that tracks its remote counterpart is one somebody
     PROPOSED (see `tracks`), so a push that only keeps a copy readable passes
     False.
+
+    A benchmark's session never pushes, whichever stage asks: refused here as
+    git would refuse it, so every caller already reads it as a push that failed.
     """
     args = ["push"] + (["-u"] if set_upstream else []) + [remote, branch]
-    return _ask_git(cwd, *args)
+    return _isolated(args) or _ask_git(cwd, *args)
+
+
+def _isolated(args: list[str]) -> subprocess.CompletedProcess | None:
+    """A refused push, when this process works a benchmark's session; else None."""
+    from .benchmark_session import isolated        # lazily: it reads the session record
+    if not isolated():
+        return None
+    return subprocess.CompletedProcess(["git", *args], 1, "",
+                                       "refused: a benchmark's session never leaves this "
+                                       "machine (engine/benchmark_session.py)")
 
 
 def tracks(cwd: Pathish, branch: str, remote: str) -> bool:
@@ -328,7 +341,8 @@ def delete_remote_branch(cwd: Pathish, remote: str, branch: str) -> subprocess.C
     """Delete `branch` on the remote; the local branch is not touched. Returns
     the completed process — a refusal is data. Git drops the remote-tracking
     ref with it, so `remote_tip` answers "" afterwards."""
-    return _ask_git(cwd, "push", remote, "--delete", branch)
+    return _isolated(["push", remote, "--delete", branch]) or _ask_git(
+        cwd, "push", remote, "--delete", branch)
 
 
 def fetch(cwd: Pathish, remote: str, branch: str) -> bool:
