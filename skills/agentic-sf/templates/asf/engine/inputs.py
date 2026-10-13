@@ -52,8 +52,9 @@ class Opened:
     previous: Optional[EnvelopeBase] = None  # the stranger's text, framed
     context: object = None                   # IssueContext | PullRequestContext
     threads: list = field(default_factory=list)
+    comments: list = field(default_factory=list)   # pr: the conversation's, since last answered
     head: str = ""                           # pr: the branch tip before any stage ran
-    nothing_to_do: bool = False              # pr: no open threads — finish, spend nothing
+    nothing_to_do: bool = False              # pr: nothing open — finish, spend nothing
 
 
 def number_of(request: str, kind: str) -> int:
@@ -191,7 +192,7 @@ def locate_pr(cfg: FactoryConfig, number: int, adw_id: Optional[str]) -> tuple[s
 
 
 def open_pr(run, cfg: FactoryConfig, context) -> Opened:
-    """Attach the threads to the run, refuse an untrusted reviewer."""
+    """Attach the feedback to the run, refuse an untrusted reviewer."""
     with run.phase(PhaseParams(name="pr", kind="code", owner="review",
                                description="Read the reviewers' own words and where each "
                                            "one hangs, before anyone paraphrases them "
@@ -199,11 +200,13 @@ def open_pr(run, cfg: FactoryConfig, context) -> Opened:
         pull_requests.attach(run, cfg.pull_requests, context)
         run.record_pull_request(context)
         threads = pull_requests.actionable(cfg.pull_requests, context)
+        comments = pull_requests.outstanding(cfg.pull_requests, context)
         ph.log(url=context.url, branch=context.branch, base=context.base_ref,
                decision=context.review_decision or "none",
                threads=f"{len(threads)} open of {len(context.threads)}",
+               comments=f"{len(comments)} new of {len(context.comments)}",
                feedback=context.threads_path)
-        strangers = pull_requests.trusted(cfg.pull_requests, context, threads)
+        strangers = pull_requests.trusted(cfg.pull_requests, context, threads, comments)
         if strangers:
             raise RuntimeError(
                 f"{', '.join(strangers)} left review feedback, and this repository has "
@@ -212,19 +215,23 @@ def open_pr(run, cfg: FactoryConfig, context) -> Opened:
     # Pinned, so a resumed run measures from the same tip: "did a stage commit"
     # is what tells `addressed` from `declined` below.
     head = run.pin("review_head", lambda: git_helper.rev(run.repo_root, "HEAD"))
-    if not threads:
-        run.console.note(f"#{context.number}: no open review threads — nothing to do")
+    if not threads and not comments:
+        run.console.note(f"#{context.number}: no open review threads and no new comments "
+                         f"— nothing to do")
         return Opened(prompt="", context=context, head=head, nothing_to_do=True)
-    prompt = (f"Address the open review threads on pull request #{context.number}. They "
-              f"are in the envelope you were handed; the file that envelope names is the "
-              f"full text of each one, with the file and line it hangs on. Change only "
-              f"what they ask for.")
-    return Opened(prompt=prompt, previous=pull_requests.as_envelope(context, threads),
-                  context=context, threads=threads, head=head)
+    prompt = (f"Address the open review feedback on pull request #{context.number}: its "
+              f"open review threads and the comments on its conversation since the factory "
+              f"last answered. They are in the envelope you were handed; the file that "
+              f"envelope names is the full text of each one, a thread with the file and "
+              f"line it hangs on. Change only what they ask for.")
+    return Opened(prompt=prompt,
+                  previous=pull_requests.as_envelope(context, threads, comments),
+                  context=context, threads=threads, comments=comments, head=head)
 
 
 def report_pr(run, cfg: FactoryConfig, opened: Opened, accepted: bool, reason: str) -> str:
-    """Answer each thread, resolve the addressed ones, comment once. The outcome.
+    """Answer each thread, resolve the addressed ones, comment once — the comment
+    is the answer to the conversation's comments. The outcome.
 
     THREE OUTCOMES, NOT TWO. `addressed` is a commit on the branch and the
     thread resolved; `unfinished` is a run a stage stopped, so nothing is
@@ -235,27 +242,35 @@ def report_pr(run, cfg: FactoryConfig, opened: Opened, accepted: bool, reason: s
     the tip moved past the one pinned in `open_pr`, or it did not.
     `reason` is the builder's own summary, quoted into a declined thread.
     """
-    context = opened.context
     committed = git_helper.rev(run.repo_root, "HEAD") != opened.head
     outcome = ("addressed" if accepted and committed else
                "declined" if accepted else "unfinished")
     with run.phase(PhaseParams(name="report", kind="code", owner="review",
                                description="Answer each thread that was addressed, and "
                                            "say once what the run as a whole did")) as ph:
-        answered = _write_back(run, cfg, context, opened.threads, outcome, reason)
-        ph.log(outcome=outcome, threads=len(opened.threads), replied=answered["replied"],
+        answered = _write_back(run, cfg, opened, outcome, reason)
+        ph.log(outcome=outcome, threads=len(opened.threads), comments=len(opened.comments),
+               replied=answered["replied"],
                resolved=answered["resolved"], notes=" · ".join(answered["notes"]))
     return outcome
 
 
-def _write_back(run, cfg: FactoryConfig, context, threads, outcome: str, reason: str) -> dict:
+def _write_back(run, cfg: FactoryConfig, opened: Opened, outcome: str, reason: str) -> dict:
     """ONLY `addressed` RESOLVES. A resolved thread tells a reviewer their ask
     is handled, and two of the three outcomes have not handled it: `unfinished`
     would hide outstanding work behind a checkmark, and `declined` is a
     judgement the reviewer gets to agree with, so the thread stays open with
     the reason in it. The reply goes out on all three — being told "this was
     picked up, and here is what happened" is the useful half even when no
-    diff came of it."""
+    diff came of it.
+
+    A CONVERSATION COMMENT HAS NO THREAD TO REPLY IN, so the summary comment is
+    its reply: it names whose comments it read, carries the builder's reason
+    when it changed nothing, and ends with the `READ_THROUGH` mark that takes
+    those comments off the queue — on every outcome, as a reply takes a thread
+    off it. A run that ends red is stopped by the `failed` label, not by
+    leaving its comments to be read again."""
+    context, threads, comments = opened.context, opened.threads, opened.comments
     config = cfg.pull_requests
     replied = resolved = 0
     notes: list[str] = []
@@ -278,19 +293,32 @@ def _write_back(run, cfg: FactoryConfig, context, threads, outcome: str, reason:
         replied += 1 if result.replied else 0
         resolved += len(result.resolved)
         notes += result.notes
-    head = {"addressed": f"answered {len(threads)} review thread(s)",
-            "declined": f"read {len(threads)} review thread(s) and changed nothing",
-            }.get(outcome, f"picked up {len(threads)} review thread(s) and could not finish")
+    what = " and ".join(part for part in (
+        f"{len(threads)} review thread(s)" if threads else "",
+        f"{len(comments)} comment(s)" if comments else "") if part)
+    head = {"addressed": f"answered {what}",
+            "declined": f"read {what} and changed nothing",
+            }.get(outcome, f"picked up {what} and could not finish")
     lines = [f"{mark} — {head}", ""]
+    if comments:
+        lines += ["Read from the conversation: " + ", ".join(
+            f"{comment.author or 'someone'}'s comment of {comment.created_at}"
+            for comment in comments) + ".", ""]
     if outcome == "declined":
         lines += ["The checks are green and the branch is untouched: the builder judged "
-                  "the asks better left alone and said why in each thread. Nothing was "
-                  "resolved — those threads are waiting on you, not on it.", ""]
+                  "the asks better left alone"
+                  + (" and said why in each thread. Nothing was resolved — those threads "
+                     "are waiting on you, not on it." if threads else ".")
+                  + (" Its reason, in its own words:" if comments else ""), ""]
+        if comments:
+            lines += [quoted(reason), ""]
     if outcome == "unfinished":
-        lines += ["The checks never came back clean, so nothing was committed and no "
-                  "thread was resolved. The threads stay open.", ""]
+        lines += ["The checks never came back clean, so nothing was committed"
+                  + (" and no thread was resolved. The threads stay open." if threads
+                     else "."), ""]
     lines += [f"<sub>Resume or inspect with `--adw-id {run.adw_id}`; "
-              f"events: `just tail {run.adw_id}`</sub>"]
+              f"events: `just tail {run.adw_id}`</sub>",
+              pull_requests.read_through_mark(context, comments)]
     summary = pull_requests.comment(run.main_root, config, PullRequestUpdate(
         number=context.number, project=context.project, comment="\n".join(lines)))
     notes += summary.notes

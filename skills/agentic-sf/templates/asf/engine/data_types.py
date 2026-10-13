@@ -600,6 +600,7 @@ class PullRequestOutput(EnvelopeBase):
     branch: str = ""                # headRefName — the session's own branch
     base_ref: str = ""
     thread_count: int = 0           # how many are actionable, not how many exist
+    comment_count: int = 0          # conversation comments since the factory last answered
 
 
 # ── Agent calls ──────────────────────────────────────────────────────────────
@@ -1467,7 +1468,8 @@ class PullRequestsConfig(BaseModel):
     reply_to_threads: bool = True
     resolve_threads: bool = True
     # Bounds the prompt, not the pull request. A review with eighty threads is a
-    # conversation to have, not a batch to hand an agent in one go.
+    # conversation to have, not a batch to hand an agent in one go. It caps the
+    # conversation's comments too, separately: twenty of each, oldest first.
     max_threads: int = 20
     max_concurrent: int = 2
     # A merged or closed pull request ends its session: a still-running review
@@ -1883,7 +1885,10 @@ class PullRequestRef(BaseModel):
 
 
 class ReviewComment(BaseModel):
-    """One comment inside a review thread. `comment_id` is what a reply targets."""
+    """One comment inside a review thread, or one on the pull request's
+    conversation — a plain comment, or the body a review was submitted with.
+    `comment_id` is what a reply targets; a conversation comment has no reply of
+    its own, so the factory's summary comment answers it."""
 
     comment_id: int = 0             # REST databaseId — replies POST against it
     author: str = ""
@@ -1919,12 +1924,14 @@ class ReviewThread(BaseModel):
 
 
 class PullRequestContext(BaseModel):
-    """One fetched pull request, plus where its threads were written.
+    """One fetched pull request, plus where its feedback was written.
 
     `threads_path` rather than the thread text itself, for the reason
     PullRequestOutput gives. `threads` is kept in memory because the run has to
     reply to each one afterwards and needs their ids — it is not persisted into
-    an envelope.
+    an envelope. `comments` is the conversation, oldest first: every plain
+    comment and every review submitted with a body, the factory's own included —
+    its own are how `pull_requests.read_through` knows what was answered.
     """
 
     number: int
@@ -1938,6 +1945,7 @@ class PullRequestContext(BaseModel):
     base_ref: str = ""              # baseRefName
     review_decision: str = ""
     threads: list[ReviewThread] = Field(default_factory=list)
+    comments: list[ReviewComment] = Field(default_factory=list)
     threads_path: str = ""          # written into context_handoff/
 
     @property

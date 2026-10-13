@@ -30,7 +30,7 @@ compared line for line.
 | Workflow | Input | Stages | For |
 |---|---|---|---|
 | `quick` | prompt | implement → verify → commit | a change one sentence describes |
-| `pr-review` | pr | implement → verify → commit | answering the review threads on one of this factory's pull requests |
+| `pr-review` | pr | implement → verify → commit | answering the review threads and comments on one of this factory's pull requests |
 | `sdlc` | prompt | plan → implement → verify → commit | work whose shape is clear enough to plan in one pass — **the default** |
 | `ship` | prompt | scout → plan → commit → implement → verify → review → commit → document → commit → integrate | work whose shape is not obvious; three commits, landed |
 | `issue` | issue | the same ten stages as `ship` | a tracked work item, proposed as a pull request |
@@ -69,8 +69,9 @@ all|none|<gate,names>` overrides where the run stops for a human, for this run
 only.
 
 `just issue` and `just pr-review` take **the number**. The run reports back on
-the issue or in the review threads, and neither can merge: `integration`
-downgrades a configured merge to a pull request on those inputs, in code.
+the issue or on the pull request (in each thread, and one comment answering the
+conversation), and neither can merge: `integration` downgrades a configured
+merge to a pull request on those inputs, in code.
 
 Every run works in its own worktree on branch `asf/<adw_id>`. The engineer's
 checkout is never touched.

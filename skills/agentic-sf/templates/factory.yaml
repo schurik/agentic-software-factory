@@ -230,13 +230,15 @@ issues:
 # Review feedback on the factory's OWN pull requests, answered in the session
 # that opened them. THE UNRESOLVED THREAD IS THE QUEUE — there is no label to
 # claim: the forge already tracks which asks are outstanding and shows it to the
-# reviewer who wrote them. A run answers a thread and resolves it.
+# reviewer who wrote them. A run answers a thread and resolves it. So is every
+# comment on the conversation newer than the factory's own last word there: the
+# summary a run posts marks the newest comment it read.
 pull_requests:
   enabled: true
   project: ""                      # "" = resolved once from origin, as in issues
   workflow: pr-review              # which workflow answers a review; must say `input: pr`
   # Review THREADS are the one thing `gh pr view --json` cannot return, so a
-  # pull request is read through graphql (state AND threads, one snapshot) and
+  # pull request is read through graphql (state, threads AND comments, one snapshot) and
   # replies and resolves are written back the same way.
   list_command:    ["gh", "pr", "list"]
   comment_command: ["gh", "pr", "comment"]
@@ -248,7 +250,7 @@ pull_requests:
   ignore_authors: []               # bots whose comments are never work, e.g. ["codecov[bot]"]
   reply_to_threads: true           # answer in the thread before resolving it
   resolve_threads: true            # ...and only when the run addressed it
-  max_threads: 20                  # bounds the prompt; a bigger review is a conversation
+  max_threads: 20                  # threads, and comments, per run; a bigger review is a conversation
   max_concurrent: 2
   # A merged or closed pull request ends its session: the watcher records how it
   # closed in the session (`pull_request_closed`, what a cockpit's Measure tab

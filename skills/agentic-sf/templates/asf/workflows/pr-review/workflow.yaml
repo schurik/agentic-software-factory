@@ -4,7 +4,8 @@
 # THE STEP THAT CLOSES THE LOOP. Every other workflow ends when its branch is
 # proposed; this one starts there. `input: pr` reads the pull request BEFORE a
 # session exists and joins the session its branch names (`asf/<adw_id>`), so
-# the pull request is updated, never replaced. The open threads arrive at the
+# the pull request is updated, never replaced. The open threads, and the
+# comments on its conversation since the factory last answered, arrive at the
 # builder as an artifact framed as REQUESTS TO WEIGH; `tasks/implement.md`
 # beside this file is the task that says so, in place of the stage's default.
 #

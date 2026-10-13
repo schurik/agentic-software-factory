@@ -301,6 +301,17 @@ before — `None` when there are none, never omitted.
   and `.github/workflows/asf-check.yml` join the factory's own code: an agent that does not name
   one in its `writes` can no longer edit the release record, the cockpit it reports to, or the
   check its pull request is judged by.
+- **A comment on a pull request is review feedback too.** The PR watcher and `just pr-review 17`
+  read a pull request's conversation beside its review threads: every plain comment, and the body
+  of every submitted review, that came after the factory last answered it. The builder is handed
+  them in the same `pr_review.md`, after the threads, under the same framing; the summary comment
+  a run posts is their answer — whose comments it read and, when it changed nothing, the builder's
+  reason — and carries an `<!-- asf:read-through <createdAt> -->` mark naming the newest one it
+  was handed. A comment newer than the newest mark is outstanding, so one that lands while a run
+  works is picked up by the next poll rather than swallowed. The factory's own comments, a
+  cockpit's answers to a wait, `ignore_authors` and empty bodies are never work;
+  `trusted_reviewers` covers comment authors, and `max_threads` caps the comments separately.
+  `PullRequestOutput` carries `comment_count`.
 
 ### Upgrade
 
@@ -366,6 +377,12 @@ before — `None` when there are none, never omitted.
    CLAUDE.md should still reach them.
    The rewrite keeps the factory's own `protected_files`; add `asf/cockpit/`,
    `asf/.skill-version` and `.github/workflows/asf-check.yml` to it, as the `.new` lists them.
+8. The re-stamp's PR watcher answers conversation comments. On its first pass, an open pull
+   request of the factory's with comments after its last `**asf**` summary — or, if it never had
+   one, any comments at all — starts a `pr-review` run. To keep a chatty one out of that, add
+   `pull_requests.states.failed` (`asf:pr-failed`) to it before the watcher restarts, and remove
+   it when you want its comments answered. Bots that comment on every pull request belong in
+   `pull_requests.ignore_authors`.
 
 ## 1.2.0 — 2026-10-02
 

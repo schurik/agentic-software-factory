@@ -26,8 +26,11 @@ REPOSITORY already has waiting, looks for a comment that came after the wait,
 and resumes: on any reply at a question round, on a verdict at a gate
 (`reply_to` — which is also what a cockpit's inbox posts, as the person).
 
-THE UNRESOLVED THREAD IS THE QUEUE for pull requests. No label to claim: the
-forge maintains that state, and the run that answers a thread resolves it.
+THE UNRESOLVED THREAD IS THE QUEUE for pull requests, and so is every comment
+on the conversation newer than the factory's own last word there
+(`pull_requests.read_through`). No label to claim: the forge maintains that
+state, the run that answers a thread resolves it, and the summary it posts marks
+the comments it read.
 Two things that state cannot do on its own: a run that ends red leaves its
 threads open (the `failed` label is the mark that stops the loop, and a human
 removing it is the restart), and a merged pull request ends its session
@@ -596,7 +599,8 @@ def waiting_on(cfg: FactoryConfig, main_root, number: int) -> str:
 
 
 def has_work(cfg: FactoryConfig, main_root, project: str, number: int) -> bool:
-    """The full read, not the listing: `gh pr list` cannot see review threads."""
+    """The full read, not the listing: `gh pr list` cannot see review threads,
+    nor which comments the factory has already answered."""
     try:
         context = pull_requests.describe(main_root, cfg.pull_requests,
                                          PullRequestRef(number=number, project=project))
@@ -604,9 +608,10 @@ def has_work(cfg: FactoryConfig, main_root, project: str, number: int) -> bool:
         print(f"  #{number}: could not read it ({error})")
         return False
     threads = pull_requests.actionable(cfg.pull_requests, context)
-    print(f"  #{number}: {len(threads)} open review thread(s)" if threads
-          else f"  #{number}: no open review threads")
-    return bool(threads)
+    comments = pull_requests.outstanding(cfg.pull_requests, context)
+    print(f"  #{number}: {pull_requests.feedback(threads, comments)}" if threads or comments
+          else f"  #{number}: no open review threads and no new comments")
+    return bool(threads or comments)
 
 
 def reap(cfg: FactoryConfig, main_root, project: str) -> int:
@@ -923,7 +928,8 @@ def prs_status(cfg: FactoryConfig) -> int:
           f"{'  (from origin)' if project and not pr.project else ''}")
     print(f"branches:       {cfg.worktree.branch_prefix}*")
     print(f"workflow:       {pr.workflow}")
-    print(f"queue:          unresolved review threads (max {pr.max_threads} per run)")
+    print(f"queue:          unresolved review threads, and comments since the factory last "
+          f"answered (max {pr.max_threads} of each per run)")
     print(f"failed label:   {pr.states.failed}")
     print(f"max_concurrent: {pr.max_concurrent}  (running now: {len(live_runs(cfg, main_root))})")
     print(f"writes back:    reply={pr.reply_to_threads} resolve={pr.resolve_threads}")

@@ -71,7 +71,7 @@ refine NUMBER *ARGS:
 refine-ship NUMBER *ARGS:
     {{asf}} run refine-ship {{NUMBER}} "${@:2}"
 
-# answer the review threads on one of this factory's pull requests: just pr-review 17
+# answer the review threads and comments on one of this factory's pull requests: just pr-review 17
 pr-review NUMBER *ARGS:
     {{asf}} run pr-review {{NUMBER}} "${@:2}"
 
@@ -156,7 +156,7 @@ issues-status:
 issues-watch *ARGS:
     {{asf}} issues loop "$@"
 
-# one poll of the open pull requests: answer what has review threads
+# one poll of the open pull requests: answer what has review threads or new comments
 prs:
     {{asf}} prs once
 
