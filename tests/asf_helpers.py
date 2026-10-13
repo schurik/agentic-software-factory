@@ -341,11 +341,13 @@ def comment_json(body: str, author: str = "schurik", created_at: str = "2026-01-
 
 def pr_json(number: int, branch: str, threads: list[dict] | None = None,
             state: str = "OPEN", merged_at: str = "", commits=(), reviews=(),
-            additions: int = 0, deletions: int = 0) -> dict:
+            additions: int = 0, deletions: int = 0, conversation=()) -> dict:
     """One pull request as the forge's graphql answers it. `commits` are its
     commits as `(oid, [parent oids])`, oldest first; `reviews` the times its
-    reviews were submitted; `additions` and `deletions` its changed lines —
-    what a pull request that closed is read for."""
+    reviews were submitted, or each review as a dict with its `body`;
+    `additions` and `deletions` its changed lines — what a pull request that
+    closed is read for. `conversation` is its plain comments, as `comment_json`
+    makes them."""
     nodes = [{"id": f"T{i}", "isResolved": False, "isOutdated": False,
               "path": t.get("path", "app.py"), "line": t.get("line", 1),
               "comments": {"nodes": [{"databaseId": i, "body": t["body"],
@@ -359,5 +361,8 @@ def pr_json(number: int, branch: str, threads: list[dict] | None = None,
         "mergedAt": merged_at or None, "additions": additions, "deletions": deletions,
         "commits": {"nodes": [{"commit": {"oid": oid, "parents": {"nodes": [
             {"oid": parent} for parent in parents]}}} for oid, parents in commits]},
-        "reviews": {"nodes": [{"submittedAt": at} for at in reviews]},
+        "reviews": {"nodes": [at if isinstance(at, dict) else {"submittedAt": at}
+                              for at in reviews]},
+        "comments": {"nodes": [{"databaseId": i, **entry}
+                               for i, entry in enumerate(conversation, start=1)]},
         "reviewThreads": {"nodes": nodes}}}}}

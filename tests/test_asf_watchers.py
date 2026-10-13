@@ -14,8 +14,8 @@ import pytest
 from engine import artifacts, factory, watch
 from engine.data_types import Launch, RunState, WaitingFor
 
-from .asf_helpers import (asf, fake_roster, forge, forge_calls, forge_data, issue_json,
-                          set_config)
+from .asf_helpers import (asf, comment_json, fake_roster, forge, forge_calls, forge_data,
+                          issue_json, pr_json, set_config)
 
 CONFIG = "asf/factory.yaml"
 
@@ -127,6 +127,21 @@ def test_a_failed_review_is_marked_and_a_label_that_will_not_stick_is_held(track
     assert launched == [72, 72] and watch._HELD == {("acme/widgets", 72)}
     assert "did not stick" in capsys.readouterr().out
     watch._HELD.clear()
+
+
+def test_a_comment_on_the_conversation_is_work_until_the_factory_answers_it(tracked, stamped,
+                                                                          capsys):
+    cfg, _ = tracked
+    asked = comment_json("please also log it", author="alice", created_at="2026-01-05T00:00:00Z")
+    forge_data(stamped, "pr.json", pr_json(72, "asf/1d5e4c0e", [], conversation=[asked]))
+    assert watch.has_work(cfg, stamped, "acme/widgets", 72)
+    assert "1 new comment(s)" in capsys.readouterr().out
+
+    answered = comment_json("**asf** · `1d5e4c0e` — answered 1 comment(s)\n\n"
+                            "<!-- asf:read-through 2026-01-05T00:00:00Z -->",
+                            created_at="2026-01-05T01:00:00Z")
+    forge_data(stamped, "pr.json", pr_json(72, "asf/1d5e4c0e", [], conversation=[asked, answered]))
+    assert not watch.has_work(cfg, stamped, "acme/widgets", 72)
 
 
 def test_a_draft_a_marked_or_a_waiting_pull_request_is_skipped(tracked, stamped, monkeypatch):

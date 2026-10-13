@@ -136,7 +136,8 @@ flag you requested to be removed, and for the library that does not exist to be 
 
 A run lands as a pull request by default. With the watchers up, an issue labelled `asf:queued` and
 `asf:ship` starts a run that reports back on the issue, while review feedback on the factory's own
-pull requests comes back as a `pr-review` run that answers in the threads.
+pull requests comes back as a `pr-review` run that answers in the threads — and a plain comment on
+the conversation does too, answered in one comment of its own.
 
 ```bash
 just issue 42        # work a tracked issue

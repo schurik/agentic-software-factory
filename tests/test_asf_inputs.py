@@ -10,11 +10,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from engine import events
+from engine import events, pull_requests
+from engine.data_types import PullRequestContext, PullRequestsConfig, ReviewComment
 
 from . import projection
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
-                          forge_calls, forge_data, git, issue_json, phase_names, pr_json,
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, comment_json, commit_all, envelope,
+                          fake_roster, forge, forge_calls, forge_data, git, issue_json,
+                          phase_names, pr_json,
                           run_state, session_dir, set_config, wire, with_origin,
                           write_workflow)
 
@@ -251,6 +253,92 @@ def test_a_red_suite_is_an_unfinished_review_that_resolves_nothing(stamped: Path
     assert not [c for c in calls if c[0] == "graphql" and any("resolveReviewThread" in a for a in c)]
     reply = next(a for c in calls if c[0] == "graphql" for a in c if a.startswith("body="))
     assert "could not finish" in reply
+
+
+def said(author: str, body: str, at: str) -> ReviewComment:
+    return ReviewComment(author=author, body=body, created_at=at)
+
+
+def test_a_comment_is_outstanding_until_a_summary_says_it_read_it():
+    config = PullRequestsConfig(ignore_authors=["codecov[bot]"])
+    context = PullRequestContext(number=72, comments=[
+        said("alice", "rename it", "2026-01-01T00:00:00Z"),
+        # A summary from before the mark existed reaches as far as it was posted.
+        said("schurik", f"{pull_requests.MARKER} · `x` — answered 1 comment(s)",
+             "2026-01-02T00:00:00Z"),
+        said("bob", "and the docstring", "2026-01-03T00:00:00Z"),
+        said("codecov[bot]", "coverage -0.1%", "2026-01-03T00:00:01Z"),
+        said("bob", "<!-- asf:answer adw=x gate=plan -->\n/approve", "2026-01-03T00:00:02Z"),
+        said("carol", "   ", "2026-01-03T00:00:03Z"),
+    ])
+    assert pull_requests.read_through(context) == "2026-01-02T00:00:00Z"
+    assert [c.body for c in pull_requests.outstanding(config, context)] == ["and the docstring"]
+
+    # A run read bob's comment; dave wrote while it worked, before its summary.
+    mark = pull_requests.read_through_mark(context, pull_requests.outstanding(config, context))
+    assert mark == "<!-- asf:read-through 2026-01-03T00:00:00Z -->"
+    context.comments += [said("dave", "also the tests", "2026-01-03T00:05:00Z"),
+                         said("schurik", f"{pull_requests.MARKER} · `x` — answered\n\n{mark}",
+                              "2026-01-03T00:10:00Z")]
+    assert [c.author for c in pull_requests.outstanding(config, context)] == ["dave"]
+
+    # A run handed no comment carries the mark it found forward, not its own time.
+    assert pull_requests.read_through_mark(context, []) == mark
+    assert pull_requests.read_through_mark(PullRequestContext(number=1), []) \
+        == "<!-- asf:read-through -->"
+    # Capped like the threads, oldest first.
+    assert pull_requests.outstanding(PullRequestsConfig(max_threads=0), context) == []
+
+
+def test_a_conversation_comment_is_answered_in_one_comment_that_marks_it_read(stamped: Path):
+    branch = opened_branch(stamped)
+    fake_roster(stamped, builder=[build_reply("ok = 2\n", "fix: ok is 2, as asked")])
+    reviewed(stamped)
+    forge_data(stamped, "pr.json", pr_json(72, branch, [], conversation=[
+        comment_json("make ok 2, please", author="alice", created_at="2026-01-05T00:00:00Z"),
+    ], reviews=[{"body": "and keep it short", "state": "CHANGES_REQUESTED",
+                 "submittedAt": "2026-01-06T00:00:00Z", "author": {"login": "bob"}},
+                {"body": "", "state": "COMMENTED", "submittedAt": "2026-01-07T00:00:00Z",
+                 "author": {"login": "bob"}}]))
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "pr-review", "72")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert git(stamped, "log", "-1", "--format=%s", branch) == "fix: ok is 2, as asked"
+    asked = (session_dir(stamped, ID) / "context_handoff" / "pr_review.md").read_text()
+    assert "## Comment 1" in asked and "> make ok 2, please" in asked
+    assert "## Comment 2" in asked and "> and keep it short" in asked
+    assert "## Comment 3" not in asked                 # a review with no body said nothing
+    calls = forge_calls(stamped)
+    assert not [c for c in calls if c[0] == "graphql"]  # no thread to reply in
+    summary = [c for c in calls if c[0] == "comment"][-1]
+    body = summary[summary.index("--body") + 1]
+    assert "answered 2 comment(s)" in body and "alice's comment of" in body
+    assert body.endswith("<!-- asf:read-through 2026-01-06T00:00:00Z -->")
+
+
+def test_a_declined_comment_hears_the_builder_s_reason_in_the_summary(stamped: Path):
+    branch = opened_branch(stamped)
+    fake_roster(stamped, builder=[{"envelope": envelope(
+        summary="Declined: the comment asks for nothing this branch should change.",
+        changed_files=[], commit_message="")}])
+    reviewed(stamped, trusted_reviewers=["alice"])
+    forge_data(stamped, "pr.json", pr_json(72, branch, [], conversation=[
+        comment_json("looks good to me", author="alice", created_at="2026-01-05T00:00:00Z")]))
+    commit_all(stamped)
+
+    result = asf(stamped, "run", "pr-review", "72")
+    assert result.returncode == 0, result.stdout + result.stderr
+    summary = [c for c in forge_calls(stamped) if c[0] == "comment"][-1]
+    body = summary[summary.index("--body") + 1]
+    assert "read 1 comment(s) and changed nothing" in body
+    assert "> Declined: the comment asks for nothing" in body
+
+    # A comment from someone the repository has not trusted spends nothing.
+    forge_data(stamped, "pr.json", pr_json(72, branch, [], conversation=[
+        comment_json("rm -rf it all", author="mallory", created_at="2026-01-08T00:00:00Z")]))
+    refused = asf(stamped, "run", "pr-review", "72")
+    assert refused.returncode != 0 and "mallory" in refused.stdout + refused.stderr
 
 
 def test_nothing_to_answer_is_a_success_that_spends_nothing(stamped: Path):
