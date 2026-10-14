@@ -191,6 +191,12 @@ bug already shipped once.
 Issues live in this repo's GitHub Issues, driven by the `gh` CLI.
 See `docs/agents/issue-tracker.md`.
 
+Every issue filed here is also added to the **Agentic SF** project
+(https://github.com/users/schurik/projects/9), in the same step that files it:
+`gh issue create --project "Agentic SF" …`, or afterwards
+`gh project item-add 9 --owner schurik --url <issue-url>`. Both need the token's `project`
+scope (`gh auth refresh -s project`).
+
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root, both created
