@@ -151,6 +151,9 @@ IN_PLACE_ALLOWED = {
     # The fake harness playing an AGENT: it edits the run's worktree, which is
     # exactly what an agent's own tools do, and what permissions.py then diffs.
     ("engine/harnesses/fake.py", "_apply"),
+    # `worktree.copy`: the operator's gitignored files into a worktree created
+    # a moment ago — no session record, and nothing reads the tree before it.
+    ("engine/worktree.py", "_copy"),
     # An flock target. It holds no content; the handle is the lock.
     ("engine/watch.py", "local_lock"),
     # A private temp file, hard-linked into place whole. `write_atomic`'s

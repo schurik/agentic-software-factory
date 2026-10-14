@@ -186,6 +186,21 @@ def untracked_files(cwd: Pathish) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
+def tracked(cwd: Pathish, paths: list[str]) -> set[str]:
+    """Which of `paths` git tracks — a directory counts when anything in it is."""
+    return {path for path in paths
+            if _ask_git(cwd, "ls-files", "--", path).stdout.strip()}
+
+
+def ignored(cwd: Pathish, paths: list[str]) -> set[str]:
+    """Which of `paths` the repository's ignore rules ignore, whether or not
+    they exist yet. A tracked path is never ignored, whatever the rules say."""
+    if not paths:
+        return set()
+    result = _ask_git(cwd, "check-ignore", "--", *paths)
+    return {line for line in result.stdout.splitlines() if line}
+
+
 def diff_files(cwd: Pathish, base: str) -> list[str]:
     """Tracked files that differ between `base` and the working tree."""
     out = _git(cwd, "diff", "--name-only", base)

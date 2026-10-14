@@ -1053,6 +1053,8 @@ class WorktreeConfig(BaseModel):
     which is what permissions.py is for.
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     enabled: bool = True
     dir: str = ".asf-worktrees"     # relative to the MAIN checkout; gitignored
     branch_prefix: str = "asf/"     # the run's branch is <prefix><adw_id>
@@ -1064,6 +1066,18 @@ class WorktreeConfig(BaseModel):
     # stage does. Unset, `engine/publish.py` decides: `on_create` once a cockpit
     # is configured, `on_integrate` without one.
     publish: Optional[PublishMode] = None
+    # What a worktree cut from a branch cannot have: the operator's gitignored
+    # files, as globs relative to the main checkout, COPIED in (never linked — a
+    # symlink would let an agent edit the original, and the diff permissions.py
+    # takes never sees a gitignored file) whenever the worktree is created or
+    # re-created from its branch. Each must be gitignored, or a commit stage's
+    # `git add -A` commits it; `engine/worktree.py` refuses any that is not.
+    # (`copy_` in Python: `copy` is a pydantic model's own method.)
+    copy_: list[str] = Field(default_factory=lambda: [".env"], alias="copy")
+    # ...and its dependencies, installed rather than copied: argv lists with a
+    # bare binary name, as in quality.py, run in order in the new worktree after
+    # `copy`. One that fails ends the session before any agent runs.
+    setup: list[list[str]] = Field(default_factory=list)
     # A successful run's worktree is a redundant copy of a branch, so it goes.
     # A failed or killed one is where you go to see what happened, so it stays —
     # and so does any worktree with uncommitted work in it, whatever the outcome.
@@ -1522,6 +1536,13 @@ class Workspace(BaseModel):
     # A benchmark's session: its branch never leaves the machine — it is not
     # published (`publish.publishes`), and nothing integrates it.
     isolated: bool = False
+    # What `worktree.copy` put in a tree this run created, and what it named
+    # that the main checkout does not have — paths, never contents.
+    copied: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    # `worktree.setup` has not yet run to the end in this tree: it was just
+    # created, or the setup that ran when it was failed.
+    setup_owed: bool = False
 
     @property
     def joined(self) -> bool:
@@ -3054,7 +3075,8 @@ class ProcessEnded(DomainEvent):
 
 
 class CommandFinished(DomainEvent):
-    """A known invocation a code phase ran — a quality block — and how it went.
+    """A known invocation a code phase ran — a quality block, or a worktree's
+    `setup` command (`name` says which) — and how it went.
 
     `output_tail` replaces shipping the command log: the end of stdout and
     stderr together, capped, because the end is where a failure says why.

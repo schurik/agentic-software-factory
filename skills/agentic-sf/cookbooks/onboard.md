@@ -119,6 +119,14 @@ how a run's branch lands, whether issues may start runs), stamps `asf/`, the
 **"Now what?"** — `just onboard` says, every time: the next step, and what
 to do about it. → [The steps](#the-steps)
 
+**"Does a run get my `.env`?"** — yes: `worktree.copy` copies it (and whatever
+else the installer found gitignored that a run needs) into each session's
+worktree, and `worktree.setup` installs its dependencies there. Everything in
+the root `.env` — the factory's own `ASF_SKILL`, `ASF_COCKPIT_URL` and
+`ASF_COCKPIT_TOKEN` included — was already in every agent's environment;
+now a worktree holds a copy on disk too. Keep anything agents must not read
+out of it. → [install.md](install.md#ask-first-stamp-second)
+
 **"Which harness?"** — `claude_code` uses the engineer's own Claude Code login
 and needs no key; `pi` needs that provider's API key in `.env`. The installer
 lists what the skill ships.

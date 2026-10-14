@@ -102,6 +102,28 @@ worktree:
   branch_prefix: "asf/"            # the run's branch is <prefix><adw_id>
   base_ref: ""                     # "" = whatever the main checkout has checked out
   keep_on_success: false
+  # A session's worktree is cut from a branch, so what is gitignored here is
+  # missing there — and a dev server or a test that needs it fails as if the
+  # code did, which sends a builder to fix code that is not broken. So:
+  #   copy   globs, from this checkout's root, COPIED into a worktree whenever
+  #          one is created or re-created from its branch — a copy, never a
+  #          symlink, so an agent writing the worktree's `.env` cannot touch
+  #          yours, and a run keeps the snapshot it started with. Each must be
+  #          gitignored (a commit stage runs `git add -A` in the worktree), so
+  #          a tracked or unignored path, or one outside the repository, is
+  #          refused by `check`, `doctor` and every run. A listed file this
+  #          checkout lacks is skipped, and named in the run's output.
+  #   setup  argv lists, bare binary names — quality.py's rules — run in order
+  #          in a new worktree after `copy` and before any agent. Dependencies
+  #          are installed rather than copied: `node_modules` is large, and the
+  #          branch's lockfile may not be yours. A command that fails ends the
+  #          session as an environment failure; a resume runs it again.
+  # The root `.env` holds the factory's own settings too (ASF_SKILL,
+  # ASF_COCKPIT_URL, ASF_COCKPIT_TOKEN) — every agent and quality block already
+  # sees them in its environment, and copied, a worktree holds them on disk.
+  # install.py filled both from what it found here; check them.
+  copy: [".env"]
+  setup: []
   # WHEN a session's branch first reaches `integration.remote`. A cockpit shows
   # what a gate asks about by reading it from the forge at the commit the run
   # stopped on, so the branch has to be there before anyone is asked. Left
