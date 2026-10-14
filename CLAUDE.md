@@ -103,7 +103,8 @@ bug already shipped once.
    A failed gate or unparseable JSON re-prompts the *same* session as a correction; nothing restarts.
 5. **`tools:` is a capability list, `writes:` is the boundary.** `permissions.py` diffs the repo after
    every agent call and rolls back unauthorized changes. Workflow bindings may only *narrow*
-   `writes`/`tools`, and identity is *appended* (`system_append`), never replaced.
+   `writes`/`tools`, and identity is *appended* (`system_append`), never replaced. An MCP
+   server's tools sit outside `tools:`; `deny_tools` narrows them, and is only ever *added* to.
 6. **Every phase carries a real description** (a restatement of the name is rejected at construction),
    and **every run ends through `run.finish(accepted=)`** — phases passing ≠ the run being acceptable.
 7. **The vocabulary is closed**: no `loop:` or `if:` in `workflow.yaml`. A shape the vocabulary

@@ -287,17 +287,18 @@ def chromium_missing() -> str:
     return f"no Chromium in Playwright's browser cache ({cache})"
 
 
-def names_accept(main_root: Path) -> bool:
-    """Whether any workflow here runs the `accept` stage — read off the YAML,
-    so a workflow that does not load still counts."""
+def accept_workflows(main_root: Path) -> list[str]:
+    """The workflows here that run the `accept` stage — read off the YAML, so
+    a workflow that does not load still counts."""
+    found = []
     for spec in sorted((main_root / "asf" / "workflows").glob("*/workflow.yaml")):
         try:
             stages = (yaml.safe_load(spec.read_text()) or {}).get("stages") or []
         except yaml.YAMLError:
             continue
         if any(isinstance(item, dict) and "accept" in item for item in stages):
-            return True
-    return False
+            found.append(spec.parent.name)
+    return found
 
 
 def browser(main_root: Path) -> list[Finding]:
@@ -308,7 +309,7 @@ def browser(main_root: Path) -> list[Finding]:
     `warn`, not `fatal`: the stage asks again before it spends anything, and
     ends the session as an environment failure if either is still missing.
     """
-    if not names_accept(main_root):
+    if not accept_workflows(main_root):
         return []
     findings = [Finding(check="browser: npx", detail=f"npx at {shutil.which('npx')}")
                 if shutil.which("npx") else

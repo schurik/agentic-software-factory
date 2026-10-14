@@ -39,6 +39,7 @@ const DESCRIBED: Record<string, string> = {
   "phase_started/v3.json": "plan started · agent planner · asf/stages/plan/task.md · stage 2 of its chapter",
   "process_ended/v1.json": "process 4250 ended",
   "process_started/v1.json": "process 4250 started: claude_code planner sonnet",
+  "process_started/v2.json": "dev server 4251 started: bun run dev --port 52114",
   "prompt_rendered/v1.json": "prompt 1 sent to planner",
   "pull_request_closed/v1.json": "pull request #43 merged with 2 commits",
   "pull_request_closed/v2.json": "pull request #43 merged with 2 commits, +120 −30 lines",

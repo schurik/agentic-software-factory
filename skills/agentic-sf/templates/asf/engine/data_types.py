@@ -2345,7 +2345,9 @@ class ShipResult(BaseModel):
 
 # ── Onboarding (engine/onboarding.py) ────────────────────────────────────────
 
-OnboardingState = Literal["done", "next", "todo", "skipped"]
+# `optional`: offered with its how, never `next`, never counted — a step a
+# repository may take and onboarding never waits for.
+OnboardingState = Literal["done", "next", "todo", "skipped", "optional"]
 
 
 class OnboardingMark(BaseModel):

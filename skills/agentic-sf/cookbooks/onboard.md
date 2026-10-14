@@ -106,6 +106,38 @@ Only when issues or reviews start runs: `just labels --create`.
 [run_workflow.md](run_workflow.md) says. `just onboard` then reports every
 step done, and the record says onboarding is finished.
 
+### Optional: the running app, in a browser
+
+`just onboard` lists `accept` as optional (`◦`): it is never `next`, never
+counted, and onboarding finishes without it. Offer it once, for a web app —
+`install.py` said so if the repo looked like one — and ask with the question
+tool; it is the team's call, because every round costs a browser session. A
+**yes**:
+
+1. **The workflow.** `cp -r asf/examples/workflows/ship-accept asf/workflows/` —
+   `ship` with `accept` between `verify` and `review`, so acceptance runs on a
+   green suite and the reviewer sees the fixes made for it. Any workflow can
+   take the stage the same way; keep that order.
+2. **The server.** Replace `_placeholder("serve")` in `asf/engine/quality.py`
+   with the argv that starts the dev server on `port` — `["bun", "run", "dev",
+   "--port", str(port)]`; `PORT` is set too. Code starts it, waits until
+   `http://localhost:<port>/` answers, hands the agent the URL and stops it, so
+   it must be a server that reloads on change: the builder's revision lands
+   while it runs. Its `.env` and packages come from `worktree.copy` and
+   `worktree.setup`. `just check` refuses the workflow until it is written.
+3. **The browser.** `npx playwright install chromium`, then `just doctor`,
+   which names a missing `npx` or Chromium once a workflow runs `accept`. The
+   `qa` agent's browser is `asf/agents/qa/playwright.json`: a pinned
+   `@playwright/mcp`, headless and isolated on every run, attended or not.
+   Raising its version is a reviewed edit — tool names under its `deny_tools`
+   can change with it. A page behind a login: export the state once
+   (`npx playwright codegen --save-storage=playwright/.auth/qa.json <url>`),
+   list that file in `worktree.copy`, and add `"--storage-state",
+   "playwright/.auth/qa.json"` to the server's args.
+
+It runs on Claude Code only (`qa` says `harness: {name: claude_code}`): the
+browser is an MCP server, and pi has none.
+
 ## Questions they will have
 
 ### Install it
@@ -126,6 +158,10 @@ the root `.env` — the factory's own `ASF_SKILL`, `ASF_COCKPIT_URL` and
 `ASF_COCKPIT_TOKEN` included — was already in every agent's environment;
 now a worktree holds a copy on disk too. Keep anything agents must not read
 out of it. → [install.md](install.md#ask-first-stamp-second)
+
+**"Can an agent click through the feature in the running app?"** — yes, the
+`accept` stage: [Optional: the running app, in a browser](#optional-the-running-app-in-a-browser).
+Scripted specs are the `e2e` block, below; `accept` is for what no spec says.
 
 **"Can a run check the app in a browser?"** — yes, with the `e2e` block in
 `asf/engine/quality.py`: browser tests against a dev server Playwright's
