@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 # Which lockfile means which JavaScript package manager, most specific first.
@@ -160,4 +161,73 @@ def apply(quality_py: Path, found: dict[str, Detected]) -> list[str]:
         if count:
             notes.append(f"{block}: {' '.join(detected.argv)}   ({detected.because})")
     quality_py.write_text(source)
+    return notes
+
+
+# ── a session's worktree: what to copy into it, and how to install into it ──
+#
+# The same two rules, for factory.yaml's `worktree.copy` and `worktree.setup`.
+# A file is offered only when this repository has it AND ignores it: the
+# factory refuses to copy anything a commit stage's `git add -A` could carry,
+# and an installer that wrote such an entry would stamp a factory that refuses
+# itself. `.env` is the default either way, unless git tracks it.
+
+COPY_CANDIDATES = [
+    ".env.local", ".env.development.local",      # Next.js, Vite; the one Convex writes
+    ".dev.vars",                                  # Cloudflare Wrangler
+    "config/master.key",                          # Rails
+    "serviceAccountKey.json",                     # a Firebase service account
+    "google-services.json", "GoogleService-Info.plist",
+    ".vercel/project.json",                       # the Vercel CLI's link
+    "playwright/.auth/*.json",                    # Playwright's saved logins
+    ".npmrc",                                     # a registry token, when ignored
+]
+
+# Which lockfile means which install, one per ecosystem, most specific first.
+SETUP_BY_LOCKFILE = [
+    [("bun.lock", ["bun", "install"]), ("bun.lockb", ["bun", "install"]),
+     ("pnpm-lock.yaml", ["pnpm", "install"]), ("yarn.lock", ["yarn", "install"]),
+     ("package-lock.json", ["npm", "ci"])],
+    [("uv.lock", ["uv", "sync"]), ("poetry.lock", ["poetry", "install"])],
+    [("Gemfile.lock", ["bundle", "install"])],
+]
+
+
+def _git_lines(root: Path, *args: str) -> set[str]:
+    """What a git question prints, line by line — nothing outside a repository."""
+    try:
+        result = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
+    except OSError:
+        return set()
+    return {line for line in result.stdout.splitlines() if line}
+
+
+def detect_worktree(root: Path) -> tuple[list[str], list[list[str]]]:
+    """`worktree.copy` and `worktree.setup` as this repository answers them."""
+    present = [each for each in COPY_CANDIDATES
+               if (any(root.glob(each)) if "*" in each else (root / each).exists())]
+    ignored = _git_lines(root, "check-ignore", "--", ".env", *present)
+    tracked_env = _git_lines(root, "ls-files", "--", ".env")
+    copy = ([] if tracked_env else [".env"]) + [each for each in present if each in ignored]
+    setup = [next(argv for lockfile, argv in ecosystem if (root / lockfile).is_file())
+             for ecosystem in SETUP_BY_LOCKFILE
+             if any((root / lockfile).is_file() for lockfile, _ in ecosystem)]
+    return copy, setup
+
+
+def apply_worktree(config: Path, copy: list[str], setup: list[list[str]]) -> list[str]:
+    """Write them into a factory.yaml this install just rendered, over the two
+    lines the template ships — `copy: [".env"]` and `setup: []`, each unique in
+    the file — and return what to print. JSON is YAML, and quoted, a glob's
+    leading `*` is not read as an alias."""
+    if not config.is_file():
+        return []
+    text = config.read_text()
+    lines = {"copy": f"  copy: {json.dumps(copy)}", "setup": f"  setup: {json.dumps(setup)}"}
+    for key, line in lines.items():
+        text = re.sub(rf'^  {key}: .*$', lambda _match: line, text, count=1, flags=re.M)
+    config.write_text(text)
+    notes = [f"worktree.copy: {', '.join(copy) or '(nothing)'}"]
+    if setup:
+        notes.append(f"worktree.setup: {' · '.join(' '.join(argv) for argv in setup)}")
     return notes

@@ -210,6 +210,16 @@ their answer. The options are below each.
    prompt and the harness's raw output, tool arguments and results included:
    say so in the options' descriptions, and never turn it on for them: **Leave
    it off** `(Recommended)` · **Send transcripts**.
+7. **`worktree.copy` and `worktree.setup`** — unset, `copy` is `[".env"]` and
+   `setup` is empty: a session's worktree gets the root `.env` and installs
+   nothing. The `.new` carries what the installer found here — gitignored files
+   a run needs (`.env.local`, `.vercel/project.json`, …) and the install the
+   lockfiles name (`bun install`, `uv sync`, …). Show both lists and say that the
+   root `.env` (the factory's `ASF_COCKPIT_TOKEN` among it) is copied onto disk
+   in each worktree, as it was always in every agent's environment. A
+   repository that TRACKS its `.env` is refused by `just check` until `copy`
+   leaves it out. Options: **Take the `.new`'s lists** `(Recommended)` ·
+   **Keep the defaults** · **Copy nothing** (`copy: []`).
 
 Then delete `asf/factory.yaml.new` — it was a proposal, and leaving it is how
 the next `--force` writes over the one they read.

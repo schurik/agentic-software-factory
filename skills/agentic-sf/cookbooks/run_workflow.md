@@ -74,7 +74,10 @@ conversation), and neither can merge: `integration` downgrades a configured
 merge to a pull request on those inputs, in code.
 
 Every run works in its own worktree on branch `asf/<adw_id>`. The engineer's
-checkout is never touched.
+checkout is never touched. A new worktree gets a copy of each file
+`worktree.copy` lists (the console names any the checkout lacks), and its first
+phase, `setup`, runs `worktree.setup` — a run that ends there failed in the
+environment, not the code: fix the command and `just resume <adw_id>`.
 
 ## Watch it
 

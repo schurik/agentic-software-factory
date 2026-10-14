@@ -6,6 +6,8 @@ import json
 import re
 from pathlib import Path
 
+import yaml
+
 from .asf_helpers import SKILL_ROOT, asf, fake_roster, git, install
 
 STAMPED = ["asf/asf.py", "asf/factory.yaml", "asf/engine/session.py", "asf/engine/workflow.py",
@@ -63,6 +65,42 @@ def test_a_second_install_skips_and_force_keeps_the_operator_s_config(repo: Path
     assert "# clobbered" not in engine.read_text()          # skill code is replaced
     assert config.read_text().endswith("# mine\n")          # the operator's file is not
     assert (repo / "asf" / "factory.yaml.new").is_file()    # the fresh render sits beside it
+
+
+def test_the_worktree_s_copy_and_setup_are_filled_from_what_the_repo_has(repo: Path):
+    # Gitignored files a session's worktree needs, and the lockfiles that say
+    # how its dependencies are installed — each only when the repo has it.
+    (repo / ".gitignore").write_text(".env.local\n.vercel/\nplaywright/.auth/\n")
+    (repo / ".env.local").write_text("CONVEX_DEPLOYMENT=dev:x\n")
+    (repo / ".vercel").mkdir()
+    (repo / ".vercel" / "project.json").write_text("{}\n")
+    (repo / "playwright" / ".auth").mkdir(parents=True)
+    (repo / "playwright" / ".auth" / "user.json").write_text("{}\n")
+    (repo / ".npmrc").write_text("registry=https://example.invalid\n")   # not gitignored
+    (repo / "bun.lock").write_text("{}\n")
+    (repo / "uv.lock").write_text("version = 1\n")
+    git(repo, "add", ".gitignore", "bun.lock", "uv.lock", ".npmrc")
+    git(repo, "commit", "-q", "-m", "a repo with things to copy")
+
+    result = install(repo, "--harness", "claude_code")
+    assert result.returncode == 0, result.stdout + result.stderr
+    worktree = yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["worktree"]
+
+    assert worktree["copy"] == [".env", ".env.local", ".vercel/project.json",
+                                "playwright/.auth/*.json"]
+    assert worktree["setup"] == [["bun", "install"], ["uv", "sync"]]
+    assert "worktree.copy: .env, .env.local" in result.stdout
+    checked = asf(repo, "check")
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+
+def test_a_repo_with_nothing_to_copy_or_install_keeps_the_defaults(repo: Path):
+    result = install(repo, "--harness", "claude_code")
+    assert result.returncode == 0, result.stdout + result.stderr
+    worktree = yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["worktree"]
+
+    assert worktree["copy"] == [".env"]
+    assert worktree["setup"] == []
 
 
 def test_an_unknown_or_unstampable_harness_is_refused(repo: Path):

@@ -405,6 +405,14 @@ def main() -> int:
     ensure_gitignore(root, stamped)
     skill_in_env = ensure_env(root, root / ".env.sample", stamped, notes)
 
+    # A config this install rendered — stamped, or beside the operator's as
+    # `.new` — says what this repository's worktrees need; one it kept is theirs.
+    config = root / "asf" / "factory.yaml"
+    rendered = (config if str(config) in stamped
+                else Path(config_notes[0][1]) if config_notes else None)
+    worktree_notes = (_detect.apply_worktree(rendered, *_detect.detect_worktree(root))
+                      if rendered else [])
+
     quality_py = root / "asf" / "engine" / "quality.py"
     detecting = not args.no_detect_quality and str(quality_py) in stamped
     detected = _detect.apply(quality_py, _detect.detect(root)) if detecting else []
@@ -446,6 +454,11 @@ def main() -> int:
     if detected:
         print("\nquality commands detected from this repo — check them in asf/engine/quality.py:")
         for note in detected:
+            print(f"    {note}")
+    if worktree_notes:
+        print(f"\nwhat a session's worktree gets, detected from this repo — check them in "
+              f"{rendered.relative_to(root)}:")
+        for note in worktree_notes:
             print(f"    {note}")
     if detecting:
         unwired = [b for b in _detect.BLOCKS if b not in {n.split(':')[0] for n in detected}]

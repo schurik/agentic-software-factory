@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from . import agents, frontmatter, git_helper, harnesses, integration
+from . import agents, frontmatter, git_helper, harnesses, integration, worktree
 from .data_types import AgentConfig, FactoryConfig, HarnessDefaults
 from .utils import anchor
 
@@ -62,9 +62,14 @@ def load(config_path: str | Path = DEFAULT_CONFIG) -> FactoryConfig:
         cfg = agents.merge_harness(raw)
     except ValidationError as error:
         raise SystemExit(f"{path}: {error}") from None
-    problems = _roster_refused(cfg, git_helper.main_root(path.resolve().parent))
+    main_root = git_helper.main_root(path.resolve().parent)
+    problems = _roster_refused(cfg, main_root)
     if problems:
         raise SystemExit(f"{path}: the roster is not runnable:\n- " + "\n- ".join(problems))
+    problems = worktree.refused(main_root, cfg.worktree)
+    if problems:
+        raise SystemExit(f"{path}: a session's worktree could not be made safely:\n- "
+                         + "\n- ".join(problems))
     return cfg
 
 

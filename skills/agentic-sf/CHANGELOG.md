@@ -312,6 +312,20 @@ before — `None` when there are none, never omitted.
   cockpit's answers to a wait, `ignore_authors` and empty bodies are never work;
   `trusted_reviewers` covers comment authors, and `max_threads` caps the comments separately.
   `PullRequestOutput` carries `comment_count`.
+- **A session's worktree gets the operator's gitignored files, and installs its dependencies.**
+  `worktree.copy` (default `[.env]`) lists globs, from the main checkout's root, that are copied —
+  never symlinked — into a worktree whenever one is created or re-created from its branch; a
+  re-attached one copies nothing. Each must be gitignored: a tracked or unignored path, or one
+  outside the repository, is refused by `asf check`, `doctor` and every run, because a commit
+  stage runs `git add -A` in the worktree. A listed file the checkout lacks is skipped and named
+  on the console. `worktree.setup` lists argv commands (bare binary names, as in `quality.py`)
+  run in a new worktree after the copy, as the session's first phase, `setup`, its commands on
+  `command_finished`; one that fails ends the session before any agent runs, and is owed again
+  when the session resumes. `install.py` fills both from what the repository has — the
+  gitignored `.env.local`, `.dev.vars`, `.vercel/project.json`, Playwright's saved logins, … and
+  `bun install`, `uv sync`, … from the lockfiles it finds. The root `.env` holds the factory's own
+  settings too (`ASF_SKILL`, `ASF_COCKPIT_URL`, `ASF_COCKPIT_TOKEN`): every agent and quality
+  block already had them in its environment, and a worktree now holds them on disk as well.
 
 ### Upgrade
 
@@ -383,6 +397,12 @@ before — `None` when there are none, never omitted.
    `pull_requests.states.failed` (`asf:pr-failed`) to it before the watcher restarts, and remove
    it when you want its comments answered. Bots that comment on every pull request belong in
    `pull_requests.ignore_authors`.
+9. The re-stamp copies `.env` into every new worktree, since a config without `worktree.copy`
+   takes the default `[.env]`. A repository that tracks its `.env` is refused by `asf check`
+   until it says `copy: []` (the worktree has a tracked one already). Take `copy` and `setup`
+   from `asf/factory.yaml.new`, where the installer filled them from this repository, or write
+   them yourself — `worktree.setup` stays empty until you do, so a worktree still starts without
+   `node_modules`.
 
 ## 1.2.0 — 2026-10-02
 

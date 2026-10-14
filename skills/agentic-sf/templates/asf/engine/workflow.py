@@ -36,7 +36,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import (agents, benchmark_session, claims, factory, git_helper, inputs, issues,
-               pull_requests, scorers, session, tasks)
+               pull_requests, scorers, session, tasks, worktree)
 from .data_types import (AgentConfig, BuildOutput, ChapterInput, ClaimAsk, EnvelopeBase,
                          FactoryConfig, Invocation, PhaseParams, SessionSpec)
 from .utils import new_id
@@ -357,6 +357,9 @@ def run(workflow: Workflow, invocation: Invocation) -> int:
     # scored once it has, by every scorer bound to this workflow. A chapter
     # stopped at a gate has not ended: the process that ends it scores it.
     try:
+        # Before the work item is opened and before any agent: a tree whose
+        # dependencies are not installed fails its checks as if the code did.
+        worktree.set_up(run)
         if workflow.input == "issue" and run.benchmark is not None:
             opened = inputs.open_recorded_issue(run)
         elif workflow.input == "issue":

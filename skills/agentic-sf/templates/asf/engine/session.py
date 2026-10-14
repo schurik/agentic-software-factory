@@ -153,6 +153,14 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     _finalize_when_killed(run)
     run.console.session_started(adw_id, run.engineer)
     run.console.note(_workspace_line(workspace))
+    # Names, never contents. A listed file the checkout lacks is not a refusal
+    # — a fresh clone has no `.env` yet — but a check that needs it will fail,
+    # and this line is where that failure is explained before it happens.
+    if workspace.copied:
+        run.console.note(f"copied into the worktree: {', '.join(workspace.copied)}")
+    if workspace.missing:
+        run.console.note(f"not in the main checkout, so not copied: "
+                         f"{', '.join(workspace.missing)} (worktree.copy)")
     if publish.publishes(cfg, workspace):
         run.console.note(f"published: {workspace.branch} is on "
                          f"{cfg.worktree.integration.remote}, and is pushed again before "

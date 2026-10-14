@@ -124,6 +124,21 @@ turns on with `hitl: true` stops the run with exit 75 and the session reading
 `waiting`. An issue- or review-triggered run can never merge: `integration`
 downgrades a configured merge to a pull request on those inputs, in code.
 
+A worktree is cut from a branch, so what is gitignored in the checkout is not
+in it. `worktree.copy` (default `[.env]`) names the gitignored files a new or
+re-created worktree gets a COPY of — never a symlink, so an agent writing the
+worktree's `.env` cannot reach the engineer's — and `worktree.setup` the
+commands (argv lists, bare binary names) that install its dependencies, run as
+the session's first phase, `setup`. `install.py` fills both from what the
+repository has. A copy entry that is tracked, not gitignored, or outside the
+repository is refused by `check`, `doctor` and every run: a commit stage runs
+`git add -A` in the worktree. A failing setup command ends the session before
+any agent runs, as an environment failure, and a resume runs it again. **The
+root `.env` holds the factory's own settings too** — `ASF_SKILL`,
+`ASF_COCKPIT_URL`, `ASF_COCKPIT_TOKEN` — and every agent and quality block
+already sees all of it in its environment; copied, a worktree also holds it on
+disk. Say so before an engineer puts a secret there that agents must not see.
+
 WHEN that branch reaches the remote is `worktree.publish`, and it follows the
 cockpit unless `asf/factory.yaml` sets it. A cockpit shows what a gate asks
 about by reading it from the forge at the commit the run stopped on, so with
@@ -185,6 +200,7 @@ acting, not after.
 | two stations (laptops, CI) on one repository / a watcher says an item is "held by" another station / `just issue 42` was refused with "held by" / "the watcher warns only one issues watcher per repository is safe" | The forge label is **not a lock**: two watchers that listed the same queued issue both flip it. With a **shared cockpit** (`ASF_COCKPIT_URL`) every starter — both watchers and `just issue 42` / `just pr-review 17` — asks it for a **claim** before touching a label, and exactly one station gets it; the others leave the item as it is. A claim is held until its session finishes or is aborted, and **kept when it fails** (so `just resume <id>` still works) and while its station is offline. Nothing releases one by the clock: a writer frees it on the session page with **Release claim**, which relabels the item `asf:queued` and abandons that session — a resume of an abandoned session is refused ("abandoned by …"); start the item afresh instead. `--force` (`just issue 42 --force`) starts a run by hand without asking — for recovering, when you know no other station has it. Without a shared cockpit there are no claims: run **one** issues watcher per repository, which is what the warning at its start says. Never pass `--force` on the engineer's behalf |
 | a question round or a gate was answered ON THE ITEM and nothing happened | `just answers` — one poll; `just answers-status` lists every run waiting on a tracker answer and who may give it. The poller launches nothing: it resumes runs that are already suspended, and only the ones whose wait says `channel: issue`. Without it a reply sits on the item while the run waits for somebody to type `just answer <id>`. A GATE hears only a reply whose first line is its verdict — `/approve`, `/reject <what should change>` (notes required), `/abort` — and any other reply there is discussion; a cockpit's inbox posts exactly those, as the person signed in, so `issues.trusted_authors` decides as it does for a typed reply. A cockpit's reply names the round and subject it answered and is ignored once the run has moved past them |
 | stop a run | `just kill <id>` — agents first, then the workflow; `--force` SIGKILLs |
+| a check passes in the checkout and fails in a run / "the run has no `.env`" / no `node_modules` in the worktree / a run ended at `setup` / `check` refused a `worktree.copy` entry | The worktree has the branch and nothing gitignored. Add the file to `worktree.copy` in `asf/factory.yaml` (it must be gitignored — a tracked one is in the worktree already, an unignored one a commit would carry) and the install to `worktree.setup` (`[["bun", "install"]]`, bare names). The console names each listed file the checkout lacks. A run that ended at `setup` failed in the environment, not the code: fix the command, then `just resume <id>` — setup is owed until it succeeds. Never symlink a file into a worktree by hand |
 | tidy up | `just worktrees`, `just worktrees-prune [--force]`, `just worktrees-remove <id>`; branches are never deleted |
 | remove the factory from this repo | [cookbooks/uninstall.md](cookbooks/uninstall.md) — `just uninstall --dry-run` first and show the plan; the skill is untouched, the run record goes with `asf/`, and it is the one irreversible thing here |
 | which workflows exist / what does X do | `uv run asf/asf.py list`; read `asf/workflows/<name>/workflow.yaml` |
