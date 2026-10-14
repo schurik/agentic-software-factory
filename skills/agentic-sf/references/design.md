@@ -530,7 +530,9 @@ top of it through a small seam:
   is how a stage's task file reaches the agent.
 - `session.ensure(cfg, SessionSpec(name=, request=))`: `run.json` names the workflow, and
   `session_started` carries the prompt.
-- `quality.run_blocks(run, names)`: a verify stage picks its blocks.
+- `quality.run_blocks(run, names)`: a verify stage picks its blocks, from
+  `BLOCKS`; `run_quality` runs `DEFAULT`, which leaves the opt-in `e2e` out,
+  and `quality.refused(names)` is the stages' `check`.
 - `agents.merge_harness(raw)`: one merge of each agent's `harness:` block over
   factory.yaml's, used by `engine.factory`.
 

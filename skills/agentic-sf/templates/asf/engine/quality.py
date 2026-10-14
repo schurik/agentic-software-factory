@@ -15,15 +15,20 @@ deciding.
 ║  answer is not a passing one.                                                ║
 ║                                                                              ║
 ║  A stamped repo has no way to guess your test runner; `install.py` tries      ║
-║  (bun.lock, pyproject.toml, package.json scripts) and writes in what it       ║
-║  finds, so some of the blocks below may already name a real command.          ║
-║  `just doctor` lists whichever are still unwired.                             ║
+║  (bun.lock, pyproject.toml, package.json scripts, playwright.config.*),      ║
+║  writes in what it finds, so some of the blocks below may already name a     ║
+║  real command. `just doctor` lists whichever are still unwired.              ║
 ║                                                                              ║
 ║  For each block you want: swap `_placeholder(...)` for the real argv, e.g.    ║
 ║      argv=["bun", "test", "apps/web/server.test.ts"]                         ║
 ║      argv=["uv", "run", "pytest", "-q"]                                      ║
 ║      argv=["npm", "run", "lint"]                                             ║
-║  Delete the blocks you don't need, and drop them from run_quality()'s list.   ║
+║  Delete the blocks you don't need, and drop them from DEFAULT.               ║
+║                                                                              ║
+║  `e2e` is opt-in: browser tests against a dev server Playwright's webServer  ║
+║  starts itself. It is not in DEFAULT, so it runs only where a workflow names  ║
+║  it (verify.blocks, review.retest), and doctor asks about it only then. Keep  ║
+║  `--output str(evidence)` in its argv; its config reads PORT.                ║
 ║                                                                              ║
 ║  Two rules when you write the real command:                                  ║
 ║    1. argv LIST, never a shell string — no quoting bugs, no shell injection.  ║
@@ -37,7 +42,9 @@ deciding.
 from __future__ import annotations
 
 import inspect
+import re
 import shlex
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -77,6 +84,7 @@ EXAMPLES = {
     "lint": '["npm", "run", "lint"] or ["uv", "run", "ruff", "check", "."]',
     "typecheck": '["bunx", "tsc", "--noEmit"] or ["uv", "run", "mypy", "."]',
     "build": '["npm", "run", "build"] or ["cargo", "build"]',
+    "e2e": '["bunx", "playwright", "test", "--output", str(evidence)]',
 }
 
 
@@ -92,16 +100,19 @@ def _unwired_message(name: str) -> str:
             f"{example} — or delete the block and drop it from BLOCKS there.")
 
 
-def placeholders() -> list[str]:
-    """Which blocks still carry the shipped placeholder instead of a command.
+def placeholders(names: list[str] | None = None) -> list[str]:
+    """Which of `names` (DEFAULT when not given) still carry the shipped
+    placeholder instead of a command.
 
     Read off the source of the blocks themselves rather than a list somebody
     has to remember to update: a block whose argv you replaced no longer
     mentions `_placeholder`, and that IS the answer. `preflight.quality()` and
-    `just doctor` are the callers.
+    `just doctor` ask about DEFAULT; a stage's `check` asks about what its
+    workflow names (`refused` below).
     """
     unwired = []
-    for name, block in BLOCKS.items():
+    for name in DEFAULT if names is None else names:
+        block = BLOCKS[name]
         try:
             source = inspect.getsource(block)
         except OSError:                      # a block defined outside a file
@@ -143,7 +154,8 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
             completed = subprocess.run(
                 spec.argv,
                 cwd=run.repo_root,
-                env=operator_env(),   # the engineer's own shell environment
+                # The engineer's own shell environment, and what this check adds to it.
+                env={**operator_env(), **spec.env},
                 capture_output=True,
                 text=True,
                 timeout=spec.timeout_seconds,
@@ -187,7 +199,22 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
         duration_seconds=duration,
         output_artifact=str(output_artifact),
         output_tail=(stdout + stderr)[-TAIL_CHARS:],
+        evidence=[path for path in spec.evidence if Path(path).exists()],
     )
+
+
+def _failure(check: QualityCheckResult) -> str:
+    """One failed check as the builder reads it: the command, its exit code, and
+    what it actually printed — everything needed to repair it without opening a
+    log, or being told what the error "means" by a parser that guessed. A
+    diagnosis leads, when the block knows what the exit code alone hides."""
+    lead = f"{check.diagnosis}\n" if check.diagnosis else ""
+    return (f"{check.name}: {lead}`{check.command}` exited {check.returncode}\n"
+            f"{check.output_tail}").rstrip()
+
+
+def _artifacts(checks: list[QualityCheckResult]) -> list[str]:
+    return [path for check in checks for path in (check.output_artifact, *check.evidence)]
 
 
 # ── Blocks ────────────────────────────────────────────────────────────────────
@@ -238,15 +265,106 @@ def build(run) -> QualityCheckResult:
     ), run)
 
 
-# Every block this file offers, by name. `run_quality` runs them, `placeholders`
-# inspects them, and `just doctor` reports them — one list, so a block added or
-# deleted here cannot be half-registered.
+def free_port() -> int:
+    """A port nothing on this machine is listening on, as the OS picks one.
+
+    Sessions run side by side, each in its own worktree, and a dev server on a
+    fixed port (3000) would meet the one next to it there — the second session's
+    server fails to start, or worse, its specs pass against the first one's.
+    """
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+# Every way Playwright says its `webServer` never answered — timed out, exited
+# early, could not start, found its port taken — is an `Error:` line naming the
+# config key, and exits 1 exactly like a failing spec does. Anchored to that
+# line, so a spec or a server that merely prints the words is not mistaken for it.
+SERVER_DOWN = re.compile(r"^Error: .*\bconfig\.webServer\b", re.MULTILINE)
+
+
+def _diagnose_server_down(check: QualityCheckResult) -> QualityCheckResult:
+    """A red e2e check whose dev server never answered, said as that: no spec
+    ran, so none failed, and a builder told otherwise goes hunting in specs."""
+    # The whole log, not the tail: Playwright says it first and the server's
+    # own output, which can run long, follows.
+    if check.passed or not SERVER_DOWN.search(Path(check.output_artifact).read_text()):
+        return check
+    return check.model_copy(update={"diagnosis": (
+        "the dev server never came up (Playwright's webServer), so no spec ran and none "
+        "failed. Its output is below: a crash there may be the change; a missing .env, "
+        "package or PORT is the worktree's setup (worktree.copy, worktree.setup in "
+        "asf/factory.yaml) or the webServer config.")})
+
+
+def e2e(run) -> QualityCheckResult:
+    """Browser tests against a dev server the command starts itself — Playwright's
+    `webServer` config starts it and stops it, so code never runs one beside it.
+
+    Opt-in: not in DEFAULT below, so it runs only where a workflow names it.
+
+    What the command is handed, so a browser test fits a factory: `PORT`, free
+    for this check alone, which the webServer config and `use.baseURL` read;
+    `ASF_CHECK_DIR`, this check's directory; and the evidence directory, which
+    Playwright's `--output` points at and which the builder repairing a red run
+    is handed — traces and screenshots, not just the log. The HTML report goes
+    beside it and never opens a browser that would wait for someone.
+    """
+    check_dir = _check_dir(run, "e2e")
+    evidence = check_dir / "test-results"
+    report = check_dir / "report"
+    return _diagnose_server_down(_run(QualityCheckSpec(
+        name="e2e",
+        area="frontend",
+        operation="test",
+        argv=_placeholder("e2e"),         # e.g. ["bunx", "playwright", "test", "--output", str(evidence)]
+        env={"PORT": str(free_port()), "ASF_CHECK_DIR": str(check_dir),
+             "PLAYWRIGHT_HTML_OUTPUT_DIR": str(report), "PLAYWRIGHT_HTML_OPEN": "never"},
+        evidence=[str(evidence), str(report)],
+        timeout_seconds=900,
+    ), run))
+
+
+# Every block this file offers, by name — what `run_blocks` resolves a
+# workflow's `blocks:` and `retest:` against, and what `placeholders` inspects.
+# One registry, so a block added or deleted here cannot be half-registered.
 BLOCKS: dict[str, Callable] = {
     "test": test,
     "lint": lint,
     "typecheck": typecheck,
     "build": build,
+    "e2e": e2e,
 }
+
+# What `run_quality` runs, and what `just doctor` asks about on every stamp.
+# Not BLOCKS: a block left out of here is opt-in — it exists, a workflow can
+# name it, and a stamp that never asks for it never runs it or hears about it.
+DEFAULT: list[str] = ["test", "lint", "typecheck", "build"]
+
+
+def _unknown(name: str) -> str:
+    return f"no block {name!r} in asf/engine/quality.py — it offers {', '.join(BLOCKS)}"
+
+
+def refused(names: list[str]) -> list[str]:
+    """Why a workflow naming these blocks must not run, said by `asf check`
+    before anything costs anything: a name this file does not offer, and an
+    opt-in block still a placeholder.
+
+    Not a DEFAULT block still a placeholder. That is how every stamp starts,
+    `just doctor` says so on every run, and a check that refused it would
+    refuse the stamped workflows on day one. An opt-in block is named only by
+    someone who asked for it, so one still unwired is a mistake in that
+    workflow — and it would otherwise surface as a red phase, after an agent
+    had already been paid for the build in front of it.
+    """
+    problems = [_unknown(name) for name in names if name not in BLOCKS]
+    opt_in = [name for name in names if name in BLOCKS and name not in DEFAULT]
+    problems += [f"{name} is still a placeholder in asf/engine/quality.py, and this "
+                 f"workflow names it — replace `_placeholder(\"{name}\")` with the argv "
+                 f"that runs it" for name in placeholders(opt_in)]
+    return problems
 
 
 def run_blocks(run, names: list[str]) -> QualityResult:
@@ -255,17 +373,13 @@ def run_blocks(run, names: list[str]) -> QualityResult:
     because a workflow that asks for a block this repository never wired up is
     a configuration error and not a red suite.
     """
-    unknown = [name for name in names if name not in BLOCKS]
+    unknown = [_unknown(name) for name in names if name not in BLOCKS]
     if unknown:
-        raise RuntimeError(f"quality: no such block(s) {unknown} — this repo's "
-                           f"asf/engine/quality.py offers {sorted(BLOCKS)}")
+        raise RuntimeError("quality: " + "; ".join(unknown))
     checks = [BLOCKS[name](run) for name in names]
-    failures = [
-        f"{check.name}: `{check.command}` exited {check.returncode}\n{check.output_tail}".rstrip()
-        for check in checks if not check.passed
-    ]
+    failures = [_failure(check) for check in checks if not check.passed]
     return QualityResult(passed=not failures, checks=checks, failures=failures,
-                         artifacts=[check.output_artifact for check in checks])
+                         artifacts=_artifacts(checks))
 
 
 def run_tests(run) -> QualityResult:
@@ -277,11 +391,9 @@ def run_tests(run) -> QualityResult:
     still reaches the builder through `as_envelope` below.
     """
     check = test(run)
-    failures = ([] if check.passed else
-                [f"{check.name}: `{check.command}` exited {check.returncode}\n"
-                 f"{check.output_tail}".rstrip()])
+    failures = [] if check.passed else [_failure(check)]
     return QualityResult(passed=check.passed, checks=[check], failures=failures,
-                         artifacts=[check.output_artifact])
+                         artifacts=_artifacts([check]))
 
 
 def as_envelope(result: QualityResult, what: str) -> VerifyOutput:
@@ -312,20 +424,14 @@ def run_quality(run) -> QualityResult:
     The runner did its job; the CODE is what failed. Hand this result to the
     builder and let the bounded repair loop decide the run's fate.
 
-    Which blocks run is `BLOCKS` above — delete the ones this repo has no use
+    Which blocks run is `DEFAULT` above — drop the ones this repo has no use
     for there, in the one place `placeholders()` and `just doctor` also read.
     """
-    checks = [block(run) for block in BLOCKS.values()]
-    # A failure is the command, its exit code, and what it actually printed —
-    # everything a builder needs to repair without opening a log or being told
-    # what the error "means" by a parser that guessed.
-    failures = [
-        f"{check.name}: `{check.command}` exited {check.returncode}\n{check.output_tail}".rstrip()
-        for check in checks if not check.passed
-    ]
+    checks = [BLOCKS[name](run) for name in DEFAULT]
+    failures = [_failure(check) for check in checks if not check.passed]
     return QualityResult(
         passed=not failures,
         checks=checks,
         failures=failures,
-        artifacts=[check.output_artifact for check in checks],
+        artifacts=_artifacts(checks),
     )

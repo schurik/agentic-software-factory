@@ -49,6 +49,10 @@ def _record(ph, result) -> None:
            artifacts=", ".join(result.artifacts))
 
 
+def check(opts: Options, earlier: dict) -> list[str]:
+    return quality.refused(opts.blocks)
+
+
 def run(ctx, opts: Options):
     build = ctx.previous
     what = ", ".join(opts.blocks)

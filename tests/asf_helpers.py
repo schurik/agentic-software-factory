@@ -104,8 +104,12 @@ def wire(repo: Path, block: str, argv: list[str]) -> None:
     """Replace one quality block's argv in the stamped quality.py."""
     quality = repo / "asf" / "engine" / "quality.py"
     source = quality.read_text()
-    pattern = re.compile(rf'argv=(_placeholder\("{block}"\)|\[[^\n]*?\]),[^\n]*')
-    replaced, count = pattern.subn(f"argv={json.dumps(argv)},", source, count=1)
+    # Anchored on the block's own `name=`: a bare `argv=[…]` would match the
+    # first block already wired, whichever block that is.
+    pattern = re.compile(rf'(name="{block}",[^)]*?)'
+                         rf'argv=(_placeholder\("{block}"\)|\[[^\n]*?\]),[^\n]*')
+    replaced, count = pattern.subn(lambda match: f"{match[1]}argv={json.dumps(argv)},", source,
+                                   count=1)
     assert count == 1, f"no {block} block to wire in {quality}"
     quality.write_text(replaced)
 

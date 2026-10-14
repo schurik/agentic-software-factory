@@ -1,7 +1,7 @@
 """Guess this repository's real quality commands, so the stamp is not a stub.
 
 WHY THIS EXISTS. `quality.py` ships four blocks — test, lint, typecheck, build —
-and a stamped repo cannot know any of them, so they land as placeholders that
+and an opt-in fifth, e2e. A stamped repo cannot know any of them, so they land as placeholders that
 now fail rather than pass. That is honest, but it makes the first `adw_*_test`
 run fail for a reason that has nothing to do with the work: nobody had written
 the command down yet.
@@ -30,6 +30,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 # Which lockfile means which JavaScript package manager, most specific first.
 # The runner matters: `bun run test` and `npm run test` are not interchangeable
@@ -42,20 +43,52 @@ JS_MANAGERS = [
     ("package-lock.json", ["npm", "run"]),
 ]
 
-BLOCKS = ("test", "lint", "typecheck", "build")
+# How each of them runs a package's binary without a script naming it.
+JS_EXEC = {"bun": ["bunx"], "pnpm": ["pnpm", "exec"], "yarn": ["yarn"], "npm": ["npx"]}
+
+# What `run_quality` runs, and the opt-in block that only a workflow naming it
+# runs — `quality.DEFAULT` and `quality.BLOCKS`, as the installer knows them.
+DEFAULT = ("test", "lint", "typecheck", "build")
+BLOCKS = DEFAULT + ("e2e",)
+
+# Every name Playwright reads its config from.
+PLAYWRIGHT_CONFIGS = [f"playwright.config.{ext}"
+                      for ext in ("ts", "js", "mjs", "cjs", "mts", "cts")]
+# Where Playwright writes by default, in the worktree a commit stage stages with
+# `git add -A`. The e2e block points both elsewhere; a config that names its
+# own folder wins over that, so they are ignored as well.
+PLAYWRIGHT_IGNORES = ["test-results/", "playwright-report/"]
+
+class Expression(NamedTuple):
+    """An argv element that is Python source rather than a string: a value
+    only the block knows when it runs. `shown` is how the install note says it."""
+
+    source: str
+    shown: str
+
+
+# The one such element: the e2e block's own evidence directory, a local there.
+EVIDENCE = Expression("str(evidence)", "<the check's evidence directory>")
 
 
 class Detected:
-    """One block's answer: the argv, and the evidence it came from."""
+    """One block's answer: the argv, and the evidence it came from. `tail`, when
+    there is one, is the argv's last element — see EVIDENCE."""
 
-    def __init__(self, argv: list[str], because: str):
+    def __init__(self, argv: list[str], because: str, tail: Expression | None = None):
         self.argv = argv
         self.because = because
+        self.tail = tail
 
     @property
     def literal(self) -> str:
         """The argv as it should read in the source — a list, never a string."""
-        return "[" + ", ".join(json.dumps(part) for part in self.argv) + "]"
+        parts = [json.dumps(part) for part in self.argv]
+        return "[" + ", ".join(parts + ([self.tail.source] if self.tail else [])) + "]"
+
+    @property
+    def shown(self) -> str:
+        return " ".join(self.argv + ([self.tail.shown] if self.tail else []))
 
 
 def _read_json(path: Path) -> dict:
@@ -106,9 +139,10 @@ def detect(root: Path) -> dict[str, Detected]:
                 break
 
     # 2. Inference, only where nothing was declared.
-    def offer(block: str, argv: list[str], because: str) -> None:
+    def offer(block: str, argv: list[str], because: str,
+              tail: Expression | None = None) -> None:
         if block not in found:
-            found[block] = Detected(argv, because)
+            found[block] = Detected(argv, because, tail)
 
     if (root / "bun.lock").is_file() or (root / "bun.lockb").is_file():
         offer("test", ["bun", "test"], "bun.lock")
@@ -124,6 +158,15 @@ def detect(root: Path) -> dict[str, Detected]:
         if "[tool.mypy]" in pyproject or (root / "mypy.ini").is_file():
             offer("typecheck", py_runner + ["mypy", "."], "mypy config")
 
+    # A Playwright config is the repository saying it has browser tests. Run
+    # through the binary rather than a script: the block appends `--output`,
+    # which `npm run` would swallow without a `--`, and a script may start a
+    # server of its own beside the one `webServer` starts.
+    config = playwright_config(root)
+    if config and js_runner:
+        offer("e2e", JS_EXEC[js_runner[0]] + ["playwright", "test", "--output"], config,
+              tail=EVIDENCE)
+
     if (root / "Cargo.toml").is_file():
         offer("test", ["cargo", "test"], "Cargo.toml")
         offer("lint", ["cargo", "clippy"], "Cargo.toml")
@@ -134,6 +177,17 @@ def detect(root: Path) -> dict[str, Detected]:
         offer("build", ["go", "build", "./..."], "go.mod")
 
     return {block: found[block] for block in BLOCKS if block in found}
+
+
+def playwright_config(root: Path) -> str:
+    """The name of this repository's Playwright config, "" when it has none."""
+    return next((name for name in PLAYWRIGHT_CONFIGS if (root / name).is_file()), "")
+
+
+def gitignore(root: Path) -> list[str]:
+    """What this repository's tools write into a worktree that a commit stage's
+    `git add -A` must not carry — beyond the factory's own runtime."""
+    return PLAYWRIGHT_IGNORES if playwright_config(root) else []
 
 
 def apply(quality_py: Path, found: dict[str, Detected]) -> list[str]:
@@ -159,7 +213,7 @@ def apply(quality_py: Path, found: dict[str, Detected]) -> list[str]:
         # processing would mangle any backslash a real command carries.
         source, count = pattern.subn(lambda _match: replacement, source, count=1)
         if count:
-            notes.append(f"{block}: {' '.join(detected.argv)}   ({detected.because})")
+            notes.append(f"{block}: {detected.shown}   ({detected.because})")
     quality_py.write_text(source)
     return notes
 

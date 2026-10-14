@@ -184,7 +184,9 @@ without.
    Re-read them there rather than guessing which apply.
 5. **The quality blocks** — `doctor` names every block still unwired. Write the
    real argv into `asf/engine/quality.py` as a **list**, calling binaries by
-   bare name. A `verify` stage that names an unwired block fails the run.
+   bare name. A `verify` stage that names an unwired block fails the run. The
+   opt-in `e2e` block (browser tests) is not among them until a workflow names
+   it — [onboard.md](onboard.md) says how to turn it on.
 6. **Docker, for the local cockpit** — `just up` starts a cockpit on this
    machine when `.env` names no shared one (`ASF_COCKPIT_URL`): the same
    published images a team deploys, through the stamped
