@@ -4,7 +4,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
+- **Create an issue**: `gh issue create --title "..." --body "..." --project "Agentic SF"`. Use a heredoc for multi-line bodies. Every issue goes on the **Agentic SF** project (https://github.com/users/schurik/projects/9) in the same step that files it; one filed without `--project` is added afterwards with `gh project item-add 9 --owner schurik --url <issue-url>`. Both need the token's `project` scope (`gh auth refresh -s project`).
 - **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
