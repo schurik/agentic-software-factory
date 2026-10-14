@@ -8,7 +8,7 @@
         "--headless",
         "--isolated",
         "--output-dir",
-        "${ASF_HANDOFF_DIR}/playwright"
+        "${ASF_HANDOFF_DIR}/accept"
       ]
     }
   }

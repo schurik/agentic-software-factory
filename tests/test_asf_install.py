@@ -103,6 +103,36 @@ def test_a_repo_with_nothing_to_copy_or_install_keeps_the_defaults(repo: Path):
     assert worktree["setup"] == []
 
 
+def test_a_web_app_is_told_accept_exists_and_its_mcp_servers_how_to_bind_one(repo: Path):
+    (repo / "package.json").write_text(json.dumps({
+        "scripts": {"dev": "next dev"}, "dependencies": {"next": "16.0.0"}}))
+    (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {
+        "github": {"command": "gh-mcp", "env": {"GITHUB_TOKEN": "x"}},
+        "playwright": {"command": "npx", "args": ["@playwright/mcp@latest"]}}}))
+    (repo / ".vscode").mkdir()
+    (repo / ".vscode" / "mcp.json").write_text(json.dumps({"servers": {"sentry": {"url": "u"}}}))
+
+    result = install(repo, "--harness", "claude_code")
+    assert result.returncode == 0, result.stdout + result.stderr
+    said = result.stdout
+    assert "the `accept` stage" in said and "package.json scripts.dev" in said
+    assert "asf/examples/workflows/ship-accept" in said
+    assert ".mcp.json: github" in said and ".vscode/mcp.json: sentry" in said
+    assert "mcp:<file>" in said and "deny_tools" in said            # how to bind one
+    assert "playwright: the qa agent already has its own" in said
+    # Suggested, never wired: no workflow runs accept, no agent was given a server.
+    for spec in (repo / "asf" / "workflows").glob("*/workflow.yaml"):
+        assert "accept" not in spec.read_text(), spec
+    stamped = [p.read_text() for p in (repo / "asf").rglob("*") if p.suffix in (".md", ".yaml")]
+    assert not any(".mcp.json" in text or "gh-mcp" in text for text in stamped)
+    assert asf(repo, "check").returncode == 0
+
+
+def test_a_repo_that_is_no_web_app_hears_of_neither(repo: Path):
+    said = install(repo, "--harness", "claude_code").stdout
+    assert "the `accept` stage" not in said and "checked-in MCP server" not in said
+
+
 def test_an_unknown_or_unstampable_harness_is_refused(repo: Path):
     assert "unknown harness 'codex'" in install(repo, "--harness", "codex").stderr
     assert "unknown harness 'fake'" in install(repo, "--harness", "fake").stderr

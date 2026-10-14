@@ -285,3 +285,39 @@ def apply_worktree(config: Path, copy: list[str], setup: list[list[str]]) -> lis
     if setup:
         notes.append(f"worktree.setup: {' · '.join(' '.join(argv) for argv in setup)}")
     return notes
+
+
+# ── what the installer suggests, and never wires ─────────────────────────────
+
+# A dependency that says the repository serves a web app.
+WEB_FRAMEWORKS = ("next", "vite", "nuxt", "@sveltejs/kit", "astro", "@remix-run/dev",
+                  "react-scripts", "@angular/core", "gatsby")
+# Where a repository checks in MCP servers: Claude Code's project file, Cursor's,
+# VS Code's (which says `servers`, not `mcpServers`).
+MCP_FILES = (".mcp.json", ".cursor/mcp.json", ".vscode/mcp.json")
+
+
+def web_app(root: Path) -> str:
+    """The evidence that this repository is a web app the `accept` stage could
+    drive, "" when there is none."""
+    config = playwright_config(root)
+    if config:
+        return config
+    package = _read_json(root / "package.json")
+    scripts = package.get("scripts") or {}
+    if isinstance(scripts, dict) and "dev" in scripts:
+        return "package.json scripts.dev"
+    deps = {**(package.get("dependencies") or {}), **(package.get("devDependencies") or {})}
+    return next((f"package.json depends on {name}" for name in WEB_FRAMEWORKS if name in deps),
+                "")
+
+
+def mcp_servers(root: Path) -> list[tuple[str, str]]:
+    """(file, server) for every MCP server this repository checks in."""
+    found = []
+    for name in MCP_FILES:
+        config = _read_json(root / name)
+        servers = config.get("mcpServers") or config.get("servers") or {}
+        if isinstance(servers, dict):
+            found += [(name, server) for server in servers]
+    return found

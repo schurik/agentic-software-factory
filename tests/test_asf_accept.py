@@ -164,15 +164,23 @@ def test_an_unmet_requirement_goes_to_the_builder_and_a_met_set_ends_the_loop(st
     assert_stopped(stamped)
 
 
-def test_the_dev_server_is_gone_when_a_gate_fails_the_phase(stamped: Path):
+def without_screenshots(reply: dict) -> dict:
+    return {**reply, "envelope": {**reply["envelope"], "screenshots": []}}
+
+
+@pytest.mark.parametrize("wrong", ["in the tree", "none at all"])
+def test_the_dev_server_is_gone_when_a_gate_fails_the_phase(stamped: Path, wrong: str):
     browser(stamped)
-    prepare(stamped, qa=[accept_reply(stamped, met=True, shot=str(stamped / "shot.png"))])
+    reply = (accept_reply(stamped, met=True, shot=str(stamped / "shot.png"))
+             if wrong == "in the tree" else without_screenshots(accept_reply(stamped, True)))
+    prepare(stamped, qa=[reply])
 
     result = asf(stamped, "run", "accepted", "greet the visitor", "--adw-id", ADW)
     assert result.returncode == 1
     assert ("accept_1" in [name for _, name, status in phase_rows(stamped, ADW)
                            if status == "fail"])
-    assert "screenshot" in result.stdout
+    assert ("not in the handoff directory" if wrong == "in the tree"
+            else "names no screenshot") in ended_because(stamped)
     assert_stopped(stamped)
 
 
@@ -291,7 +299,8 @@ def test_the_stamped_browser_is_a_pinned_server_headless_and_isolated_on_every_r
     package = next(arg for arg in args if arg.startswith("@playwright/mcp@"))
     assert re.fullmatch(r"@playwright/mcp@\d+\.\d+\.\d+", package)
     assert "--headless" in args and "--isolated" in args
-    assert args[args.index("--output-dir") + 1].startswith("${ASF_HANDOFF_DIR}/")
+    # The one directory the server may write to, and the one the task names.
+    assert args[args.index("--output-dir") + 1] == "${ASF_HANDOFF_DIR}/accept"
 
 
 # ── doctor: the browser, only when a workflow runs accept ───────────────────

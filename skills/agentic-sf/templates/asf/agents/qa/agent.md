@@ -3,8 +3,9 @@
 # asked: the `accept` stage's agent. Read-only (`writes: []`), and no `Bash`:
 # code starts the dev server and hands over its URL, so this agent never runs
 # one. Its browser is the Playwright MCP server in playwright.json beside this
-# file — a pinned version, headless and isolated on every run, attended or not,
-# its own files in the session's handoff directory. Claude Code only: pi has no
+# file — a pinned version, headless and isolated on every run, attended or not.
+# Its `--output-dir` is the session's handoff directory's accept/: the server
+# writes nowhere else, screenshots included, and nothing lands in the tree. Claude Code only: pi has no
 # MCP servers. Every tool a server has reaches the agent, whatever `tools:`
 # says, so the two that are not part of clicking through a feature are denied:
 # running arbitrary code, and uploading local files. `browser_evaluate` stays:

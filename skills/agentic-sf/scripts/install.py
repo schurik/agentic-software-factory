@@ -371,6 +371,42 @@ def ensure_env(root: Path, sample: Path, stamped: list, notes: list) -> bool:
     return True
 
 
+def suggestions(root: Path) -> list[str]:
+    """What this repository could turn on that nothing turns on for it: the
+    `accept` stage for a web app, and the MCP servers it checks in.
+
+    Printed and never wired. The installer runs in CI, with nobody to ask, and
+    each is a decision for a person: a workflow that runs `accept` costs a
+    browser session per round, and an MCP server grants every tool it has —
+    and may carry a credential in its `env` — so binding one is reviewed per
+    agent. Agents get none of the operator's (`--strict-mcp-config`).
+    """
+    lines = []
+    evidence = _detect.web_app(root)
+    if evidence:
+        lines += [f"\nthis looks like a web app ({evidence}): the `accept` stage can drive the "
+                  f"running app in a browser and judge it against the plan. Off until a "
+                  f"workflow runs it:",
+                  "    cp -r asf/examples/workflows/ship-accept asf/workflows/   # verify -> "
+                  "accept -> review",
+                  "    then write `serve` in asf/engine/quality.py (the dev server on `port`), "
+                  "and `just doctor`"]
+    servers = _detect.mcp_servers(root)
+    if servers:
+        lines.append("\nchecked-in MCP servers — no agent is given any of them. To give one "
+                     "to one agent, write a file holding just that server and name it in the "
+                     "agent's harness block, `harness_engineering: [mcp:<file>]`, with a "
+                     "`deny_tools: [mcp__<server>__<tool>]` entry for each tool it must not "
+                     "have:")
+        for source, server in servers:
+            if server == "playwright":
+                lines.append(f"    {source}: playwright: the qa agent already has its own "
+                             f"(asf/agents/qa/playwright.json — pinned, headless, isolated)")
+            else:
+                lines.append(f"    {source}: {server}")
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -467,6 +503,8 @@ def main() -> int:
             print(f"\nstill unwired: {', '.join(unwired)} — a verify stage that names one "
                   f"of these FAILS rather than passing.\n    write the real argv into "
                   f"asf/engine/quality.py")
+    for line in suggestions(root):
+        print(line)
     if not skill_in_env:
         print(f"\n  ! NO .env, SO ASF_SKILL IS UNSET — `just uninstall` cannot find "
               f"the skill.\n    write it yourself:  echo 'ASF_SKILL={SKILL_ROOT}' >> .env")
