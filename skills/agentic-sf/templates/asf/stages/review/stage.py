@@ -45,6 +45,10 @@ class Options(BaseModel):
     retest: list[str] = Field(default_factory=lambda: ["test"])
 
 
+def check(opts: Options, earlier: dict) -> list[str]:
+    return quality.refused(opts.retest)
+
+
 def run(ctx, opts: Options):
     build = ctx.previous
     revised = False

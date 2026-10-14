@@ -127,6 +127,29 @@ the root `.env` — the factory's own `ASF_SKILL`, `ASF_COCKPIT_URL` and
 now a worktree holds a copy on disk too. Keep anything agents must not read
 out of it. → [install.md](install.md#ask-first-stamp-second)
 
+**"Can a run check the app in a browser?"** — yes, with the `e2e` block in
+`asf/engine/quality.py`: browser tests against a dev server Playwright's
+`webServer` starts itself. It is opt-in — no workflow runs it, and `doctor`
+never asks about it, until one names it. To turn it on:
+
+1. **The command.** `install.py` wires it when the repo has a
+   `playwright.config.*`. Otherwise replace `_placeholder("e2e")` with the argv,
+   keeping the evidence directory: `["bunx", "playwright", "test", "--output",
+   str(evidence)]`. A failing run's traces and screenshots land there, beside
+   the check's `command.log`, and the builder repairing it is handed the path.
+2. **The port.** Each check gets a free `PORT`, so sessions running side by
+   side never meet on 3000. The config must read it:
+   `const port = Number(process.env.PORT ?? 3000)`, then `webServer: {command:
+   "bun run dev", url: \`http://localhost:${port}\`, env: {PORT: String(port)}}`
+   and `use: {baseURL: \`http://localhost:${port}\`}`.
+3. **The workflow.** `verify: {blocks: [test, e2e]}`, and `review: {retest:
+   [test, e2e]}` so a revision is browser-tested too. `just check` refuses it
+   while the block is still a placeholder.
+
+The dev server's secrets and packages come from `worktree.copy` and
+`worktree.setup` (above). When the server never comes up, the check says so —
+not "specs failed" — with the server's own output.
+
 **"Which harness?"** — `claude_code` uses the engineer's own Claude Code login
 and needs no key; `pi` needs that provider's API key in `.env`. The installer
 lists what the skill ships.

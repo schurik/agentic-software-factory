@@ -353,7 +353,7 @@ class DocumentOutput(EnvelopeBase):
 # ── Deterministic quality blocks ─────────────────────────────────────────────
 
 QualityArea = Literal["frontend", "backend"]
-QualityOperation = Literal["lint", "typecheck", "build"]
+QualityOperation = Literal["lint", "typecheck", "build", "test"]
 
 
 class QualityCheckSpec(BaseModel):
@@ -364,6 +364,13 @@ class QualityCheckSpec(BaseModel):
     operation: QualityOperation
     argv: list[str]
     timeout_seconds: int = 120
+    # Set on top of the operator's environment, for this command only: what a
+    # check hands the tool it runs — `e2e`'s port and evidence directory.
+    env: dict[str, str] = Field(default_factory=dict)
+    # Where the command writes evidence of its own beside `command.log` (a
+    # browser test's traces and screenshots). Each that exists afterwards is
+    # one of the result's artifacts.
+    evidence: list[str] = Field(default_factory=list)
 
 
 class QualityCheckResult(BaseModel):
@@ -383,6 +390,11 @@ class QualityCheckResult(BaseModel):
     # runner formats failures differently and a generic parser would be
     # confidently wrong. The full log is always at output_artifact.
     output_tail: str = ""
+    # The spec's `evidence` paths that the command actually wrote.
+    evidence: list[str] = Field(default_factory=list)
+    # What failed, when it was not the thing the command checks — a dev server
+    # that never came up is not a failing spec. "" for an ordinary result.
+    diagnosis: str = ""
 
 
 class QualityResult(BaseModel):

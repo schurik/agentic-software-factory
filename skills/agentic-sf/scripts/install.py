@@ -331,7 +331,8 @@ def stamp_justfile(root: Path, force: bool, stamped: list, skipped: list) -> str
 def ensure_gitignore(root: Path, stamped: list) -> None:
     gitignore = root / ".gitignore"
     existing = gitignore.read_text().splitlines() if gitignore.exists() else []
-    missing = [e for e in GITIGNORE_ENTRIES if e not in existing]
+    wanted = GITIGNORE_ENTRIES + _detect.gitignore(root)
+    missing = [e for e in wanted if e not in existing]
     if missing:
         with gitignore.open("a") as f:
             f.write("\n# agentic-sf runtime\n" + "\n".join(missing) + "\n")
@@ -461,7 +462,7 @@ def main() -> int:
         for note in worktree_notes:
             print(f"    {note}")
     if detecting:
-        unwired = [b for b in _detect.BLOCKS if b not in {n.split(':')[0] for n in detected}]
+        unwired = [b for b in _detect.DEFAULT if b not in {n.split(':')[0] for n in detected}]
         if unwired:
             print(f"\nstill unwired: {', '.join(unwired)} — a verify stage that names one "
                   f"of these FAILS rather than passing.\n    write the real argv into "

@@ -326,6 +326,17 @@ before — `None` when there are none, never omitted.
   `bun install`, `uv sync`, … from the lockfiles it finds. The root `.env` holds the factory's own
   settings too (`ASF_SKILL`, `ASF_COCKPIT_URL`, `ASF_COCKPIT_TOKEN`): every agent and quality
   block already had them in its environment, and a worktree now holds them on disk as well.
+- **Browser tests are a quality block, `e2e`, and opt-in.** `asf/engine/quality.py` ships it
+  beside `test` and `lint` as a placeholder, outside the new `DEFAULT` list `run_quality()` runs,
+  so a stamp that never names it never runs it and `doctor` never mentions it. A workflow turns
+  it on with `verify: {blocks: [test, e2e]}` and `review: {retest: [test, e2e]}`. Each check hands
+  its command a free `PORT` (concurrent sessions no longer meet on one), `ASF_CHECK_DIR`, and an
+  evidence directory in the check's handoff folder for Playwright's `--output`; that directory
+  joins the check's artifacts, so the builder repairing a red run is handed the traces. A dev
+  server Playwright's `webServer` never brought up is reported as that, not as failing specs.
+  `install.py` wires `e2e` from a `playwright.config.*` and gitignores `test-results/` and
+  `playwright-report/`. `asf check` now refuses a workflow that names a block `quality.py` does not
+  offer, or an opt-in block still a placeholder — both failed only at runtime before.
 
 ### Upgrade
 
@@ -403,6 +414,14 @@ before — `None` when there are none, never omitted.
    from `asf/factory.yaml.new`, where the installer filled them from this repository, or write
    them yourself — `worktree.setup` stays empty until you do, so a worktree still starts without
    `node_modules`.
+10. The re-stamp's `quality.py` carries the `e2e` block and the `DEFAULT` list, re-detected like
+    the rest of the file: restore the commands you wrote by hand from the diff
+    (`cookbooks/upgrade.md` § Put back what was yours), and a block you deleted from
+    `run_quality()`'s list before now comes out of `DEFAULT`. A workflow naming a block the file
+    does not offer, which used to fail at its verify phase, is now refused by `just check` — fix
+    the name. To run browser tests, `cookbooks/onboard.md` says how to turn `e2e` on; a
+    repository with Playwright whose `.gitignore` predates it gets `test-results/` and
+    `playwright-report/` added by the re-stamp.
 
 ## 1.2.0 — 2026-10-02
 

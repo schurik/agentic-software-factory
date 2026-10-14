@@ -139,6 +139,21 @@ root `.env` holds the factory's own settings too** — `ASF_SKILL`,
 already sees all of it in its environment; copied, a worktree also holds it on
 disk. Say so before an engineer puts a secret there that agents must not see.
 
+**Browser tests are an opt-in quality block, `e2e`.** It ships in
+`asf/engine/quality.py` beside `test` and `lint`, but outside `DEFAULT`, so
+nothing runs it — and `doctor` never names it — until a workflow does:
+`verify: {blocks: [test, e2e]}` and `review: {retest: [test, e2e]}`. `install.py`
+wires it from a `playwright.config.*` (`bunx playwright test --output
+str(evidence)`, or the repo's own runner) and gitignores `test-results/` and
+`playwright-report/`. Playwright's `webServer` starts and stops the dev server;
+code never starts one beside it. The block hands the command `PORT`, free for
+that check alone so concurrent sessions never meet on 3000 — the `webServer`
+config and `use.baseURL` must read it — `ASF_CHECK_DIR`, and an evidence
+directory in the check's handoff folder, which the builder repairing a red run
+is handed. A dev server that never came up is reported as that, not as failing
+specs. `asf check` refuses a workflow naming `e2e` while it is still a
+placeholder, and any block `quality.py` does not offer.
+
 WHEN that branch reaches the remote is `worktree.publish`, and it follows the
 cockpit unless `asf/factory.yaml` sets it. A cockpit shows what a gate asks
 about by reading it from the forge at the commit the run stopped on, so with
@@ -229,13 +244,15 @@ acting, not after.
 | `worktree.integration.mode: none` refused (or `integrate: {mode: none}` in a workflow) | Refused since 1.2 — every command that loads the config says so, `asf check` names a workflow that says it, and nothing runs until it is changed. `none` meant two things, and each has its own switch now: a workflow that should land nothing drops its `integrate` stage, and `worktree.publish: on_integrate` keeps a branch off the remote until it is integrated. Otherwise `mode: pr`, with `open_pr: false` to push and open nothing. Ask which was meant with the question tool, one option per meaning — do not remap it on the engineer's behalf |
 | "where is the cockpit?" / `asf up` said "no local cockpit" | Without `ASF_COCKPIT_URL`, `just up` starts a **local cockpit** at `http://localhost:3000` — the same published images a team deploys, run through the stamped `asf/cockpit/compose.yaml` on Docker — and its station loop ships every session on this checkout to it (the token is issued and kept in `asf/data/cockpit.json` by itself). With `ASF_COCKPIT_URL` set it starts none and ships to that one. It is one per machine: an `up` that finds a newer one running joins it rather than downgrading it, and the `up` that started it owns it. No Docker: `up` warns, drops the cockpit and runs the watchers anyway; `just doctor` names what is missing and which cockpit version it would run. `asf/cockpit/min-version` is the oldest cockpit this stamp ships to; `ASF_COCKPIT_VERSION` in `.env` can only name a newer one. `just station` is the loop without watchers |
 | the local cockpit's Factories page is missing a repository / "no token to ask the forge with" | A local cockpit has no sign-in: it asks the forge **as the engineer**, with the token `gh auth token` prints (for `GH_HOST`, else github.com). `just up` hands it over in the `cockpit` child's environment when it starts the cockpit — never on a command line, never into `.env` — the cockpit keeps it in its own backend on this machine (the `asf-cockpit` compose project's `data` volume), and the Factories page then lists every repository that token reaches whose default branch holds `asf/factory.yaml`, stations or not. `up` prints a `forge` line saying which it was, and `just doctor`'s `cockpit forge` line says it beforehand. No token: the page shows only the factories this machine's stations ship from; `gh auth login`, then start `up` again. It is the engineer's own credential — say that it is handed to the cockpit container before they start one, and never log in, or paste a token anywhere, on their behalf. A **shared** cockpit takes no token from a station: people sign in to it with their team's GitHub App, and see a factory's sessions only if the forge lets them read its repository |
+| run browser tests / Playwright / e2e in a workflow | the opt-in `e2e` block (see *Browser tests* above): wired by `install.py` from a `playwright.config.*`, else write its argv into `asf/engine/quality.py` keeping `--output str(evidence)`; make the config's `webServer.url`/`port` and `use.baseURL` read `process.env.PORT`; then name it in the workflow's `verify.blocks` and `review.retest`. `just check` refuses the workflow while the block is unwired — [cookbooks/onboard.md](cookbooks/onboard.md) |
 | watch a run | the cockpit (`just up`, above); `just sessions` (the newest, from their `run.json`), `just tail <id>` (its `events.jsonl`) |
 
 ## Hard rules
 
 1. **A workflow is refused before it costs anything.** `check` and `run` load
    the whole directory first: unknown stage, unknown option, a `verify` with no
-   build before it, an agent the roster lacks, a task whose report block
+   build before it, a quality block `quality.py` does not offer or an opt-in one
+   still a placeholder, an agent the roster lacks, a task whose report block
    drifted from the envelope type, a binding that widens `writes` or `tools`.
 2. **The vocabulary is closed.** No `loop:` or `if:` in workflow.yaml, ever. A
    shape the vocabulary cannot express is a new stage in Python, or a
