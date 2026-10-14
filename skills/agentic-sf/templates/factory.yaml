@@ -17,6 +17,7 @@ protected_files:
   - asf/agents/
   - asf/scorers/
   - asf/benchmarks/
+  - asf/examples/
   - asf/cockpit/
   - asf/factory.yaml
   - asf/asf.py

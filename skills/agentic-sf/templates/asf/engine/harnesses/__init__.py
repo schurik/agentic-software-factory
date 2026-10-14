@@ -63,6 +63,15 @@ HARNESSES: dict[str, ModuleType] = {pi.NAME: pi, claude_code.NAME: claude_code,
 
 NAMES = sorted(HARNESSES)
 
+# Every capability flag a harness module declares, and what it gives an agent —
+# the words a refusal uses, and the list a new flag joins.
+CAPABILITIES = {"SKILLS": "skills", "MCP": "MCP servers"}
+
+
+def able(flag: str) -> list[str]:
+    """The harnesses whose module says `flag = True`."""
+    return [name for name in NAMES if getattr(HARNESSES[name], flag, False)]
+
 
 def get(name: str) -> ModuleType:
     """The harness module `name` selects. SystemExit if it is not one of ours."""

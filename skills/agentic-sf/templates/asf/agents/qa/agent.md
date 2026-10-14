@@ -5,8 +5,8 @@
 # one. Its browser is the Playwright MCP server in playwright.json beside this
 # file — a pinned version, headless and isolated on every run, attended or not.
 # Its `--output-dir` is the session's handoff directory's accept/: the server
-# writes nowhere else, screenshots included, and nothing lands in the tree. Claude Code only: pi has no
-# MCP servers. Every tool a server has reaches the agent, whatever `tools:`
+# writes nowhere else, screenshots included, and nothing lands in the tree.
+# Claude Code only: pi has no MCP servers. Every tool a server has reaches the agent, whatever `tools:`
 # says, so the two that are not part of clicking through a feature are denied:
 # running arbitrary code, and uploading local files. `browser_evaluate` stays:
 # it reads app state the page does not show.

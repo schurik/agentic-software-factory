@@ -351,7 +351,7 @@ class AcceptanceOutput(ReviewOutput):
     the same fields it reads from a reviewer.
     """
 
-    steps: list[str] = Field(default_factory=list)            # what was done in the browser, in order
+    steps: list[str] = Field(default_factory=list)            # what was done, in order
     console_errors: list[str] = Field(default_factory=list)   # the page's own, verbatim
     # Absolute paths in the session's handoff directory, never the tracked tree:
     # the agent may write nothing there, and a commit stage would land them.
@@ -1045,7 +1045,7 @@ class HarnessDefaults(BaseModel):
 
 def default_protected_files() -> list[str]:
     return ["asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/", "asf/scorers/",
-            "asf/benchmarks/", "asf/cockpit/", "asf/factory.yaml", "asf/asf.py",
+            "asf/benchmarks/", "asf/cockpit/", "asf/examples/", "asf/factory.yaml", "asf/asf.py",
             "asf/.skill-version", ".github/workflows/asf-check.yml"]
 
 

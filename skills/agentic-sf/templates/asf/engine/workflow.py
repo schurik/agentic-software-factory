@@ -188,9 +188,10 @@ def _bind_agents(cfg: FactoryConfig, spec: Spec, directory: Path,
             problems.append(f"agents.{alias}: {refusal}")
         if harness.deny_tools:
             update["deny_tools"] = agents.added(base.deny_tools, harness.deny_tools)
-            block = factory.block_of(base.model_copy(update=update))
+            block = factory.block_of(base.model_copy(update=update), base.deny_tools)
+            root = git_helper.main_root(directory.resolve())
             problems += [f"agents.{alias}: {problem}"
-                         for problem in factory.mcp_refused(_main_root(directory), block)]
+                         for problem in factory.mcp_refused(root, block)]
         if binding.writes is not None:
             widened = _widens(binding.writes, base.writes, exact=False)
             if widened:
@@ -208,11 +209,6 @@ def _bind_agents(cfg: FactoryConfig, spec: Spec, directory: Path,
             "system_append": [*base.prompt_engineering.system_append, *appends]})
         bound[alias] = base.model_copy(update=update)
     return cfg.model_copy(update={"agents": list(bound.values())})
-
-
-def _main_root(directory: Path) -> Path:
-    """The main checkout a workflow directory is in, where an `mcp:` file resolves."""
-    return git_helper.main_root(directory.resolve())
 
 
 def _flat_bindings(raw: dict) -> list[str]:
@@ -306,16 +302,11 @@ def _harness_lacks(stage: StageModule, opts: BaseModel, cfg: FactoryConfig) -> l
     problems = []
     for flag in stage.harness_needs:
         if not getattr(driver, flag, False):
-            able = ", ".join(name for name in harnesses.NAMES
-                             if getattr(harnesses.HARNESSES[name], flag, False))
             problems.append(f"agent {agent.name!r} runs on {agent.harness}, which cannot give "
-                            f"it {_CAPABILITY.get(flag, flag)} ({flag}) — {stage.name} needs a "
-                            f"harness that can: {able}")
+                            f"it {harnesses.CAPABILITIES.get(flag, flag)} ({flag}) — "
+                            f"{stage.name} needs a harness that can: "
+                            f"{', '.join(harnesses.able(flag))}")
     return problems
-
-
-# What each capability flag gives an agent, as a refusal says it.
-_CAPABILITY = {"MCP": "MCP servers", "SKILLS": "skills"}
 
 
 def agent_fields(opts: BaseModel) -> list[str]:

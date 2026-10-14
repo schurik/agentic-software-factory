@@ -481,7 +481,7 @@ def test_no_flag_that_takes_several_values_sits_before_the_prompt(claude, tmp_pa
                   deny_tools=DENIED, options={"add_dirs": ["/elsewhere"]}, resume=resume)
     assert argv[-1] == "go"
     flags = [arg for arg in argv[:-1] if arg.startswith("--")]
-    assert flags[-1] not in MULTI_VALUE and argv[-3] == flags[-1]      # a one-value flag, then the prompt
+    assert flags[-1] not in MULTI_VALUE and argv[-3] == flags[-1]      # one value, then the prompt
 
 
 # ── context: repository files, after the identity ────────────────────────────

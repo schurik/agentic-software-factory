@@ -307,15 +307,20 @@ def test_the_stamped_browser_is_a_pinned_server_headless_and_isolated_on_every_r
 
 def test_doctor_names_a_missing_browser_only_when_a_workflow_runs_accept(stamped: Path,
                                                                         tmp_path: Path):
+    fake_roster(stamped)                        # qa stays on claude_code; no workflow runs it
     empty = tmp_path / "no-browsers"
     empty.mkdir()
     env = {"PLAYWRIGHT_BROWSERS_PATH": str(empty)}
-    assert "browser" not in asf(stamped, "doctor", env=env).stdout
+    said = asf(stamped, "doctor", env=env).stdout
+    assert "browser" not in said
+    assert "not checked — no workflow here runs an agent on it" in said   # claude_code's CLI
 
     shutil.copytree(stamped / "asf" / "examples" / "workflows" / "ship-accept",
                     stamped / "asf" / "workflows" / "ship-accept")
     said = asf(stamped, "doctor", env=env).stdout
     assert f"no Chromium in Playwright's browser cache ({empty})" in said
+    serve(stamped, HTTP)                        # the example loads once `serve` is written…
+    assert "not checked" not in asf(stamped, "doctor", env=env).stdout    # …and qa's CLI is asked
     assert "npx playwright install chromium" in said
 
     (empty / "chromium-1243").mkdir()

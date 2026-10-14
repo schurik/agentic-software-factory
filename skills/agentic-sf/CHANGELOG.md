@@ -363,6 +363,8 @@ before — `None` when there are none, never omitted.
   `check` refuse `accept` there. Every agent process is handed `ASF_HANDOFF_DIR`, which an `mcp:`
   file can name as `${ASF_HANDOFF_DIR}` for the server's own files.
 - `process_started` v2: `kind` may be `dev_server`.
+- `doctor` asks for a harness's CLI only when some workflow runs an agent on it: the `qa` agent is
+  on Claude Code, and a pi factory that never runs `accept` is not told to install it.
 
 ### Upgrade
 
@@ -452,7 +454,9 @@ before — `None` when there are none, never omitted.
     its `playwright.json` and `asf/examples/`, and runs nothing new. `quality.py` gains a `serve`
     placeholder, re-detected with the rest of the file — restore your own commands from the diff
     as in step 10. A binding that names `deny_tools` adds to its agent's; there was no such key
-    before. To turn `accept` on, `cookbooks/onboard.md` § Optional: the running app, in a browser.
+    before. Add `asf/examples/` to `protected_files` in `asf/factory.yaml` (the re-stamp never
+    rewrites it; `factory.yaml.new` has it). To turn `accept` on, `cookbooks/onboard.md` §
+    Optional: the running app, in a browser.
 
 ## 1.2.0 — 2026-10-02
 

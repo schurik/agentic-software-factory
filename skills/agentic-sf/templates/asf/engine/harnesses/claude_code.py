@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..data_types import (AgentConfig, AgentRequest, AgentResult, Finding,
                           UsageBreakdown)
 from ..limits import Deadline
+from ..mcp import DENIAL
 from ..tool_calls import ToolCallLedger
 from ..utils import agent_env, write_atomic
 
@@ -514,7 +515,8 @@ def _unheld_denials(deny_tools: list[str], offered: list[str]) -> list[tuple[str
     """
     unheld = []
     for denied in deny_tools:
-        server = denied.rsplit("__", 1)[0] + "__"
+        match = DENIAL.match(denied)
+        server = f"mcp__{match['server']}__" if match else denied
         if denied in offered:
             unheld.append((denied, f"{denied} is still offered — Claude Code did not withhold "
                                    f"it, so the agent can call it"))

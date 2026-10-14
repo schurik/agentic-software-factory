@@ -202,9 +202,30 @@ def credentials(agent: AgentConfig) -> list[Finding]:
     return list(ask(agent)) if ask else []
 
 
-def roster(cfg: FactoryConfig) -> list[Finding]:
-    """Every agent in the config: is its harness there, and can it authenticate."""
+def harnesses_run(cfg: FactoryConfig, main_root: Path) -> set[str]:
+    """The harnesses a run here would start: the factory's own, and each one an
+    agent some workflow needs runs on. A roster agent nothing runs — `qa`, until
+    a workflow has `accept` — needs no CLI on this machine.
+
+    A workflow that does not load counts for nothing here; `check` says why."""
+    from . import workflow         # here: workflow reaches this module through agents
+    config = main_root / "asf" / "factory.yaml"
+    used = {cfg.harness.name}
+    for name, _ in workflow.available(config):
+        try:
+            loaded = workflow.load(name, config)
+        except SystemExit:
+            continue
+        used |= {agent.harness for agent in loaded.cfg.agents
+                 if agent.name in loaded.required_agents}
+    return used
+
+
+def roster(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
+    """Every agent in the config: is its harness there, and can it authenticate.
+    A harness no workflow runs an agent on is said, and not asked for."""
     findings: list[Finding] = []
+    used = harnesses_run(cfg, main_root)
     for name in sorted({agent.harness for agent in cfg.agents}):
         driver = harnesses.HARNESSES.get(name)
         if driver is None:
@@ -213,6 +234,10 @@ def roster(cfg: FactoryConfig) -> list[Finding]:
                 detail=f"{name!r} is not one of {' | '.join(harnesses.NAMES)}",
                 fix="fix `harness:` in the roster, or add the harness — "
                     "references/harnesses.md"))
+            continue
+        if name not in used:
+            findings.append(Finding(check=f"harness: {name}",
+                                    detail="not checked — no workflow here runs an agent on it"))
             continue
         try:
             driver.reachable()
@@ -640,7 +665,7 @@ def before_run(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
 def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Finding]:
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
-    return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
+    return (repo(cfg, root) + runtime(cfg, root) + roster(cfg, root) + quality(root)
             + browser(root) + forge(cfg) + labels(cfg, root) + stamped_version(root)
             + cockpit(anchor(root, cfg.data_dir))
             + publishing(cfg, root) + skill())

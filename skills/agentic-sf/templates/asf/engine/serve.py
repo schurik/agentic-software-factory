@@ -149,7 +149,7 @@ def _answering(url: str, process: subprocess.Popen, seconds: int) -> str:
         if process.poll() is not None:
             return f"exited {process.returncode} before it answered {url}"
         try:
-            opener.open(url, timeout=2).close()
+            opener.open(fullurl=url, timeout=2).close()
             return ""
         except urllib.error.HTTPError:
             return ""

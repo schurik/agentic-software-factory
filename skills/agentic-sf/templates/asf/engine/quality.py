@@ -89,7 +89,8 @@ EXAMPLES = {
     "typecheck": '["bunx", "tsc", "--noEmit"] or ["uv", "run", "mypy", "."]',
     "build": '["npm", "run", "build"] or ["cargo", "build"]',
     "e2e": '["bunx", "playwright", "test", "--output", str(evidence)]',
-    "serve": '["bun", "run", "dev", "--port", str(port)] or ["npx", "next", "dev", "-p", str(port)]',
+    "serve": '["bun", "run", "dev", "--port", str(port)] or '
+             '["npx", "next", "dev", "-p", str(port)]',
 }
 
 
@@ -115,16 +116,16 @@ def placeholders(names: list[str] | None = None) -> list[str]:
     `just doctor` ask about DEFAULT; a stage's `check` asks about what its
     workflow names (`refused` below).
     """
-    unwired = []
-    for name in DEFAULT if names is None else names:
-        block = BLOCKS[name]
-        try:
-            source = inspect.getsource(block)
-        except OSError:                      # a block defined outside a file
-            continue
-        if "_placeholder(" in source:
-            unwired.append(name)
-    return unwired
+    return [name for name in (DEFAULT if names is None else names)
+            if _unwired(BLOCKS[name])]
+
+
+def _unwired(function: Callable) -> bool:
+    """Whether `function` still returns the shipped placeholder."""
+    try:
+        return "_placeholder(" in inspect.getsource(function)
+    except OSError:                          # a block defined outside a file
+        return False
 
 
 def _check_dir(run, name: str) -> Path:
@@ -350,13 +351,9 @@ def serve(port: int) -> list[str]:
 def serve_refused() -> list[str]:
     """Why a workflow running `accept` must not run yet: `serve` is still the
     placeholder. Said by `asf check`, like an opt-in block's."""
-    try:
-        unwired = "_placeholder(" in inspect.getsource(serve)
-    except OSError:
-        return []
     return (["serve is still a placeholder in asf/engine/quality.py, and this workflow runs "
              "accept — replace `_placeholder(\"serve\")` with the argv that starts the dev "
-             f"server on `port`, e.g. {EXAMPLES['serve']}"] if unwired else [])
+             f"server on `port`, e.g. {EXAMPLES['serve']}"] if _unwired(serve) else [])
 
 
 # Every block this file offers, by name — what `run_blocks` resolves a
