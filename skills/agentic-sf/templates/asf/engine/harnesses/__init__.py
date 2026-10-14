@@ -15,6 +15,10 @@ A module qualifies by exposing:
     Options           pydantic model for `harness.options`, owned by the harness
     SKILLS            whether it can hand an agent the repository's `skills:`;
                       the loader refuses them on a harness that cannot
+    MCP               whether it can give an agent MCP servers (`mcp:` files in
+                      harness_engineering) and withhold their tools
+                      (`deny_tools`); the loader refuses both, and `check` the
+                      `accept` stage, on a harness that cannot
     resolve_model     pattern -> whatever the CLI needs; ValueError if unwritable
     reachable         raise unless the CLI can be executed (cached per process)
     credentials       Findings on whether this agent can authenticate at all —

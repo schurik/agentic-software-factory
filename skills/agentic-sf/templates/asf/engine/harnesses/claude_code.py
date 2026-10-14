@@ -28,6 +28,7 @@ the skill under `templates/harnesses/claude_code/`.
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import shutil
@@ -52,6 +53,9 @@ DEFAULT_MODEL = "sonnet"
 # Each turn gets a plugin directory holding exactly the agent's skills
 # (`_skills_dir`), and `Skill` in its tools.
 SKILLS = True
+# An `mcp:` file in harness_engineering is `--mcp-config`, and `deny_tools`
+# is `--disallowedTools`.
+MCP = True
 
 CLAUDE_PATH = os.environ.get("CLAUDE_PATH", "claude")
 
@@ -473,6 +477,12 @@ def _argv(request: AgentRequest, model: str, options: Options) -> list[str]:
         tools.append(SKILL_TOOL)
     if tools:
         cmd += ["--tools", ",".join(tools)]
+    # `--tools` filters only Claude Code's own tools: every tool of an `mcp:`
+    # server reaches the agent whatever it says. This is the one narrowing
+    # there is for those, and it is a deny list because a server's tools are
+    # not known until it has started.
+    if request.deny_tools:
+        cmd += ["--disallowedTools", ",".join(request.deny_tools)]
     plugin = _skills_dir(request)
     if plugin is not None:
         cmd += ["--plugin-dir", str(plugin)]
@@ -480,10 +490,42 @@ def _argv(request: AgentRequest, model: str, options: Options) -> list[str]:
         flags = _harness_flag(str(entry))
         if flags:
             cmd += flags
+    # Last before the prompt, and it has to stay last: `--tools`,
+    # `--disallowedTools`, `--mcp-config`, `--add-dir` and `--plugin-dir` each
+    # take several values, and one of them here would read the prompt as one
+    # more. A flag added to this function goes above this line.
     session_id = request.native_session_id or request.session_id
     cmd += ["--resume", session_id] if request.resume else ["--session-id", session_id]
     cmd.append(request.prompt)
     return cmd
+
+
+def _unheld_denials(deny_tools: list[str], offered: list[str]) -> list[tuple[str, str]]:
+    """Each denial the tools a turn started with show did not hold, as
+    (denial, what to say).
+
+    The tool half of a denial cannot be checked before the server starts —
+    `check` holds the `mcp__<server>__` half — and Claude Code drops a denied
+    tool from the list its `init` event reports. So a denial that worked and
+    one that names nothing look alike, both absent; what tells them apart is a
+    tool still offered: the denied one itself, or one a letter or two from it,
+    which is a typo or a tool the pinned server renamed. A deny list fails
+    open, so either is said rather than left for the agent to find.
+    """
+    unheld = []
+    for denied in deny_tools:
+        server = denied.rsplit("__", 1)[0] + "__"
+        if denied in offered:
+            unheld.append((denied, f"{denied} is still offered — Claude Code did not withhold "
+                                   f"it, so the agent can call it"))
+            continue
+        near = difflib.get_close_matches(denied, [tool for tool in offered
+                                                  if tool.startswith(server)], n=1, cutoff=0.85)
+        if near:
+            unheld.append((denied, f"deny_tools names {denied}, which this server does not "
+                                   f"offer, and {near[0]} is still offered — a typo, or a tool "
+                                   f"the server renamed? Correct the agent's deny_tools"))
+    return unheld
 
 
 def _warn_once(key: str, message: str, on_event) -> None:
@@ -534,6 +576,9 @@ def _stream(cmd: list[str], request: AgentRequest, result: AgentResult,
             if etype == "system" and event.get("subtype") == "init":
                 model_id = str(event.get("model") or "")
                 result.session_id = str(event.get("session_id") or result.session_id)
+                for denied, message in _unheld_denials(request.deny_tools,
+                                                       list(event.get("tools") or [])):
+                    _warn_once(f"deny:{request.agent}:{denied}", message, on_event)
             elif etype == "assistant":
                 usage = event.get("message", {}).get("usage") or {}
                 occupancy = _turn_context_tokens(usage)

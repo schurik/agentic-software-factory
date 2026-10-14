@@ -38,6 +38,9 @@ DEFAULT_MODEL = "google/gemini-3.6-flash"
 # is silently dropped is what `TOOL_MAP` exists to prevent. `skills:` on a pi
 # agent is refused when the roster loads.
 SKILLS = False
+# pi has no MCP servers: its harness_engineering entries are TypeScript
+# extensions. An `mcp:` file or `deny_tools` on a pi agent is refused.
+MCP = False
 
 
 class Options(BaseModel):

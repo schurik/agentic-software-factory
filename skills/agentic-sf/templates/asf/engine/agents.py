@@ -64,6 +64,8 @@ def merge_harness(raw: dict) -> FactoryConfig:
     Same harness: the agent's keys win, a list REPLACES the factory's (an
     agent's `tools` is its whole capability list, not an addition), and
     `options` merges key by key — overriding `permission_mode` keeps `add_dirs`.
+    `deny_tools` is the one list ADDED to: a denial narrows, and an agent that
+    could replace the factory's would be one that un-denies a tool.
     Another harness: only `NEUTRAL_KEYS` cross over; the model is that
     harness's own default unless the agent names one, and tools, options and
     harness_engineering are the agent's or nothing.
@@ -91,8 +93,15 @@ def harness_settings(factory_block: HarnessDefaults, own: dict) -> dict:
         if driver is not None:
             inherited["model"] = driver.DEFAULT_MODEL
     merged = {**inherited, **own, "name": name,
-              "options": {**inherited.get("options", {}), **(own.get("options") or {})}}
+              "options": {**inherited.get("options", {}), **(own.get("options") or {})},
+              "deny_tools": added(inherited.get("deny_tools") or [],
+                                  own.get("deny_tools") or [])}
     return {AGENT_FIELD.get(key, key): value for key, value in merged.items()}
+
+
+def added(base: list[str], more: list[str]) -> list[str]:
+    """`base` with `more` after it, each entry once — how a deny list merges."""
+    return [*base, *(entry for entry in dict.fromkeys(more) if entry not in base)]
 
 
 # Where a skill named in `skills:` is looked for, in this order, in the MAIN
@@ -306,6 +315,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
             runtime_dir=str(run.session_dir.resolve()),
             tools=agent.tools,
             extensions=agent.harness_engineering,
+            deny_tools=agent.deny_tools,
             agent=agent.name,
             skills=[str(skill_dir(run.main_root, name)) for name in agent.skills],
             cwd=str(run.repo_root),

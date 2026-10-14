@@ -938,6 +938,11 @@ class AgentConfig(BaseModel):
     prompt_engineering: PromptEngineering
     harness_engineering: list[str] = Field(default_factory=list)
     tools: Optional[list[str]] = None    # allowlist; None = all tools usable
+    # MCP tools withheld from an agent its `mcp:` servers would otherwise hand
+    # it whole: `tools` filters only a harness's own tools, so a server's are
+    # narrowed here, each `mcp__<server>__<tool>`. Only ever added to — see
+    # `HarnessBlock.deny_tools`.
+    deny_tools: list[str] = Field(default_factory=list)
     # What this agent may MODIFY in the repo, enforced in code after every call
     # (see engine/permissions.py). `tools` cannot express this: `bash` runs
     # anything and `write` reaches any path, so an agent's capability list is a
@@ -991,6 +996,12 @@ class HarnessBlock(BaseModel):
     # discovery of whatever lies around.
     context: Optional[list[str]] = None
     harness_engineering: Optional[list[str]] = None
+    # MCP tools this agent must not have, `mcp__<server>__<tool>`, the server one
+    # of its own `mcp:` files gives it. The one list that is ADDED to rather
+    # than replaced, wherever it is written: a denial narrows, so the agent's
+    # joins factory.yaml's and a binding's joins the agent's, and nothing can
+    # take one back. Refused on a harness without MCP servers (`MCP = False`).
+    deny_tools: Optional[list[str]] = None
     # This harness's own, parsed by `harnesses.<name>.Options`.
     options: Optional[dict[str, Any]] = None
 
@@ -1012,6 +1023,7 @@ class HarnessDefaults(BaseModel):
     skills: list[str] = Field(default_factory=list)
     context: list[str] = Field(default_factory=list)
     harness_engineering: list[str] = Field(default_factory=list)
+    deny_tools: list[str] = Field(default_factory=list)
     options: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -2052,6 +2064,9 @@ class AgentRequest(BaseModel):
     runtime_dir: str = ""
     tools: Optional[list[str]] = None
     extensions: list[str] = Field(default_factory=list)
+    # MCP tools withheld from this turn (`AgentConfig.deny_tools`). Only a
+    # harness that can give an agent MCP servers is ever handed any.
+    deny_tools: list[str] = Field(default_factory=list)
     agent: str = ""                 # whose turn — where a harness keeps per-agent files
     # The agent's skills as the directories they resolved to in the main
     # checkout (`agents.skill_dir`). Only a harness that can load them is ever

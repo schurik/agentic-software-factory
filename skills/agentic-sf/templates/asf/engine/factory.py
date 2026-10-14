@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from . import agents, frontmatter, git_helper, harnesses, integration, worktree
+from . import agents, frontmatter, git_helper, harnesses, integration, mcp, worktree
 from .data_types import AgentConfig, FactoryConfig, HarnessDefaults
 from .utils import anchor
 
@@ -104,16 +104,16 @@ def _roster_refused(cfg: FactoryConfig, root: Path) -> list[str]:
     if said:
         return [f"harness: {problem}" for problem in said]
     return [f"agent {agent.name!r}: {problem}" for agent in cfg.agents
-            for problem in _block_refused(root, _block_of(agent))]
+            for problem in _block_refused(root, block_of(agent))]
 
 
-def _block_of(agent: AgentConfig) -> HarnessDefaults:
+def block_of(agent: AgentConfig) -> HarnessDefaults:
     """An agent's merged settings as the block they were merged from."""
     return HarnessDefaults(name=agent.harness, model=agent.model, thinking=agent.thinking,
                            timeout_seconds=agent.timeout_seconds, tools=agent.tools,
                            skills=agent.skills, context=agent.context,
                            harness_engineering=agent.harness_engineering,
-                           options=agent.harness_options)
+                           deny_tools=agent.deny_tools, options=agent.harness_options)
 
 
 def _block_refused(root: Path, block: HarnessDefaults) -> list[str]:
@@ -125,6 +125,7 @@ def _block_refused(root: Path, block: HarnessDefaults) -> list[str]:
         problems.append(f"the {block.name} harness cannot load skills — give this agent "
                         f"`skills: []` in its harness block (factory.yaml's are inherited "
                         f"across harnesses), or run it on a harness that can")
+    problems += mcp_refused(root, block)
     for name in block.skills:
         if agents.skill_dir(root, name) is None:
             looked = " or ".join(f"{home}/{name}/SKILL.md" for home in agents.SKILL_HOMES)
@@ -137,6 +138,24 @@ def _block_refused(root: Path, block: HarnessDefaults) -> list[str]:
         elif not path.is_file():
             problems.append(f"context {ref} is not a file in {root}")
     return problems
+
+
+def mcp_refused(root: Path, block: HarnessDefaults) -> list[str]:
+    """What a block's MCP servers and denials say that no run could honour:
+    either one on a harness without MCP, a file that is not there, a denial
+    that is not an MCP tool of a server the block gives. Read by a workflow's
+    binding as well, which can add denials."""
+    driver = harnesses.HARNESSES.get(block.name)
+    if driver is None:
+        return []
+    if not driver.MCP:
+        if not (mcp.files(block.harness_engineering) or block.deny_tools):
+            return []
+        able = ", ".join(name for name in harnesses.NAMES if harnesses.HARNESSES[name].MCP)
+        return [f"the {block.name} harness cannot give an agent MCP servers (MCP) — drop "
+                f"its `mcp:` files and `deny_tools`, or run it on a harness that can "
+                f"({able})"]
+    return mcp.denials_refused(root, block.harness_engineering, block.deny_tools)
 
 
 def _removed(harness: str) -> dict[str, str]:

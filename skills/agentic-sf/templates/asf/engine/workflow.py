@@ -15,7 +15,8 @@ else, and `asf.py run` calls it first.
 The rules a binding lives by, and why:
 
   * `writes`, and the `tools`, `skills` and `context` of its `harness:` block,
-    may only NARROW the roster's. The roster is reviewed once and is the
+    may only NARROW the roster's, and `deny_tools` only grow — a binding's
+    denials join the roster's, so none can be taken back. The roster is reviewed once and is the
     security boundary; a workflow is edited often. If a workflow could widen
     any of them, the file people touch most would be the one where an agent
     gains write access — or a skill nobody reviewed. `model`, `thinking` and
@@ -56,6 +57,7 @@ class BindingHarness(BaseModel):
     tools: Optional[list[str]] = None        # narrows only
     skills: Optional[list[str]] = None       # narrows only
     context: Optional[list[str]] = None      # may only drop entries
+    deny_tools: Optional[list[str]] = None   # only ever added to the roster's
 
 
 class Binding(BaseModel):
@@ -184,6 +186,11 @@ def _bind_agents(cfg: FactoryConfig, spec: Spec, directory: Path,
         refusal = agents.skill_tool_refused(harness.tools)
         if refusal:
             problems.append(f"agents.{alias}: {refusal}")
+        if harness.deny_tools:
+            update["deny_tools"] = agents.added(base.deny_tools, harness.deny_tools)
+            block = factory.block_of(base.model_copy(update=update))
+            problems += [f"agents.{alias}: {problem}"
+                         for problem in factory.mcp_refused(_main_root(directory), block)]
         if binding.writes is not None:
             widened = _widens(binding.writes, base.writes, exact=False)
             if widened:
@@ -201,6 +208,11 @@ def _bind_agents(cfg: FactoryConfig, spec: Spec, directory: Path,
             "system_append": [*base.prompt_engineering.system_append, *appends]})
         bound[alias] = base.model_copy(update=update)
     return cfg.model_copy(update={"agents": list(bound.values())})
+
+
+def _main_root(directory: Path) -> Path:
+    """The main checkout a workflow directory is in, where an `mcp:` file resolves."""
+    return git_helper.main_root(directory.resolve())
 
 
 def _flat_bindings(raw: dict) -> list[str]:

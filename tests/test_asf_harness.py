@@ -221,6 +221,72 @@ def test_a_binding_narrows_tools_skills_and_context_and_widens_none_of_them(here
     assert "options" in bound_refusal()
 
 
+# ── deny_tools: the narrowing an MCP server's tools have ────────────────────
+
+def servers(repo: Path, name: str = "servers.json", *keys: str) -> str:
+    """An `mcp:` file giving these servers, as a harness_engineering entry."""
+    (repo / name).write_text(json.dumps({"mcpServers": {
+        key: {"command": "npx", "args": [f"{key}-mcp"]} for key in keys or ("playwright",)}}))
+    return f"mcp:{name}"
+
+
+def test_a_denial_names_a_tool_of_a_server_the_agent_is_given(here):
+    given = servers(here)
+    agent(here, "qa2", {"purpose": "x", "harness": {
+        "harness_engineering": [given], "deny_tools": ["mcp__playwright__browser_file_upload"]}})
+    assert loaded("qa2").deny_tools == ["mcp__playwright__browser_file_upload"]
+
+    agent(here, "qa2", {"purpose": "x", "harness": {"harness_engineering": [given],
+                                                    "deny_tools": ["Bash"]}})
+    message = refused()
+    assert "agent 'qa2': deny_tools 'Bash' is not `mcp__<server>__<tool>`" in message
+    assert "`tools:`" in message                       # where a built-in tool is narrowed
+
+    agent(here, "qa2", {"purpose": "x", "harness": {"harness_engineering": [given],
+                                                    "deny_tools": ["mcp__github__create_issue"]}})
+    message = refused()
+    assert "deny_tools 'mcp__github__create_issue' names server 'github'" in message
+    assert "playwright" in message                     # the servers it IS given
+
+    agent(here, "qa2", {"purpose": "x", "harness": {
+        "harness_engineering": ["mcp:ghost.json"],
+        "deny_tools": ["mcp__playwright__browser_file_upload"]}})
+    assert "agent 'qa2': mcp:ghost.json is not a file" in refused()
+
+
+def test_mcp_servers_and_denials_on_a_harness_without_mcp_are_refused_by_its_flag(here):
+    given = servers(here)
+    agent(here, "elsewhere", {"purpose": "x", "harness": {
+        "name": "pi", "harness_engineering": [given],
+        "deny_tools": ["mcp__playwright__browser_file_upload"]}})
+    message = refused()
+    assert "agent 'elsewhere': the pi harness cannot give an agent MCP servers (MCP)" in message
+    assert "claude_code" in message                    # the harness that can
+
+
+def test_denials_are_added_to_wherever_they_are_written_and_never_taken_back(here):
+    given = servers(here, "servers.json", "playwright", "github")
+    raw = config(here)
+    raw["harness"].update({"harness_engineering": [given],
+                           "deny_tools": ["mcp__github__delete_repository"]})
+    save(here, raw)
+    agent(here, "builder", {"purpose": "x", "harness": {
+        "deny_tools": ["mcp__playwright__browser_run_code_unsafe"]}})
+    builder = loaded("builder")
+    assert builder.deny_tools == ["mcp__github__delete_repository",          # the factory's,
+                                  "mcp__playwright__browser_run_code_unsafe"]   # and its own
+
+    bind(here, {"from": "builder", "harness": {"deny_tools": []}})
+    bound = next(a for a in workflow.load("bound").cfg.agents if a.name == "builder")
+    assert bound.deny_tools == builder.deny_tools                            # [] removes nothing
+    bind(here, {"from": "builder", "harness": {
+        "deny_tools": ["mcp__playwright__browser_file_upload"]}})
+    bound = next(a for a in workflow.load("bound").cfg.agents if a.name == "builder")
+    assert bound.deny_tools == [*builder.deny_tools, "mcp__playwright__browser_file_upload"]
+    bind(here, {"from": "builder", "harness": {"deny_tools": ["mcp__slack__post"]}})
+    assert "agents.builder: deny_tools 'mcp__slack__post' names server 'slack'" in bound_refusal()
+
+
 # ── what `check` refuses before anything is spent ───────────────────────────
 
 def test_skill_in_tools_is_refused_because_skills_are_granted_in_one_place(here):
@@ -348,6 +414,74 @@ def test_harness_engineering_turns_safe_mode_off_too(claude):
     argv = claude(extensions=["mcp:servers.json"])
     assert "--safe-mode" not in argv and flag(argv, "--mcp-config") == "servers.json"
     assert "--strict-mcp-config" in argv and "--tools" not in argv
+
+
+DENIED = ["mcp__playwright__browser_run_code_unsafe", "mcp__playwright__browser_file_upload"]
+
+
+def test_denied_mcp_tools_reach_claude_code_as_disallowed_tools(claude):
+    argv = claude(tools=["Read"], extensions=["mcp:a.json", "mcp:b.json"], deny_tools=DENIED)
+    assert flag(argv, "--disallowedTools") == ",".join(DENIED)
+    assert "--disallowedTools" not in claude(tools=["Read"])           # nothing denied, no flag
+
+
+STUB_INIT = """#!{python}
+import json
+print(json.dumps({{"type": "system", "subtype": "init", "tools": {tools!r}}}))
+print(json.dumps({{"type": "result", "result": "done", "session_id": "s"}}))
+"""
+
+
+def test_a_denial_that_holds_nothing_is_said_once_the_server_has_started(tmp_path, monkeypatch):
+    """Claude Code drops a denied tool from the tools its `init` lists, so a
+    misspelt denial shows as the real tool still there beside it."""
+    import sys
+
+    from engine.data_types import AgentRequest
+    from engine.harnesses import claude_code
+
+    offered = ["Read", "mcp__playwright__browser_click", "mcp__playwright__browser_file_upload",
+               "mcp__playwright__browser_evaluate"]
+    stub = tmp_path / "claude"
+    stub.write_text(STUB_INIT.format(python=sys.executable, tools=offered))
+    stub.chmod(0o755)
+    monkeypatch.setattr(claude_code, "CLAUDE_PATH", str(stub))
+    monkeypatch.setattr(claude_code, "_WARNED", set())
+    said: list[str] = []
+
+    def turn(deny: list[str]) -> None:
+        claude_code.run(AgentRequest(
+            prompt="go", system_prompt="You test.", model="sonnet", session_id="s",
+            session_dir=str(tmp_path / "s"), raw_output_path=str(tmp_path / "raw.jsonl"),
+            cwd=str(tmp_path), agent="qa", deny_tools=deny),
+            on_event=lambda event: said.append(event.get("message", ""))
+            if event.get("subtype") == "asf_warning" else None)
+
+    turn(["mcp__playwright__browser_run_code_unsafe"])               # held: it is not offered
+    assert said == []
+    turn(["mcp__playwright__browser_file_uploadd", "mcp__playwright__browser_evaluate"])
+    turn(["mcp__playwright__browser_file_uploadd", "mcp__playwright__browser_evaluate"])
+    assert len(said) == 2                                             # once each, not per turn
+    typo, kept = said
+    assert "mcp__playwright__browser_file_uploadd" in typo
+    assert "mcp__playwright__browser_file_upload is still offered" in typo
+    assert "mcp__playwright__browser_evaluate" in kept and "still offered" in kept
+
+
+# Each takes several values, and swallows a prompt placed right after it as one more.
+MULTI_VALUE = {"--tools", "--disallowedTools", "--mcp-config", "--add-dir", "--plugin-dir"}
+
+
+@pytest.mark.parametrize("resume", [False, True])
+def test_no_flag_that_takes_several_values_sits_before_the_prompt(claude, tmp_path, resume):
+    home = tmp_path / "repo" / ".claude" / "skills" / "tdd"
+    home.mkdir(parents=True)
+    (home / "SKILL.md").write_text("---\nname: tdd\n---\n")
+    argv = claude(tools=["Read"], skills=[str(home)], extensions=["mcp:a.json"],
+                  deny_tools=DENIED, options={"add_dirs": ["/elsewhere"]}, resume=resume)
+    assert argv[-1] == "go"
+    flags = [arg for arg in argv[:-1] if arg.startswith("--")]
+    assert flags[-1] not in MULTI_VALUE and argv[-3] == flags[-1]      # a one-value flag, then the prompt
 
 
 # ── context: repository files, after the identity ────────────────────────────
