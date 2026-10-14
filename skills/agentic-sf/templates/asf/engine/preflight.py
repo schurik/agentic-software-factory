@@ -37,7 +37,10 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+import yaml
 
 from . import cockpit as local_cockpit
 from . import git_helper, harnesses, publish, station
@@ -248,6 +251,77 @@ def quality(main_root: Path) -> list[Finding]:
         fix="replace the `_placeholder(...)` argv in asf/engine/quality.py with "
             "this repo's real commands, and delete the blocks you do not want. A "
             "placeholder FAILS its phase rather than passing it")]
+
+
+# ── a browser, for the `accept` stage ────────────────────────────────────────
+
+# The package the stamped asf/agents/qa/playwright.json starts with `npx`.
+PLAYWRIGHT_MCP = "@playwright/mcp"
+INSTALL_CHROMIUM = "npx playwright install chromium"
+
+
+def browser_cache() -> Path | None:
+    """Where Playwright keeps its browsers on this machine — None when they
+    live beside a package (`PLAYWRIGHT_BROWSERS_PATH=0`), which no path here names."""
+    named = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    if named == "0":
+        return None
+    if named:
+        return Path(named).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    if os.name == "nt":
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") \
+            / "ms-playwright"
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ms-playwright"
+
+
+def chromium_missing() -> str:
+    """Why the Playwright MCP server would find no Chromium, or "" when it
+    would (or when the cache is not one this can look in)."""
+    cache = browser_cache()
+    if cache is None:
+        return ""
+    if cache.is_dir() and any(entry.name.startswith("chromium") for entry in cache.iterdir()):
+        return ""
+    return f"no Chromium in Playwright's browser cache ({cache})"
+
+
+def names_accept(main_root: Path) -> bool:
+    """Whether any workflow here runs the `accept` stage — read off the YAML,
+    so a workflow that does not load still counts."""
+    for spec in sorted((main_root / "asf" / "workflows").glob("*/workflow.yaml")):
+        try:
+            stages = (yaml.safe_load(spec.read_text()) or {}).get("stages") or []
+        except yaml.YAMLError:
+            continue
+        if any(isinstance(item, dict) and "accept" in item for item in stages):
+            return True
+    return False
+
+
+def browser(main_root: Path) -> list[Finding]:
+    """What the `accept` stage's browser needs on this machine: `npx`, which
+    starts the Playwright MCP server, and a Chromium for it to drive. Asked only
+    when a workflow runs `accept` — a stamp that never does needs neither.
+
+    `warn`, not `fatal`: the stage asks again before it spends anything, and
+    ends the session as an environment failure if either is still missing.
+    """
+    if not names_accept(main_root):
+        return []
+    findings = [Finding(check="browser: npx", detail=f"npx at {shutil.which('npx')}")
+                if shutil.which("npx") else
+                Finding(check="browser: npx", level="warn",
+                        detail="no `npx` on PATH — the accept stage's browser is the "
+                               f"{PLAYWRIGHT_MCP} server, started with npx",
+                        fix="install Node.js (it brings npx), then `just doctor` again")]
+    missing = chromium_missing()
+    findings.append(Finding(check="browser: chromium", level="warn", detail=missing,
+                            fix=f"`{INSTALL_CHROMIUM}`") if missing else
+                    Finding(check="browser: chromium",
+                            detail=f"in Playwright's browser cache ({browser_cache()})"))
+    return findings
 
 
 # ── the forge CLI: what the watchers and integration shell out to ────────────
@@ -566,6 +640,6 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamped_version(root)
+            + browser(root) + forge(cfg) + labels(cfg, root) + stamped_version(root)
             + cockpit(anchor(root, cfg.data_dir))
             + publishing(cfg, root) + skill())

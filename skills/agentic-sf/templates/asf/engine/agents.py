@@ -316,6 +316,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
             tools=agent.tools,
             extensions=agent.harness_engineering,
             deny_tools=agent.deny_tools,
+            handoff_dir=str(run.context_handoff_dir.resolve()),
             agent=agent.name,
             skills=[str(skill_dir(run.main_root, name)) for name in agent.skills],
             cwd=str(run.repo_root),

@@ -36,8 +36,8 @@ from typing import Any, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import (agents, benchmark_session, claims, factory, git_helper, inputs, issues,
-               pull_requests, scorers, session, tasks, worktree)
+from . import (agents, benchmark_session, claims, factory, git_helper, harnesses, inputs,
+               issues, pull_requests, scorers, session, tasks, worktree)
 from .data_types import (AgentConfig, BuildOutput, ChapterInput, ClaimAsk, EnvelopeBase,
                          FactoryConfig, Invocation, PhaseParams, SessionSpec)
 from .utils import new_id
@@ -281,6 +281,8 @@ def _steps(spec: Spec, registry: dict[str, StageModule], cfg: FactoryConfig,
             problems.append(f"stages[{index}] {stage_name}: needs a {wanted} from an earlier "
                             f"stage, but what precedes it hands on {got}")
         problems += [f"stages[{index}] {stage_name}: {p}" for p in stage.check(opts, earlier)]
+        problems += [f"stages[{index}] {stage_name}: {p}"
+                     for p in _harness_lacks(stage, opts, cfg)]
         step = Step(stage=stage, opts=opts)
         for key, (filename, answer_type) in stage.tasks.items():
             path = tasks.resolve(key, stage.directory / filename, directory)
@@ -293,6 +295,27 @@ def _steps(spec: Spec, registry: dict[str, StageModule], cfg: FactoryConfig,
         if stage.output is not None:
             current = stage.output
     return steps
+
+
+def _harness_lacks(stage: StageModule, opts: BaseModel, cfg: FactoryConfig) -> list[str]:
+    """Each capability the stage needs that the harness of its `agent:` lacks."""
+    agent = next((a for a in cfg.agents if a.name == getattr(opts, "agent", None)), None)
+    driver = harnesses.HARNESSES.get(agent.harness) if agent else None
+    if driver is None:
+        return []                   # an unknown agent or harness is said elsewhere
+    problems = []
+    for flag in stage.harness_needs:
+        if not getattr(driver, flag, False):
+            able = ", ".join(name for name in harnesses.NAMES
+                             if getattr(harnesses.HARNESSES[name], flag, False))
+            problems.append(f"agent {agent.name!r} runs on {agent.harness}, which cannot give "
+                            f"it {_CAPABILITY.get(flag, flag)} ({flag}) — {stage.name} needs a "
+                            f"harness that can: {able}")
+    return problems
+
+
+# What each capability flag gives an agent, as a refusal says it.
+_CAPABILITY = {"MCP": "MCP servers", "SKILLS": "skills"}
 
 
 def agent_fields(opts: BaseModel) -> list[str]:

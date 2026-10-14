@@ -32,6 +32,10 @@ A stage module exposes, at module level:
                factory's self-description (`engine/describe.py`) — the name
                `hitl.gated` or `hitl.asked` is called with, so a cockpit shows
                the gate a run will actually stop at
+    HARNESS_NEEDS  optional: capability flags (`MCP`, …) the harness of the
+               agent named by the stage's `agent:` option must declare True —
+               `check` refuses the stage on one that does not, by the flag,
+               never by a harness's name
     GATE_KIND  optional, beside GATE: "gate" (the default) for a verdict on the
                stage's work product, which `hitl:` switches on and off;
                "questions" for a round of questions, asked whenever the agent
@@ -84,6 +88,7 @@ class StageModule:
     options: type[BaseModel]
     gate: str = ""                  # GATE: the gate it places, "" for none
     gate_kind: str = "gate"         # GATE_KIND
+    harness_needs: tuple[str, ...] = ()     # HARNESS_NEEDS
 
     def run(self, ctx: "StageContext", opts: BaseModel) -> Optional[EnvelopeBase]:
         return self.module.run(ctx, opts)
@@ -219,6 +224,9 @@ def _load_one(directory: Path, source: Path) -> StageModule:
             problems.append("GATE must be the gate's name")
         if getattr(module, "GATE_KIND", "gate") not in GATE_KINDS:
             problems.append(f"GATE_KIND must be one of {GATE_KINDS}")
+        needs = getattr(module, "HARNESS_NEEDS", ())
+        if not isinstance(needs, tuple) or not all(isinstance(flag, str) for flag in needs):
+            problems.append("HARNESS_NEEDS must be a tuple of capability flag names")
     if problems:
         raise SystemExit(f"stage {directory.name} ({source}) does not meet the contract:\n- "
                          + "\n- ".join(problems))
@@ -226,7 +234,8 @@ def _load_one(directory: Path, source: Path) -> StageModule:
                        kind=module.KIND, output=module.OUTPUT, needs=tuple(module.NEEDS),
                        tasks=dict(module.TASKS), options=module.Options,
                        gate=getattr(module, "GATE", ""),
-                       gate_kind=getattr(module, "GATE_KIND", "gate"))
+                       gate_kind=getattr(module, "GATE_KIND", "gate"),
+                       harness_needs=tuple(getattr(module, "HARNESS_NEEDS", ())))
 
 
 def _is_envelope(candidate: Any) -> bool:

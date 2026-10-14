@@ -90,6 +90,27 @@ def denials_refused(root: Path, extensions: list[str], deny_tools: list[str]) ->
 
 # ── does it answer? ───────────────────────────────────────────────────────────
 
+# `${VAR}` and `${VAR:-default}`, which Claude Code expands in an `mcp:` file's
+# command, args and env before it starts a server.
+VARIABLE = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<default>[^}]*))?\}")
+
+
+def expanded(spec: dict, env: dict[str, str]) -> dict:
+    """`spec` with its variables expanded from `env`, then the operator's
+    environment — the server as the harness would start it."""
+    known = {**operator_env(), **env}
+
+    def expand(value):
+        if isinstance(value, str):
+            return VARIABLE.sub(lambda m: known.get(m["name"]) or m["default"] or "", value)
+        if isinstance(value, list):
+            return [expand(item) for item in value]
+        if isinstance(value, dict):
+            return {key: expand(item) for key, item in value.items()}
+        return value
+
+    return {**expand(spec), "env": {**env, **expand(spec.get("env") or {})}}
+
 INITIALIZE = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
               "params": {"protocolVersion": "2025-06-18", "capabilities": {},
                          "clientInfo": {"name": "asf", "version": "1"}}}

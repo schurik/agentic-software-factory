@@ -1,0 +1,12 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "process_started",
+  "v": 2,
+  "payload": {
+    "kind": "dev_server",
+    "name": "serve",
+    "pid": 4251,
+    "command": "bun run dev --port 52114"
+  }
+}

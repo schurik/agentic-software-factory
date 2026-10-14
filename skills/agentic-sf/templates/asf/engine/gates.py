@@ -131,6 +131,24 @@ def verdict_consistent(envelope: EnvelopeBase, run) -> GateReport:
     return report
 
 
+def screenshots_handed_off(envelope: EnvelopeBase, run) -> GateReport:
+    """Every screenshot an acceptance declares exists, in the session's handoff
+    directory: where the next agent is told to look, and outside the tree a
+    commit stage stages with `git add -A`."""
+    report = GateReport()
+    handoff = run.context_handoff_dir.resolve()
+    for shot in getattr(envelope, "screenshots", []):
+        path = anchor(run.context_handoff_dir, shot).resolve()
+        if handoff not in path.parents:
+            report.check(shot, False, f"screenshot is not in the handoff directory {handoff} "
+                                      f"— save it there, by its absolute path")
+        elif not path.is_file():
+            report.check(shot, False, "declared screenshot does not exist")
+        else:
+            report.check(shot, True, f"exists, {_size(path)}")
+    return report
+
+
 MIN_OPTIONS, MAX_OPTIONS = 2, 3
 
 

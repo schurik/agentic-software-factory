@@ -342,6 +342,22 @@ class ReviewOutput(EnvelopeBase):
     blocking: list[str] = Field(default_factory=list)   # what must change before approval
 
 
+class AcceptanceOutput(ReviewOutput):
+    """A verdict on the RUNNING app, from a browser: a review's verdict per
+    requirement (`findings`, `blocking`, `approved`), and what it rests on.
+
+    A review by another route, so it travels the same loop (`engine/judging.py`)
+    and clears the same consistency gate — and the builder answering it reads
+    the same fields it reads from a reviewer.
+    """
+
+    steps: list[str] = Field(default_factory=list)            # what was done in the browser, in order
+    console_errors: list[str] = Field(default_factory=list)   # the page's own, verbatim
+    # Absolute paths in the session's handoff directory, never the tracked tree:
+    # the agent may write nothing there, and a commit stage would land them.
+    screenshots: list[str] = Field(default_factory=list)
+
+
 class DocumentOutput(EnvelopeBase):
     """Where the write-up of a completed change landed."""
 
@@ -2067,6 +2083,11 @@ class AgentRequest(BaseModel):
     # MCP tools withheld from this turn (`AgentConfig.deny_tools`). Only a
     # harness that can give an agent MCP servers is ever handed any.
     deny_tools: list[str] = Field(default_factory=list)
+    # The session's context_handoff/, absolute. Every harness hands it to the
+    # agent's process as `ASF_HANDOFF_DIR`, so a file a tool writes on its own
+    # — an MCP server's `--output-dir ${ASF_HANDOFF_DIR}/…` — lands beside the
+    # agents' handoffs instead of in the tree permissions.py guards.
+    handoff_dir: str = ""
     agent: str = ""                 # whose turn — where a harness keeps per-agent files
     # The agent's skills as the directories they resolved to in the main
     # checkout (`agents.skill_dir`). Only a harness that can load them is ever
@@ -3088,8 +3109,11 @@ class ToolCalled(DomainEvent):
 
 class ProcessStarted(DomainEvent):
     KIND: ClassVar[str] = "process_started"
+    VERSION: ClassVar[int] = 2      # v2: kind dev_server
 
-    kind: Literal["adw", "agent"]   # the workflow process, or a coding-agent child
+    # The workflow process, a coding-agent child, or the app a stage serves
+    # for an agent to drive (`engine/serve.py`).
+    kind: Literal["adw", "agent", "dev_server"]
     name: str = ""
     pid: int
     command: str = ""

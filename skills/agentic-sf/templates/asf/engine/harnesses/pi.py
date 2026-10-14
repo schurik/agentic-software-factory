@@ -29,7 +29,7 @@ from ..data_types import (AgentConfig, AgentRequest, AgentResult, Finding,
                           UsageBreakdown)
 from ..limits import Deadline
 from ..tool_calls import ToolCallLedger
-from ..utils import new_id, operator_env
+from ..utils import agent_env, new_id, operator_env
 
 NAME = "pi"
 # What a pi agent on a factory of another harness runs unless it names a model.
@@ -370,7 +370,7 @@ def run(request: AgentRequest, on_event: Optional[Callable[[dict], None]] = None
     process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, bufsize=1, cwd=request.cwd,
-                               env=operator_env())
+                               env=agent_env(request.handoff_dir))
     if on_spawn:
         on_spawn(process.pid)
     # A hung pi emits nothing, and every read below would block on nothing

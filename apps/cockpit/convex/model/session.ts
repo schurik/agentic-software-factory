@@ -557,6 +557,11 @@ const READERS: Record<string, Record<number, Reader>> = {
   },
   process_started: {
     1: { describe: (p) => `process ${p.num("pid")} started: ${p.str("command") || p.str("name")}` },
+    // v2: kind may be `dev_server`, the app a stage serves for an agent to drive.
+    2: {
+      describe: (p) => (p.str("kind") === "dev_server" ? "dev server" : "process") +
+        ` ${p.num("pid")} started: ${p.str("command") || p.str("name")}`,
+    },
   },
   process_ended: {
     1: { describe: (p) => `process ${p.num("pid")} ended` },

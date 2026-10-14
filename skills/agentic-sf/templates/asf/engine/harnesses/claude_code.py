@@ -44,7 +44,7 @@ from ..data_types import (AgentConfig, AgentRequest, AgentResult, Finding,
                           UsageBreakdown)
 from ..limits import Deadline
 from ..tool_calls import ToolCallLedger
-from ..utils import operator_env, write_atomic
+from ..utils import agent_env, write_atomic
 
 NAME = "claude_code"
 # What a claude_code agent on a factory of another harness runs unless it names
@@ -547,7 +547,7 @@ def _stream(cmd: list[str], request: AgentRequest, result: AgentResult,
     process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, bufsize=1, cwd=request.cwd,
-                               env=_child_env())
+                               env=_child_env(request))
     if on_spawn:
         on_spawn(process.pid)
     model_id = ""
@@ -614,15 +614,17 @@ def _stream(cmd: list[str], request: AgentRequest, result: AgentResult,
     return returncode, stderr
 
 
-def _child_env() -> dict[str, str]:
-    """The operator's environment, minus the ADW's own uv venv.
+def _child_env(request: AgentRequest) -> dict[str, str]:
+    """The operator's environment, minus the ADW's own uv venv, plus the turn's
+    `ASF_HANDOFF_DIR` — which an `mcp:` file names as `${ASF_HANDOFF_DIR}`,
+    expanded by Claude Code, for a server's own files.
 
     Same reasoning as `utils.operator_env`, plus one Claude-Code-specific
     removal: this process may itself be running inside a Claude Code session,
     and inheriting that session's entrypoint marker makes the child believe it
     was launched by the parent's harness.
     """
-    env = operator_env()
+    env = agent_env(request.handoff_dir)
     for key in ("CLAUDE_CODE_ENTRYPOINT", "CLAUDECODE"):
         env.pop(key, None)
     return env
