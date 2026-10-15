@@ -106,6 +106,48 @@ Only when issues or reviews start runs: `just labels --create`.
 [run_workflow.md](run_workflow.md) says. `just onboard` then reports every
 step done, and the record says onboarding is finished.
 
+### Optional: the running app, in a browser
+
+`just onboard` lists `accept` as optional (`◦`): it is never `next`, never
+counted, and onboarding finishes without it. Offer it once, for a web app —
+`install.py` said so if the repo looked like one — and ask with the question
+tool; it is the team's call, because every round costs a browser session. A
+**yes**:
+
+1. **The workflow.** `cp -r asf/examples/workflows/ship-accept asf/workflows/` —
+   `ship` with `accept` between `verify` and `review`, so acceptance runs on a
+   green suite and the reviewer sees the fixes made for it. Any workflow can
+   take the stage the same way; keep that order.
+2. **The server.** `serve.commands` in `asf/factory.yaml` — argv lists, `{port}`
+   where the free port goes (`PORT` is set too). `install.py` filled them from a
+   Next or Vite dependency; check them. Code starts every one, each in its own
+   process group, waits until `http://localhost:<port>/` answers, hands the agent
+   the URL and stops them all, so each must reload on change: the builder's
+   revision lands while they run. Its `.env` and packages come from
+   `worktree.copy` and `worktree.setup`. `just check` refuses the workflow while
+   the list is empty.
+
+   An app that is two processes lists two — but readiness is the app's URL
+   alone, so a backend the app needs should start the app itself where it can.
+   Next.js on Convex: `[npx, convex, dev, --tail-logs, disable, --start, "npx
+   next dev --port {port}"]` runs Next only once the functions are pushed, and
+   pushes again when a revision changes them. Mind which deployment that is:
+   `.env.local`, copied in, names YOUR dev deployment, and two sessions at once
+   push to the same one. A separate env file for the factory
+   (`--env-file .env.asf`, listed in `worktree.copy`) keeps the first apart.
+3. **The browser.** `npx playwright install chromium`, then `just doctor`,
+   which names a missing `npx` or Chromium once a workflow runs `accept`. The
+   `qa` agent's browser is `asf/agents/qa/playwright.json`: a pinned
+   `@playwright/mcp`, headless and isolated on every run, attended or not.
+   Raising its version is a reviewed edit — tool names under its `deny_tools`
+   can change with it. A page behind a login: export the state once
+   (`npx playwright codegen --save-storage=playwright/.auth/qa.json <url>`),
+   list that file in `worktree.copy`, and add `"--storage-state",
+   "playwright/.auth/qa.json"` to the server's args.
+
+It runs on Claude Code only (`qa` says `harness: {name: claude_code}`): the
+browser is an MCP server, and pi has none.
+
 ## Questions they will have
 
 ### Install it
@@ -126,6 +168,10 @@ the root `.env` — the factory's own `ASF_SKILL`, `ASF_COCKPIT_URL` and
 `ASF_COCKPIT_TOKEN` included — was already in every agent's environment;
 now a worktree holds a copy on disk too. Keep anything agents must not read
 out of it. → [install.md](install.md#ask-first-stamp-second)
+
+**"Can an agent click through the feature in the running app?"** — yes, the
+`accept` stage: [Optional: the running app, in a browser](#optional-the-running-app-in-a-browser).
+Scripted specs are the `e2e` block, below; `accept` is for what no spec says.
 
 **"Can a run check the app in a browser?"** — yes, with the `e2e` block in
 `asf/engine/quality.py`: browser tests against a dev server Playwright's

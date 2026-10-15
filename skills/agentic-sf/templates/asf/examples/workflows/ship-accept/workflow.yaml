@@ -1,0 +1,34 @@
+# ship-accept — `ship`, with the running app checked in a browser before review.
+#
+# AN EXAMPLE, NOT A WORKFLOW: nothing under asf/examples/ is loaded, listed or
+# run. To use it, copy the directory into asf/workflows/ — copying is what a
+# workflow directory is for — and then:
+#
+#   1. Write `serve.commands` in asf/factory.yaml: the argv that starts this
+#      repo's app, `{port}` where its port goes (`asf check` refuses this
+#      workflow until you do).
+#   2. `just doctor`: it names what the browser still needs on this machine —
+#      `npx`, and a Chromium (`npx playwright install chromium`).
+#
+# `accept` sits between verify and review. It runs on a green suite, and the
+# reviewer, the last judge before the code commit, sees the final tree —
+# fixes made for acceptance included. The other order would let them land
+# unreviewed. Its agent, `qa`, runs on Claude Code: the browser is an MCP
+# server (asf/agents/qa/playwright.json), and pi has none.
+name: ship-accept
+description: ship, with the running app driven in a browser and judged against the plan before review
+input: prompt
+
+stages:
+  - scout:     {agent: scout}
+  - plan:      {agent: planner}
+  - commit:    {of: plan}
+  - implement: {agent: builder}
+  - verify:    {blocks: [test], max_fix_loops: 3, fix: {agent: builder}}
+  - accept:    {agent: qa, max_rounds: 2, revise: {agent: builder}, retest: [test],
+                serve: {path: /}}
+  - review:    {agent: reviewer, max_rounds: 2, revise: {agent: builder}, retest: [test]}
+  - commit:    {of: implement}                     # green suite, accepted, approved — only now
+  - document:  {agent: documenter}
+  - commit:    {of: document}
+  - integrate: {}

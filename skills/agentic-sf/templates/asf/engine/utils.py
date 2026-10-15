@@ -40,6 +40,17 @@ def operator_env() -> dict[str, str]:
     return env
 
 
+# Where an agent's own process — and every tool it starts — may put a file of
+# its own outside the tree: the session's context_handoff/.
+HANDOFF_ENV = "ASF_HANDOFF_DIR"
+
+
+def agent_env(handoff_dir: str) -> dict[str, str]:
+    """`operator_env`, plus `ASF_HANDOFF_DIR` when the turn has one — what every
+    harness hands the coding agent it spawns."""
+    return {**operator_env(), **({HANDOFF_ENV: handoff_dir} if handoff_dir else {})}
+
+
 def new_id(length: int = 8) -> str:
     return secrets.token_hex(length // 2)
 

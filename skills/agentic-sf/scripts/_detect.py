@@ -285,3 +285,74 @@ def apply_worktree(config: Path, copy: list[str], setup: list[list[str]]) -> lis
     if setup:
         notes.append(f"worktree.setup: {' · '.join(' '.join(argv) for argv in setup)}")
     return notes
+
+
+# ── how the app is run, for the `accept` stage ───────────────────────────────
+
+def detect_serve(root: Path) -> list[list[str]]:
+    """`serve.commands` as this repository answers them: its framework's dev
+    server on `{port}`, through the package manager's runner — and, where the
+    app has a Convex backend, `convex dev --start` running it, which starts the
+    app only once the functions are pushed. [] when nothing says how."""
+    package = _read_json(root / "package.json")
+    js_runner, _ = _js(root)
+    if not js_runner:
+        return []
+    deps = {**(package.get("dependencies") or {}), **(package.get("devDependencies") or {})}
+    run = JS_EXEC[js_runner[0]]
+    if "next" in deps:
+        app = run + ["next", "dev", "--port", "{port}"]
+    elif "vite" in deps:
+        app = run + ["vite", "--port", "{port}", "--strictPort"]
+    else:
+        return []
+    if "convex" in deps:
+        return [run + ["convex", "dev", "--tail-logs", "disable", "--start", " ".join(app)]]
+    return [app]
+
+
+def apply_serve(config: Path, commands: list[list[str]]) -> list[str]:
+    """Write them over the `commands: []` the template's `serve:` block ships,
+    and return what to print."""
+    if not config.is_file() or not commands:
+        return []
+    text = re.sub(r"^(serve:\n  commands: )\[\]$", lambda match: match[1] + json.dumps(commands),
+                  config.read_text(), count=1, flags=re.M)
+    config.write_text(text)
+    return [f"serve.commands: {json.dumps(commands)}"]
+
+
+# ── what the installer suggests, and never wires ─────────────────────────────
+
+# A dependency that says the repository serves a web app.
+WEB_FRAMEWORKS = ("next", "vite", "nuxt", "@sveltejs/kit", "astro", "@remix-run/dev",
+                  "react-scripts", "@angular/core", "gatsby")
+# Where a repository checks in MCP servers: Claude Code's project file, Cursor's,
+# VS Code's (which says `servers`, not `mcpServers`).
+MCP_FILES = (".mcp.json", ".cursor/mcp.json", ".vscode/mcp.json")
+
+
+def web_app(root: Path) -> str:
+    """The evidence that this repository is a web app the `accept` stage could
+    drive, "" when there is none."""
+    config = playwright_config(root)
+    if config:
+        return config
+    package = _read_json(root / "package.json")
+    scripts = package.get("scripts") or {}
+    if isinstance(scripts, dict) and "dev" in scripts:
+        return "package.json scripts.dev"
+    deps = {**(package.get("dependencies") or {}), **(package.get("devDependencies") or {})}
+    return next((f"package.json depends on {name}" for name in WEB_FRAMEWORKS if name in deps),
+                "")
+
+
+def mcp_servers(root: Path) -> list[tuple[str, str]]:
+    """(file, server) for every MCP server this repository checks in."""
+    found = []
+    for name in MCP_FILES:
+        config = _read_json(root / name)
+        servers = config.get("mcpServers") or config.get("servers") or {}
+        if isinstance(servers, dict):
+            found += [(name, server) for server in servers]
+    return found

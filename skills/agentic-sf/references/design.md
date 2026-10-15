@@ -62,6 +62,20 @@ appended by the engine after the identity, under a heading naming the file, on
 any harness. A skill or context file that resolves nowhere is refused at load,
 and so are skills on a harness that cannot load them (pi, for now).
 
+An MCP server is a `harness_engineering: [mcp:<file.json>]` entry, and it grants
+every tool it has: `tools:` filters a harness's built-in tools only. So the
+block has `deny_tools: [mcp__<server>__<tool>]`, passed to Claude Code as
+`--disallowedTools` — a deny list, because a server's tools are not known until
+it has started. It is the one list that is ADDED to wherever it is written
+(factory.yaml, agent.md, binding), never replaced: a denial narrows, and a list
+that replaced would let a binding un-deny. A deny list fails open, so `check`
+refuses what can be checked before a run — an entry that is not
+`mcp__<server>__<tool>`, a server none of the agent's `mcp:` files gives it —
+and the tool half, which cannot, is warned about from the tools a turn's `init`
+lists. Both are refused on a harness whose module says `MCP = False` (pi); a
+capability is a module flag (`SKILLS`, `MCP`) read by `check`, never a harness
+name compared.
+
 ### Stages
 
 A stage module declares `NAME, KIND, OUTPUT, NEEDS, TASKS, Options, run` and
@@ -87,6 +101,10 @@ stage places (`plan`, `integrate`; `refine`'s `requirements`, with `GATE_KIND =
 check --json`, the only account of a workflow a cockpit reads — shows where a
 run may stop for a person and whether that gate is on.
 
+`HARNESS_NEEDS` names the capability flags the harness of the stage's `agent:`
+must have: `accept`, whose agent's browser is an MCP server, says `("MCP",)`,
+and `check` refuses it played by an agent on pi.
+
 `ctx.current(stage_name)` returns that stage's work product *as it stands
 now*: after `verify`, the build is the fixed build. `commit: {of: implement}` lands
 that one.
@@ -95,14 +113,33 @@ A stage that must end the run without failing its phase raises `StageStop`.
 The runner finishes the run as not accepted, with the reason, and nothing after
 it runs.
 
-**A stage owns its loops.** `verify` owns its fix loop, `review` its revise
-rounds, and `refine` its question rounds — because the YAML has no `loop:` and
+**A stage owns its loops.** `verify` owns its fix loop, `review` and `accept`
+their revise rounds — one loop, `engine/judging.py`'s `judge_and_revise`, which
+each calls with its own judge task, phases and gates, so a change to how a
+round works reaches both — and `refine` its question rounds — because the YAML has no `loop:` and
 no `if:` (rule 7), and because what decides whether another round is needed is
 not policy a workflow should vary but a judgement the code makes from what the
 last round produced. `refine` is the clearest case: it asks a person, suspends,
 and the thing that decides whether to ask again is the analyst's own answer to
 what it just heard. A workflow gets the ceiling (`max_rounds`), never the
 condition.
+
+`accept` is the third question about a build, and why it is a stage of its
+own rather than a second task in `verify` or a second `review`: verify's loop
+rests on a check that is cheap and gives the same verdict twice, and an agent
+in a browser is neither; a second `review` would share its task file (an
+override is keyed by task, not by step) and starts no server. What it adds is
+the server, owned by code (`engine/serve.py`): factory.yaml's `serve.commands`
+on a free port (`{port}`), each in its own process group, recorded for `asf
+kill`, stopped in a `finally` however the stage ends. In factory.yaml and not in
+quality.py because they are the operator's and a re-stamp must not rewrite them
+— `worktree.setup`'s reasoning — and the stage's `check` reads them through a
+third parameter `check` may declare, the factory's config; before it, each of the agent's MCP servers must answer
+`initialize` — a missing browser ends the session as an environment failure,
+never as a finding for the builder. Agents are handed `ASF_HANDOFF_DIR`, which
+the qa agent's `playwright.json` names as its `--output-dir`, the one place that
+server writes. No shipped workflow runs it; `asf/examples/workflows/` holds
+`ship-accept` to copy, never loaded where it is.
 
 Which chain a stage belongs in is decided by WHAT TRAVELS BETWEEN RUNS, not by
 what reads well in a list. `refine-ship` drops the scout because refine's recon
@@ -163,8 +200,9 @@ Rules, enforced at load:
 2. **Bindings narrow.** `writes`, and the `tools`, `skills` and `context` of a
    binding's `harness:` block, must be covered by the roster's; `None` in the
    roster (unrestricted) is narrowed by anything. `model`, `thinking` and
-   `timeout_seconds` replace; the harness's `name`, `options` and
-   `harness_engineering` cannot be bound at all.
+   `timeout_seconds` replace; `deny_tools` only grows, a binding's joining the
+   roster's; the harness's `name`, `options` and `harness_engineering` cannot
+   be bound at all.
 3. **Identity appends.** `system_append` is a list of files under the workflow
    directory; `system` is not a binding key.
 4. **Tasks are checked against types.** The `## Report` JSON block of every

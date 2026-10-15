@@ -342,6 +342,22 @@ class ReviewOutput(EnvelopeBase):
     blocking: list[str] = Field(default_factory=list)   # what must change before approval
 
 
+class AcceptanceOutput(ReviewOutput):
+    """A verdict on the RUNNING app, from a browser: a review's verdict per
+    requirement (`findings`, `blocking`, `approved`), and what it rests on.
+
+    A review by another route, so it travels the same loop (`engine/judging.py`)
+    and clears the same consistency gate — and the builder answering it reads
+    the same fields it reads from a reviewer.
+    """
+
+    steps: list[str] = Field(default_factory=list)            # what was done, in order
+    console_errors: list[str] = Field(default_factory=list)   # the page's own, verbatim
+    # Absolute paths in the session's handoff directory, never the tracked tree:
+    # the agent may write nothing there, and a commit stage would land them.
+    screenshots: list[str] = Field(default_factory=list)
+
+
 class DocumentOutput(EnvelopeBase):
     """Where the write-up of a completed change landed."""
 
@@ -938,6 +954,11 @@ class AgentConfig(BaseModel):
     prompt_engineering: PromptEngineering
     harness_engineering: list[str] = Field(default_factory=list)
     tools: Optional[list[str]] = None    # allowlist; None = all tools usable
+    # MCP tools withheld from an agent its `mcp:` servers would otherwise hand
+    # it whole: `tools` filters only a harness's own tools, so a server's are
+    # narrowed here, each `mcp__<server>__<tool>`. Only ever added to — see
+    # `HarnessBlock.deny_tools`.
+    deny_tools: list[str] = Field(default_factory=list)
     # What this agent may MODIFY in the repo, enforced in code after every call
     # (see engine/permissions.py). `tools` cannot express this: `bash` runs
     # anything and `write` reaches any path, so an agent's capability list is a
@@ -991,6 +1012,12 @@ class HarnessBlock(BaseModel):
     # discovery of whatever lies around.
     context: Optional[list[str]] = None
     harness_engineering: Optional[list[str]] = None
+    # MCP tools this agent must not have, `mcp__<server>__<tool>`, the server one
+    # of its own `mcp:` files gives it. The one list that is ADDED to rather
+    # than replaced, wherever it is written: a denial narrows, so the agent's
+    # joins factory.yaml's and a binding's joins the agent's, and nothing can
+    # take one back. Refused on a harness without MCP servers (`MCP = False`).
+    deny_tools: Optional[list[str]] = None
     # This harness's own, parsed by `harnesses.<name>.Options`.
     options: Optional[dict[str, Any]] = None
 
@@ -1012,12 +1039,13 @@ class HarnessDefaults(BaseModel):
     skills: list[str] = Field(default_factory=list)
     context: list[str] = Field(default_factory=list)
     harness_engineering: list[str] = Field(default_factory=list)
+    deny_tools: list[str] = Field(default_factory=list)
     options: dict[str, Any] = Field(default_factory=dict)
 
 
 def default_protected_files() -> list[str]:
     return ["asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/", "asf/scorers/",
-            "asf/benchmarks/", "asf/cockpit/", "asf/factory.yaml", "asf/asf.py",
+            "asf/benchmarks/", "asf/cockpit/", "asf/examples/", "asf/factory.yaml", "asf/asf.py",
             "asf/.skill-version", ".github/workflows/asf-check.yml"]
 
 
@@ -1095,6 +1123,35 @@ class WorktreeConfig(BaseModel):
     # and so does any worktree with uncommitted work in it, whatever the outcome.
     keep_on_success: bool = False
     integration: IntegrationConfig = Field(default_factory=IntegrationConfig)
+
+
+class ServeConfig(BaseModel):
+    """`serve:` — how this repository's app is run, for a stage that hands an
+    agent a browser (`accept`, through `engine/serve.py`).
+
+    In factory.yaml, the operator's file, and not in the stamped quality.py: a
+    re-stamp with `--force` rewrites the engine and never this. One per
+    repository, not per workflow — every workflow that drives the app drives
+    the same one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # argv lists, bare binary names, as `worktree.setup`: started together in the
+    # session's worktree, each in a process group of its own, and every one of
+    # them stopped however the stage ends. `{port}` anywhere in an argument is
+    # the free port the app must answer on; PORT is set to it as well. Empty:
+    # `check` refuses a workflow that runs `accept`.
+    commands: list[list[str]] = Field(default_factory=list)
+    ready_seconds: int = Field(default=120, ge=1)    # until http://localhost:<port>/ answers
+
+    @field_validator("commands")
+    @classmethod
+    def _argv(cls, commands: list[list[str]]) -> list[list[str]]:
+        if any(not argv for argv in commands):
+            raise ValueError("serve.commands holds an empty argv — each is "
+                             "[binary, arg, …], never [] and never a shell string")
+        return commands
 
 
 class BudgetConfig(BaseModel):
@@ -1515,6 +1572,7 @@ class FactoryConfig(BaseModel):
     hitl: HitlConfig = Field(default_factory=HitlConfig)
     cockpit: CockpitConfig = Field(default_factory=CockpitConfig)
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
+    serve: ServeConfig = Field(default_factory=ServeConfig)
     issues: IssuesConfig = Field(default_factory=IssuesConfig)
     pull_requests: PullRequestsConfig = Field(default_factory=PullRequestsConfig)
     self_improvement: ImproveAfter = Field(default_factory=ImproveAfter)
@@ -2052,6 +2110,14 @@ class AgentRequest(BaseModel):
     runtime_dir: str = ""
     tools: Optional[list[str]] = None
     extensions: list[str] = Field(default_factory=list)
+    # MCP tools withheld from this turn (`AgentConfig.deny_tools`). Only a
+    # harness that can give an agent MCP servers is ever handed any.
+    deny_tools: list[str] = Field(default_factory=list)
+    # The session's context_handoff/, absolute. Every harness hands it to the
+    # agent's process as `ASF_HANDOFF_DIR`, so a file a tool writes on its own
+    # — an MCP server's `--output-dir ${ASF_HANDOFF_DIR}/…` — lands beside the
+    # agents' handoffs instead of in the tree permissions.py guards.
+    handoff_dir: str = ""
     agent: str = ""                 # whose turn — where a harness keeps per-agent files
     # The agent's skills as the directories they resolved to in the main
     # checkout (`agents.skill_dir`). Only a harness that can load them is ever
@@ -2309,7 +2375,9 @@ class ShipResult(BaseModel):
 
 # ── Onboarding (engine/onboarding.py) ────────────────────────────────────────
 
-OnboardingState = Literal["done", "next", "todo", "skipped"]
+# `optional`: offered with its how, never `next`, never counted — a step a
+# repository may take and onboarding never waits for.
+OnboardingState = Literal["done", "next", "todo", "skipped", "optional"]
 
 
 class OnboardingMark(BaseModel):
@@ -3073,8 +3141,11 @@ class ToolCalled(DomainEvent):
 
 class ProcessStarted(DomainEvent):
     KIND: ClassVar[str] = "process_started"
+    VERSION: ClassVar[int] = 2      # v2: kind dev_server
 
-    kind: Literal["adw", "agent"]   # the workflow process, or a coding-agent child
+    # The workflow process, a coding-agent child, or the app a stage serves
+    # for an agent to drive (`engine/serve.py`).
+    kind: Literal["adw", "agent", "dev_server"]
     name: str = ""
     pid: int
     command: str = ""

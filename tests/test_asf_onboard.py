@@ -55,7 +55,7 @@ def test_a_fresh_stamp_starts_at_the_settings_and_everything_after_waits_for_the
     assert states(found) == {"installed": "done", "ready": "done", "settings": "next",
                              "committed": "todo", "published": "todo", "cockpit": "todo",
                              "connected": "todo", "ci": "todo", "labels": "done",
-                             "first_run": "todo"}
+                             "first_run": "todo", "accept": "optional"}
 
 
 def test_the_factory_is_committed_and_published_before_a_cockpit_is_chosen(repo: Path,
@@ -103,7 +103,8 @@ def test_the_record_holds_only_the_decisions_that_leave_no_trace(stamped: Path, 
     (stamped / DATA_DIR / "sessions" / "a1b2c3d4").mkdir(parents=True)
     (stamped / DATA_DIR / "sessions" / "a1b2c3d4" / "run.json").write_text("{}")
     found = judged(stamped, monkeypatch)
-    assert found[""][0] == "" and all(state in ("done", "skipped") for state in states(found).values())
+    assert found[""][0] == "" and all(state in ("done", "skipped", "optional")
+                                      for state in states(found).values())
 
     record = json.loads((stamped / DATA_DIR / "onboarding.json").read_text())
     assert set(record["marks"]) == {"cockpit", "ci"}
@@ -188,3 +189,21 @@ def test_onboard_prints_the_checklist_and_its_next_step_and_json_for_an_agent(st
     assert [step["step"] for step in as_json["steps"]][:5] == [
         "installed", "ready", "settings", "committed", "published"]
     assert as_json["next"] in {step["step"] for step in as_json["steps"]}
+
+
+def test_the_browser_check_is_offered_and_never_waited_for(stamped: Path, monkeypatch):
+    found = judged(stamped, monkeypatch)
+    assert found["accept"][0] == "optional" and found[""][0] != "accept"
+    monkeypatch.chdir(stamped)
+    said = onboarding.show(onboarding.progress(factory.load(), stamped, clean), stamped)
+    assert "asf/examples/workflows/ship-accept" in said          # how, though never next
+    counted = said.splitlines()[0].rsplit(" of ", 1)[1]           # "<n> done": the steps counted
+
+    example = stamped / "asf" / "examples" / "workflows" / "ship-accept"
+    (stamped / "asf" / "workflows" / "ship-accept").mkdir()
+    (stamped / "asf" / "workflows" / "ship-accept" / "workflow.yaml").write_text(
+        (example / "workflow.yaml").read_text())
+    found = judged(stamped, monkeypatch)
+    assert found["accept"] == ("done", "ship-accept runs accept")
+    said = onboarding.show(onboarding.progress(factory.load(), stamped, clean), stamped)
+    assert said.splitlines()[0].endswith(f" of {counted}")      # optional: never counted

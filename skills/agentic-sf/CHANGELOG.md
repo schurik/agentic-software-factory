@@ -337,6 +337,36 @@ before — `None` when there are none, never omitted.
   `install.py` wires `e2e` from a `playwright.config.*` and gitignores `test-results/` and
   `playwright-report/`. `asf check` now refuses a workflow that names a block `quality.py` does not
   offer, or an opt-in block still a placeholder — both failed only at runtime before.
+- **A new stage, `accept`: an agent drives the running app in a browser and judges it against the
+  plan.** The `qa` agent (read-only, no `Bash`, Claude Code) rules on every requirement with an
+  `AcceptanceOutput` — verdicts, the steps it took, the page's console errors, screenshots — and
+  an unmet requirement goes to the builder through `revise`, then `retest:`, at most `max_rounds`
+  times: the loop `review` runs, now one function both call (`engine/judging.py`). Code owns the
+  dev server: `serve.commands` in `asf/factory.yaml` (argv lists, `{port}` where the free port
+  goes, several for an app of more than one process), each started in its own process group once
+  the agent's MCP servers answer, the app handed to the agent as a URL, and every one stopped
+  however the stage ends — a failed gate and a killed run included. `install.py` fills them from a
+  Next or Vite dependency, inside `convex dev --start` when there is a Convex backend. A server or browser that does not come up ends the
+  session as an environment failure before any agent turn. The browser is a pinned
+  `@playwright/mcp`, headless and isolated on every run, writing only to the session's
+  `context_handoff/accept/` (`asf/agents/qa/playwright.json`). Off by default: no shipped workflow
+  runs it, and `asf/examples/workflows/ship-accept/` (verify → accept → review) is the one to
+  copy. `doctor` names a missing `npx` or Chromium only when a workflow runs `accept`, and
+  `just onboard` lists it as an optional step. `install.py` says when the repo looks like a web
+  app, and lists the MCP servers it checks in (`.mcp.json`, `.cursor/mcp.json`,
+  `.vscode/mcp.json`) with how to give one to one agent — it wires neither.
+- **`deny_tools` withholds an MCP server's tools.** A server reaches an agent whole, whatever
+  `tools:` says; a harness block's `deny_tools: [mcp__<server>__<tool>]` is passed to Claude Code
+  as `--disallowedTools`. It is the one list that is added to wherever it is written, so a binding
+  can deny more and never un-deny. `check` refuses an entry that is not an MCP tool of a server the
+  agent's `mcp:` files give it, and a turn warns once when the tools it started with show a denial
+  held nothing (a typo, a renamed tool). Harness modules declare `MCP = True | False` beside
+  `SKILLS`; `mcp:` files and `deny_tools` are refused on pi, and a stage's `HARNESS_NEEDS` lets
+  `check` refuse `accept` there. Every agent process is handed `ASF_HANDOFF_DIR`, which an `mcp:`
+  file can name as `${ASF_HANDOFF_DIR}` for the server's own files.
+- `process_started` v2: `kind` may be `dev_server`.
+- `doctor` asks for a harness's CLI only when some workflow runs an agent on it: the `qa` agent is
+  on Claude Code, and a pi factory that never runs `accept` is not told to install it.
 
 ### Upgrade
 
@@ -422,6 +452,13 @@ before — `None` when there are none, never omitted.
     the name. To run browser tests, `cookbooks/onboard.md` says how to turn `e2e` on; a
     repository with Playwright whose `.gitignore` predates it gets `test-results/` and
     `playwright-report/` added by the re-stamp.
+11. Nothing to change for `accept` or `deny_tools`: the re-stamp brings the stage, the `qa` agent,
+    its `playwright.json` and `asf/examples/`, and runs nothing new. A `serve:` block is new in
+    `asf/factory.yaml`, which a re-stamp never rewrites: take it from `factory.yaml.new`, where
+    the installer filled `commands` from this repository, before a workflow runs `accept`. A binding that names `deny_tools` adds to its agent's; there was no such key
+    before. Add `asf/examples/` to `protected_files` in `asf/factory.yaml` (the re-stamp never
+    rewrites it; `factory.yaml.new` has it). To turn `accept` on, `cookbooks/onboard.md` §
+    Optional: the running app, in a browser.
 
 ## 1.2.0 — 2026-10-02
 

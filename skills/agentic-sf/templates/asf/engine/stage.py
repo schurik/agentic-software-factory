@@ -25,13 +25,20 @@ A stage module exposes, at module level:
                extra="forbid" so a misspelt key is refused before anything runs
     run        run(ctx: StageContext, opts: Options) -> EnvelopeBase | None
     check      optional: check(opts, earlier) -> list[str] of static problems,
-               where `earlier` maps every preceding stage's name to its OUTPUT
+               where `earlier` maps every preceding stage's name to its OUTPUT;
+               a third parameter, when it declares one, is handed the factory's
+               config — for a stage that needs a setting of the repository's
+               (`accept`: `serve.commands`)
     warn       optional: warn(opts) -> list[str] of things that load today and
                will not in a later release — said by `check`, never a refusal
     GATE       optional: the name of the gate the stage places, for the
                factory's self-description (`engine/describe.py`) — the name
                `hitl.gated` or `hitl.asked` is called with, so a cockpit shows
                the gate a run will actually stop at
+    HARNESS_NEEDS  optional: capability flags (`MCP`, …) the harness of the
+               agent named by the stage's `agent:` option must declare True —
+               `check` refuses the stage on one that does not, by the flag,
+               never by a harness's name
     GATE_KIND  optional, beside GATE: "gate" (the default) for a verdict on the
                stage's work product, which `hitl:` switches on and off;
                "questions" for a round of questions, asked whenever the agent
@@ -44,6 +51,7 @@ workflow before a session, a branch or a process record exists.
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,13 +92,18 @@ class StageModule:
     options: type[BaseModel]
     gate: str = ""                  # GATE: the gate it places, "" for none
     gate_kind: str = "gate"         # GATE_KIND
+    harness_needs: tuple[str, ...] = ()     # HARNESS_NEEDS
 
     def run(self, ctx: "StageContext", opts: BaseModel) -> Optional[EnvelopeBase]:
         return self.module.run(ctx, opts)
 
-    def check(self, opts: BaseModel, earlier: dict[str, Optional[type]]) -> list[str]:
+    def check(self, opts: BaseModel, earlier: dict[str, Optional[type]],
+              cfg: Any = None) -> list[str]:
         checker = getattr(self.module, "check", None)
-        return list(checker(opts, earlier)) if checker else []
+        if checker is None:
+            return []
+        wants_cfg = len(inspect.signature(checker).parameters) > 2
+        return list(checker(opts, earlier, cfg) if wants_cfg else checker(opts, earlier))
 
     def warn(self, opts: BaseModel) -> list[str]:
         warner = getattr(self.module, "warn", None)
@@ -219,6 +232,9 @@ def _load_one(directory: Path, source: Path) -> StageModule:
             problems.append("GATE must be the gate's name")
         if getattr(module, "GATE_KIND", "gate") not in GATE_KINDS:
             problems.append(f"GATE_KIND must be one of {GATE_KINDS}")
+        needs = getattr(module, "HARNESS_NEEDS", ())
+        if not isinstance(needs, tuple) or not all(isinstance(flag, str) for flag in needs):
+            problems.append("HARNESS_NEEDS must be a tuple of capability flag names")
     if problems:
         raise SystemExit(f"stage {directory.name} ({source}) does not meet the contract:\n- "
                          + "\n- ".join(problems))
@@ -226,7 +242,8 @@ def _load_one(directory: Path, source: Path) -> StageModule:
                        kind=module.KIND, output=module.OUTPUT, needs=tuple(module.NEEDS),
                        tasks=dict(module.TASKS), options=module.Options,
                        gate=getattr(module, "GATE", ""),
-                       gate_kind=getattr(module, "GATE_KIND", "gate"))
+                       gate_kind=getattr(module, "GATE_KIND", "gate"),
+                       harness_needs=tuple(getattr(module, "HARNESS_NEEDS", ())))
 
 
 def _is_envelope(candidate: Any) -> bool:

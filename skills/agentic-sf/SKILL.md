@@ -114,6 +114,7 @@ asf/
   scorers/<name>/         scorer.md: frontmatter (workflow, focus, kind, predicate) + criteria below it — four ship on `issue`; the team's own after that: --force never rewrites one
   benchmarks/<name>.yaml  tasks (session, request, commit), variants (ref, label), repetitions — none ship; written by `asf benchmark new`, committed by the team, worked by `asf benchmark run`
   stages/<name>/          stage.py (the contract) + its default task files
+  examples/workflows/     workflows to copy into workflows/ — never loaded or run where they are (ship-accept)
   engine/                 the machinery: session, worktree, gates, permissions, hitl, tracer, …
   data/                   runtime: sessions/<adw_id>/, benchmarks/<name>/<commit>/ (a variant's files), station.json (this checkout's id), onboarding.json — never edit
 ```
@@ -153,6 +154,35 @@ directory in the check's handoff folder, which the builder repairing a red run
 is handed. A dev server that never came up is reported as that, not as failing
 specs. `asf check` refuses a workflow naming `e2e` while it is still a
 placeholder, and any block `quality.py` does not offer.
+
+**The running app can be judged in a browser, by the `accept` stage — off by
+default.** Where `verify` asks "does it run" and `review` asks "is this what
+was asked" from the code, `accept` asks whether the running app does it: the
+`qa` agent (read-only, no `Bash`, Claude Code only) clicks through the feature
+against the plan and rules on every requirement, and an unmet one goes back to
+the builder through the loop `review` runs (`engine/judging.py`: revise,
+`retest:`, `max_rounds`). Code owns the dev server: `serve.commands` in
+`asf/factory.yaml` — argv lists, `{port}` where the free port goes, several when
+the app is more than one process — are started in the session's worktree, the
+agent is handed only the URL, and each one's whole process group is stopped
+however the stage ends. They live in the operator's config, so `--force` never
+rewrites them; `install.py` fills them from a Next or Vite dependency, wrapped in
+`convex dev --start` when the app has a Convex backend (which starts the app only
+once the functions are pushed).
+The browser is the Playwright MCP server in `asf/agents/qa/playwright.json` —
+pinned, `--headless --isolated` on every run, writing only into the session's
+`context_handoff/accept/` — and a server or browser that does not come up ends
+the session as an environment failure before any agent turn. No shipped
+workflow runs it: a team copies `asf/examples/workflows/ship-accept/` (verify →
+accept → review) into `asf/workflows/` and checks `serve.commands`; `asf check`
+refuses `accept` while they are empty or on an agent whose harness has no MCP
+servers (pi), and `doctor` names a missing `npx` or Chromium only then.
+`install.py` says when a repository looks like a web app, and lists the MCP
+servers it checks in — it wires neither. **An MCP server grants every tool it
+has**, whatever `tools:` says: an agent's harness block narrows those with
+`deny_tools: [mcp__<server>__<tool>]` (`--disallowedTools`), which a binding
+can only add to; `check` refuses an entry that is not an MCP tool of a server
+that agent is given — a misspelt denial withholds nothing.
 
 WHEN that branch reaches the remote is `worktree.publish`, and it follows the
 cockpit unless `asf/factory.yaml` sets it. A cockpit shows what a gate asks
@@ -245,6 +275,8 @@ acting, not after.
 | "where is the cockpit?" / `asf up` said "no local cockpit" | Without `ASF_COCKPIT_URL`, `just up` starts a **local cockpit** at `http://localhost:3000` — the same published images a team deploys, run through the stamped `asf/cockpit/compose.yaml` on Docker — and its station loop ships every session on this checkout to it (the token is issued and kept in `asf/data/cockpit.json` by itself). With `ASF_COCKPIT_URL` set it starts none and ships to that one. It is one per machine: an `up` that finds a newer one running joins it rather than downgrading it, and the `up` that started it owns it. No Docker: `up` warns, drops the cockpit and runs the watchers anyway; `just doctor` names what is missing and which cockpit version it would run. `asf/cockpit/min-version` is the oldest cockpit this stamp ships to; `ASF_COCKPIT_VERSION` in `.env` can only name a newer one. `just station` is the loop without watchers |
 | the local cockpit's Factories page is missing a repository / "no token to ask the forge with" | A local cockpit has no sign-in: it asks the forge **as the engineer**, with the token `gh auth token` prints (for `GH_HOST`, else github.com). `just up` hands it over in the `cockpit` child's environment when it starts the cockpit — never on a command line, never into `.env` — the cockpit keeps it in its own backend on this machine (the `asf-cockpit` compose project's `data` volume), and the Factories page then lists every repository that token reaches whose default branch holds `asf/factory.yaml`, stations or not. `up` prints a `forge` line saying which it was, and `just doctor`'s `cockpit forge` line says it beforehand. No token: the page shows only the factories this machine's stations ship from; `gh auth login`, then start `up` again. It is the engineer's own credential — say that it is handed to the cockpit container before they start one, and never log in, or paste a token anywhere, on their behalf. A **shared** cockpit takes no token from a station: people sign in to it with their team's GitHub App, and see a factory's sessions only if the forge lets them read its repository |
 | run browser tests / Playwright / e2e in a workflow | the opt-in `e2e` block (see *Browser tests* above): wired by `install.py` from a `playwright.config.*`, else write its argv into `asf/engine/quality.py` keeping `--output str(evidence)`; make the config's `webServer.url`/`port` and `use.baseURL` read `process.env.PORT`; then name it in the workflow's `verify.blocks` and `review.retest`. `just check` refuses the workflow while the block is unwired — [cookbooks/onboard.md](cookbooks/onboard.md) |
+| check the running app in a browser / click through the feature / acceptance test / `accept` / `qa` | the `accept` stage (see *The running app* above). Ask with the question tool before turning it on — it spends a browser session per round. Then `cp -r asf/examples/workflows/ship-accept asf/workflows/`, check `serve.commands` in `asf/factory.yaml` (argv lists, `{port}` where the port goes; a server that reloads on change; Next + Convex: `[npx, convex, dev, --tail-logs, disable, --start, "npx next dev --port {port}"]`), `npx playwright install chromium`, and `just doctor`. Logged-in pages: `--storage-state <file>` in the qa agent's `playwright.json`, the file copied in by `worktree.copy` — [cookbooks/onboard.md](cookbooks/onboard.md#optional-the-running-app-in-a-browser) |
+| give an agent an MCP server / "why can the agent call X?" / `deny_tools` / `check` refused a `deny_tools` entry | a file holding just that server (`{"mcpServers": {...}}`), named in that agent's harness block as `harness_engineering: [mcp:<file>]` — Claude Code only — with `deny_tools: [mcp__<server>__<tool>]` for each tool it must not have; `tools:` does not narrow a server's tools. Never wire one the operator did not choose: it may carry a credential in its `env` |
 | watch a run | the cockpit (`just up`, above); `just sessions` (the newest, from their `run.json`), `just tail <id>` (its `events.jsonl`) |
 
 ## Hard rules
@@ -253,12 +285,14 @@ acting, not after.
    the whole directory first: unknown stage, unknown option, a `verify` with no
    build before it, a quality block `quality.py` does not offer or an opt-in one
    still a placeholder, an agent the roster lacks, a task whose report block
-   drifted from the envelope type, a binding that widens `writes` or `tools`.
+   drifted from the envelope type, a binding that widens `writes` or `tools`,
+   a `deny_tools` entry that is not an MCP tool of a server the agent is given,
+   a stage whose agent's harness lacks a capability it needs (`accept`: MCP).
 2. **The vocabulary is closed.** No `loop:` or `if:` in workflow.yaml, ever. A
    shape the vocabulary cannot express is a new stage in Python, or a
    `workflow.py` escape hatch (not built — nothing has needed one).
 3. **Bindings narrow, never widen.** The roster is the security boundary; a
-   workflow is edited often.
+   workflow is edited often. `deny_tools` is the one list a binding adds to.
 4. **Identity is appended, never replaced.** Five workflows must not become
    five builders.
 5. **Tasks carry the words, stages carry the facts.** A stage passes

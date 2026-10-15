@@ -66,6 +66,9 @@ NAME = "fake"
 DEFAULT_MODEL = "fake"
 # Accepted and ignored, so the suite can exercise how `skills:` merges.
 SKILLS = True
+# The same: `mcp:` files and `deny_tools` are checked as on any harness with
+# MCP servers, and no server is ever started.
+MCP = True
 
 
 class Reply(BaseModel):

@@ -15,7 +15,8 @@ else, and `asf.py run` calls it first.
 The rules a binding lives by, and why:
 
   * `writes`, and the `tools`, `skills` and `context` of its `harness:` block,
-    may only NARROW the roster's. The roster is reviewed once and is the
+    may only NARROW the roster's, and `deny_tools` only grow — a binding's
+    denials join the roster's, so none can be taken back. The roster is reviewed once and is the
     security boundary; a workflow is edited often. If a workflow could widen
     any of them, the file people touch most would be the one where an agent
     gains write access — or a skill nobody reviewed. `model`, `thinking` and
@@ -35,8 +36,8 @@ from typing import Any, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from . import (agents, benchmark_session, claims, factory, git_helper, inputs, issues,
-               pull_requests, scorers, session, tasks, worktree)
+from . import (agents, benchmark_session, claims, factory, git_helper, harnesses, inputs,
+               issues, pull_requests, scorers, session, tasks, worktree)
 from .data_types import (AgentConfig, BuildOutput, ChapterInput, ClaimAsk, EnvelopeBase,
                          FactoryConfig, Invocation, PhaseParams, SessionSpec)
 from .utils import new_id
@@ -56,6 +57,7 @@ class BindingHarness(BaseModel):
     tools: Optional[list[str]] = None        # narrows only
     skills: Optional[list[str]] = None       # narrows only
     context: Optional[list[str]] = None      # may only drop entries
+    deny_tools: Optional[list[str]] = None   # only ever added to the roster's
 
 
 class Binding(BaseModel):
@@ -184,6 +186,12 @@ def _bind_agents(cfg: FactoryConfig, spec: Spec, directory: Path,
         refusal = agents.skill_tool_refused(harness.tools)
         if refusal:
             problems.append(f"agents.{alias}: {refusal}")
+        if harness.deny_tools:
+            update["deny_tools"] = agents.added(base.deny_tools, harness.deny_tools)
+            block = factory.block_of(base.model_copy(update=update), base.deny_tools)
+            root = git_helper.main_root(directory.resolve())
+            problems += [f"agents.{alias}: {problem}"
+                         for problem in factory.mcp_refused(root, block)]
         if binding.writes is not None:
             widened = _widens(binding.writes, base.writes, exact=False)
             if widened:
@@ -268,7 +276,10 @@ def _steps(spec: Spec, registry: dict[str, StageModule], cfg: FactoryConfig,
             got = current.__name__ if current else "nothing"
             problems.append(f"stages[{index}] {stage_name}: needs a {wanted} from an earlier "
                             f"stage, but what precedes it hands on {got}")
-        problems += [f"stages[{index}] {stage_name}: {p}" for p in stage.check(opts, earlier)]
+        problems += [f"stages[{index}] {stage_name}: {p}"
+                     for p in stage.check(opts, earlier, cfg)]
+        problems += [f"stages[{index}] {stage_name}: {p}"
+                     for p in _harness_lacks(stage, opts, cfg)]
         step = Step(stage=stage, opts=opts)
         for key, (filename, answer_type) in stage.tasks.items():
             path = tasks.resolve(key, stage.directory / filename, directory)
@@ -281,6 +292,22 @@ def _steps(spec: Spec, registry: dict[str, StageModule], cfg: FactoryConfig,
         if stage.output is not None:
             current = stage.output
     return steps
+
+
+def _harness_lacks(stage: StageModule, opts: BaseModel, cfg: FactoryConfig) -> list[str]:
+    """Each capability the stage needs that the harness of its `agent:` lacks."""
+    agent = next((a for a in cfg.agents if a.name == getattr(opts, "agent", None)), None)
+    driver = harnesses.HARNESSES.get(agent.harness) if agent else None
+    if driver is None:
+        return []                   # an unknown agent or harness is said elsewhere
+    problems = []
+    for flag in stage.harness_needs:
+        if not getattr(driver, flag, False):
+            problems.append(f"agent {agent.name!r} runs on {agent.harness}, which cannot give "
+                            f"it {harnesses.CAPABILITIES.get(flag, flag)} ({flag}) — "
+                            f"{stage.name} needs a harness that can: "
+                            f"{', '.join(harnesses.able(flag))}")
+    return problems
 
 
 def agent_fields(opts: BaseModel) -> list[str]:

@@ -187,7 +187,23 @@ without.
    bare name. A `verify` stage that names an unwired block fails the run. The
    opt-in `e2e` block (browser tests) is not among them until a workflow names
    it — [onboard.md](onboard.md) says how to turn it on.
-6. **Docker, for the local cockpit** — `just up` starts a cockpit on this
+6. **What the installer suggested** — two notes it prints and never acts on,
+   each a question for the engineer with the question tool, never a default:
+   - *"this looks like a web app"*: the `accept` stage could drive the running
+     app in a browser and judge it against the plan. Ask whether to turn it on;
+     a yes is [onboard.md § the running app](onboard.md#optional-the-running-app-in-a-browser),
+     a no is nothing (`just onboard` keeps it as optional, never waiting for it).
+   - *"checked-in MCP servers"*: the repository's `.mcp.json`,
+     `.cursor/mcp.json` or `.vscode/mcp.json`. No agent gets any of them — a
+     claude_code turn reads none of the operator's (`--strict-mcp-config`). Ask,
+     per server, whether one agent should have it; a server grants every tool it
+     has and may carry a credential in its `env`, so it is one agent's, not the
+     roster's. A yes is a file holding just that server, named in that agent's
+     harness block as `harness_engineering: [mcp:<file>]`, with `deny_tools:
+     [mcp__<server>__<tool>]` for each tool it must not have — `tools:` cannot
+     take one away. A `playwright` server is already the `qa` agent's, in its
+     own pinned file.
+7. **Docker, for the local cockpit** — `just up` starts a cockpit on this
    machine when `.env` names no shared one (`ASF_COCKPIT_URL`): the same
    published images a team deploys, through the stamped
    `asf/cockpit/compose.yaml`, at `http://localhost:3000`. That needs Docker
@@ -202,7 +218,7 @@ without.
    [connect_cockpit.md](connect_cockpit.md): `ASF_COCKPIT_URL`, then `just
    station-register`, whose code a person with write approves — theirs to
    approve, not yours.
-7. **`just labels --create`** — only if either watcher is on. Every label in
+8. **`just labels --create`** — only if either watcher is on. Every label in
    `issues.route`, `issues.states`, `issues.refined_label` and
    `pull_requests.states.failed` has to EXIST at the forge before anything can
    apply it, and a fresh repository defines none of them. A route label nobody
@@ -214,7 +230,7 @@ without.
    question on every run, so an **upgrade** that adds a label is caught too —
    `install.py` never rewrites the `factory.yaml` you own, so a new label
    reference arrives in the code with no way for the name to exist.
-8. **`just list`** — the workflows, one line each. Then a first run:
+9. **`just list`** — the workflows, one line each. Then a first run:
    [run_workflow.md](run_workflow.md).
 
 ## The factory's settings

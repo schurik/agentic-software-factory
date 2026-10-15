@@ -214,6 +214,16 @@ def _first_run(here: _Here) -> tuple[bool, str, str]:
     return False, "nothing has run yet", f"`just do \"<prompt>\"` ({COOKBOOK}/run_workflow.md)"
 
 
+def _accept(here: _Here) -> tuple[bool, str, str]:
+    running = preflight.accept_workflows(here.root)
+    if running:
+        return True, f"{', '.join(running)} runs accept", ""
+    return (False, "no workflow drives the running app in a browser",
+            f"for a web app: `cp -r asf/examples/workflows/ship-accept asf/workflows/`, then "
+            f"`serve.commands` in asf/factory.yaml and `just doctor` "
+            f"({COOKBOOK}/onboard.md#optional-the-running-app-in-a-browser)")
+
+
 STEPS: tuple[tuple[str, str, Callable[[_Here], tuple[bool, str, str] | None]], ...] = (
     ("installed", "the factory is stamped", _installed),
     ("ready", "doctor finds nothing fatal", _ready),
@@ -225,7 +235,10 @@ STEPS: tuple[tuple[str, str, Callable[[_Here], tuple[bool, str, str] | None]], .
     ("ci", "the CI check is on the default branch, or declined", _ci),
     ("labels", "the labels the tracker routes by exist", _labels),
     ("first_run", "a first run", _first_run),
+    ("accept", "the running app is checked in a browser (optional, for a web app)", _accept),
 )
+# Offered, never waited for: never `next`, and not counted among the steps.
+OPTIONAL = {"accept"}
 
 
 # ── reading and recording ────────────────────────────────────────────────────
@@ -281,7 +294,8 @@ def progress(cfg: FactoryConfig, root: Path,
                                         detail="nothing in this config uses it"))
             continue
         done, detail, how = judged
-        state = "done" if done else ("next" if not upcoming else "todo")
+        state = ("done" if done else "optional" if name in OPTIONAL
+                 else "next" if not upcoming else "todo")
         if state == "next":
             upcoming = name
         steps.append(OnboardingStep(step=name, title=title, state=state, detail=detail, how=how))
@@ -293,18 +307,19 @@ def progress(cfg: FactoryConfig, root: Path,
     return OnboardingProgress(steps=steps, next=upcoming)
 
 
-MARK_OF = {"done": "✓", "next": "→", "todo": "·", "skipped": "-"}
+MARK_OF = {"done": "✓", "next": "→", "todo": "·", "skipped": "-", "optional": "◦"}
 
 
 def show(progress_: OnboardingProgress, root: Path) -> str:
-    done = sum(1 for step in progress_.steps if step.state == "done")
-    counted = sum(1 for step in progress_.steps if step.state != "skipped")
+    counted = [step for step in progress_.steps
+               if step.state != "skipped" and step.step not in OPTIONAL]
+    done = sum(1 for step in counted if step.state == "done")
     width = max(len(step.step) for step in progress_.steps)
-    lines = [f"asf onboard — {root}   {done} of {counted} done", ""]
+    lines = [f"asf onboard — {root}   {done} of {len(counted)} done", ""]
     for step in progress_.steps:
         lines.append(f"  {MARK_OF[step.state]} {step.step.ljust(width)}  {step.title}"
                      + (f" — {step.detail}" if step.detail else ""))
-        if step.state == "next" and step.how:
+        if step.state in ("next", "optional") and step.how:
             lines.append(f"    {' ' * width}  → {step.how}")
     lines.append("")
     if progress_.next:

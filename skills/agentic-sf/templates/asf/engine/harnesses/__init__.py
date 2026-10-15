@@ -15,6 +15,10 @@ A module qualifies by exposing:
     Options           pydantic model for `harness.options`, owned by the harness
     SKILLS            whether it can hand an agent the repository's `skills:`;
                       the loader refuses them on a harness that cannot
+    MCP               whether it can give an agent MCP servers (`mcp:` files in
+                      harness_engineering) and withhold their tools
+                      (`deny_tools`); the loader refuses both, and `check` the
+                      `accept` stage, on a harness that cannot
     resolve_model     pattern -> whatever the CLI needs; ValueError if unwritable
     reachable         raise unless the CLI can be executed (cached per process)
     credentials       Findings on whether this agent can authenticate at all —
@@ -58,6 +62,15 @@ HARNESSES: dict[str, ModuleType] = {pi.NAME: pi, claude_code.NAME: claude_code,
                                     fake.NAME: fake}
 
 NAMES = sorted(HARNESSES)
+
+# Every capability flag a harness module declares, and what it gives an agent —
+# the words a refusal uses, and the list a new flag joins.
+CAPABILITIES = {"SKILLS": "skills", "MCP": "MCP servers"}
+
+
+def able(flag: str) -> list[str]:
+    """The harnesses whose module says `flag = True`."""
+    return [name for name in NAMES if getattr(HARNESSES[name], flag, False)]
 
 
 def get(name: str) -> ModuleType:

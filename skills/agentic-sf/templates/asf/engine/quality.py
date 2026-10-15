@@ -110,16 +110,16 @@ def placeholders(names: list[str] | None = None) -> list[str]:
     `just doctor` ask about DEFAULT; a stage's `check` asks about what its
     workflow names (`refused` below).
     """
-    unwired = []
-    for name in DEFAULT if names is None else names:
-        block = BLOCKS[name]
-        try:
-            source = inspect.getsource(block)
-        except OSError:                      # a block defined outside a file
-            continue
-        if "_placeholder(" in source:
-            unwired.append(name)
-    return unwired
+    return [name for name in (DEFAULT if names is None else names)
+            if _unwired(BLOCKS[name])]
+
+
+def _unwired(function: Callable) -> bool:
+    """Whether `function` still returns the shipped placeholder."""
+    try:
+        return "_placeholder(" in inspect.getsource(function)
+    except OSError:                          # a block defined outside a file
+        return False
 
 
 def _check_dir(run, name: str) -> Path:

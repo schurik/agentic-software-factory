@@ -37,7 +37,10 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+import yaml
 
 from . import cockpit as local_cockpit
 from . import git_helper, harnesses, publish, station
@@ -167,12 +170,15 @@ def runtime(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
 
     Probed by creating the directory if missing and writing a file that is then
     removed — the same two things the run itself would do a moment later, which
-    is the only way to answer honestly. Nothing else is touched.
+    is the only way to answer honestly. Nothing else is touched. The file is
+    this process's own: two runs starting at once (two watchers, two sessions
+    side by side) would otherwise each remove the other's probe, and the one
+    that came second would report a writable directory as unwritable.
     """
     target = anchor(main_root, cfg.data_dir)
     try:
         target.mkdir(parents=True, exist_ok=True)
-        probe = target / ".asf-write-probe"
+        probe = target / f".asf-write-probe-{os.getpid()}"
         write_atomic(probe, "")
         probe.unlink()
     except OSError as error:
@@ -199,9 +205,30 @@ def credentials(agent: AgentConfig) -> list[Finding]:
     return list(ask(agent)) if ask else []
 
 
-def roster(cfg: FactoryConfig) -> list[Finding]:
-    """Every agent in the config: is its harness there, and can it authenticate."""
+def harnesses_run(cfg: FactoryConfig, main_root: Path) -> set[str]:
+    """The harnesses a run here would start: the factory's own, and each one an
+    agent some workflow needs runs on. A roster agent nothing runs — `qa`, until
+    a workflow has `accept` — needs no CLI on this machine.
+
+    A workflow that does not load counts for nothing here; `check` says why."""
+    from . import workflow         # here: workflow reaches this module through agents
+    config = main_root / "asf" / "factory.yaml"
+    used = {cfg.harness.name}
+    for name, _ in workflow.available(config):
+        try:
+            loaded = workflow.load(name, config)
+        except SystemExit:
+            continue
+        used |= {agent.harness for agent in loaded.cfg.agents
+                 if agent.name in loaded.required_agents}
+    return used
+
+
+def roster(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
+    """Every agent in the config: is its harness there, and can it authenticate.
+    A harness no workflow runs an agent on is said, and not asked for."""
     findings: list[Finding] = []
+    used = harnesses_run(cfg, main_root)
     for name in sorted({agent.harness for agent in cfg.agents}):
         driver = harnesses.HARNESSES.get(name)
         if driver is None:
@@ -210,6 +237,10 @@ def roster(cfg: FactoryConfig) -> list[Finding]:
                 detail=f"{name!r} is not one of {' | '.join(harnesses.NAMES)}",
                 fix="fix `harness:` in the roster, or add the harness — "
                     "references/harnesses.md"))
+            continue
+        if name not in used:
+            findings.append(Finding(check=f"harness: {name}",
+                                    detail="not checked — no workflow here runs an agent on it"))
             continue
         try:
             driver.reachable()
@@ -248,6 +279,78 @@ def quality(main_root: Path) -> list[Finding]:
         fix="replace the `_placeholder(...)` argv in asf/engine/quality.py with "
             "this repo's real commands, and delete the blocks you do not want. A "
             "placeholder FAILS its phase rather than passing it")]
+
+
+# ── a browser, for the `accept` stage ────────────────────────────────────────
+
+# The package the stamped asf/agents/qa/playwright.json starts with `npx`.
+PLAYWRIGHT_MCP = "@playwright/mcp"
+INSTALL_CHROMIUM = "npx playwright install chromium"
+
+
+def browser_cache() -> Path | None:
+    """Where Playwright keeps its browsers on this machine — None when they
+    live beside a package (`PLAYWRIGHT_BROWSERS_PATH=0`), which no path here names."""
+    named = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    if named == "0":
+        return None
+    if named:
+        return Path(named).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    if os.name == "nt":
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") \
+            / "ms-playwright"
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ms-playwright"
+
+
+def chromium_missing() -> str:
+    """Why the Playwright MCP server would find no Chromium, or "" when it
+    would (or when the cache is not one this can look in)."""
+    cache = browser_cache()
+    if cache is None:
+        return ""
+    if cache.is_dir() and any(entry.name.startswith("chromium") for entry in cache.iterdir()):
+        return ""
+    return f"no Chromium in Playwright's browser cache ({cache})"
+
+
+def accept_workflows(main_root: Path) -> list[str]:
+    """The workflows here that run the `accept` stage — read off the YAML, so
+    a workflow that does not load still counts."""
+    found = []
+    for spec in sorted((main_root / "asf" / "workflows").glob("*/workflow.yaml")):
+        try:
+            stages = (yaml.safe_load(spec.read_text()) or {}).get("stages") or []
+        except yaml.YAMLError:
+            continue
+        if any(isinstance(item, dict) and "accept" in item for item in stages):
+            found.append(spec.parent.name)
+    return found
+
+
+def browser(main_root: Path) -> list[Finding]:
+    """What the `accept` stage's browser needs on this machine: `npx`, which
+    starts the Playwright MCP server, and a Chromium for it to drive. Asked only
+    when a workflow runs `accept` — a stamp that never does needs neither.
+
+    `warn`, not `fatal`: the stage asks again before it spends anything, and
+    ends the session as an environment failure if either is still missing.
+    """
+    if not accept_workflows(main_root):
+        return []
+    findings = [Finding(check="browser: npx", detail=f"npx at {shutil.which('npx')}")
+                if shutil.which("npx") else
+                Finding(check="browser: npx", level="warn",
+                        detail="no `npx` on PATH — the accept stage's browser is the "
+                               f"{PLAYWRIGHT_MCP} server, started with npx",
+                        fix="install Node.js (it brings npx), then `just doctor` again")]
+    missing = chromium_missing()
+    findings.append(Finding(check="browser: chromium", level="warn", detail=missing,
+                            fix=f"`{INSTALL_CHROMIUM}`") if missing else
+                    Finding(check="browser: chromium",
+                            detail=f"in Playwright's browser cache ({browser_cache()})"))
+    return findings
 
 
 # ── the forge CLI: what the watchers and integration shell out to ────────────
@@ -565,7 +668,7 @@ def before_run(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
 def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Finding]:
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
-    return (repo(cfg, root) + runtime(cfg, root) + roster(cfg) + quality(root)
-            + forge(cfg) + labels(cfg, root) + stamped_version(root)
+    return (repo(cfg, root) + runtime(cfg, root) + roster(cfg, root) + quality(root)
+            + browser(root) + forge(cfg) + labels(cfg, root) + stamped_version(root)
             + cockpit(anchor(root, cfg.data_dir))
             + publishing(cfg, root) + skill())
