@@ -930,5 +930,5 @@ def test_refine_ship_drops_the_scout_and_issue_keeps_it(stamped: Path, monkeypat
     assert "scout -> plan" in separate
 
     assert cfg.issues.route == {"asf:ship": "issue", "asf:refine": "refine",
-                                "asf:refine-ship": "refine-ship"}
+                                "asf:refine-ship": "refine-ship", "asf:bugfix": "bugfix"}
 

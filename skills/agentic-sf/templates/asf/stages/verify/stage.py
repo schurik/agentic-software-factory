@@ -1,13 +1,18 @@
 """verify — run the repository's own checks, and send failures back to the
 builder a bounded number of times.
 
-A code stage that owns a loop. It follows `implement`. It follows `implement`. Which blocks run is `blocks:` — names from
+A code stage that owns a loop. It follows `implement`. Which blocks run is `blocks:` — names from
 `asf/engine/quality.py`, where the commands are written down, so no agent
 spends a context window rediscovering `bun test`. A red block does not fail
 the phase: the runner did its job, the code is what failed. The output travels
 back to the builder verbatim, as an envelope, and the builder's fix is checked
 again. An exhausted loop stops the run here — nothing after a red verify may
 land — and the run is finished as not accepted.
+
+A run that reproduced its bug first (`reproduce`) holds one more check than
+its blocks: the repro test, by the command it was shown failing with
+(`engine/reproduction.py`). It runs on every attempt, and a red one reaches
+the builder like any red block, whether or not `test` happens to collect it.
 
 Shape: verify_1, then fix_1 only if red, then verify_2, … The last verify is
 never followed by a fix nobody would check.
@@ -17,7 +22,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from engine import gates, quality
+from engine import gates, quality, reproduction
 from engine.data_types import AgentCall, BuildOutput, PhaseParams
 from engine.stage import StageStop
 
@@ -55,13 +60,14 @@ def check(opts: Options, earlier: dict) -> list[str]:
 
 def run(ctx, opts: Options):
     build = ctx.previous
-    what = ", ".join(opts.blocks)
+    repro_checks = reproduction.checks(ctx.latest)
+    what = ", ".join([*opts.blocks, *([reproduction.NAME] if repro_checks else [])])
     for attempt in range(1, opts.max_fix_loops + 1):
         with ctx.run.phase(PhaseParams(name=f"verify_{attempt}", kind="code", owner="quality",
                                        description=f"Run {what} — known commands, so code "
                                                    f"runs them and no agent rediscovers "
                                                    f"them")) as ph:
-            result = quality.run_blocks(ctx.run, opts.blocks)
+            result = quality.run_blocks(ctx.run, opts.blocks, also=repro_checks)
             _record(ph, result)
         if result.passed:
             return build

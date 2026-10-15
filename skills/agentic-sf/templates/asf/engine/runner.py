@@ -135,6 +135,11 @@ class Run:
         self._pins_path = self.session_dir / "pins.json"
         self._pins: dict = (json.loads(self._pins_path.read_text())
                             if self._pins_path.exists() else {})
+        # Gates every agent call carries from here on, beside the call's own:
+        # a claim one stage verified that no later agent may undo — the repro
+        # test `reproduce` froze (`engine/reproduction.py`). Held in memory, and
+        # that is enough: the stage that adds one runs again on a resume.
+        self.standing_gates: list = []
 
     # ── pinned values (what a resumed run must not re-derive) ───────────────
     def pin(self, key: str, produce) -> str:
@@ -158,6 +163,15 @@ class Run:
         self._pins[key] = value
         write_atomic(self._pins_path, json.dumps(self._pins, indent=2))
         return value
+
+    def pinned(self, key: str) -> str:
+        """What the run this one resumes pinned under `key`; "" on any other run.
+
+        The question `pin` answers without asking it: a gate that verified a
+        claim the first time round asks whether it already did, rather than
+        re-deriving a value the tree has since moved past.
+        """
+        return str(self._pins.get(key, "")) if self.resuming else ""
 
     # ── agent map (adw_id -> per-agent coding-agent session ids) ────────────
     def save_agent_map(self, agent: str, entry: dict) -> None:

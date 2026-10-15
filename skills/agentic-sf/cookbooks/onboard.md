@@ -237,7 +237,8 @@ live one.
 
 **"Can it work my issues?"** — `just issue 42` works one; `just pr-review 17`
 answers a pull request's review; `just refine 42` turns an unclear issue into
-requirements by asking on the issue; `just refine-ship 42` does both. A run
+requirements by asking on the issue; `just refine-ship 42` does both; `just
+bugfix 42` shows a reported bug failing as a test before it fixes it. A run
 started from an item asks its questions and reports back there.
 
 **"Can it pick issues up by itself?"** — `just up`: the watchers start a run for

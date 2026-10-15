@@ -48,7 +48,7 @@ import socket
 import subprocess
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from .data_types import (RAW_TAIL_CHARS, CommandFinished, QualityCheckResult,
                          QualityCheckSpec, QualityResult, VerifyOutput)
@@ -367,16 +367,34 @@ def refused(names: list[str]) -> list[str]:
     return problems
 
 
-def run_blocks(run, names: list[str]) -> QualityResult:
+def command(run, name: str, argv: list[str]) -> QualityCheckResult:
+    """One command that is not a block: a check a stage was TOLD to run — the
+    repro test `reproduce` declared (`engine/reproduction.py`) — run exactly as
+    a block is, in the worktree, under the operator's environment, with a log
+    and a `command_finished` event. Handed what `e2e` is handed, so a
+    Playwright spec runs here as well as a unit test does."""
+    check_dir = _check_dir(run, name)
+    return _diagnose_server_down(_run(QualityCheckSpec(
+        name=name, area="backend", operation="test", argv=list(argv),
+        env={"PORT": str(free_port()), "ASF_CHECK_DIR": str(check_dir),
+             "PLAYWRIGHT_HTML_OPEN": "never"},
+        timeout_seconds=600), run))
+
+
+def run_blocks(run, names: list[str], also: Sequence[Callable] = ()) -> QualityResult:
     """The named blocks, in order, as one QualityResult — what a `verify` stage
     runs. A name that is not in BLOCKS is refused here, before anything spawns,
     because a workflow that asks for a block this repository never wired up is
     a configuration error and not a red suite.
+
+    `also` is checks the RUN holds beside the workflow's blocks, each a
+    `check(run) -> QualityCheckResult` run after them: the repro test, once a
+    run has one, whatever the blocks happen to collect.
     """
     unknown = [_unknown(name) for name in names if name not in BLOCKS]
     if unknown:
         raise RuntimeError("quality: " + "; ".join(unknown))
-    checks = [BLOCKS[name](run) for name in names]
+    checks = [BLOCKS[name](run) for name in names] + [check(run) for check in also]
     failures = [_failure(check) for check in checks if not check.passed]
     return QualityResult(passed=not failures, checks=checks, failures=failures,
                          artifacts=_artifacts(checks))

@@ -128,7 +128,7 @@ def test_a_stage_outside_the_vocabulary_is_refused_with_the_vocabulary(factory_r
                                          "stages": [{"deploy": {}}]})
     message = refused("bad")
     assert "'deploy' is not a stage" in message
-    assert ("commit, document, implement, integrate, plan, refine, review, scout, verify"
+    assert ("commit, document, implement, integrate, plan, refine, reproduce, review, scout, verify"
             in message)
 
 
