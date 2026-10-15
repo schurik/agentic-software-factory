@@ -298,11 +298,15 @@ def _diagnose_server_down(check: QualityCheckResult) -> QualityCheckResult:
         "asf/factory.yaml) or the webServer config.")})
 
 
-def e2e(run) -> QualityCheckResult:
+def e2e(run, only: Sequence[str] = (), name: str = "e2e") -> QualityCheckResult:
     """Browser tests against a dev server the command starts itself — Playwright's
     `webServer` config starts it and stops it, so code never runs one beside it.
 
     Opt-in: not in DEFAULT below, so it runs only where a workflow names it.
+
+    `only` narrows it to those spec files, appended to the argv, and `name` is
+    what the check is called: how a run's repro spec (`engine/reproduction.py`)
+    runs exactly as this block does, under the name `repro`.
 
     What the command is handed, so a browser test fits a factory: `PORT`, free
     for this check alone, which the webServer config and `use.baseURL` read;
@@ -311,10 +315,10 @@ def e2e(run) -> QualityCheckResult:
     is handed — traces and screenshots, not just the log. The HTML report goes
     beside it and never opens a browser that would wait for someone.
     """
-    check_dir = _check_dir(run, "e2e")
+    check_dir = _check_dir(run, name)
     evidence = check_dir / "test-results"
     report = check_dir / "report"
-    return _diagnose_server_down(_run(QualityCheckSpec(
+    spec = QualityCheckSpec(
         name="e2e",
         area="frontend",
         operation="test",
@@ -323,7 +327,10 @@ def e2e(run) -> QualityCheckResult:
              "PLAYWRIGHT_HTML_OUTPUT_DIR": str(report), "PLAYWRIGHT_HTML_OPEN": "never"},
         evidence=[str(evidence), str(report)],
         timeout_seconds=900,
-    ), run))
+    )
+    unwired = spec.argv[:1] == [UNWIRED]
+    return _diagnose_server_down(_run(spec.model_copy(update={
+        "name": name, "argv": spec.argv if unwired else [*spec.argv, *only]}), run))
 
 
 # Every block this file offers, by name — what `run_blocks` resolves a

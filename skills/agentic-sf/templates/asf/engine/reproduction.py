@@ -5,8 +5,9 @@ that fails BECAUSE of the bug, before anyone fixes it. Everything that keeps
 that test honest is code, and it is here rather than in the stage, because
 three stages lean on it and none of them owns it:
 
-  * `reproduces` — the gate on the claim. It runs the declared command and
-    needs three things: the test RAN (not an import or collection error, not a
+  * `reproduces` — the gate on the claim. It runs the test — a unit test by
+    the command it declared, a browser spec (`kind: e2e`) as the repository's
+    own `e2e` block with the spec appended — and needs three things: the test RAN (not an import or collection error, not a
     command that was never found), it FAILED, and it printed the failure the
     agent said the bug produces. Anything else goes back to the same session.
     A claim checked after the fact, never predicted (invariant 4).
@@ -79,14 +80,24 @@ def reproduces(envelope: EnvelopeBase, run) -> GateReport:
     if not path.is_file():
         return report.check(envelope.repro_test, False, "the declared repro test does not exist")
     test = _relative(run, path)
-    command = shlex.join(envelope.repro_command)
-    named = any(test in arg or str(path) in arg for arg in envelope.repro_command)
-    report.check("repro_command", named,
-                 f"runs {test}" if named else
-                 f"`{command}` does not name {test} — the command runs ONLY the declared "
-                 f"test, so that a red run says one thing")
-    if not named:
-        return report
+    if envelope.kind == "e2e":
+        wired = e2e_wired()
+        report.check("e2e block", wired,
+                     f"runs as the e2e block, with {test} appended" if wired else
+                     "kind: e2e runs as this repository's e2e block, and asf/engine/"
+                     "quality.py's is still a placeholder (or gone) — reproduce it as a "
+                     "unit test, or a person wires e2e first")
+        if not wired:
+            return report
+    else:
+        command = shlex.join(envelope.repro_command)
+        named = any(test in arg or str(path) in arg for arg in envelope.repro_command)
+        report.check("repro_command", named,
+                     f"runs {test}" if named else
+                     f"`{command}` does not name {test} — the command runs ONLY the "
+                     f"declared test, so that a red run says one thing")
+        if not named:
+            return report
     digest = _digest(path)
     if run.pinned(_pin(test)) == digest:
         # A resumed run re-walking this phase: the claim was shown when it was
@@ -94,20 +105,20 @@ def reproduces(envelope: EnvelopeBase, run) -> GateReport:
         # still hold is that it is the SAME test.
         return report.check(test, True, f"shown failing as declared when it was claimed, "
                                         f"and unchanged since ({digest[:12]})")
-    result = quality.command(run, NAME, envelope.repro_command)
+    result = _run(run, envelope)
     printed = _printed(result)
     why = NOT_RUN_EXITS.get(result.returncode) or result.diagnosis or _not_run(printed)
     report.check(f"{test} · ran", not why,
                  f"exit {result.returncode}" if not why else
                  f"it never ran — {why}. A test that cannot be collected or imported is "
-                 f"not one that fails because of the bug:\n{_tail(printed)}")
+                 f"not one that fails because of the bug:\n{_said(result, printed)}")
     if why:
         return report
     failed = result.returncode != 0
     report.check(f"{test} · failed", failed,
                  f"exit {result.returncode}" if failed else
                  f"it passed (exit 0) — whatever it tests, it is not the reported bug, "
-                 f"which is still in the code:\n{_tail(printed)}")
+                 f"which is still in the code:\n{_said(result, printed)}")
     if not failed:
         return report
     expected = envelope.expected_failure
@@ -116,7 +127,7 @@ def reproduces(envelope: EnvelopeBase, run) -> GateReport:
                  f"printed {expected!r}:\n{_excerpt(printed, expected)}" if seen else
                  f"it failed, but did not print {expected!r} — it fails for some other "
                  f"reason than the reported bug, or `expected_failure` is not what the "
-                 f"bug prints:\n{_tail(printed)}")
+                 f"bug prints:\n{_said(result, printed)}")
     if seen:
         _prove(run, envelope, result)
     return report
@@ -178,8 +189,22 @@ def checks(latest: dict) -> list[Callable]:
         return []
 
     def repro_check(run) -> QualityCheckResult:
-        return quality.command(run, NAME, repro.repro_command)
+        return _run(run, repro)
     return [repro_check]
+
+
+def e2e_wired() -> bool:
+    """Whether this repository can run a browser spec: quality.py offers an
+    `e2e` block, and somebody replaced its placeholder with a command."""
+    return "e2e" in quality.BLOCKS and not quality.placeholders(["e2e"])
+
+
+def _run(run, repro: ReproOutput) -> QualityCheckResult:
+    """The repro, run the way its kind says: a browser spec as the e2e block
+    with the spec appended, anything else by the command it declared."""
+    if repro.kind == "e2e":
+        return quality.e2e(run, only=[repro.repro_test], name=NAME)
+    return quality.command(run, NAME, repro.repro_command)
 
 
 # ── the proof, for the pull request ──────────────────────────────────────────
@@ -201,7 +226,7 @@ def _prove(run, repro: ReproOutput, result: QualityCheckResult) -> None:
         f"the way the report says the bug behaves. It lands in the same commit as the fix, "
         f"and passes there.",
         "",
-        f"- Command: `{shlex.join(repro.repro_command)}` — exit {result.returncode}",
+        f"- Command: `{result.command}` — exit {result.returncode}",
         f"- Declared failure: `{repro.expected_failure}`",
         "",
         "<details><summary>What the gate saw</summary>",
@@ -248,6 +273,13 @@ def _flat(text: str) -> str:
 
 def _tail(printed: str) -> str:
     return printed.strip()[-EXCERPT_CHARS:]
+
+
+def _said(result: QualityCheckResult, printed: str) -> str:
+    """A refusal's evidence: the output's tail, and what the runner kept beside
+    it — a browser spec's traces and screenshots."""
+    kept = "".join(f"\nevidence: {path}" for path in result.evidence)
+    return f"{_tail(printed)}{kept}"
 
 
 def _excerpt(printed: str, expected: str) -> str:

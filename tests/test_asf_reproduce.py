@@ -22,6 +22,7 @@ What is proven, in the order the issue asks for it:
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -162,6 +163,77 @@ def test_an_envelope_that_claims_a_repro_without_saying_how_is_refused_at_parse(
                     expected_failure="boom")
     with pytest.raises(ValueError, match="tried"):
         ReproOutput(status="success", reproduced=False)
+
+
+# ── a browser bug: the spec runs through the repository's own e2e block ──────
+
+# A stand-in for Playwright: runs the spec it is handed last, after checking it
+# was handed what the e2e block hands its command, and leaves evidence where
+# `--output` would.
+PLAYWRIGHT = [sys.executable, "-c",
+              "import os, runpy, sys; assert os.environ['PORT'] and os.environ['ASF_CHECK_DIR']; "
+              "os.makedirs(os.path.join(os.environ['ASF_CHECK_DIR'], 'test-results'), "
+              "exist_ok=True); runpy.run_path(sys.argv[-1])"]
+SPEC = "e2e/bug_spec.py"
+
+
+def e2e_reply(spec: str = SPEC, **fields) -> dict:
+    return {"writes": {spec: REPRO},
+            "envelope": envelope(reproduced=True, kind="e2e", repro_test=spec,
+                                 expected_failure=DECLARED, **fields)}
+
+
+def test_an_e2e_repro_runs_through_the_e2e_block_with_its_spec_appended(stamped: Path):
+    wire(stamped, "e2e", PLAYWRIGHT)
+    prepare(stamped, builder=[e2e_reply(), fix_reply()])
+
+    result = run(stamped)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [entry["passed"] for entry in gate_results(stamped, "reproduces")] == [True]
+    ran = [line.payload for line in lines_of(stamped, "command_finished")]
+    assert [entry["name"] for entry in ran] == ["repro", "test", "repro"]
+    # The block's own argv, with the spec as its last argument — no command
+    # the agent wrote.
+    assert ran[0]["argv"] == [*PLAYWRIGHT, SPEC]
+    assert git(stamped, "show", f"asf/{ADW}:{SPEC}") == REPRO.rstrip()
+
+
+def test_an_e2e_repro_in_a_repository_without_a_wired_e2e_block_is_refused(stamped: Path):
+    only = {**FIXING, "stages": [{"reproduce": {"agent": "builder"}}]}
+    prepare(stamped, builder=[e2e_reply(), repro_reply()], spec=only)
+
+    result = run(stamped)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    first = gate_results(stamped, "reproduces")[0]
+    assert any("placeholder" in violation for violation in first["violations"]), first
+    # Refused before anything ran: the corrected unit repro is the first command.
+    assert lines_of(stamped, "command_finished")[0].payload["argv"] == COMMAND
+    # ...and the builder was told up front which kinds this repository can run.
+    asked = (session_dir(stamped, ADW) / "builder" / "prompts" / "user.md").read_text()
+    assert "is not wired" in asked
+
+
+def test_a_red_e2e_repro_hands_the_builder_its_evidence(stamped: Path):
+    wire(stamped, "e2e", PLAYWRIGHT)
+    no_fix = {"writes": {"notes.txt": "looked\n"},
+              "envelope": envelope(changed_files=["notes.txt"], commit_message="fix: add")}
+    prepare(stamped, builder=[e2e_reply(), no_fix, fix_reply()])
+
+    result = run(stamped)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    fix_prompt = (session_dir(stamped, ADW) / "builder" / "prompts" / "user.md").read_text()
+    assert DECLARED in fix_prompt and "test-results" in fix_prompt
+
+
+def test_an_e2e_repro_declares_no_command_of_its_own():
+    with pytest.raises(ValueError, match="e2e block"):
+        ReproOutput(status="success", reproduced=True, kind="e2e", repro_test="e2e/x.spec.ts",
+                    repro_command=["npx", "playwright", "test"], expected_failure="boom")
+    ReproOutput(status="success", reproduced=True, kind="e2e", repro_test="e2e/x.spec.ts",
+                expected_failure="boom")
 
 
 # ── frozen: the reproduction cannot be weakened afterwards ───────────────────
@@ -394,6 +466,23 @@ def test_bugfix_is_stamped_routed_and_checks_clean(stamped: Path, monkeypatch):
     # pr-review is untouched: review threads are about code just written.
     pr_review = (stamped / "asf" / "workflows" / "pr-review" / "workflow.yaml").read_text()
     assert "reproduce" not in pr_review
+
+
+def test_the_bugfix_accept_example_judges_the_running_app_after_verify(stamped: Path):
+    shipped = stamped / "asf" / "workflows"
+    example = stamped / "asf" / "examples" / "workflows" / "bugfix-accept"
+    shutil.copytree(example, shipped / "bugfix-accept")
+    (stamped / "asf" / "factory.yaml").write_text(
+        (stamped / "asf" / "factory.yaml").read_text()
+        + "\nserve:\n  commands: [[python3, -m, http.server, '{port}']]\n")
+
+    checked = asf(stamped, "check", "bugfix-accept")
+
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert "reproduce -> implement -> verify -> accept -> review ->" in checked.stdout
+    # Judged against the report and the reproduction, not a plan there is none of.
+    task = (example / "tasks" / "accept.md").read_text()
+    assert "issue.md" in task and "reproduction.md" in task
 
 
 def test_check_refuses_a_reproduce_task_whose_report_drifted(stamped: Path):

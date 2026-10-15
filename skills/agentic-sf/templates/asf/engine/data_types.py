@@ -336,6 +336,12 @@ class ReproOutput(EnvelopeBase):
     list for the reason every quality block's is — no quoting, no shell — and
     it runs only this test, so a red repro says one thing.
 
+    `kind: e2e` is a browser spec, and it declares NO command: it runs as the
+    repository's own `e2e` block with the spec's path appended, so it gets
+    what that block gets — a free port, the dev server Playwright's
+    `webServer` starts, the evidence directory a builder is handed when it is
+    red — rather than whatever invocation the agent thought of.
+
     `reproduced: false` is an answer, not a failure: `tried` is what was
     attempted and what happened instead, and `open_questions` is what the
     reporter must supply — the same questions, gated the same way, a `refine`
@@ -345,6 +351,7 @@ class ReproOutput(EnvelopeBase):
     """
 
     reproduced: bool = False
+    kind: Literal["unit", "e2e"] = "unit"
     repro_test: str = ""            # repository-relative path of the test file
     repro_command: list[str] = Field(default_factory=list)
     expected_failure: str = ""      # what the failing run prints BECAUSE of the bug
@@ -356,8 +363,13 @@ class ReproOutput(EnvelopeBase):
         if self.status != "success":
             return self
         if self.reproduced:
-            missing = [name for name in ("repro_test", "repro_command", "expected_failure")
-                       if not getattr(self, name)]
+            needed = ("repro_test", "expected_failure",
+                      *(("repro_command",) if self.kind == "unit" else ()))
+            missing = [name for name in needed if not getattr(self, name)]
+            if self.kind == "e2e" and self.repro_command:
+                raise ValueError(
+                    "kind: e2e declares no repro_command — the spec runs as this "
+                    "repository's e2e block with its path appended; leave it empty")
             if missing:
                 raise ValueError(
                     f"reproduced: true must name {', '.join(missing)} — a reproduction "

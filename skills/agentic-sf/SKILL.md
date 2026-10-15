@@ -114,7 +114,7 @@ asf/
   scorers/<name>/         scorer.md: frontmatter (workflow, focus, kind, predicate) + criteria below it — four ship on `issue`; the team's own after that: --force never rewrites one
   benchmarks/<name>.yaml  tasks (session, request, commit), variants (ref, label), repetitions — none ship; written by `asf benchmark new`, committed by the team, worked by `asf benchmark run`
   stages/<name>/          stage.py (the contract) + its default task files
-  examples/workflows/     workflows to copy into workflows/ — never loaded or run where they are (ship-accept)
+  examples/workflows/     workflows to copy into workflows/ — never loaded or run where they are (ship-accept, bugfix-accept)
   engine/                 the machinery: session, worktree, gates, permissions, hitl, tracer, …
   data/                   runtime: sessions/<adw_id>/, benchmarks/<name>/<commit>/ (a variant's files), station.json (this checkout's id), onboarding.json — never edit
 ```
@@ -157,10 +157,14 @@ placeholder, and any block `quality.py` does not offer.
 
 **A reported bug is shown failing before anyone fixes it, by the `reproduce`
 stage** — the `bugfix` workflow's second stage, after its scout. The builder
-writes a test that fails BECAUSE of the bug (a unit test, or a Playwright spec
-for a bug a person sees) and declares it: `repro_test`, `repro_command` (an
-argv list that runs only that test) and `expected_failure` (what the bug makes
-it print). A gate runs it and refuses anything that is not a reproduction — a
+writes a test that fails BECAUSE of the bug and declares it: its `kind`,
+`repro_test` and `expected_failure` (what the bug makes it print). A `unit`
+test names `repro_command`, an argv list that runs only it. An `e2e` test — a
+Playwright spec, for a bug that only shows in the browser — names no command:
+it runs as the repository's own `e2e` block with the spec appended (free
+`PORT`, Playwright's `webServer`, the evidence directory a builder is handed
+when it is red), and is refused while that block is a placeholder; the task
+tells the builder which this repository has. A gate runs it and refuses anything that is not a reproduction — a
 test that passes, one that never ran (an import or collection error, a command
 not found), one that fails without printing what it declared — back to the
 same session. From then on the test is **frozen**: every later agent call in
@@ -195,7 +199,8 @@ pinned, `--headless --isolated` on every run, writing only into the session's
 `context_handoff/accept/` — and a server or browser that does not come up ends
 the session as an environment failure before any agent turn. No shipped
 workflow runs it: a team copies `asf/examples/workflows/ship-accept/` (verify →
-accept → review) into `asf/workflows/` and checks `serve.commands`; `asf check`
+accept → review) — or `bugfix-accept/`, `bugfix` judged in the browser against
+the report — into `asf/workflows/` and checks `serve.commands`; `asf check`
 refuses `accept` while they are empty or on an agent whose harness has no MCP
 servers (pi), and `doctor` names a missing `npx` or Chromium only then.
 `install.py` says when a repository looks like a web app, and lists the MCP

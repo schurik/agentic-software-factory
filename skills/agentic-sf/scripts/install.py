@@ -389,6 +389,8 @@ def suggestions(root: Path) -> list[str]:
                   f"workflow runs it:",
                   "    cp -r asf/examples/workflows/ship-accept asf/workflows/   # verify -> "
                   "accept -> review",
+                  "    cp -r asf/examples/workflows/bugfix-accept asf/workflows/ # bugfix, "
+                  "judged against the report",
                   "    then check `serve.commands` in asf/factory.yaml (how the app starts, "
                   "`{port}` where its port goes), and `just doctor`"]
     servers = _detect.mcp_servers(root)

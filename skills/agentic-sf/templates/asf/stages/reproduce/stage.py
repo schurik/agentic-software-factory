@@ -63,6 +63,15 @@ REPRO_NOTES = ("This run turned the report into a test and SHOWED it failing, th
                "frozen — a gate refuses any change to it — so make it pass by changing the "
                "code, and do not touch the test.")
 
+# Whether a browser spec is a reproduction this repository can run, as the
+# task's `{{e2e_block}}` says it. A fact for the task, not a policy: the gate
+# refuses `kind: e2e` here either way.
+E2E_BLOCK = {True: "wired — a browser spec runs as asf/engine/quality.py's `e2e` block, "
+                   "with the spec's path appended",
+             False: "is not wired — asf/engine/quality.py's `e2e` block is still a "
+                    "placeholder, so a browser spec cannot be run here: reproduce it as a "
+                    "unit test"}
+
 ANSWERS_NOTES = ("The answers file appended above holds what a person said when this run "
                  "asked how to reproduce the bug, with this run's own record of what was "
                  "asked. Read both halves: a reply overrides the questions it addresses, "
@@ -104,7 +113,8 @@ def _attempt(ctx, opts: Options, material, round: int) -> ReproOutput:
             output_type=ReproOutput, prompt=ctx.prompt, previous=material,
             task=ctx.task("reproduce"),
             gates=[gates.artifacts_exist, gates.questions_are_answerable,
-                   reproduction.reproduces]))
+                   reproduction.reproduces],
+            variables={"e2e_block": E2E_BLOCK[reproduction.e2e_wired()]}))
 
 
 def _answers(ctx, attempt: ReproOutput, decision, round: int) -> str:

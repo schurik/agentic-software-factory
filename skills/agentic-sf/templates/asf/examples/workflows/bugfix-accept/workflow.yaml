@@ -1,0 +1,33 @@
+# bugfix-accept — `bugfix`, with the running app driven in a browser after the
+# fix and judged against the REPORT. Not loaded where it is: copy this directory
+# to asf/workflows/, check `serve.commands` in asf/factory.yaml, and route a
+# label at it (`issues.route`) — or run it by hand, `asf run bugfix-accept 42`.
+#
+# TWO PROOFS, AND THEY ANSWER DIFFERENT QUESTIONS. The frozen repro test is the
+# proof in code: it failed because of the bug and passes after the fix, and the
+# checks run it on every round. `accept` is the proof from where the reporter
+# sits: the `qa` agent follows the reported steps in the running app and rules
+# on whether the reported behaviour is gone — what a test can miss when it
+# exercises the code a different way than a person does. A judgement, so it
+# never replaces the test; it runs after verify, on a green suite and a green
+# repro, and an unmet finding goes to the builder through `revise`, then
+# `retest:` — which runs the repro again too.
+#
+# `tasks/accept.md` beside this file is the judge's task: the report and the
+# reproduction are its spec, since this chain has no plan. Claude Code only —
+# the browser is an MCP server — and `asf check` refuses it while
+# `serve.commands` is empty.
+name: bugfix-accept
+description: bugfix, with the running app checked in a browser against the report before review
+input: issue
+
+stages:
+  - scout:     {agent: scout}
+  - reproduce: {agent: builder, max_rounds: 2}
+  - implement: {agent: builder}
+  - verify:    {blocks: [test], max_fix_loops: 3, fix: {agent: builder}}
+  - accept:    {agent: qa, max_rounds: 2, revise: {agent: builder}, retest: [test],
+                serve: {path: /}}
+  - review:    {agent: reviewer, max_rounds: 2, revise: {agent: builder}, retest: [test]}
+  - commit:    {of: implement}                     # the repro and the fix, green and accepted
+  - integrate: {}
