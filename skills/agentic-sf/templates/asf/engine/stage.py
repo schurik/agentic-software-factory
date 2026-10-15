@@ -25,7 +25,10 @@ A stage module exposes, at module level:
                extra="forbid" so a misspelt key is refused before anything runs
     run        run(ctx: StageContext, opts: Options) -> EnvelopeBase | None
     check      optional: check(opts, earlier) -> list[str] of static problems,
-               where `earlier` maps every preceding stage's name to its OUTPUT
+               where `earlier` maps every preceding stage's name to its OUTPUT;
+               a third parameter, when it declares one, is handed the factory's
+               config — for a stage that needs a setting of the repository's
+               (`accept`: `serve.commands`)
     warn       optional: warn(opts) -> list[str] of things that load today and
                will not in a later release — said by `check`, never a refusal
     GATE       optional: the name of the gate the stage places, for the
@@ -48,6 +51,7 @@ workflow before a session, a branch or a process record exists.
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,9 +97,13 @@ class StageModule:
     def run(self, ctx: "StageContext", opts: BaseModel) -> Optional[EnvelopeBase]:
         return self.module.run(ctx, opts)
 
-    def check(self, opts: BaseModel, earlier: dict[str, Optional[type]]) -> list[str]:
+    def check(self, opts: BaseModel, earlier: dict[str, Optional[type]],
+              cfg: Any = None) -> list[str]:
         checker = getattr(self.module, "check", None)
-        return list(checker(opts, earlier)) if checker else []
+        if checker is None:
+            return []
+        wants_cfg = len(inspect.signature(checker).parameters) > 2
+        return list(checker(opts, earlier, cfg) if wants_cfg else checker(opts, earlier))
 
     def warn(self, opts: BaseModel) -> list[str]:
         warner = getattr(self.module, "warn", None)

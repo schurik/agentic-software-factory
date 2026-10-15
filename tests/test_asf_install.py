@@ -117,6 +117,10 @@ def test_a_web_app_is_told_accept_exists_and_its_mcp_servers_how_to_bind_one(rep
     said = result.stdout
     assert "the `accept` stage" in said and "package.json scripts.dev" in said
     assert "asf/examples/workflows/ship-accept" in said
+    # The dev server it would run, filled into the config like worktree.setup.
+    serve = yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["serve"]
+    assert serve["commands"] == [["npx", "next", "dev", "--port", "{port}"]]
+    assert 'serve.commands: [["npx", "next", "dev", "--port", "{port}"]]' in said
     assert ".mcp.json: github" in said and ".vscode/mcp.json: sentry" in said
     assert "mcp:<file>" in said and "deny_tools" in said            # how to bind one
     assert "playwright: the qa agent already has its own" in said
@@ -131,6 +135,21 @@ def test_a_web_app_is_told_accept_exists_and_its_mcp_servers_how_to_bind_one(rep
 def test_a_repo_that_is_no_web_app_hears_of_neither(repo: Path):
     said = install(repo, "--harness", "claude_code").stdout
     assert "the `accept` stage" not in said and "checked-in MCP server" not in said
+    assert yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["serve"]["commands"] == []
+
+
+def test_convex_starts_the_app_itself_once_its_functions_are_pushed(repo: Path):
+    """`convex dev --start` runs the app's server only after the first push, so
+    the app answering means the backend it calls is there too — and stopping
+    the group stops both."""
+    (repo / "package.json").write_text(json.dumps({"dependencies": {
+        "next": "16.0.0", "convex": "1.30.0"}}))
+    (repo / "bun.lock").write_text("{}\n")
+
+    install(repo, "--harness", "claude_code")
+    serve = yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["serve"]
+    assert serve["commands"] == [["bunx", "convex", "dev", "--tail-logs", "disable",
+                                  "--start", "bunx next dev --port {port}"]]
 
 
 def test_an_unknown_or_unstampable_harness_is_refused(repo: Path):

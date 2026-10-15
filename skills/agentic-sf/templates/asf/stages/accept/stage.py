@@ -10,11 +10,11 @@ browser given as an MCP server. Its verdict travels the loop `review` runs
 after a revision, at most `max_rounds` rounds, and a withheld approval stops
 the run.
 
-The only part of its own is the server. Code starts the dev server
-(`quality.serve`) on a free port once the agent's browser answers, hands the
-agent the URL, and stops it however the stage ends (`engine/serve.py`). A
-server or a browser that does not come up ends the session as an environment
-failure, before an agent turn is spent.
+The only part of its own is the server. Code starts the app — factory.yaml's
+`serve.commands`, the repository's own — on a free port once the agent's
+browser answers, hands the agent the URL, and stops it however the stage ends
+(`engine/serve.py`). An app or a browser that does not come up ends the
+session as an environment failure, before an agent turn is spent.
 
 Off by default: no shipped workflow runs it. `asf/examples/workflows/ship-accept/`
 places it between `verify` and `review` — acceptance runs on a green suite, and
@@ -53,10 +53,13 @@ class Options(BaseModel):
     # Blocks to re-run after a revision changed code; [] skips the retest.
     retest: list[str] = Field(default_factory=lambda: ["test"])
     serve: Serve = Field(default_factory=Serve)
+    # How long each of the agent's MCP servers gets to answer — the first
+    # `npx` of a pinned server downloads it.
+    browser_seconds: int = Field(default=120, ge=1)
 
 
-def check(opts: Options, earlier: dict) -> list[str]:
-    return quality.refused(opts.retest) + quality.serve_refused()
+def check(opts: Options, earlier: dict, cfg) -> list[str]:
+    return quality.refused(opts.retest) + serve.refused(cfg)
 
 
 ACCEPT = Judging(task="accept", phase="accept", judge="acceptance",
@@ -71,6 +74,6 @@ ACCEPT = Judging(task="accept", phase="accept", judge="acceptance",
 
 def run(ctx, opts: Options):
     agent = agents.resolve(ctx.run.cfg, opts.agent)
-    with serve.running(ctx.run, agent, opts.serve) as app:
+    with serve.running(ctx.run, agent, opts.serve, opts.browser_seconds) as app:
         return judge_and_revise(ctx, opts, dataclasses.replace(
             ACCEPT, variables={"app_url": app.url, "server_log": app.log}))

@@ -154,6 +154,30 @@ worktree:
     pr_command: ["gh", "pr", "create", "--fill"]
     pr_body_template: ""
 
+# ── the running app ─────────────────────────────────────────────────────────
+#
+# How this repository's app is run, for the `accept` stage: an agent drives it
+# in a browser. Nothing runs it until a workflow names `accept` (copy
+# asf/examples/workflows/ship-accept/), and `check` refuses such a workflow
+# while `commands` is empty. The agent never starts a server: code starts
+# every command below in the session's worktree, each in its own process group,
+# waits until http://localhost:<port>/ answers, hands the agent that URL, and
+# stops them all however the stage ends.
+#   commands  argv lists, bare binary names. `{port}` in an argument is the
+#             free port the app must answer on (PORT is set too), so sessions
+#             side by side never meet on 3000. Use a server that reloads on
+#             change: the builder's revision lands while it runs. A backend that
+#             must be up first can start the app itself — Convex:
+#             [npx, convex, dev, --tail-logs, disable, --start, "npx next dev --port {port}"]
+#             runs Next once the functions are pushed. Its `.env.local` comes
+#             from worktree.copy, its packages from worktree.setup.
+#   ready_seconds  how long the app gets to answer; not answering ends the
+#             session as an environment failure, before any agent runs.
+# install.py filled `commands` from what it found here; check them.
+serve:
+  commands: []
+  ready_seconds: 120
+
 # ── where work comes from, and where it goes back to ────────────────────────
 #
 # Both ON by default, and neither starts anything by itself: an issue needs a

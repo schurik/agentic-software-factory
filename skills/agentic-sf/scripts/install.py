@@ -389,8 +389,8 @@ def suggestions(root: Path) -> list[str]:
                   f"workflow runs it:",
                   "    cp -r asf/examples/workflows/ship-accept asf/workflows/   # verify -> "
                   "accept -> review",
-                  "    then write `serve` in asf/engine/quality.py (the dev server on `port`), "
-                  "and `just doctor`"]
+                  "    then check `serve.commands` in asf/factory.yaml (how the app starts, "
+                  "`{port}` where its port goes), and `just doctor`"]
     servers = _detect.mcp_servers(root)
     if servers:
         lines.append("\nchecked-in MCP servers — no agent is given any of them. To give one "
@@ -449,6 +449,7 @@ def main() -> int:
                 else Path(config_notes[0][1]) if config_notes else None)
     worktree_notes = (_detect.apply_worktree(rendered, *_detect.detect_worktree(root))
                       if rendered else [])
+    serve_notes = _detect.apply_serve(rendered, _detect.detect_serve(root)) if rendered else []
 
     quality_py = root / "asf" / "engine" / "quality.py"
     detecting = not args.no_detect_quality and str(quality_py) in stamped
@@ -496,6 +497,11 @@ def main() -> int:
         print(f"\nwhat a session's worktree gets, detected from this repo — check them in "
               f"{rendered.relative_to(root)}:")
         for note in worktree_notes:
+            print(f"    {note}")
+    if serve_notes:
+        print(f"\nhow the app is run for the `accept` stage, detected from this repo — check it "
+              f"in {rendered.relative_to(root)}:")
+        for note in serve_notes:
             print(f"    {note}")
     if detecting:
         unwired = [b for b in _detect.DEFAULT if b not in {n.split(':')[0] for n in detected}]

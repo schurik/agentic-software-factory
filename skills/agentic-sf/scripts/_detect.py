@@ -287,6 +287,41 @@ def apply_worktree(config: Path, copy: list[str], setup: list[list[str]]) -> lis
     return notes
 
 
+# ── how the app is run, for the `accept` stage ───────────────────────────────
+
+def detect_serve(root: Path) -> list[list[str]]:
+    """`serve.commands` as this repository answers them: its framework's dev
+    server on `{port}`, through the package manager's runner — and, where the
+    app has a Convex backend, `convex dev --start` running it, which starts the
+    app only once the functions are pushed. [] when nothing says how."""
+    package = _read_json(root / "package.json")
+    js_runner, _ = _js(root)
+    if not js_runner:
+        return []
+    deps = {**(package.get("dependencies") or {}), **(package.get("devDependencies") or {})}
+    run = JS_EXEC[js_runner[0]]
+    if "next" in deps:
+        app = run + ["next", "dev", "--port", "{port}"]
+    elif "vite" in deps:
+        app = run + ["vite", "--port", "{port}", "--strictPort"]
+    else:
+        return []
+    if "convex" in deps:
+        return [run + ["convex", "dev", "--tail-logs", "disable", "--start", " ".join(app)]]
+    return [app]
+
+
+def apply_serve(config: Path, commands: list[list[str]]) -> list[str]:
+    """Write them over the `commands: []` the template's `serve:` block ships,
+    and return what to print."""
+    if not config.is_file() or not commands:
+        return []
+    text = re.sub(r"^(serve:\n  commands: )\[\]$", lambda match: match[1] + json.dumps(commands),
+                  config.read_text(), count=1, flags=re.M)
+    config.write_text(text)
+    return [f"serve.commands: {json.dumps(commands)}"]
+
+
 # ── what the installer suggests, and never wires ─────────────────────────────
 
 # A dependency that says the repository serves a web app.

@@ -118,13 +118,23 @@ tool; it is the team's call, because every round costs a browser session. A
    `ship` with `accept` between `verify` and `review`, so acceptance runs on a
    green suite and the reviewer sees the fixes made for it. Any workflow can
    take the stage the same way; keep that order.
-2. **The server.** Replace `_placeholder("serve")` in `asf/engine/quality.py`
-   with the argv that starts the dev server on `port` — `["bun", "run", "dev",
-   "--port", str(port)]`; `PORT` is set too. Code starts it, waits until
-   `http://localhost:<port>/` answers, hands the agent the URL and stops it, so
-   it must be a server that reloads on change: the builder's revision lands
-   while it runs. Its `.env` and packages come from `worktree.copy` and
-   `worktree.setup`. `just check` refuses the workflow until it is written.
+2. **The server.** `serve.commands` in `asf/factory.yaml` — argv lists, `{port}`
+   where the free port goes (`PORT` is set too). `install.py` filled them from a
+   Next or Vite dependency; check them. Code starts every one, each in its own
+   process group, waits until `http://localhost:<port>/` answers, hands the agent
+   the URL and stops them all, so each must reload on change: the builder's
+   revision lands while they run. Its `.env` and packages come from
+   `worktree.copy` and `worktree.setup`. `just check` refuses the workflow while
+   the list is empty.
+
+   An app that is two processes lists two — but readiness is the app's URL
+   alone, so a backend the app needs should start the app itself where it can.
+   Next.js on Convex: `[npx, convex, dev, --tail-logs, disable, --start, "npx
+   next dev --port {port}"]` runs Next only once the functions are pushed, and
+   pushes again when a revision changes them. Mind which deployment that is:
+   `.env.local`, copied in, names YOUR dev deployment, and two sessions at once
+   push to the same one. A separate env file for the factory
+   (`--env-file .env.asf`, listed in `worktree.copy`) keeps the first apart.
 3. **The browser.** `npx playwright install chromium`, then `just doctor`,
    which names a missing `npx` or Chromium once a workflow runs `accept`. The
    `qa` agent's browser is `asf/agents/qa/playwright.json`: a pinned

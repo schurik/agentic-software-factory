@@ -276,7 +276,8 @@ def _steps(spec: Spec, registry: dict[str, StageModule], cfg: FactoryConfig,
             got = current.__name__ if current else "nothing"
             problems.append(f"stages[{index}] {stage_name}: needs a {wanted} from an earlier "
                             f"stage, but what precedes it hands on {got}")
-        problems += [f"stages[{index}] {stage_name}: {p}" for p in stage.check(opts, earlier)]
+        problems += [f"stages[{index}] {stage_name}: {p}"
+                     for p in stage.check(opts, earlier, cfg)]
         problems += [f"stages[{index}] {stage_name}: {p}"
                      for p in _harness_lacks(stage, opts, cfg)]
         step = Step(stage=stage, opts=opts)

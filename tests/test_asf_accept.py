@@ -26,7 +26,7 @@ import yaml
 from engine import events
 
 from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, git, phase_names,
-                          phase_rows, session_dir, wire, write_workflow)
+                          phase_rows, session_dir, set_config, wire, write_workflow)
 
 ADW = "acce9701"
 
@@ -34,8 +34,11 @@ ACCEPTED = {"description": "implement, verify, accept, commit",
             "stages": [{"implement": {}}, {"verify": {}}, {"accept": {"max_rounds": 2}},
                        {"commit": {"of": "implement"}}]}
 
-HTTP = f'[{sys.executable!r}, "-m", "http.server", str(port), "--bind", "127.0.0.1"]'
-NEVER_UP = f'[{sys.executable!r}, "-c", "print(\'no port for you\'); raise SystemExit(3)"]'
+HTTP = [sys.executable, "-m", "http.server", "{port}", "--bind", "127.0.0.1"]
+NEVER_UP = [sys.executable, "-c", "print('no port for you'); raise SystemExit(3)"]
+# A second process beside the app — a backend's own dev server, say — that
+# answers nothing and only has to be stopped with it.
+SIDECAR = [sys.executable, "-c", "import time; time.sleep(600)"]
 
 # Answers `initialize` and nothing else, after writing down the arguments it was
 # started with — `${ASF_HANDOFF_DIR}` among them, expanded as Claude Code would.
@@ -54,12 +57,10 @@ for line in sys.stdin:
 BROKEN_MCP = "import sys; print('chromium is not installed', file=sys.stderr); sys.exit(1)\n"
 
 
-def serve(repo: Path, argv_source: str) -> None:
-    """Wire the dev server command into the stamped quality.py."""
-    quality = repo / "asf" / "engine" / "quality.py"
-    source = quality.read_text()
-    assert 'return _placeholder("serve")' in source
-    quality.write_text(source.replace('return _placeholder("serve")', f"return {argv_source}"))
+def serve(repo: Path, *commands: list[str]) -> None:
+    """`serve.commands` in factory.yaml — the operator's file, which a re-stamp
+    never rewrites."""
+    set_config(repo, serve={"commands": list(commands), "ready_seconds": 30})
 
 
 def browser(repo: Path, script: str = STUB_MCP) -> None:
@@ -96,11 +97,12 @@ def build_reply(content: str) -> dict:
             "envelope": envelope(changed_files=["app.py"], commit_message="feat: greet")}
 
 
-def prepare(repo: Path, qa: list[dict], dev_server: str = HTTP, **more) -> None:
+def prepare(repo: Path, qa: list[dict], dev_server: list[list[str]] = (HTTP,),
+            **more) -> None:
     fake_roster(repo, builder=[build_reply("greeting = 'Bye'\n"),
                                build_reply("greeting = 'Hello'\n")], qa=qa, **more)
     wire(repo, "test", PY_CHECK)
-    serve(repo, dev_server)
+    serve(repo, *dev_server)
     write_workflow(repo, "accepted", ACCEPTED)
     commit_all(repo)
 
@@ -143,7 +145,8 @@ def assert_stopped(repo: Path) -> None:
 
 def test_an_unmet_requirement_goes_to_the_builder_and_a_met_set_ends_the_loop(stamped: Path):
     browser(stamped)
-    prepare(stamped, qa=[accept_reply(stamped, met=False), accept_reply(stamped, met=True)])
+    prepare(stamped, qa=[accept_reply(stamped, met=False), accept_reply(stamped, met=True)],
+            dev_server=[SIDECAR, HTTP])
 
     result = asf(stamped, "run", "accepted", "greet the visitor", "--adw-id", ADW)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -161,6 +164,8 @@ def test_an_unmet_requirement_goes_to_the_builder_and_a_met_set_ends_the_loop(st
     # handoff directory in its arguments — where its own files go, not the tree.
     seen = handoff(stamped) / "browser" / "args.json"
     assert Path(json.loads(seen.read_text())[0]).resolve() == seen.resolve()
+    # Every command started, each in its own group, and every one of them stopped.
+    assert len(dev_servers(stamped)) == 2
     assert_stopped(stamped)
 
 
@@ -206,7 +211,7 @@ def test_the_dev_server_is_gone_when_the_run_is_killed(stamped: Path):
 
 def test_a_dev_server_that_never_comes_up_ends_the_session_before_any_agent_turn(stamped: Path):
     browser(stamped)
-    prepare(stamped, qa=[accept_reply(stamped, met=True)], dev_server=NEVER_UP)
+    prepare(stamped, qa=[accept_reply(stamped, met=True)], dev_server=[NEVER_UP])
 
     result = asf(stamped, "run", "accepted", "greet the visitor", "--adw-id", ADW)
     assert result.returncode == 1
@@ -245,7 +250,7 @@ def check(repo: Path, name: str = "accepted") -> str:
 
 def test_check_refuses_accept_with_an_unwired_server_an_unknown_agent_or_a_widened_binding(here):
     write_workflow(here, "accepted", ACCEPTED)
-    assert "serve is still a placeholder in asf/engine/quality.py" in check(here)
+    assert "serve.commands in asf/factory.yaml is empty" in check(here)
 
     serve(here, HTTP)
     assert check(here) == ""

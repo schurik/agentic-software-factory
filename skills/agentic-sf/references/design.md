@@ -129,9 +129,12 @@ own rather than a second task in `verify` or a second `review`: verify's loop
 rests on a check that is cheap and gives the same verdict twice, and an agent
 in a browser is neither; a second `review` would share its task file (an
 override is keyed by task, not by step) and starts no server. What it adds is
-the server, owned by code (`engine/serve.py`): `quality.serve(port)` on a free
-port, in its own process group, recorded for `asf kill`, stopped in a `finally`
-however the stage ends; before it, each of the agent's MCP servers must answer
+the server, owned by code (`engine/serve.py`): factory.yaml's `serve.commands`
+on a free port (`{port}`), each in its own process group, recorded for `asf
+kill`, stopped in a `finally` however the stage ends. In factory.yaml and not in
+quality.py because they are the operator's and a re-stamp must not rewrite them
+— `worktree.setup`'s reasoning — and the stage's `check` reads them through a
+third parameter `check` may declare, the factory's config; before it, each of the agent's MCP servers must answer
 `initialize` — a missing browser ends the session as an environment failure,
 never as a finding for the builder. Agents are handed `ASF_HANDOFF_DIR`, which
 the qa agent's `playwright.json` names as its `--output-dir`, the one place that

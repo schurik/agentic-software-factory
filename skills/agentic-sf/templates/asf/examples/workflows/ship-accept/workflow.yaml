@@ -4,8 +4,9 @@
 # run. To use it, copy the directory into asf/workflows/ — copying is what a
 # workflow directory is for — and then:
 #
-#   1. Wire `serve` in asf/engine/quality.py: the argv that starts this repo's
-#      dev server on `port` (`asf check` refuses this workflow until you do).
+#   1. Write `serve.commands` in asf/factory.yaml: the argv that starts this
+#      repo's app, `{port}` where its port goes (`asf check` refuses this
+#      workflow until you do).
 #   2. `just doctor`: it names what the browser still needs on this machine —
 #      `npx`, and a Chromium (`npx playwright install chromium`).
 #
@@ -25,7 +26,7 @@ stages:
   - implement: {agent: builder}
   - verify:    {blocks: [test], max_fix_loops: 3, fix: {agent: builder}}
   - accept:    {agent: qa, max_rounds: 2, revise: {agent: builder}, retest: [test],
-                serve: {path: /, ready_seconds: 120}}
+                serve: {path: /}}
   - review:    {agent: reviewer, max_rounds: 2, revise: {agent: builder}, retest: [test]}
   - commit:    {of: implement}                     # green suite, accepted, approved — only now
   - document:  {agent: documenter}

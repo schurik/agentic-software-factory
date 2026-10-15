@@ -1,13 +1,19 @@
 """The running app, for a stage that hands an agent a browser (`accept`).
 
-Code owns the dev server, start to finish. It starts `quality.serve(port)` in
-the run's worktree on a port nothing else holds, waits until it answers, hands
-the agent the URL and nothing else, and stops the server — its whole process
-group — however the stage ends: approved, rejected, a failed gate, a killed
-run (SIGTERM is SystemExit in a run, so the `finally` below runs then too).
-The agent never runs `bun dev`: no orphan processes, no port picked at random,
-no two sessions meeting on 3000. The server is recorded in `processes.jsonl`
+Code owns the dev server, start to finish. It starts every `serve.commands`
+entry of factory.yaml in the run's worktree, `{port}` replaced by a port
+nothing else holds, waits until the app answers there, hands the agent the URL
+and nothing else, and stops them all — each one's whole process group —
+however the stage ends: approved, rejected, a failed gate, a killed run
+(SIGTERM is SystemExit in a run, so the `finally` below runs then too). The
+agent never runs `bun dev`: no orphan processes, no port picked at random, no
+two sessions meeting on 3000. Every process is recorded in `processes.jsonl`
 as well, so `asf kill` can reach it from outside.
+
+Several commands, because an app is not always one process — a backend's dev
+server beside the frontend's. Readiness is the app's URL alone: a backend that
+must be up before the app is useful starts the app itself where it can
+(`convex dev --start`), so the URL answering means both are.
 
 Before the server starts, the agent's browser is asked for: each of its MCP
 servers must start and answer `initialize`, and a Playwright one needs a
@@ -30,25 +36,26 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from . import artifacts, mcp, preflight, quality
-from .data_types import AgentConfig, PhaseParams
+from .data_types import AgentConfig, FactoryConfig, PhaseParams
 from .utils import HANDOFF_ENV, agent_env, ensure_dir
 
 STOP_SECONDS = 10                  # SIGTERM's grace before the group is SIGKILLed
 LOG_TAIL_CHARS = 1500              # of the server's output, in an environment failure
 
 
+PORT = "{port}"                    # in a command's arguments: the free port
+
+
 class Serve(BaseModel):
-    """`serve:` in a stage's options: where the agent is pointed, and how long
-    the server and the browser get to come up."""
+    """`serve:` in a stage's options: where in the app the agent is pointed.
+    What runs the app is factory.yaml's `serve:`, the repository's own."""
 
     model_config = ConfigDict(extra="forbid")
 
     path: str = "/"                                       # appended to http://localhost:<port>
-    ready_seconds: int = Field(default=120, ge=1)         # until the dev server answers
-    browser_seconds: int = Field(default=120, ge=1)       # until each MCP server answers
 
     @field_validator("path")
     @classmethod
@@ -65,33 +72,50 @@ class App(BaseModel):
     log: str
 
 
+def refused(cfg: FactoryConfig) -> list[str]:
+    """Why a workflow that runs the app must not run yet — `check`'s words."""
+    if cfg.serve.commands:
+        return []
+    return ["serve.commands in asf/factory.yaml is empty, and this workflow runs accept — "
+            "write the argv that starts this repository's app, `{port}` where its port "
+            "goes, e.g. [npx, next, dev, --port, \"{port}\"]"]
+
+
+def commands(cfg: FactoryConfig, port: int) -> list[list[str]]:
+    """`serve.commands` as they run: `{port}` replaced wherever it appears."""
+    return [[arg.replace(PORT, str(port)) for arg in argv] for argv in cfg.serve.commands]
+
+
 @contextmanager
-def running(run, agent: AgentConfig, opts: Serve) -> Iterator[App]:
+def running(run, agent: AgentConfig, opts: Serve, browser_seconds: int) -> Iterator[App]:
     """The app, up for the length of the `with` block, as a `serve` code phase."""
-    process = None
+    processes: list[subprocess.Popen] = []
     try:
         with run.phase(PhaseParams(
                 name="serve", kind="code", owner="dev_server",
-                description="Start the dev server on a free port once the agent's browser "
-                            "answers — code owns both, so no agent starts a process")) as ph:
-            problems = browser_problems(run, agent, opts.browser_seconds)
+                description="Start the app's dev servers on a free port once the agent's "
+                            "browser answers — code owns both, so no agent starts a "
+                            "process")) as ph:
+            problems = browser_problems(run, agent, browser_seconds)
             if problems:
                 raise SystemExit(_environment("the agent's browser is not ready", problems))
             port = quality.free_port()
             app = App(url=f"http://localhost:{port}{opts.path}",
                       log=str(ensure_dir(run.context_handoff_dir / "serve") / "server.log"))
-            argv = quality.serve(port)
-            process = _start(run, argv, port, Path(app.log))
-            problem = _answering(app.url, process, opts.ready_seconds)
+            started = commands(run.cfg, port)
+            for argv in started:
+                processes.append(_start(run, argv, port, Path(app.log)))
+            problem = _answering(app.url, processes, run.cfg.serve.ready_seconds)
             if problem:
                 tail = Path(app.log).read_text(errors="replace")[-LOG_TAIL_CHARS:].strip()
                 raise SystemExit(_environment(
-                    f"the dev server `{shlex.join(argv)}` {problem}",
+                    f"the app {problem}",
                     [f"its output ({app.log}):\n{tail}" if tail else "it printed nothing"]))
-            ph.log(url=app.url, command=shlex.join(argv), log=app.log, pid=process.pid)
+            ph.log(url=app.url, commands=" · ".join(shlex.join(argv) for argv in started),
+                   log=app.log)
         yield app
     finally:
-        if process is not None:
+        for process in reversed(processes):
             _stop(run, process)
 
 
@@ -138,16 +162,19 @@ def _start(run, argv: list[str], port: int, log: Path) -> subprocess.Popen:
     return process
 
 
-def _answering(url: str, process: subprocess.Popen, seconds: int) -> str:
+def _answering(url: str, processes: list[subprocess.Popen], seconds: int) -> str:
     """"" once `url` answers at all — any status: a 404 or a 500 is the app,
-    and the agent's to judge — else why it never did."""
+    and the agent's to judge — else why it never did. A command that exits
+    first is that reason: the app it was part of will not come up whole."""
     # Straight to the port: an HTTP_PROXY in the operator's environment must
     # not be asked about localhost.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        if process.poll() is not None:
-            return f"exited {process.returncode} before it answered {url}"
+        ended = next((process for process in processes if process.poll() is not None), None)
+        if ended is not None:
+            return (f"did not answer {url}: `{shlex.join(ended.args)}` exited "
+                    f"{ended.returncode} first")
         try:
             opener.open(fullurl=url, timeout=2).close()
             return ""

@@ -220,7 +220,7 @@ def _accept(here: _Here) -> tuple[bool, str, str]:
         return True, f"{', '.join(running)} runs accept", ""
     return (False, "no workflow drives the running app in a browser",
             f"for a web app: `cp -r asf/examples/workflows/ship-accept asf/workflows/`, then "
-            f"`serve` in asf/engine/quality.py and `just doctor` "
+            f"`serve.commands` in asf/factory.yaml and `just doctor` "
             f"({COOKBOOK}/onboard.md#optional-the-running-app-in-a-browser)")
 
 

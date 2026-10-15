@@ -1125,6 +1125,35 @@ class WorktreeConfig(BaseModel):
     integration: IntegrationConfig = Field(default_factory=IntegrationConfig)
 
 
+class ServeConfig(BaseModel):
+    """`serve:` — how this repository's app is run, for a stage that hands an
+    agent a browser (`accept`, through `engine/serve.py`).
+
+    In factory.yaml, the operator's file, and not in the stamped quality.py: a
+    re-stamp with `--force` rewrites the engine and never this. One per
+    repository, not per workflow — every workflow that drives the app drives
+    the same one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # argv lists, bare binary names, as `worktree.setup`: started together in the
+    # session's worktree, each in a process group of its own, and every one of
+    # them stopped however the stage ends. `{port}` anywhere in an argument is
+    # the free port the app must answer on; PORT is set to it as well. Empty:
+    # `check` refuses a workflow that runs `accept`.
+    commands: list[list[str]] = Field(default_factory=list)
+    ready_seconds: int = Field(default=120, ge=1)    # until http://localhost:<port>/ answers
+
+    @field_validator("commands")
+    @classmethod
+    def _argv(cls, commands: list[list[str]]) -> list[list[str]]:
+        if any(not argv for argv in commands):
+            raise ValueError("serve.commands holds an empty argv — each is "
+                             "[binary, arg, …], never [] and never a shell string")
+        return commands
+
+
 class BudgetConfig(BaseModel):
     """What one SESSION may spend, across every process that joins it.
 
@@ -1543,6 +1572,7 @@ class FactoryConfig(BaseModel):
     hitl: HitlConfig = Field(default_factory=HitlConfig)
     cockpit: CockpitConfig = Field(default_factory=CockpitConfig)
     worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
+    serve: ServeConfig = Field(default_factory=ServeConfig)
     issues: IssuesConfig = Field(default_factory=IssuesConfig)
     pull_requests: PullRequestsConfig = Field(default_factory=PullRequestsConfig)
     self_improvement: ImproveAfter = Field(default_factory=ImproveAfter)

@@ -30,10 +30,6 @@ deciding.
 ║  it (verify.blocks, review.retest), and doctor asks about it only then. Keep  ║
 ║  `--output str(evidence)` in its argv; its config reads PORT.                ║
 ║                                                                              ║
-║  `serve` is the other opt-in: the command that starts this repo's dev        ║
-║  server on a port it is given, for the `accept` stage. Code starts it, waits  ║
-║  until it answers and stops it; an agent is handed only its URL.             ║
-║                                                                              ║
 ║  Two rules when you write the real command:                                  ║
 ║    1. argv LIST, never a shell string — no quoting bugs, no shell injection.  ║
 ║    2. Call binaries by BARE NAME. These blocks inherit the operator's         ║
@@ -89,8 +85,6 @@ EXAMPLES = {
     "typecheck": '["bunx", "tsc", "--noEmit"] or ["uv", "run", "mypy", "."]',
     "build": '["npm", "run", "build"] or ["cargo", "build"]',
     "e2e": '["bunx", "playwright", "test", "--output", str(evidence)]',
-    "serve": '["bun", "run", "dev", "--port", str(port)] or '
-             '["npx", "next", "dev", "-p", str(port)]',
 }
 
 
@@ -330,30 +324,6 @@ def e2e(run) -> QualityCheckResult:
         evidence=[str(evidence), str(report)],
         timeout_seconds=900,
     ), run))
-
-
-# ── The dev server ────────────────────────────────────────────────────────────
-
-def serve(port: int) -> list[str]:
-    """The command that starts this repository's dev server on `port` — what the
-    `accept` stage runs, so an agent can drive the app in a browser.
-
-    Not a block: nothing here judges it by its exit code. `engine/serve.py`
-    starts it in the run's worktree with `PORT` set as well, waits until
-    `http://localhost:<port>/` answers, hands the agent that URL, and stops it
-    — its whole process group — however the stage ends, so an agent never
-    runs a server, picks a port, or leaves one behind. Keep it a server that
-    reloads on change: a revision lands while it runs.
-    """
-    return _placeholder("serve")   # e.g. ["bun", "run", "dev", "--port", str(port)]
-
-
-def serve_refused() -> list[str]:
-    """Why a workflow running `accept` must not run yet: `serve` is still the
-    placeholder. Said by `asf check`, like an opt-in block's."""
-    return (["serve is still a placeholder in asf/engine/quality.py, and this workflow runs "
-             "accept — replace `_placeholder(\"serve\")` with the argv that starts the dev "
-             f"server on `port`, e.g. {EXAMPLES['serve']}"] if _unwired(serve) else [])
 
 
 # Every block this file offers, by name — what `run_blocks` resolves a

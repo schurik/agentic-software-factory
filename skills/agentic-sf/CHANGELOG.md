@@ -342,9 +342,11 @@ before — `None` when there are none, never omitted.
   `AcceptanceOutput` — verdicts, the steps it took, the page's console errors, screenshots — and
   an unmet requirement goes to the builder through `revise`, then `retest:`, at most `max_rounds`
   times: the loop `review` runs, now one function both call (`engine/judging.py`). Code owns the
-  dev server: `serve(port)` in `quality.py`, started on a free port in its own process group once
-  the agent's MCP servers answer, handed to the agent as a URL, and stopped however the stage ends
-  — a failed gate and a killed run included. A server or browser that does not come up ends the
+  dev server: `serve.commands` in `asf/factory.yaml` (argv lists, `{port}` where the free port
+  goes, several for an app of more than one process), each started in its own process group once
+  the agent's MCP servers answer, the app handed to the agent as a URL, and every one stopped
+  however the stage ends — a failed gate and a killed run included. `install.py` fills them from a
+  Next or Vite dependency, inside `convex dev --start` when there is a Convex backend. A server or browser that does not come up ends the
   session as an environment failure before any agent turn. The browser is a pinned
   `@playwright/mcp`, headless and isolated on every run, writing only to the session's
   `context_handoff/accept/` (`asf/agents/qa/playwright.json`). Off by default: no shipped workflow
@@ -451,9 +453,9 @@ before — `None` when there are none, never omitted.
     repository with Playwright whose `.gitignore` predates it gets `test-results/` and
     `playwright-report/` added by the re-stamp.
 11. Nothing to change for `accept` or `deny_tools`: the re-stamp brings the stage, the `qa` agent,
-    its `playwright.json` and `asf/examples/`, and runs nothing new. `quality.py` gains a `serve`
-    placeholder, re-detected with the rest of the file — restore your own commands from the diff
-    as in step 10. A binding that names `deny_tools` adds to its agent's; there was no such key
+    its `playwright.json` and `asf/examples/`, and runs nothing new. A `serve:` block is new in
+    `asf/factory.yaml`, which a re-stamp never rewrites: take it from `factory.yaml.new`, where
+    the installer filled `commands` from this repository, before a workflow runs `accept`. A binding that names `deny_tools` adds to its agent's; there was no such key
     before. Add `asf/examples/` to `protected_files` in `asf/factory.yaml` (the re-stamp never
     rewrites it; `factory.yaml.new` has it). To turn `accept` on, `cookbooks/onboard.md` §
     Optional: the running app, in a browser.
