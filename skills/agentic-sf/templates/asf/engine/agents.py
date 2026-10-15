@@ -462,9 +462,13 @@ def _check_gates(run, phase: Phase, call: AgentCall, envelope: EnvelopeBase,
     the live one would — measured against the tree as it is now, not as it was
     — or the resume would be the one path in the factory where a claim is taken
     on trust.
+
+    The run's standing gates follow the call's own: what an earlier stage
+    verified and froze (`run.standing_gates`) holds for every call after it,
+    whichever stage makes it and whether or not that stage knows.
     """
     violations: list[str] = []
-    for gate in call.gates:
+    for gate in [*call.gates, *getattr(run, "standing_gates", [])]:
         report = _as_report(gate(envelope, run))
         found = report.violations
         run.tracer.event(GateResult(phase_id=phase.phase_id, gate=gate.__name__,

@@ -53,7 +53,8 @@ def test_check_json_describes_the_stamped_factory(stamped: Path):
     assert description.checked.config_hash == commands.config_hash(stamped, "asf/data")
 
     by_name = {workflow.name: workflow for workflow in description.workflows}
-    assert set(by_name) == {"issue", "pr-review", "quick", "refine", "refine-ship", "sdlc", "ship"}
+    assert set(by_name) == {"bugfix", "issue", "pr-review", "quick", "refine", "refine-ship",
+                            "sdlc", "ship"}
     issue = by_name["issue"]
     assert issue.input == "issue"
     assert issue.description.startswith("a tracked work item")
@@ -117,7 +118,7 @@ def test_the_settings_are_the_stamped_factory_yaml_s_as_its_code_reads_them(stam
     intake = settings.intake
     assert intake.issues and intake.queued_label == "asf:queued"
     assert intake.routes == {"asf:ship": "issue", "asf:refine": "refine",
-                             "asf:refine-ship": "refine-ship"}
+                             "asf:refine-ship": "refine-ship", "asf:bugfix": "bugfix"}
     assert intake.trusted_authors == [] and intake.max_concurrent == 2
     assert intake.prompt_workflows == ["quick", "sdlc", "ship"]
     reviews = intake.reviews
@@ -226,8 +227,16 @@ def test_the_stamped_factory_s_description_has_the_golden_fixture_s_shape(stampe
     assert fields(raw) == fields(golden)
 
 
+# Maps whose keys are the factory's data — label names — rather than fields: a
+# route a stamp adds is not a field the fixture lacks.
+MAPS = {".settings.intake.routes"}
+
+
 def fields(value, at: str = "") -> set[str]:
-    """Every dotted path to a field in `value`; a list's items share `at[]`."""
+    """Every dotted path to a field in `value`; a list's items share `at[]`,
+    and a map's values share `at{}`."""
+    if isinstance(value, dict) and at in MAPS:
+        return set().union(*(fields(item, f"{at}{{}}") for item in value.values()))
     if isinstance(value, dict):
         found = set()
         for key, item in value.items():

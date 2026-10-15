@@ -1,0 +1,31 @@
+# bugfix — a reported bug, shown failing, then fixed. `asf run bugfix 42`, or the
+# issue watcher on `asf:queued` + `asf:bugfix` (factory.yaml `issues.route`).
+#
+# `issue` with `reproduce` where its `plan` is. Before anyone fixes the bug, a
+# builder writes a test that fails BECAUSE of it, and a gate runs that test and
+# watches it fail the way the builder said it would. From then on no agent in
+# the run may change the test, `verify` runs it until it passes, and it lands
+# in the same commit as the fix — so the fix is proven against what the person
+# saw, and the bug cannot quietly come back.
+#
+# WHY NO PLAN. A bug report already says what must be true when the work is
+# done: the reported behaviour stops. The failing test is that requirement,
+# written as code and checked, which is more than a plan would add.
+#
+# WHEN NOBODY CAN SHOW IT. The builder may say it could not reproduce the bug,
+# what it tried, and what it needs. The questions go on the item, the run waits
+# for an answer and tries again; after `max_rounds` the run stops as not reproduced, with
+# what every round tried on the item. Nothing is built on a bug nobody could
+# show. For a vague symptom with no clear bug in it, `asf:refine-ship` first.
+name: bugfix
+description: a reported bug, shown failing as a test, then fixed, verified, reviewed and proposed as a pull request
+input: issue
+
+stages:
+  - scout:     {agent: scout}                      # where does the reported behaviour live?
+  - reproduce: {agent: builder, max_rounds: 2}      # asks the reporter when it cannot reproduce
+  - implement: {agent: builder}                    # tasks/implement.md: make the repro pass
+  - verify:    {blocks: [test], max_fix_loops: 3, fix: {agent: builder}}   # runs the repro too
+  - review:    {agent: reviewer, max_rounds: 2, revise: {agent: builder}, retest: [test]}
+  - commit:    {of: implement}                     # the repro test and the fix, together, once green
+  - integrate: {}                                  # a pull request, never a merge, on this input

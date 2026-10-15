@@ -26,8 +26,8 @@ from .asf_helpers import asf, forge, forge_calls, forge_data, set_config
 GOLDEN = Path(__file__).resolve().parent / "golden" / "labels"
 
 # What the shipped defaults name, and therefore the least a gh repo must define.
-SHIPPED = ["asf:ship", "asf:refine", "asf:refine-ship", "asf:queued", "asf:running",
-           "asf:done", "asf:failed", "asf:refined", "asf:pr-failed"]
+SHIPPED = ["asf:ship", "asf:refine", "asf:refine-ship", "asf:bugfix", "asf:queued",
+           "asf:running", "asf:done", "asf:failed", "asf:refined", "asf:pr-failed"]
 
 
 def tracked(repo: Path, defined: list[str] | None = None, **issues) -> list[str]:
@@ -106,7 +106,7 @@ def test_the_check_names_every_label_the_forge_does_not_define(stamped: Path):
     warned = [finding for finding in found if finding.level == "warn"]
     assert len(warned) == 1
     detail = warned[0].detail
-    for missing in ("asf:refine-ship", "asf:refined", "asf:pr-failed"):
+    for missing in ("asf:refine-ship", "asf:bugfix", "asf:refined", "asf:pr-failed"):
         assert missing in detail
     assert "asf:ship" not in detail                       # only what is absent
     assert "asf/asf.py labels --create" in warned[0].fix
@@ -154,7 +154,7 @@ def test_create_defines_exactly_the_missing_labels_with_a_colour_and_a_reason(st
                               "asf:done", "asf:failed", "asf:refine"])
     result = asf(stamped, "labels", "--create")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert created(stamped) == ["asf:pr-failed", "asf:refine-ship", "asf:refined"]
+    assert created(stamped) == ["asf:bugfix", "asf:pr-failed", "asf:refine-ship", "asf:refined"]
     call = next(c for c in forge_calls(stamped) if c[:2] == ["label-create", "asf:refined"])
     assert "--color" in call and "--description" in call
     assert "requirements were settled" in call[call.index("--description") + 1]

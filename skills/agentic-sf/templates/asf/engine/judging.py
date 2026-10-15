@@ -25,7 +25,7 @@ from typing import Callable
 
 from pydantic import BaseModel, ConfigDict
 
-from . import gates, quality
+from . import gates, quality, reproduction
 from .data_types import AgentCall, BuildOutput, PhaseParams, ReviewOutput
 from .stage import StageStop
 
@@ -84,11 +84,14 @@ def judge_and_revise(ctx, opts, judging: Judging) -> BuildOutput:
                                       task=ctx.task("revise")))
             revised = True
     if revised and opts.retest:
-        what = ", ".join(opts.retest)
+        # The run's repro test too, when it has one: a revision that makes it
+        # red again has undone the fix the checks before it accepted.
+        repro_checks = reproduction.checks(ctx.latest)
+        what = ", ".join([*opts.retest, *([reproduction.NAME] if repro_checks else [])])
         with ctx.run.phase(PhaseParams(name="retest", kind="code", owner="quality",
                                        description=f"Re-run {what} — the revision changed code "
                                                    f"after the last green result")) as ph:
-            result = quality.run_blocks(ctx.run, opts.retest)
+            result = quality.run_blocks(ctx.run, opts.retest, also=repro_checks)
             passed = sum(1 for check in result.checks if check.passed)
             ph.log(passed=result.passed, checks=f"{passed}/{len(result.checks)}",
                    artifacts=", ".join(result.artifacts))

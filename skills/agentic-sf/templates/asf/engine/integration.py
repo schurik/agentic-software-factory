@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import subprocess
 
-from . import artifacts, benchmark_session, git_helper, pull_requests
+from . import artifacts, benchmark_session, git_helper, pull_requests, reproduction
 from .data_types import (FactoryConfig, IntegrationMode, IntegrationRequest, IntegrationResult,
                          ProvenanceRecorded, PullRequestOpened)
 from .utils import operator_env
@@ -266,8 +266,12 @@ def _pr_body(run, template: str, result: IntegrationResult) -> str:
                 f"pr_body_template could not be rendered ({type(error).__name__}: "
                 f"{error}) — opening the pull request without it. A literal "
                 f"brace in that template must be doubled: {{{{ and }}}}")
+    # A run that reproduced its bug before fixing it says what the reproduction
+    # gate saw: the test lands green, beside the fix, and that it was red first
+    # is otherwise only in the session's record (`engine/reproduction.py`).
+    proof = reproduction.pr_section(run.context_handoff_dir)
     closes = f"Closes #{run.issue_number}" if run.issue_number else ""
-    return "\n\n".join(part for part in (rendered, closes) if part)
+    return "\n\n".join(part for part in (rendered, proof, closes) if part)
 
 
 def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> IntegrationResult:

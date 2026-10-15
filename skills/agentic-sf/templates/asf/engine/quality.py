@@ -48,7 +48,7 @@ import socket
 import subprocess
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from .data_types import (RAW_TAIL_CHARS, CommandFinished, QualityCheckResult,
                          QualityCheckSpec, QualityResult, VerifyOutput)
@@ -298,11 +298,15 @@ def _diagnose_server_down(check: QualityCheckResult) -> QualityCheckResult:
         "asf/factory.yaml) or the webServer config.")})
 
 
-def e2e(run) -> QualityCheckResult:
+def e2e(run, only: Sequence[str] = (), name: str = "e2e") -> QualityCheckResult:
     """Browser tests against a dev server the command starts itself — Playwright's
     `webServer` config starts it and stops it, so code never runs one beside it.
 
     Opt-in: not in DEFAULT below, so it runs only where a workflow names it.
+
+    `only` narrows it to those spec files, appended to the argv, and `name` is
+    what the check is called: how a run's repro spec (`engine/reproduction.py`)
+    runs exactly as this block does, under the name `repro`.
 
     What the command is handed, so a browser test fits a factory: `PORT`, free
     for this check alone, which the webServer config and `use.baseURL` read;
@@ -311,10 +315,10 @@ def e2e(run) -> QualityCheckResult:
     is handed — traces and screenshots, not just the log. The HTML report goes
     beside it and never opens a browser that would wait for someone.
     """
-    check_dir = _check_dir(run, "e2e")
+    check_dir = _check_dir(run, name)
     evidence = check_dir / "test-results"
     report = check_dir / "report"
-    return _diagnose_server_down(_run(QualityCheckSpec(
+    spec = QualityCheckSpec(
         name="e2e",
         area="frontend",
         operation="test",
@@ -323,7 +327,10 @@ def e2e(run) -> QualityCheckResult:
              "PLAYWRIGHT_HTML_OUTPUT_DIR": str(report), "PLAYWRIGHT_HTML_OPEN": "never"},
         evidence=[str(evidence), str(report)],
         timeout_seconds=900,
-    ), run))
+    )
+    unwired = spec.argv[:1] == [UNWIRED]
+    return _diagnose_server_down(_run(spec.model_copy(update={
+        "name": name, "argv": spec.argv if unwired else [*spec.argv, *only]}), run))
 
 
 # Every block this file offers, by name — what `run_blocks` resolves a
@@ -367,16 +374,34 @@ def refused(names: list[str]) -> list[str]:
     return problems
 
 
-def run_blocks(run, names: list[str]) -> QualityResult:
+def command(run, name: str, argv: list[str]) -> QualityCheckResult:
+    """One command that is not a block: a check a stage was TOLD to run — the
+    repro test `reproduce` declared (`engine/reproduction.py`) — run exactly as
+    a block is, in the worktree, under the operator's environment, with a log
+    and a `command_finished` event. Handed what `e2e` is handed, so a
+    Playwright spec runs here as well as a unit test does."""
+    check_dir = _check_dir(run, name)
+    return _diagnose_server_down(_run(QualityCheckSpec(
+        name=name, area="backend", operation="test", argv=list(argv),
+        env={"PORT": str(free_port()), "ASF_CHECK_DIR": str(check_dir),
+             "PLAYWRIGHT_HTML_OPEN": "never"},
+        timeout_seconds=600), run))
+
+
+def run_blocks(run, names: list[str], also: Sequence[Callable] = ()) -> QualityResult:
     """The named blocks, in order, as one QualityResult — what a `verify` stage
     runs. A name that is not in BLOCKS is refused here, before anything spawns,
     because a workflow that asks for a block this repository never wired up is
     a configuration error and not a red suite.
+
+    `also` is checks the RUN holds beside the workflow's blocks, each a
+    `check(run) -> QualityCheckResult` run after them: the repro test, once a
+    run has one, whatever the blocks happen to collect.
     """
     unknown = [_unknown(name) for name in names if name not in BLOCKS]
     if unknown:
         raise RuntimeError("quality: " + "; ".join(unknown))
-    checks = [BLOCKS[name](run) for name in names]
+    checks = [BLOCKS[name](run) for name in names] + [check(run) for check in also]
     failures = [_failure(check) for check in checks if not check.passed]
     return QualityResult(passed=not failures, checks=checks, failures=failures,
                          artifacts=_artifacts(checks))

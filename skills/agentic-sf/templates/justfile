@@ -71,6 +71,10 @@ refine NUMBER *ARGS:
 refine-ship NUMBER *ARGS:
     {{asf}} run refine-ship {{NUMBER}} "${@:2}"
 
+# a reported bug: show it failing as a test, then fix it against that test: just bugfix 42
+bugfix NUMBER *ARGS:
+    {{asf}} run bugfix {{NUMBER}} "${@:2}"
+
 # answer the review threads and comments on one of this factory's pull requests: just pr-review 17
 pr-review NUMBER *ARGS:
     {{asf}} run pr-review {{NUMBER}} "${@:2}"

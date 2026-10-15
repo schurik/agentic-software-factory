@@ -96,8 +96,8 @@ stage add its own static rule: `commit` requires `of:` to name an earlier
 stage whose output carries `commit_message`. `warn(opts)` is for what loads
 today and will not in a later release — `integrate` says so about `mode:
 none` — and `check` prints it without refusing anything. `GATE` names the gate a
-stage places (`plan`, `integrate`; `refine`'s `requirements`, with `GATE_KIND =
-"questions"` for a question round), so the factory's self-description — `asf
+stage places (`plan`, `integrate`; `refine`'s `requirements` and `reproduce`'s
+`reproduction`, with `GATE_KIND = "questions"` for a question round), so the factory's self-description — `asf
 check --json`, the only account of a workflow a cockpit reads — shows where a
 run may stop for a person and whether that gate is on.
 
@@ -139,7 +139,10 @@ third parameter `check` may declare, the factory's config; before it, each of th
 never as a finding for the builder. Agents are handed `ASF_HANDOFF_DIR`, which
 the qa agent's `playwright.json` names as its `--output-dir`, the one place that
 server writes. No shipped workflow runs it; `asf/examples/workflows/` holds
-`ship-accept` to copy, never loaded where it is.
+`ship-accept` to copy, never loaded where it is, and `bugfix-accept`: the
+frozen repro test is the proof in code, and `accept` after `verify` is the
+proof from where the reporter sits — its workflow-local `tasks/accept.md`
+judges against the report and the reproduction, since that chain has no plan.
 
 Which chain a stage belongs in is decided by WHAT TRAVELS BETWEEN RUNS, not by
 what reads well in a list. `refine-ship` drops the scout because refine's recon
@@ -161,6 +164,28 @@ accumulated material — the reporter's words, the findings, the draft, the
 answers — through the one `previous` slot every agent handoff has, each part
 with a note saying where it came from, because that is what decides how much
 of it to believe.
+
+`reproduce` (the `bugfix` workflow, `issue` with it where `plan` is) owns the
+same kind of question loop and adds the one thing no other stage does: a claim
+that must keep holding after its stage is over. Its builder declares a test
+that fails because of the reported bug, and a gate (`reproduction.reproduces`)
+runs it and needs it to have run, failed, and printed the declared failure —
+an envelope that claims a reproduction is checked by reproducing. Then the
+test is FROZEN: `reproduction.freeze` pins its digest and appends a gate to
+`run.standing_gates`, which `agents.execute` runs after every later call's own
+gates, whichever stage makes the call and whether or not it knows. A later
+builder that edits the test is corrected in its own session — restore it from
+the copy kept in the handoff, fix the code — because `permissions.py` cannot do
+this job: the test is uncommitted until `commit: {of: implement}` lands it with
+the fix, so nothing red is ever on the branch, and rolling back an untracked
+file deletes it. A browser spec (`kind: e2e`) declares no command: it runs as
+the repository's `e2e` block with its path appended (`quality.e2e(…, only=,
+name=)`), so a repro gets what that block gets rather than an invocation an
+agent improvised. `verify` and a review's `retest:` run it beside their blocks
+(`quality.run_blocks(…, also=)`), and the pull request carries what the gate
+saw. A builder that cannot reproduce the bug says so, with what it tried and
+`refine`'s gated questions; after `max_rounds` the stage stops the run as not
+accepted, "not reproduced" — an outcome, not a crash, and nothing is built.
 
 ### Workflows
 

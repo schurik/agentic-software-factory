@@ -116,8 +116,10 @@ tool; it is the team's call, because every round costs a browser session. A
 
 1. **The workflow.** `cp -r asf/examples/workflows/ship-accept asf/workflows/` —
    `ship` with `accept` between `verify` and `review`, so acceptance runs on a
-   green suite and the reviewer sees the fixes made for it. Any workflow can
-   take the stage the same way; keep that order.
+   green suite and the reviewer sees the fixes made for it. For bug reports,
+   `asf/examples/workflows/bugfix-accept` is `bugfix` with the same stage,
+   judged against the report and the failing test instead of a plan. Any
+   workflow can take the stage the same way; keep that order.
 2. **The server.** `serve.commands` in `asf/factory.yaml` — argv lists, `{port}`
    where the free port goes (`PORT` is set too). `install.py` filled them from a
    Next or Vite dependency; check them. Code starts every one, each in its own
@@ -237,7 +239,8 @@ live one.
 
 **"Can it work my issues?"** — `just issue 42` works one; `just pr-review 17`
 answers a pull request's review; `just refine 42` turns an unclear issue into
-requirements by asking on the issue; `just refine-ship 42` does both. A run
+requirements by asking on the issue; `just refine-ship 42` does both; `just
+bugfix 42` shows a reported bug failing as a test before it fixes it. A run
 started from an item asks its questions and reports back there.
 
 **"Can it pick issues up by itself?"** — `just up`: the watchers start a run for

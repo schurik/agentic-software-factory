@@ -326,6 +326,67 @@ class RequirementsOutput(EnvelopeBase):
         return [q for q in self.open_questions if q.blocking]
 
 
+class ReproOutput(EnvelopeBase):
+    """A bug report turned into a test that fails because of the bug — or the
+    honest answer that it could not be.
+
+    Every field here is a CLAIM a gate then checks against the tree, never a
+    prediction (`engine/reproduction.py`): the test exists, the command runs it,
+    and running it fails printing `expected_failure`. `repro_command` is an argv
+    list for the reason every quality block's is — no quoting, no shell — and
+    it runs only this test, so a red repro says one thing.
+
+    `kind: e2e` is a browser spec, and it declares NO command: it runs as the
+    repository's own `e2e` block with the spec's path appended, so it gets
+    what that block gets — a free port, the dev server Playwright's
+    `webServer` starts, the evidence directory a builder is handed when it is
+    red — rather than whatever invocation the agent thought of.
+
+    `reproduced: false` is an answer, not a failure: `tried` is what was
+    attempted and what happened instead, and `open_questions` is what the
+    reporter must supply — the same questions, gated the same way, a `refine`
+    round asks. Both halves are refused at parse time when they are missing,
+    like a deviation without its reason, so the correction reaches the same
+    session that forgot them.
+    """
+
+    reproduced: bool = False
+    kind: Literal["unit", "e2e"] = "unit"
+    repro_test: str = ""            # repository-relative path of the test file
+    repro_command: list[str] = Field(default_factory=list)
+    expected_failure: str = ""      # what the failing run prints BECAUSE of the bug
+    tried: str = ""                 # not reproduced: what was attempted, what happened
+    open_questions: list[Question] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _a_claim_says_how_to_check_it(self) -> "ReproOutput":
+        if self.status != "success":
+            return self
+        if self.reproduced:
+            needed = ("repro_test", "expected_failure",
+                      *(("repro_command",) if self.kind == "unit" else ()))
+            missing = [name for name in needed if not getattr(self, name)]
+            if self.kind == "e2e" and self.repro_command:
+                raise ValueError(
+                    "kind: e2e declares no repro_command — the spec runs as this "
+                    "repository's e2e block with its path appended; leave it empty")
+            if missing:
+                raise ValueError(
+                    f"reproduced: true must name {', '.join(missing)} — a reproduction "
+                    f"is checked by running it, and these say what to run and what it "
+                    f"must print")
+            return self
+        missing = [name for name, value in (("tried", self.tried.strip()),
+                                            ("open_questions", self.open_questions))
+                   if not value]
+        if missing:
+            raise ValueError(
+                f"reproduced: false must name {' and '.join(missing)} — what was tried "
+                f"and what the reporter must supply, or the next round starts where "
+                f"this one did")
+        return self
+
+
 class ReviewFinding(BaseModel):
     """One thing the request (or plan) asked for, and whether it is there."""
 

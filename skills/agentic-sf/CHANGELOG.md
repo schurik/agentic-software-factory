@@ -367,6 +367,27 @@ before — `None` when there are none, never omitted.
 - `process_started` v2: `kind` may be `dev_server`.
 - `doctor` asks for a harness's CLI only when some workflow runs an agent on it: the `qa` agent is
   on Claude Code, and a pi factory that never runs `accept` is not told to install it.
+- **A new stage, `reproduce`, and a workflow, `bugfix`: a reported bug is shown failing before
+  anyone fixes it.** `bugfix` (label `asf:bugfix`, `just bugfix 42`) is `issue` with `reproduce`
+  where its `plan` is. The builder writes a test that fails because of the bug and declares it in
+  a `ReproOutput` — `repro_test`, `repro_command` (an argv list that runs only that test) and
+  `expected_failure` — and a gate runs it and refuses one that passes, one that never ran (an
+  import or collection error, a command not found) and one that fails without printing what it
+  declared, back to the same session. A browser bug's repro is `kind: e2e`, a Playwright spec
+  with no command of its own: it runs as the repository's `e2e` block with the spec appended
+  (`quality.e2e(run, only=, name=)`), its free port, `webServer` and evidence directory
+  included, and is refused while that block is a placeholder. The test is then frozen: every later agent call in the run
+  carries a standing gate (`run.standing_gates`) holding it to the digest it was shown failing
+  at, and a call that edits it is corrected — restore it, fix the code. `verify` and a review's
+  `retest:` run it beside their blocks (`quality.run_blocks(…, also=)`), it lands in the same
+  commit as the fix, and the pull request's description shows the declared failure and the
+  output the gate saw. A builder that cannot reproduce it says `reproduced: false` with what it
+  `tried` and `refine`'s gated `open_questions`; they are asked on the item, and after
+  `max_rounds` (default 2) the run ends not accepted, "not reproduced", with what every round
+  tried on the item. `pr-review` is unchanged. No event changed: the gate's checks and the
+  `repro` command's `command_finished` are the record. `asf/examples/workflows/bugfix-accept/`
+  is `bugfix` with `accept` after `verify`, the `qa` agent judging the running app against the
+  report and the reproduction (its own `tasks/accept.md`).
 
 ### Upgrade
 
@@ -459,6 +480,13 @@ before — `None` when there are none, never omitted.
     before. Add `asf/examples/` to `protected_files` in `asf/factory.yaml` (the re-stamp never
     rewrites it; `factory.yaml.new` has it). To turn `accept` on, `cookbooks/onboard.md` §
     Optional: the running app, in a browser.
+12. `bugfix` and `reproduce` come with the re-stamp, and so does the `quality.py` they need
+    (`command()`, `run_blocks`'s `also=`, and `e2e`'s `only=` and `name=`) — put your commands
+    back as in step 10; an `e2e` block you rewrote by hand keeps working for `verify`, but a
+    browser repro needs those two parameters. The route
+    is new in `asf/factory.yaml`, which a re-stamp never rewrites: add `"asf:bugfix": bugfix` under
+    `issues.route` (`factory.yaml.new` has it), then `just labels --create` defines the label.
+    Without the route nothing changes; `just bugfix 42` still works by hand.
 
 ## 1.2.0 — 2026-10-02
 
