@@ -170,12 +170,15 @@ def runtime(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
 
     Probed by creating the directory if missing and writing a file that is then
     removed — the same two things the run itself would do a moment later, which
-    is the only way to answer honestly. Nothing else is touched.
+    is the only way to answer honestly. Nothing else is touched. The file is
+    this process's own: two runs starting at once (two watchers, two sessions
+    side by side) would otherwise each remove the other's probe, and the one
+    that came second would report a writable directory as unwritable.
     """
     target = anchor(main_root, cfg.data_dir)
     try:
         target.mkdir(parents=True, exist_ok=True)
-        probe = target / ".asf-write-probe"
+        probe = target / f".asf-write-probe-{os.getpid()}"
         write_atomic(probe, "")
         probe.unlink()
     except OSError as error:
