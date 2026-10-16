@@ -388,6 +388,26 @@ before — `None` when there are none, never omitted.
   `repro` command's `command_finished` are the record. `asf/examples/workflows/bugfix-accept/`
   is `bugfix` with `accept` after `verify`, the `qa` agent judging the running app against the
   report and the reproduction (its own `tasks/accept.md`).
+- **`asf/factory.yaml` is an overlay on `asf/factory-defaults.yaml`** (ADR 0007). The defaults
+  file holds every key, its default and its prose, rendered for the stamp's harness; it is the
+  skill's, and every run of `install.py` rewrites it when it differs, `--force` or not — so a
+  release's new default reaches a stamp that never said that key. factory.yaml says only what
+  differs: a fresh stamp's is one pointer line, `cockpit.commands`, and what detection found that
+  the defaults do not say (`worktree.copy`, `worktree.setup`, `serve.commands`). A map merges key
+  by key, a scalar or a list replaces, `null` deletes a map entry (`"asf:bugfix": null` drops that
+  route), and `protected_files` and `harness.deny_tools` only ever add — an overlay cannot
+  unprotect `asf/engine/`. **A key the defaults do not hold is refused by name** —
+  `issues.trusted_author: …` used to be dropped, which meant "trust everyone" — and so is
+  `observability:`, ignored since 1.2. The models in `data_types.py` lost their defaults, so the
+  file is their one source and a key missing from it is a load error. Two defaults changed with
+  it: `issues.route` is the four routes the template already had, and **`cockpit.commands` is
+  `[]`** — the installer writes `[answer, abort, kill, resume]` into a new factory.yaml, so a
+  permission a station obeys is said in the repository's own file and never arrives through an
+  upgrade. A `harness:` in factory.yaml naming another harness than the defaults' inherits only
+  `thinking`, `timeout_seconds`, `skills` and `context`; switching the factory's harness is a
+  re-stamp with `--harness`. `asf doctor` warns (`factory defaults`) when the defaults file was
+  edited since the installer wrote it. `asf/factory-defaults.yaml` is protected and listed in
+  `asf/.skill-files`; `uninstall.py` reads the worktree and data settings from it too.
 
 ### Upgrade
 
@@ -487,6 +507,24 @@ before — `None` when there are none, never omitted.
     is new in `asf/factory.yaml`, which a re-stamp never rewrites: add `"asf:bugfix": bugfix` under
     `issues.route` (`factory.yaml.new` has it), then `just labels --create` defines the label.
     Without the route nothing changes; `just bugfix 42` still works by hand.
+13. The overlay: re-run `install.py --harness <the harness factory.yaml names>` (`--force` or
+    not) — it writes `asf/factory-defaults.yaml`, which the new engine refuses to start without.
+    Commit it with the rest. The full factory.yaml you have keeps working as it is: every key it
+    says is still a key and resolves as it did — except **`issues.route`, which now merges**:
+    the routes it lists join the defaults' four, so a 1.2 stamp gains `"asf:bugfix": bugfix`
+    (inert until someone applies the label), and a `route: {}` that turned routing off no longer
+    does. Say `"asf:bugfix": null` for each route to keep off, or `issues.enabled: false`.
+    Then:
+    - `just check`. It now refuses a key the defaults do not hold, by name — delete
+      `observability:` if it is still there, and fix any typo it names: that key was being
+      ignored.
+    - If factory.yaml never listed `cockpit.commands`, a station obeyed none before and still
+      obeys none; nothing to do unless you want them (`cookbooks/upgrade.md`, step 5).
+    - Optional: shrink factory.yaml to the overlay, keeping only the keys whose value differs from
+      `asf/factory-defaults.yaml` (`asf/factory.yaml.new` is what a fresh stamp says). A key left
+      in pins its value, and later releases' defaults never reach it.
+    - Never edit `asf/factory-defaults.yaml`: the next `install.py` rewrites it, and `just doctor`
+      says when it was edited. A change goes in factory.yaml.
 
 ## 1.2.0 — 2026-10-02
 

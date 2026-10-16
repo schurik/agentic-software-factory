@@ -1084,30 +1084,28 @@ class HarnessBlock(BaseModel):
 
 
 class HarnessDefaults(BaseModel):
-    """factory.yaml's `harness:` block — every agent's, unless its agent.md
-    says otherwise. The same keys as `HarnessBlock`, each with its default."""
+    """The factory's `harness:` block — every agent's, unless its agent.md
+    says otherwise. The same keys as `HarnessBlock`, every one of them said:
+    a default is factory-defaults.yaml's, never this model's (ADR 0007)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = "pi"
-    model: str = "google/gemini-3.6-flash"
-    thinking: str = "medium"
+    name: str
+    model: str
+    thinking: str
     # Roster-wide wall clock per agent turn; any agent may override with its
     # own, and `0` restores the unbounded behaviour every version before this
     # one had.
-    timeout_seconds: int = DEFAULT_AGENT_TIMEOUT_SECONDS
-    tools: Optional[list[str]] = None    # roster-wide allowlist; None = all tools usable
-    skills: list[str] = Field(default_factory=list)
-    context: list[str] = Field(default_factory=list)
-    harness_engineering: list[str] = Field(default_factory=list)
-    deny_tools: list[str] = Field(default_factory=list)
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-def default_protected_files() -> list[str]:
-    return ["asf/engine/", "asf/stages/", "asf/workflows/", "asf/agents/", "asf/scorers/",
-            "asf/benchmarks/", "asf/cockpit/", "asf/examples/", "asf/factory.yaml", "asf/asf.py",
-            "asf/.skill-version", ".github/workflows/asf-check.yml"]
+    timeout_seconds: int
+    # Roster-wide allowlist. Unset rather than defaulted: a block on another
+    # harness than the defaults' inherits none of their tools
+    # (`factory.resolve`), and None is then every tool that harness has.
+    tools: Optional[list[str]] = None
+    skills: list[str]
+    context: list[str]
+    harness_engineering: list[str]
+    deny_tools: list[str]
+    options: dict[str, Any]
 
 
 # `none` is refused when the config is loaded — see `integration.none_is_refused`.
@@ -1122,16 +1120,18 @@ class IntegrationConfig(BaseModel):
     configuration. The integration phase reads it; nothing in it is hard-coded.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     # `pr` by default: a machine proposes and a human moves the base branch. The
     # repo that wants a machine to merge says so in its config.
-    mode: IntegrationMode = "pr"
-    merge_flags: list[str] = Field(default_factory=lambda: ["--no-ff"])
-    remote: str = "origin"                       # mode: pr — where the branch is pushed
-    open_pr: bool = True                         # mode: pr — also run pr_command
+    mode: IntegrationMode
+    merge_flags: list[str]
+    remote: str                                  # mode: pr — where the branch is pushed
+    open_pr: bool                                # mode: pr — also run pr_command
     # Left as a command rather than an API call: whichever forge CLI the repo
     # uses is already authenticated in the engineer's shell, and the phase runs
     # under operator_env() so it resolves exactly as it does in their terminal.
-    pr_command: list[str] = Field(default_factory=lambda: ["gh", "pr", "create", "--fill"])
+    pr_command: list[str]
     # Rendered with {adw_id}, {branch}, {base_ref} and — for an issue-triggered
     # run — {issue_number} and {issue_url}, then passed as --body ahead of that
     # run's own `Closes #<n>` line. Left empty, an issue-triggered run still
@@ -1139,7 +1139,7 @@ class IntegrationConfig(BaseModel):
     # and pr_command decides on its own (`--fill` does).
     # NOTE: `--fill` and an explicit body are mutually exclusive in gh; the
     # integrate phase drops --fill from the command itself once there is a body.
-    pr_body_template: str = ""
+    pr_body_template: str
 
 
 PublishMode = Literal["on_create", "on_integrate"]
@@ -1154,12 +1154,12 @@ class WorktreeConfig(BaseModel):
     which is what permissions.py is for.
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    enabled: bool = True
-    dir: str = ".asf-worktrees"     # relative to the MAIN checkout; gitignored
-    branch_prefix: str = "asf/"     # the run's branch is <prefix><adw_id>
-    base_ref: str = ""               # "" = whatever the main checkout has checked out
+    enabled: bool
+    dir: str                        # relative to the MAIN checkout; gitignored
+    branch_prefix: str              # the run's branch is <prefix><adw_id>
+    base_ref: str                    # "" = whatever the main checkout has checked out
     # WHEN the run's branch first goes to `integration.remote`. `on_create`
     # pushes it as the session starts and again before every suspend, so a
     # cockpit can read a gate's subject from the forge at the commit the
@@ -1174,16 +1174,16 @@ class WorktreeConfig(BaseModel):
     # re-created from its branch. Each must be gitignored, or a commit stage's
     # `git add -A` commits it; `engine/worktree.py` refuses any that is not.
     # (`copy_` in Python: `copy` is a pydantic model's own method.)
-    copy_: list[str] = Field(default_factory=lambda: [".env"], alias="copy")
+    copy_: list[str] = Field(alias="copy")
     # ...and its dependencies, installed rather than copied: argv lists with a
     # bare binary name, as in quality.py, run in order in the new worktree after
     # `copy`. One that fails ends the session before any agent runs.
-    setup: list[list[str]] = Field(default_factory=list)
+    setup: list[list[str]]
     # A successful run's worktree is a redundant copy of a branch, so it goes.
     # A failed or killed one is where you go to see what happened, so it stays —
     # and so does any worktree with uncommitted work in it, whatever the outcome.
-    keep_on_success: bool = False
-    integration: IntegrationConfig = Field(default_factory=IntegrationConfig)
+    keep_on_success: bool
+    integration: IntegrationConfig
 
 
 class ServeConfig(BaseModel):
@@ -1203,8 +1203,8 @@ class ServeConfig(BaseModel):
     # them stopped however the stage ends. `{port}` anywhere in an argument is
     # the free port the app must answer on; PORT is set to it as well. Empty:
     # `check` refuses a workflow that runs `accept`.
-    commands: list[list[str]] = Field(default_factory=list)
-    ready_seconds: int = Field(default=120, ge=1)    # until http://localhost:<port>/ answers
+    commands: list[list[str]]
+    ready_seconds: int = Field(ge=1)                 # until http://localhost:<port>/ answers
 
     @field_validator("commands")
     @classmethod
@@ -1234,8 +1234,10 @@ class BudgetConfig(BaseModel):
     harness-agnostic, cumulative, and the factory's own.
     """
 
-    max_cost_usd: float = 0.0       # 0 = no ceiling
-    max_tokens: int = 0             # 0 = no ceiling
+    model_config = ConfigDict(extra="forbid")
+
+    max_cost_usd: float             # 0 = no ceiling
+    max_tokens: int                 # 0 = no ceiling
 
 
 class HitlConfig(BaseModel):
@@ -1248,20 +1250,22 @@ class HitlConfig(BaseModel):
     Off by default, so a stamped repository behaves exactly as it did.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     # `on` and `off` are what a config says — and in YAML those ARE booleans,
     # so `default: off` arrives here as False. Stored as bool; the words are
     # accepted too, for a config written with quotes or by hand in Python.
-    default: bool = False                # off | on
-    gates: dict[str, bool] = Field(default_factory=dict)   # {"plan": on}
-    wait_seconds: int = 900              # attended: prompt this long, then suspend
-    max_rounds: int = 0                  # 0 = until the human approves or aborts
+    default: bool                        # off | on
+    gates: dict[str, bool]               # {"plan": on}
+    wait_seconds: int                    # attended: prompt this long, then suspend
+    max_rounds: int                      # 0 = until the human approves or aborts
     # What an issue- or PR-triggered run does at an on-gate: `suspend` stops
     # and waits (there is no terminal to ask); `auto` records a policy approval
     # and continues. The safe default is the first.
-    when_unattended: str = "suspend"     # suspend | auto
+    when_unattended: str                 # suspend | auto
     # Run when a gate suspends, with the subject on stdin — a known command is
     # code. [] runs nothing.
-    notify_command: list[str] = Field(default_factory=list)
+    notify_command: list[str]
 
     @field_validator("default", "gates", mode="before")
     @classmethod
@@ -1320,9 +1324,11 @@ class CockpitConfig(BaseModel):
     limit holds wherever the session's events go.
     """
 
-    transcripts: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+    transcripts: bool
     transcript_retention_days: int | None = Field(default=None, ge=1)
-    commands: list[CommandVerb] = Field(default_factory=list)
+    commands: list[CommandVerb]
 
 
 class ImproveAfter(BaseModel):
@@ -1338,8 +1344,8 @@ class ImproveAfter(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    failures: int = Field(default=3, ge=1)
-    of_last: int = Field(default=10, ge=1)
+    failures: int = Field(ge=1)
+    of_last: int = Field(ge=1)
 
     @model_validator(mode="after")
     def _a_window_holds_its_failures(self) -> "ImproveAfter":
@@ -1366,7 +1372,7 @@ class MeasurementConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    usd_per_day: float = Field(default=5.0, ge=0)
+    usd_per_day: float = Field(ge=0)
 
 
 ScorerKind = Literal["judge", "code"]
@@ -1462,10 +1468,12 @@ class IssueStates(BaseModel):
     issues watcher per repository, which the watcher says when it starts.
     """
 
-    queued: str = "asf:queued"
-    running: str = "asf:running"
-    done: str = "asf:done"
-    failed: str = "asf:failed"
+    model_config = ConfigDict(extra="forbid")
+
+    queued: str
+    running: str
+    done: str
+    failed: str
 
 
 class IssuesConfig(BaseModel):
@@ -1476,32 +1484,34 @@ class IssuesConfig(BaseModel):
     engineer's shell already, and everything here runs under operator_env().
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     # On, because `enabled` alone starts nothing: a run needs `asf:queued` plus
     # a routing label, and a human applies both.
-    enabled: bool = True
+    enabled: bool
     # WHICH REPO the watcher watches. Empty resolves ONCE at startup from the
     # origin remote of the main checkout — never left to each command's cwd,
     # because cron has an arbitrary working directory and a watcher that
     # silently polls the wrong project looks exactly like one with nothing to
     # do. A tracker that is not the forge has no remote to infer from and must
     # set this. It is the same normalised identity the trace records.
-    project: str = ""
-    fetch_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "view"])
-    list_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "list"])
-    comment_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "comment"])
-    state_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
+    project: str
+    fetch_command: list[str]
+    list_command: list[str]
+    comment_command: list[str]
+    state_command: list[str]
     # Reading the answers a person wrote, and writing the requirements block
     # back into the description. Separate entries although `gh` spells both
     # with verbs it already has: a tracker that is not the forge routes
     # comments, labels and the description to three different places, and a
     # config that had conflated them could not say so.
-    comments_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "view"])
-    body_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "edit"])
+    comments_command: list[str]
+    body_command: list[str]
     # Filing an issue: the one the factory opens on itself, when a scorer keeps
     # failing (`engine/improve.py`). Every other path works an issue a person
     # opened; this is the only one that opens one. EMPTY MEANS SKIP: a tracker
     # the factory cannot file on is told the pattern on the console instead.
-    create_command: list[str] = Field(default_factory=lambda: ["gh", "issue", "create"])
+    create_command: list[str]
     # Reading which labels the project DEFINES, and defining one. Every name in
     # `route`, `states`, `refined_label` and `pull_requests.states.failed` is
     # one this factory will hand to `--add-label`, and a forge answers that with
@@ -1516,8 +1526,8 @@ class IssuesConfig(BaseModel):
     # inventing `gh` for it. They live here rather than under `pull_requests`
     # because a label is a fact about the project, not about issues, and the
     # two paths share one project (see `issues.resolve_project`).
-    labels_list_command: list[str] = Field(default_factory=lambda: ["gh", "label", "list"])
-    labels_create_command: list[str] = Field(default_factory=lambda: ["gh", "label", "create"])
+    labels_list_command: list[str]
+    labels_create_command: list[str]
     # WHO TRIGGERED a labelled run: the forge's `labeled` events on the issue,
     # read through graphql because `gh issue view --json` has no timeline. The
     # watcher asks once per launch and the run records the answer as
@@ -1525,29 +1535,29 @@ class IssuesConfig(BaseModel):
     # label) and `trusted_authors` keeps its own meaning. EMPTY MEANS SKIP, for
     # a tracker whose label history is not read this way: the run then records
     # nobody rather than guess.
-    labeller_command: list[str] = Field(default_factory=lambda: ["gh", "api", "graphql"])
+    labeller_command: list[str]
     # label -> workflow. The watcher routes on this; no workflow knows about it.
     # An empty map launches nothing, whatever `enabled` says.
-    route: dict[str, str] = Field(default_factory=lambda: {"asf:ship": "issue"})
-    states: IssueStates = Field(default_factory=IssueStates)
+    route: dict[str, str]
+    states: IssueStates
     # Empty = every issue author is accepted, and the human who applied the
     # routing label is the only authorization. Narrow it where anyone can label.
-    trusted_authors: list[str] = Field(default_factory=list)
-    max_concurrent: int = 2
+    trusted_authors: list[str]
+    max_concurrent: int
     # An issue-triggered run must not be able to move the base branch. Enforced
     # in integration.integrate(), not left to whoever edits the config.
-    force_pr: bool = True
+    force_pr: bool
     # NOT a fifth state. The four above are mutually exclusive and the watcher
     # clears whichever of them an issue still carries; "this has been refined"
     # is a different axis entirely — a refined item is still queued, still
     # running, still done. `watch.stale_states()` keeps it out of that set on
     # purpose, so a later run cannot strip it.
-    refined_label: str = "asf:refined"
+    refined_label: str
     # A ceiling on the question comment, which is text an agent produced landing
     # on a page anyone can read. The questions are RENDERED from the envelope
     # rather than written by the agent as markdown, so this is a second bound
     # and not the only one.
-    max_question_chars: int = 4000
+    max_question_chars: int
 
 
 class PullRequestStates(BaseModel):
@@ -1566,7 +1576,9 @@ class PullRequestStates(BaseModel):
     failing run every poll, forever. A human removing the label is the restart.
     """
 
-    failed: str = "asf:pr-failed"
+    model_config = ConfigDict(extra="forbid")
+
+    failed: str
 
 
 class PullRequestsConfig(BaseModel):
@@ -1589,55 +1601,67 @@ class PullRequestsConfig(BaseModel):
     merged between them.
     """
 
-    enabled: bool = True
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
     # WHICH REPO, resolved once — same rule and same failure mode as
     # IssuesConfig.project: a watcher that cannot name its project polls
     # nothing, and polling nothing looks exactly like having nothing to do.
-    project: str = ""
-    list_command: list[str] = Field(default_factory=lambda: ["gh", "pr", "list"])
-    comment_command: list[str] = Field(default_factory=lambda: ["gh", "pr", "comment"])
-    state_command: list[str] = Field(default_factory=lambda: ["gh", "pr", "edit"])
-    graphql_command: list[str] = Field(default_factory=lambda: ["gh", "api", "graphql"])
+    project: str
+    list_command: list[str]
+    comment_command: list[str]
+    state_command: list[str]
+    graphql_command: list[str]
     # Empty = every reviewer is accepted, because the ability to review this
     # repository's pull requests is itself the authorization. Narrow it where
     # that is not true — a public fork's PR can be reviewed by anyone.
-    trusted_reviewers: list[str] = Field(default_factory=list)
+    trusted_reviewers: list[str]
     # Bots whose comments are never work: coverage reporters, changelog nags.
     # The factory's own comments are skipped regardless — see pull_requests.py.
-    ignore_authors: list[str] = Field(default_factory=list)
+    ignore_authors: list[str]
     # Which workflow the review watcher launches per pull request with open
     # threads. It must declare `input: pr`; `asf check` and the watcher refuse
     # one that does not.
-    workflow: str = "pr-review"
-    reply_to_threads: bool = True
-    resolve_threads: bool = True
+    workflow: str
+    reply_to_threads: bool
+    resolve_threads: bool
     # Bounds the prompt, not the pull request. A review with eighty threads is a
     # conversation to have, not a batch to hand an agent in one go. It caps the
     # conversation's comments too, separately: twenty of each, oldest first.
-    max_threads: int = 20
-    max_concurrent: int = 2
+    max_threads: int
+    max_concurrent: int
     # A merged or closed pull request ends its session: a still-running review
     # run is killed, and its worktree released. See scripts/pr_watch.py.
-    reap_merged: bool = True
-    states: PullRequestStates = Field(default_factory=PullRequestStates)
+    reap_merged: bool
+    states: PullRequestStates
 
 
 class FactoryConfig(BaseModel):
-    harness: HarnessDefaults = Field(default_factory=HarnessDefaults)
+    """factory.yaml merged onto factory-defaults.yaml (`engine/factory.py`), and
+    the roster beside it. No setting has a default — an `Optional` whose None
+    means "not said" aside, and `agents`, which no file holds: the defaults
+    file is the one source of every default, so a key missing from it is a
+    load error rather than a value that drifts from it (ADR 0007). Every block forbids a key it
+    does not have — a typo there would otherwise be a setting silently dropped,
+    and `trusted_author: [me]` would mean "trust everyone"."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    harness: HarnessDefaults
     # Off-limits to every agent that has not named them in its own `writes`.
     # The factory's own code is the default: an agent must not be able to edit
     # the machinery that decides whether its work passed.
-    protected_files: list[str] = Field(default_factory=default_protected_files)
-    data_dir: str = "asf/data"      # runtime home: {data_dir}/sessions/{adw_id}/
-    budget: BudgetConfig = Field(default_factory=BudgetConfig)
-    hitl: HitlConfig = Field(default_factory=HitlConfig)
-    cockpit: CockpitConfig = Field(default_factory=CockpitConfig)
-    worktree: WorktreeConfig = Field(default_factory=WorktreeConfig)
-    serve: ServeConfig = Field(default_factory=ServeConfig)
-    issues: IssuesConfig = Field(default_factory=IssuesConfig)
-    pull_requests: PullRequestsConfig = Field(default_factory=PullRequestsConfig)
-    self_improvement: ImproveAfter = Field(default_factory=ImproveAfter)
-    measurement: MeasurementConfig = Field(default_factory=MeasurementConfig)
+    protected_files: list[str]
+    data_dir: str                   # runtime home: {data_dir}/sessions/{adw_id}/
+    budget: BudgetConfig
+    hitl: HitlConfig
+    cockpit: CockpitConfig
+    worktree: WorktreeConfig
+    serve: ServeConfig
+    issues: IssuesConfig
+    pull_requests: PullRequestsConfig
+    self_improvement: ImproveAfter
+    measurement: MeasurementConfig
     agents: list[AgentConfig] = Field(default_factory=list)
 
 
@@ -1686,7 +1710,7 @@ class WorktreeRequest(BaseModel):
 
     main_root: Path
     adw_id: str
-    config: WorktreeConfig = Field(default_factory=WorktreeConfig)
+    config: WorktreeConfig
     # Put the branch on the remote before the run starts — `publish.mode` said
     # `on_create`. Resolved by the caller: what decides it is not git's to know.
     publish_on_create: bool = False

@@ -31,6 +31,40 @@ person or the orchestrator session. Agent proposes, code disposes.
 | B · Stages | `asf/stages/<name>/` | the contract, loops, conditions, default task files | when the vocabulary grows |
 | C · Workflows | `asf/workflows/<name>/` | which stages, options, agent bindings, task overrides | often |
 
+### The config is an overlay
+
+The manifest is two files (ADR 0007). `asf/factory-defaults.yaml` holds every
+key, its default and the prose that says what it does; it is the skill's,
+rendered for the chosen harness (that harness's `harness.yaml` is its
+`harness:` block) and rewritten by every run of `install.py` whenever it
+differs, `--force` or not — so a release's new default reaches a stamp that
+never said the key. `asf/factory.yaml` is the repository's: an overlay that
+says only what differs, one pointer line and no prose. A fresh stamp's says the
+commands a cockpit may send and what detection found here — `worktree.copy`
+and `worktree.setup`, `serve.commands` — when it differs from the defaults.
+
+`engine.factory.resolve` merges one onto the other: a map key by key, a scalar
+or a list replacing, `null` deleting a map entry (a default route). Two lists
+only grow — `protected_files` and `harness.deny_tools` — because each narrows
+what an agent may do, and one that could be replaced could be emptied: an
+overlay can never unprotect `asf/engine/`. A `harness:` naming another harness
+than the defaults' inherits from them only what an agent.md on another harness
+would (below); switching the factory's harness is a re-stamp.
+
+The models in `data_types.py` carry no defaults (an unset `Optional` aside), so
+the defaults file is the one source of them and a key it lacks is a load error,
+named, rather than a value that silently drifts from what the file says. Every
+block forbids a key it does not have, except the open maps `issues.route` and
+`hitl.gates`: a typo is refused by its path (`issues.trusted_author`), where it
+used to be dropped — and `trusted_author: [me]` meant "trust everyone". The
+installer's last line in the defaults file is a digest of the rest, and
+`doctor` warns when it no longer matches: an edit there is lost on the next
+upgrade, and belongs in the overlay.
+
+`cockpit.commands` is `[]` in the defaults and the installer writes the four it
+recommends into a new overlay: a permission a station obeys is said in the
+repository's own reviewed file, and never arrives through an upgrade.
+
 ### Agents
 
 ```
@@ -44,8 +78,8 @@ One file, two readers. `engine.factory` parses the frontmatter and enforces
 it; `engine.prompts` strips it and hands the model the body. The same shape
 as a Claude Code subagent file. No `user.md`: the task belongs to the stage.
 
-What an agent runs on is one `harness:` block, the same block factory.yaml
-opens with and a workflow binding narrows: `name`, `model`, `thinking`,
+What an agent runs on is one `harness:` block, the same block the factory's
+defaults open with and a workflow binding narrows: `name`, `model`, `thinking`,
 `timeout_seconds`, `tools`, `skills`, `context`, `harness_engineering`,
 `options`. `purpose`, `color` and `writes` stay flat — they are the engine's.
 `agents.merge_harness` lays the agent's block over factory.yaml's: on the same
@@ -457,8 +491,9 @@ asks nothing of the forge.
     files anything upstream.
 
   What the skill owns is `asf/.skill-files`, which `install.py` writes on every run: every file
-  under `asf/` a `--force` overwrites (the scorers are not among them). A factory stamped before
-  it holds everything under `asf/` but `factory.yaml` and `asf/scorers/` to be the skill's.
+  under `asf/` a `--force` overwrites (the scorers are not among them), and
+  `factory-defaults.yaml`, which any run rewrites. A factory stamped before it holds everything
+  under `asf/` but `factory.yaml` and `asf/scorers/` to be the skill's.
 
   A diagnosis keeps its record in a directory of its own, `asf/data/diagnoses/<scorer>-<when>/`,
   in no session — it is about a scorer, across sessions — and is paid from the measurement budget,
@@ -597,7 +632,8 @@ top of it through a small seam:
   `BLOCKS`; `run_quality` runs `DEFAULT`, which leaves the opt-in `e2e` out,
   and `quality.refused(names)` is the stages' `check`.
 - `agents.merge_harness(raw)`: one merge of each agent's `harness:` block over
-  factory.yaml's, used by `engine.factory`.
+  the factory's, used by `engine.factory` once `factory.resolve` has merged
+  factory.yaml onto factory-defaults.yaml.
 
 And five modules of its own: `stage.py` (contract and registry), `tasks.py`
 (resolution and the report check), `factory.py` (roster from directories),

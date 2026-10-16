@@ -413,15 +413,18 @@ def test_integration_none_is_refused_wherever_the_config_is_loaded_and_names_wha
     assert checked.stdout.count("is refused") == 1          # once, not once per workflow
 
 
-def test_an_old_observability_block_still_loads_and_is_ignored(stamped: Path):
-    """The key a 1.1 config may still carry: nothing reads it, nothing refuses it."""
+def test_an_old_observability_block_is_refused_with_what_to_do(stamped: Path):
+    """The key a 1.1 config may still carry: nothing reads it since 1.2, and
+    since the overlay a key the defaults lack is refused — this one with the
+    answer, not just its name."""
     fake_roster(stamped)
     set_config(stamped, observability={"db": "asf/data/asf.db", "poll_ms": 500})
 
     checked = asf(stamped, "check")
 
-    assert checked.returncode == 0, checked.stdout + checked.stderr
-    assert "observability" not in checked.stdout + checked.stderr
+    assert checked.returncode == 1, checked.stdout + checked.stderr
+    assert "`observability:` is gone since 1.2" in checked.stdout + checked.stderr
+    assert "delete the block" in checked.stdout + checked.stderr
 
 
 def test_check_refuses_a_workflow_whose_integrate_stage_says_none(stamped: Path):

@@ -166,6 +166,7 @@ def stamped_targets(root: Path) -> set[Path]:
 
     walk(TEMPLATES / "asf", root / "asf")
     targets.add(root / CONFIG)
+    targets.add(root / install.DEFAULTS)
     targets.add(root / install.SKILL_FILES)
     return targets
 
@@ -406,14 +407,21 @@ def main() -> int:
         print(f"refusing: {root} is the skill, or is inside it ({SKILL_ROOT}).\n"
               f"run this from the repo the factory was stamped into.", file=sys.stderr)
         return 1
-    text = (root / args.config).read_text() if (root / args.config).is_file() else ""
-    wt_dir = scalar(text, "worktree", "dir") or DEFAULT_WORKTREE_DIR
-    prefix = scalar(text, "worktree", "branch_prefix") or DEFAULT_BRANCH_PREFIX
+    config = root / args.config
+    text = config.read_text() if config.is_file() else ""
+    # The overlay first, then the defaults file it is merged onto: a key the
+    # operator never changed is said only there.
+    defaults = config.with_name(install.DEFAULTS.name)
+    base = defaults.read_text() if defaults.is_file() else ""
+    wt_dir = (scalar(text, "worktree", "dir") or scalar(base, "worktree", "dir")
+              or DEFAULT_WORKTREE_DIR)
+    prefix = (scalar(text, "worktree", "branch_prefix")
+              or scalar(base, "worktree", "branch_prefix") or DEFAULT_BRANCH_PREFIX)
     db = root / (scalar(text, "observability", "db") or DEFAULT_DB)
     # Top-level since 1.3, under `defaults:` before — and a factory being
     # removed may well be one that was never upgraded.
     data_dir = top_level(text, "data_dir") or scalar(text, "defaults", "data_dir") \
-        or DEFAULT_DATA_DIR
+        or top_level(base, "data_dir") or DEFAULT_DATA_DIR
 
     for path in run_worktrees(root, wt_dir, prefix):
         if path == root or path in root.parents:

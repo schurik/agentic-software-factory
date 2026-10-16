@@ -11,12 +11,16 @@ Usage:
 Stamps `asf/` — the engine, the stage vocabulary, the starter agents and
 workflows, the runner, and `.skill-version`, the release they came from — and
 `.skill-files`, the record of which of them the skill owns — plus
-a factory.yaml assembled for the chosen harness, that harness's `.env.sample`,
-the justfile, and the .gitignore entries — and, when taken (`--ci`, or yes when
-asked), `.github/workflows/asf-check.yml`. Existing files are skipped unless
---force. TWO THINGS ARE NEVER OVERWRITTEN even then: factory.yaml is the
-operator's, and under --force a changed render lands beside it as `.new`; and
-every scorer under `asf/scorers/` is the team's own criteria, kept as it is.
+`factory-defaults.yaml`, every setting and its default rendered for the chosen
+harness, and `factory.yaml`, the overlay on it that says only what this
+repository chose; that harness's `.env.sample`, the justfile, and the
+.gitignore entries — and, when taken (`--ci`, or yes when asked),
+`.github/workflows/asf-check.yml`. Existing files are skipped unless --force.
+TWO THINGS ARE NEVER OVERWRITTEN even then: factory.yaml is the operator's,
+and under --force a changed render lands beside it as `.new`; and every scorer
+under `asf/scorers/` is the team's own criteria, kept as it is. TWO ARE
+REWRITTEN on every run whenever they differ, --force or not: the defaults file
+and `.skill-files` say what the skill ships, not what the operator chose.
 
 Stdlib only: this runs under `uv run` with no dependencies.
 """
@@ -24,6 +28,8 @@ Stdlib only: this runs under `uv run` with no dependencies.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import shutil
 import sys
@@ -66,7 +72,7 @@ class Obsolete(NamedTuple):
 
 OBSOLETE = (
     Obsolete(("observability",), None,
-     "ignored, and can be deleted: nothing reads it since 1.2"),
+     "refused since 1.3, and nothing reads it since 1.2: delete it"),
     Obsolete(("worktree", "integration", "mode"), "none",
      "refused since 1.2: set `pr` (with `open_pr: false` to push and open nothing), and "
      "`worktree.publish: on_integrate` to keep a branch off the remote until it is "
@@ -94,6 +100,26 @@ SKILL_FILES = Path("asf") / ".skill-files"
 SKILL_FILES_HEADER = ("# Written by the agentic-sf installer: the files under asf/ the skill owns,\n"
                       "# which `install.py --force` overwrites. Never edit it; a re-stamp "
                       "rewrites it.\n")
+
+# Every setting the factory has, its default and its prose — skill-owned, so a
+# newer release's default reaches an existing stamp. Rendered per harness (the
+# chosen harness's `harness.yaml` is its `harness:` block) and rewritten on
+# every run whenever it differs, as `.skill-files` is. Its last line is a
+# digest of the rest, which `asf doctor` checks: an edit here is lost on the
+# next run, and belongs in factory.yaml.
+DEFAULTS = Path("asf") / "factory-defaults.yaml"
+DEFAULTS_TEMPLATE = TEMPLATES / "factory-defaults.yaml"
+HARNESS_BLOCK = "# @harness-block@\n"
+DIGEST_LINE = ("# sha256 {} — of everything above, as the installer wrote it; "
+               "`asf doctor` checks it\n")
+
+# The overlay's only comment, its first line. Everything else it says is a key.
+OVERLAY_HEAD = ("# Overlay on asf/factory-defaults.yaml, which holds every key, its default and "
+                "what it means — say here only what differs.\n")
+# What a new overlay says whatever the repository is: the commands a station
+# obeys. None by default, so that a permission is said in the repo's own file
+# and never arrives through an upgrade of the defaults (ADR 0007).
+OVERLAY_ALWAYS = {"cockpit": {"commands": ["answer", "abort", "kill", "resume"]}}
 
 GITIGNORE_ENTRIES = [
     "asf/data/",
@@ -204,10 +230,53 @@ def wants_ci(root: Path, asked: bool | None) -> bool:
         return False
 
 
-def render_config(harness: str) -> str:
-    head = (HARNESSES / harness / "harness.yaml").read_text().rstrip() + "\n"
-    rest = (TEMPLATES / "factory.yaml").read_text().rstrip() + "\n"
-    return head + rest
+def render_defaults(harness: str) -> str:
+    """factory-defaults.yaml for `harness`, digest line included."""
+    block = (HARNESSES / harness / "harness.yaml").read_text().rstrip() + "\n"
+    template = DEFAULTS_TEMPLATE.read_text()
+    assert HARNESS_BLOCK in template, f"{DEFAULTS_TEMPLATE} lost its {HARNESS_BLOCK.strip()}"
+    body = template.replace("@harness@", harness).replace(HARNESS_BLOCK, block)
+    body = body.rstrip() + "\n"
+    return body + DIGEST_LINE.format(hashlib.sha256(body.encode()).hexdigest())
+
+
+def write_defaults(harness: str, root: Path, stamped: list, skipped: list) -> None:
+    """Rewrite the defaults file whenever it differs from this skill's render."""
+    dest = root / DEFAULTS
+    fresh = render_defaults(harness)
+    if dest.is_file() and dest.read_text() == fresh:
+        skipped.append(str(dest))
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(fresh)
+    stamped.append(str(dest))
+
+
+def render_overlay(keys: dict) -> str:
+    """A new factory.yaml: the pointer line, then `keys` in block style with
+    JSON values — JSON is YAML, and this script has no YAML writer."""
+    return OVERLAY_HEAD + "".join(_block(keys, 0))
+
+
+def _block(mapping: dict, indent: int) -> Iterator[str]:
+    for key, value in mapping.items():
+        name = key if re.fullmatch(r"[A-Za-z_][\w-]*", key) else json.dumps(key)
+        if isinstance(value, dict) and value:
+            yield f"{' ' * indent}{name}:\n"
+            yield from _block(value, indent + 2)
+        else:
+            yield f"{' ' * indent}{name}: {json.dumps(value)}\n"
+
+
+def detected_overlay(root: Path) -> tuple[dict, list[str], list[str]]:
+    """What a new factory.yaml says for this repository — the commands a
+    station obeys, and whatever detection found that differs from the
+    defaults — and the notes on its worktree and its app, to print."""
+    worktree, worktree_notes = _detect.worktree_keys(*_detect.detect_worktree(root))
+    serve, serve_notes = _detect.serve_keys(_detect.detect_serve(root))
+    keys = {**OVERLAY_ALWAYS, **({"worktree": worktree} if worktree else {}),
+            **({"serve": serve} if serve else {})}
+    return keys, worktree_notes, serve_notes
 
 
 def stamp(src: Path, dest: Path, force: bool, stamped: list, skipped: list) -> None:
@@ -233,7 +302,7 @@ def skill_files() -> str:
                    if path.is_file() and "__pycache__" not in path.parts
                    and not any((Path("asf") / path.relative_to(source)).is_relative_to(owned)
                                for owned in USER_OWNED))
-    return SKILL_FILES_HEADER + "\n".join(paths) + "\n"
+    return SKILL_FILES_HEADER + "\n".join(sorted([*paths, DEFAULTS.as_posix()])) + "\n"
 
 
 def record_skill_files(root: Path, stamped: list, skipped: list) -> None:
@@ -254,9 +323,8 @@ def user_owned(dest: Path) -> bool:
     return any(relative.is_relative_to(owned) for owned in USER_OWNED)
 
 
-def write_config(harness: str, dest: Path, force: bool,
+def write_config(fresh: str, dest: Path, force: bool,
                  stamped: list, skipped: list, notes: list) -> None:
-    fresh = render_config(harness)
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(fresh)
@@ -433,8 +501,10 @@ def main() -> int:
     if unrecorded and not args.force:
         keep_unrecorded(root, stamped)
     record_skill_files(root, stamped, skipped)
-    write_config(harness, root / "asf" / "factory.yaml", args.force, stamped, skipped,
-                 config_notes)
+    write_defaults(harness, root, stamped, skipped)
+    overlay, worktree_notes, serve_notes = detected_overlay(root)
+    write_config(render_overlay(overlay), root / "asf" / "factory.yaml", args.force, stamped,
+                 skipped, config_notes)
     obsolete = lint_config(root / "asf" / "factory.yaml")
     stamp(HARNESSES / harness / "env.sample", root / ".env.sample", args.force, stamped, skipped)
     justfile_note = stamp_justfile(root, args.force, stamped, skipped)
@@ -445,13 +515,13 @@ def main() -> int:
     skill_in_env = ensure_env(root, root / ".env.sample", stamped, notes)
 
     # A config this install rendered — stamped, or beside the operator's as
-    # `.new` — says what this repository's worktrees need; one it kept is theirs.
+    # `.new` — says what was detected here; one it kept is theirs, and the
+    # notes on it would describe a file nobody wrote.
     config = root / "asf" / "factory.yaml"
     rendered = (config if str(config) in stamped
                 else Path(config_notes[0][1]) if config_notes else None)
-    worktree_notes = (_detect.apply_worktree(rendered, *_detect.detect_worktree(root))
-                      if rendered else [])
-    serve_notes = _detect.apply_serve(rendered, _detect.detect_serve(root)) if rendered else []
+    if rendered is None:
+        worktree_notes, serve_notes = [], []
 
     quality_py = root / "asf" / "engine" / "quality.py"
     detecting = not args.no_detect_quality and str(quality_py) in stamped

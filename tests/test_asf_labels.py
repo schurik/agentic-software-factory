@@ -68,9 +68,11 @@ def test_every_label_the_shipped_config_names_is_in_the_checked_set(stamped: Pat
 def test_a_route_added_to_the_config_joins_the_checked_set_on_its_own(stamped: Path):
     """The regression guard. A new route must not need a second edit somewhere
     else to be checked — that second edit is exactly what nobody made."""
-    tracked(stamped, route={"asf:ship": "issue", "asf:hotfix": "quick"})
+    # A route joins the defaults' routes; `null` takes one of theirs away.
+    tracked(stamped, route={"asf:hotfix": "quick", "asf:refine": None})
     referenced = names(survey(stamped).referenced)
-    assert "asf:hotfix" in referenced and "asf:refine" not in referenced
+    assert "asf:hotfix" in referenced and "asf:ship" in referenced
+    assert "asf:refine" not in referenced
 
 
 def test_a_path_that_is_off_contributes_no_labels(stamped: Path):

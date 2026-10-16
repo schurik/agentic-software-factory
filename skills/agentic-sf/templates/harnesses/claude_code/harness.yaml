@@ -1,7 +1,4 @@
-# asf/factory.yaml — the manifest of this repository's factory.
-#
-# GENERATED at install time for the **claude_code** harness. It is yours the
-# moment it is stamped — edit it here, never back inside the skill.
+# ── the harness: claude_code ─────────────────────────────────────────────────
 #
 # `harness:` is what every agent runs on. An agent.md overrides any of it with
 # its own `harness:` block, key by key: a list it names replaces this one, and
@@ -29,6 +26,10 @@ harness:
   skills: []                       # repo skills by name: .claude/skills/<name>/, .agents/skills/<name>/
   context: []                      # repo files appended to every identity, e.g. [CLAUDE.md]
   harness_engineering: []          # `mcp:<file.json>`, `agents:<json-or-file>`, `plugin:<dir>`
+  # MCP tools withheld from what an `mcp:` server above gives, each
+  # `mcp__<server>__<tool>`. Only ever ADDED to: an agent's joins this list, and
+  # factory.yaml's joins this one.
+  deny_tools: []
   options:
     permission_mode: bypassPermissions   # root? use acceptEdits
     add_dirs: []

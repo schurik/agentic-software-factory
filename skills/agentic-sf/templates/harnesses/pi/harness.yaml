@@ -1,7 +1,4 @@
-# asf/factory.yaml — the manifest of this repository's factory.
-#
-# GENERATED at install time for the **pi** harness. It is yours the moment it
-# is stamped — edit it here, never back inside the skill.
+# ── the harness: pi ──────────────────────────────────────────────────────────
 #
 # `harness:` is what every agent runs on. An agent.md overrides any of it with
 # its own `harness:` block, key by key: a list it names replaces this one, and
@@ -26,4 +23,5 @@ harness:
   skills: []                       # not on pi yet: refused when the roster loads
   context: []                      # repo files appended to every identity, e.g. [AGENTS.md]
   harness_engineering: []          # extension file paths, loaded with `pi -e <file.ts>`
+  deny_tools: []                   # MCP tools withheld — pi gives no MCP servers, so none
   options: {}

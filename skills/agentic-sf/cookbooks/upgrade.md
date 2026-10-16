@@ -26,9 +26,14 @@ from an older skill stamps older code over newer.
 do the rest, by design:
 
 - **It never rewrites `asf/factory.yaml`**, the file the repository owns. A
-  fresh render lands beside it as `asf/factory.yaml.new`, and every key a
-  release added stays unset in the real one — so a feature that needs one
-  (`cockpit.commands`, say) arrives in the code and stays off.
+  fresh render lands beside it as `asf/factory.yaml.new`. Since 1.3 the
+  defaults are a file of their own, `asf/factory-defaults.yaml`, which every
+  run of the installer rewrites — so a key a release adds reaches the stamp
+  with its default, and factory.yaml is an overlay saying only what differs.
+  But a factory.yaml stamped before 1.3 is the whole file, and every key it
+  says pins that value: a default a release changes never reaches it. And a
+  feature that is off by default (`cockpit.commands`, say) arrives in the code
+  and stays off until the repository says otherwise.
 - **It overwrites what you edited** under what it stamps: the starter agents'
   prose, the shipped workflows and their task files, `asf/engine/quality.py`
   (re-detected), a stamped `justfile`.
@@ -116,9 +121,11 @@ re-stamp is reviewed as a diff of its own.
    take them in; the changelog is what each one says.
 2. **A clean tree.** `git status` — commit the engineer's own work first. The re-stamp is reviewed as one diff, and a diff mixed with theirs
    cannot be.
-3. **Which harness.** `harness.name` in `asf/factory.yaml` (`defaults.harness`
-   before 1.3). Pass that one
-   to `--harness`; another would stamp another roster's prompts.
+3. **Which harness.** `harness.name` in `asf/factory-defaults.yaml` — or in
+   `asf/factory.yaml` when it says one, and always before 1.3
+   (`defaults.harness` before that). Pass that one to `--harness`: the defaults
+   file is rendered for it on every run, so another would switch every agent
+   to that harness, with another roster's prompts.
 4. **Nothing mid-flight.** `just status` and `just pending`. Stop `just up`
    (ctrl-c where it runs). A run still working would carry on in code that
    changed under it: let it finish, or `just kill <id>` — ask first, with the
@@ -160,12 +167,19 @@ From the **target repo root**. Read three things in what it prints:
 
 ## The config: one decision at a time
 
-`diff asf/factory.yaml asf/factory.yaml.new` shows what a fresh stamp would say.
-Most new keys have defaults that apply without them — the `.new` shows them, and
-nothing needs copying. These do not, and each is the repository's call: put the
-ones that apply to the engineer in one question-tool call (up to four; the rest
-in the next), each option saying what it does, and edit `asf/factory.yaml` with
-their answer. The options are below each.
+Every key's default is in `asf/factory-defaults.yaml`, rewritten by the
+re-stamp; `asf/factory.yaml` is merged onto it — a map key by key, a scalar or
+a list replacing, `null` deleting a map entry, `protected_files` only adding —
+and a key the defaults lack is refused by name, so `just check` names any typo
+the old file carried silently. `asf/factory.yaml.new` is what a fresh stamp
+would say: one pointer line and the keys particular to this repository. A
+factory.yaml stamped before 1.3 carries every key and keeps working as it is;
+shrinking it to the overlay is optional, and each key deleted from it is one
+whose future defaults it takes. Most new keys apply without anything copied.
+These do not, and each is the repository's call: put the ones that apply to the
+engineer in one question-tool call (up to four; the rest in the next), each
+option saying what it does, and edit `asf/factory.yaml` with their answer —
+only an answer that differs from the defaults. The options are below each.
 
 1. **`defaults:`** — refused since 1.3: `just check` fails until it is gone, and
    prints the block that replaces it. Take the `.new`'s `harness:` block,
@@ -179,9 +193,10 @@ their answer. The options are below each.
    (`context: [CLAUDE.md]`, in factory.yaml's block or one agent's). An agent
    or a binding of the repository's own that still sets `model`, `tools`,
    `thinking`, … flat is refused the same way, with its block.
-2. **`observability:`** — obsolete and ignored since 1.2: delete it. The
-   database it placed is no longer written; the file it names (by default
-   `asf/data/asf.db`, with its `-wal` and `-shm`) can be deleted too.
+2. **`observability:`** — obsolete since 1.2, and refused since 1.3 like any
+   key the defaults do not hold: delete it. The database it placed is no longer
+   written; the file it names (by default `asf/data/asf.db`, with its `-wal`
+   and `-shm`) can be deleted too.
 3. **`worktree.integration.mode: none`** (or `integration: {mode: none}`) —
    refused since 1.2 (it warned in 1.1), and never remapped for them, because
    `none` did two jobs. Ask which was meant:
@@ -200,7 +215,9 @@ their answer. The options are below each.
    `(Recommended)` · **`on_integrate`** · **`on_create`**.
 5. **`cockpit.commands`** — without it a station obeys **no** command a cockpit
    sends: no kill, no resume, no answering a prompt run's gate from the inbox.
-   A fresh stamp lists `commands: [answer, abort, kill, resume]` under
+   The defaults say `[]`, and always will: a permission a station obeys is said
+   in the repository's own file, never one an upgrade rewrites. A fresh stamp's
+   factory.yaml lists `commands: [answer, abort, kill, resume]` under
    `cockpit:`; `run` (starting prompt workflows from the cockpit) is off unless
    listed. Opting a verb in is the repository's decision, made in this reviewed
    file — never add one on the engineer's behalf. Ask with `multiSelect`:
@@ -210,7 +227,7 @@ their answer. The options are below each.
    prompt and the harness's raw output, tool arguments and results included:
    say so in the options' descriptions, and never turn it on for them: **Leave
    it off** `(Recommended)` · **Send transcripts**.
-7. **`worktree.copy` and `worktree.setup`** — unset, `copy` is `[".env"]` and
+7. **`worktree.copy` and `worktree.setup`** — by default `copy` is `[".env"]` and
    `setup` is empty: a session's worktree gets the root `.env` and installs
    nothing. The `.new` carries what the installer found here — gitignored files
    a run needs (`.env.local`, `.vercel/project.json`, …) and the install the
@@ -263,7 +280,7 @@ the next `--force` writes over the one they read.
 just doctor
 ```
 
-prints `skill version  stamped at <Y> · skill is <Y>` with a ✓ — it refuses to
-run at all while the config says `integration: none` — and every workflow
-checked. Commit the lot as one change, so the
+prints `skill version  stamped at <Y> · skill is <Y>` and `factory defaults`
+each with a ✓ — it refuses to run at all while the config says `integration:
+none`, or names a key the defaults do not hold — and every workflow checked. Commit the lot as one change, so the
 upgrade is one diff in the history — `asf: upgrade the factory to <Y>`.

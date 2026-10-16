@@ -155,18 +155,17 @@ def test_the_settings_are_the_stamped_factory_yaml_s_as_its_code_reads_them(stam
     assert "fetch_command" not in json.dumps(raw)        # the tracker's raw commands stay home
 
 
-def test_a_setting_factory_yaml_leaves_out_is_the_code_s_default_and_merge_is_resolved(
+def test_a_setting_factory_yaml_leaves_out_is_the_defaults_and_merge_is_resolved(
         stamped: Path):
-    """A key the operator deleted is not a hole: it is what the factory's own
-    code does without it. And an issue run lands as a pull request whatever
-    `mode` says, while `issues.force_pr` holds."""
-    config = stamped / "asf" / "factory.yaml"
-    # A block given again replaces the stamped one whole, so every key it
-    # leaves out is the code's default.
-    config.write_text(config.read_text().replace("    mode: pr ", "    mode: merge ")
-                      + "\ncockpit: {transcripts: true, transcript_retention_days: 7}\n"
-                      "issues: {project: acme/widgets, route: {'asf:go': quick}}\n"
-                      "hitl: {gates: {plan: on, checkpoint: on}}\n")
+    """A key the overlay does not say is not a hole: it is factory-defaults.yaml's.
+    And an issue run lands as a pull request whatever `mode` says, while
+    `issues.force_pr` holds."""
+    # The installer's overlay said the commands a station obeys; this one does not.
+    (stamped / "asf" / "factory.yaml").write_text(
+        "worktree: {integration: {mode: merge}}\n"
+        "cockpit: {transcripts: true, transcript_retention_days: 7}\n"
+        "issues: {project: acme/widgets, route: {'asf:go': quick, 'asf:refine': null}}\n"
+        "hitl: {gates: {plan: on, checkpoint: on}}\n")
 
     _, raw = described(stamped)
 
@@ -174,10 +173,13 @@ def test_a_setting_factory_yaml_leaves_out_is_the_code_s_default_and_merge_is_re
     assert settings.limits.commands == []
     assert settings.limits.transcripts and settings.limits.transcript_retention_days == 7
     assert (settings.landing.mode, settings.landing.issue_mode) == ("merge", "pr")
+    assert settings.landing.open_pr                       # the rest of the block merged
     assert settings.hitl.wait_seconds == 900
     assert settings.hitl.gates == {"checkpoint": True, "integrate": False, "plan": True}
     assert settings.forge.project == "acme/widgets"
-    assert settings.intake.routes == {"asf:go": "quick"}
+    # A route joins the defaults' and `null` takes one away.
+    assert settings.intake.routes == {"asf:ship": "issue", "asf:refine-ship": "refine-ship",
+                                      "asf:bugfix": "bugfix", "asf:go": "quick"}
     assert settings.intake.max_concurrent == 2
 
 

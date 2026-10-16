@@ -1,0 +1,343 @@
+
+# asf/factory-defaults.yaml — every setting this factory has, its default, and
+# what it means.
+#
+# THE SKILL'S, NOT YOURS. The installer rewrites this file on every run whenever
+# it differs, `--force` or not, so an edit here is lost on the next upgrade —
+# and `asf doctor` says so while it lasts. Change a setting in asf/factory.yaml:
+# that file is an OVERLAY merged onto this one, and says only what differs.
+#
+# How it merges: a map merges key by key; a scalar or a list replaces; `null`
+# deletes a map entry (a default route, say). Two lists only ever grow:
+# `protected_files` and `harness.deny_tools` in factory.yaml are ADDED to the
+# ones here, so an overlay can protect more and never less. A key this file
+# does not hold is refused, by name.
+#
+# Rendered for the **@harness@** harness. Switching harness is a re-stamp:
+# `install.py --harness <name>`.
+
+# @harness-block@
+
+# ── the harness-agnostic rest ────────────────────────────────────────────────
+#
+# Everything a run needs that is not the roster. Agents are NOT here: an agent
+# is a directory under asf/agents/ holding one agent.md, and a workflow is
+# a directory under asf/workflows/. This file is the manifest they plug into.
+
+# Off-limits to every agent that does not name them in its own `writes`. An
+# agent must not be able to edit the machinery that judges its own work, nor
+# the scorers that measure it — nor the record of which release stamped it, the
+# cockpit it reports to, or the CI check that runs `asf check` on its pull
+# request. A list in factory.yaml is added to this one, never put in its place.
+protected_files:
+  - asf/engine/
+  - asf/stages/
+  - asf/workflows/
+  - asf/agents/
+  - asf/scorers/
+  - asf/benchmarks/
+  - asf/examples/
+  - asf/cockpit/
+  - asf/factory.yaml
+  - asf/factory-defaults.yaml
+  - asf/asf.py
+  - asf/.skill-version
+  - .github/workflows/asf-check.yml
+data_dir: asf/data                 # runtime home: {data_dir}/sessions/{adw_id}/
+
+# What one SESSION may spend, across every process that joins it. Both off by
+# default (0 = no ceiling); set them where nobody is watching. A ceiling stops
+# the NEXT agent turn, never the one in flight.
+budget:
+  max_cost_usd: 0
+  max_tokens: 0
+
+# When a scorer's failing scores are a pattern rather than a bad day: at
+# `failures` of the last `of_last` distinct sessions it judged — several failing
+# chapters of one session count once. A scorer (asf/scorers/<name>/scorer.md)
+# may hold itself to another bar with its own `improve_after:`. A score never
+# changes how the chapter it judged ended: a scorer measures, a gate decides.
+self_improvement:
+  failures: 3
+  of_last: 10
+
+# What measuring may spend in a UTC day — judges and benchmarks — apart from
+# the work's `budget:` above, so measuring never takes from the work. It is
+# checked before every judge call: once the day's spend reaches it, judges stop
+# until the next day, and a chapter its judge skipped says "not judged
+# (budget)". 0 spends nothing on judging.
+measurement:
+  usd_per_day: 5
+
+# Where a human may stop a run. A stage names its gate (`plan` in the plan
+# stage); a workflow turns it on with `hitl: true` on that stage; this block is
+# the default underneath, and `--hitl` on the command line beats both.
+# A gate that fires stops the run with exit 75 and the session reading
+# `waiting`; nothing spends while it waits.
+hitl:
+  default: off                     # off | on — for gates no workflow names
+  gates: {}                        # by gate name: {plan: on}
+  wait_seconds: 900                # attended: prompt this long, then suspend
+  max_rounds: 0                    # 0 = until you approve or abort
+  when_unattended: suspend         # suspend | auto
+  notify_command: []               # run on suspend, subject on stdin
+
+# What a cockpit is told. A session's events are written either way, and a
+# station ships them once there is a cockpit to ship to: phases, gates, spend,
+# commits, the handoff files its phases wrote, and each tool call's name,
+# outcome and duration — never a tool's arguments or its result. A TRANSCRIPT
+# is the rest: every prompt an agent was sent and the raw output of its
+# harness, tool arguments and results included. It is large, it holds whatever
+# an agent read, and it is off until this says otherwise.
+#
+# A cockpit keeps a transcript for a while after its session finishes — 30 days
+# unless its deployment says otherwise — and then ages it out: the events stay,
+# their bodies go, and the Transcript tab says when. `transcript_retention_days`
+# can only shorten that (the cockpit keeps the lower of the two); unset, the
+# cockpit's own maximum applies. Everything else a session sends is kept until
+# someone purges it.
+#
+# `commands` is which COMMANDS this factory's stations carry out when a cockpit
+# asks — steering the forge cannot carry, from the closed set:
+#   kill     stop a live run
+#   resume   relaunch a failed session on the station that holds it
+#   answer   approve, reject or answer a gate that waits on no work item (a
+#            prompt run's) — one on an issue is answered on the issue
+#   abort    end a run at such a gate
+#   run      start a workflow that takes a prompt — only ever on a station of
+#            the person asking, and off unless listed here
+# Nothing is obeyed that is not listed, and a station still holds every
+# command's author to issues.trusted_authors. A station takes commands once a
+# person with write approved it (`asf station register` — the skill's
+# cookbooks/connect_cockpit.md; a local cockpit's station is its owner's already).
+# NONE BY DEFAULT: a permission a station obeys is said in the repository's own
+# factory.yaml — where the installer writes [answer, abort, kill, resume] — so
+# it is reviewed there and never arrives through an upgrade of this file.
+cockpit:
+  transcripts: false
+  # transcript_retention_days: 7
+  commands: []
+
+# Every run gets its own git worktree on its own branch, cut from a base ref
+# pinned at run start. The engineer's working tree is never touched.
+worktree:
+  enabled: true
+  dir: .asf-worktrees              # relative to the main checkout; gitignored
+  branch_prefix: "asf/"            # the run's branch is <prefix><adw_id>
+  base_ref: ""                     # "" = whatever the main checkout has checked out
+  keep_on_success: false
+  # A session's worktree is cut from a branch, so what is gitignored here is
+  # missing there — and a dev server or a test that needs it fails as if the
+  # code did, which sends a builder to fix code that is not broken. So:
+  #   copy   globs, from this checkout's root, COPIED into a worktree whenever
+  #          one is created or re-created from its branch — a copy, never a
+  #          symlink, so an agent writing the worktree's `.env` cannot touch
+  #          yours, and a run keeps the snapshot it started with. Each must be
+  #          gitignored (a commit stage runs `git add -A` in the worktree), so
+  #          a tracked or unignored path, or one outside the repository, is
+  #          refused by `check`, `doctor` and every run. A listed file this
+  #          checkout lacks is skipped, and named in the run's output.
+  #   setup  argv lists, bare binary names — quality.py's rules — run in order
+  #          in a new worktree after `copy` and before any agent. Dependencies
+  #          are installed rather than copied: `node_modules` is large, and the
+  #          branch's lockfile may not be yours. A command that fails ends the
+  #          session as an environment failure; a resume runs it again.
+  # The root `.env` holds the factory's own settings too (ASF_SKILL,
+  # ASF_COCKPIT_URL, ASF_COCKPIT_TOKEN) — every agent and quality block already
+  # sees them in its environment, and copied, a worktree holds them on disk.
+  # install.py writes into factory.yaml what it found in your repository that
+  # differs from these; check them there.
+  copy: [".env"]
+  setup: []
+  # WHEN a session's branch first reaches `integration.remote`. A cockpit shows
+  # what a gate asks about by reading it from the forge at the commit the run
+  # stopped on, so the branch has to be there before anyone is asked. Left
+  # unset, that decides it: with a cockpit configured (ASF_COCKPIT_URL, or the
+  # local one `asf up` starts) it is `on_create`, without one `on_integrate`.
+  #   on_create     pushed as the session starts — with the commit it is cut
+  #                 from, so commits your base branch has not pushed yet go with
+  #                 it — and again before every suspend, the gate's subject
+  #                 committed first. A push the remote refuses refuses the run.
+  #   on_integrate  nothing leaves this machine until an integrate stage pushes
+  #                 it, and a cockpit cannot show what that session's gates ask
+  #                 about.
+  # A branch published this way and never integrated is deleted from the remote
+  # when its session finishes or is aborted (the local branch stays). A failed
+  # session keeps it, so `resume` and the cockpit still find it. One with a
+  # pull request, or pushed with `-u`, or merged into its base, is never deleted.
+  # publish: on_create             # on_create | on_integrate
+  integration:
+    # pr by default: a machine proposes, a human moves the base branch. `merge`
+    # suits a solo repo where nobody reviews. (`none` is refused: a workflow
+    # that lands nothing leaves out its `integrate` stage, and `publish` above
+    # says when a branch is pushed.)
+    mode: pr                       # merge | pr
+    merge_flags: ["--no-ff"]
+    remote: origin
+    open_pr: true                  # mode: pr — push AND open it; false = push only
+    pr_command: ["gh", "pr", "create", "--fill"]
+    pr_body_template: ""
+
+# ── the running app ─────────────────────────────────────────────────────────
+#
+# How this repository's app is run, for the `accept` stage: an agent drives it
+# in a browser. Nothing runs it until a workflow names `accept` (copy
+# asf/examples/workflows/ship-accept/), and `check` refuses such a workflow
+# while `commands` is empty. The agent never starts a server: code starts
+# every command below in the session's worktree, each in its own process group,
+# waits until http://localhost:<port>/ answers, hands the agent that URL, and
+# stops them all however the stage ends.
+#   commands  argv lists, bare binary names. `{port}` in an argument is the
+#             free port the app must answer on (PORT is set too), so sessions
+#             side by side never meet on 3000. Use a server that reloads on
+#             change: the builder's revision lands while it runs. A backend that
+#             must be up first can start the app itself — Convex:
+#             [npx, convex, dev, --tail-logs, disable, --start, "npx next dev --port {port}"]
+#             runs Next once the functions are pushed. Its `.env.local` comes
+#             from worktree.copy, its packages from worktree.setup.
+#   ready_seconds  how long the app gets to answer; not answering ends the
+#             session as an environment failure, before any agent runs.
+# install.py writes `commands` into factory.yaml when it finds how your app
+# starts; check them there.
+serve:
+  commands: []
+  ready_seconds: 120
+
+# ── where work comes from, and where it goes back to ────────────────────────
+#
+# Both ON by default, and neither starts anything by itself: an issue needs a
+# human to apply a routing label, and a review needs a pull request the factory
+# opened. Still, the text driving the agents on these paths is written by
+# whoever can file an issue or review a pull request, not by the engineer at
+# the keyboard — so where anyone can label or review, narrow `trusted_authors`
+# and `trusted_reviewers`, or set `enabled: false`. A workflow says which it
+# takes with `input: issue` or `input: pr`; these blocks say how the tracker is
+# read and written.
+
+# Work items. THE LABEL IS THE QUEUE and the routing label is the authorization:
+# a human applied it, and the watcher (`asf issues loop`, or `asf up`) never
+# looks at an issue that does not carry one.
+issues:
+  enabled: true
+  # WHICH REPO is watched. "" resolves once at startup from the origin remote of
+  # this checkout. Set it explicitly for cron — a watcher that silently polls
+  # the wrong project looks exactly like one with nothing to do.
+  project: ""                      # e.g. "acme/widgets"
+  # Commands, not API calls: the forge CLI is installed and authenticated in
+  # your shell already. glab, jira and linear fit the same four verbs.
+  fetch_command:   ["gh", "issue", "view"]
+  list_command:    ["gh", "issue", "list"]
+  comment_command: ["gh", "issue", "comment"]
+  state_command:   ["gh", "issue", "edit"]
+  # Reading the answers a person wrote, and writing the requirements block back
+  # into the description. Separate entries although `gh` spells both with verbs
+  # it already has: a tracker that is not the forge routes comments, labels and
+  # the description to three different places.
+  comments_command: ["gh", "issue", "view"]
+  body_command:     ["gh", "issue", "edit"]
+  # Filing an issue — the one place the factory opens one itself: when a scorer
+  # keeps failing (`self_improvement:` above), it files one labelled
+  # `asf:improve:<scorer>` and queues it for the `issue` workflow. Empty = it
+  # says the pattern on the console and files nothing.
+  create_command:   ["gh", "issue", "create"]
+  # Reading which labels this project DEFINES, and defining one. EVERY LABEL
+  # NAMED BELOW HAS TO EXIST BEFORE ANYTHING CAN APPLY IT: a route label the
+  # forge never heard of cannot be applied by anyone, so the workflow behind it
+  # looks configured and is inert, and `--add-label` on an undefined name fails
+  # the write it rides on. `just labels` says which are missing; `just labels
+  # --create` defines exactly those and touches nothing else. `just doctor`
+  # asks the same question every time it runs, which is how an UPGRADE that
+  # adds a label gets noticed — an upgrade rewrites this file, and defines no
+  # label at the forge.
+  #
+  # A FIFTH VERB the four above do not imply: glab, jira and linear all fit
+  # `view | list | comment | edit`, and none of them define labels the way
+  # `gh label` does. Empty on either = skip, which is the honest answer for a
+  # tracker whose labels are not created this way.
+  labels_list_command:   ["gh", "label", "list"]
+  labels_create_command: ["gh", "label", "create"]
+  # WHO TRIGGERED a labelled run: the watcher reads the issue's `labeled`
+  # events (graphql — `gh issue view` has no timeline) and the run records
+  # whoever last applied its route or queued label as `triggered_by`. A run
+  # started by hand records you, as `gh` knows you. It authorizes nothing: who
+  # may label is the forge's call. Empty = skip, and the run records nobody.
+  labeller_command: ["gh", "api", "graphql"]
+  # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
+  # AND a label here launches that workflow. A route in factory.yaml JOINS
+  # these — `route: {}` there changes nothing — and `"asf:bugfix": null` takes
+  # that one away. No route left means nothing ever launches, whatever
+  # `enabled` says.
+  # Four labels, four decisions, and each one is a person saying so. `refine`
+  # settles an item and hands it back; `issue` builds one that is already clear;
+  # `refine-ship` does both in one run and drops the scout, because refine's own
+  # recon is in that run's envelope. Across TWO runs it is not — findings stay in
+  # the session that made them — which is why `issue` keeps its scout. `bugfix`
+  # is for a reported bug: shown failing as a test first, then fixed against it.
+  route:
+    "asf:ship": issue
+    "asf:refine": refine
+    "asf:refine-ship": refine-ship
+    "asf:bugfix": bugfix
+  # The label is the queue, NOT a lock: two watchers that listed the same queued
+  # issue both flip it. With a shared cockpit (ASF_COCKPIT_URL) a watcher asks
+  # it for a claim first, and exactly one station starts the issue; without
+  # one, run ONE issues watcher per repository.
+  states:                          # the label state machine
+    queued:  "asf:queued"
+    running: "asf:running"
+    done:    "asf:done"
+    failed:  "asf:failed"
+  # NOT a fifth state. The four above are mutually exclusive and a claim clears
+  # whichever one an issue still carries; "the requirements were settled with a
+  # person" is a different axis, and it does not stop being true because the
+  # item was queued again. `refine` puts this on; nothing takes it off.
+  refined_label: "asf:refined"
+  # A ceiling on the question comment a `refine` run posts. The questions are
+  # RENDERED from the agent's structured answer rather than written by it as
+  # markdown, so this is a second bound and not the only one.
+  max_question_chars: 4000
+  # [] accepts every issue author, because the person who applied the routing
+  # label is then the only authorization. Narrow it where anyone can label.
+  trusted_authors: []
+  max_concurrent: 2                # bounds runs in flight, not spend
+  # An issue-triggered run may not move the base branch, whatever
+  # worktree.integration.mode says. Enforced in engine/integration.py, not here.
+  force_pr: true
+
+# Review feedback on the factory's OWN pull requests, answered in the session
+# that opened them. THE UNRESOLVED THREAD IS THE QUEUE — there is no label to
+# claim: the forge already tracks which asks are outstanding and shows it to the
+# reviewer who wrote them. A run answers a thread and resolves it. So is every
+# comment on the conversation newer than the factory's own last word there: the
+# summary a run posts marks the newest comment it read.
+pull_requests:
+  enabled: true
+  project: ""                      # "" = resolved once from origin, as in issues
+  workflow: pr-review              # which workflow answers a review; must say `input: pr`
+  # Review THREADS are the one thing `gh pr view --json` cannot return, so a
+  # pull request is read through graphql (state, threads AND comments, one snapshot) and
+  # replies and resolves are written back the same way.
+  list_command:    ["gh", "pr", "list"]
+  comment_command: ["gh", "pr", "comment"]
+  state_command:   ["gh", "pr", "edit"]
+  graphql_command: ["gh", "api", "graphql"]
+  # [] accepts everyone: being able to review this repository's pull requests
+  # is itself the authorization. Narrow it where that is not true.
+  trusted_reviewers: []
+  ignore_authors: []               # bots whose comments are never work, e.g. ["codecov[bot]"]
+  reply_to_threads: true           # answer in the thread before resolving it
+  resolve_threads: true            # ...and only when the run addressed it
+  max_threads: 20                  # threads, and comments, per run; a bigger review is a conversation
+  max_concurrent: 2
+  # A merged or closed pull request ends its session: the watcher records how it
+  # closed in the session (`pull_request_closed`, what a cockpit's Measure tab
+  # counts merges and autonomy from), stops a review run still working that
+  # branch and releases its worktree. The BRANCH is never deleted — that
+  # belongs to whoever merged. Without a watcher, `asf score` records the
+  # close alone, with or without `enabled`.
+  reap_merged: true
+  states:
+    # The only label this path uses: a run that ends red leaves its threads
+    # open, which is the condition that launched it. This mark stops the loop;
+    # a human removing it is the restart.
+    failed: "asf:pr-failed"

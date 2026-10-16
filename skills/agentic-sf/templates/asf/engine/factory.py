@@ -1,10 +1,15 @@
 """The roster as files and folders: `asf/factory.yaml` plus `asf/agents/<name>/`.
 
 factory.yaml is the manifest — the harness every agent runs on, budget, gates,
-what a cockpit is told, how a run's worktree is cut and landed. It holds NO
-agents. An agent is a directory with one file, `agent.md`: YAML frontmatter for
-what the machinery needs (purpose, writes, and a `harness:` block for whatever
-it runs on differently) and, below it, the prose that says who the agent is.
+what a cockpit is told, how a run's worktree is cut and landed — as an OVERLAY
+on `asf/factory-defaults.yaml` beside it, which holds every key, its default and
+its prose, and is the skill's: a re-stamp rewrites it, so a newer release's
+default reaches a stamp that never said that key (ADR 0007). The models carry no
+defaults of their own, so a key the defaults file lacks is a load error rather
+than drift between two sources. It holds NO agents. An agent is a directory
+with one file, `agent.md`: YAML frontmatter for what the machinery needs
+(purpose, writes, and a `harness:` block for whatever it runs on differently)
+and, below it, the prose that says who the agent is.
 Its name is the directory's name, so it cannot be misspelt in two places, and
 its task is not here at all — that belongs to the stage that calls it
 (`engine.tasks`).
@@ -26,6 +31,15 @@ from .data_types import AgentConfig, FactoryConfig, HarnessDefaults
 from .utils import anchor
 
 DEFAULT_CONFIG = "asf/factory.yaml"
+DEFAULTS_FILE = "factory-defaults.yaml"
+# The two lists an overlay only ever ADDS to: each narrows what an agent may do,
+# so one that could be replaced could be emptied — and an overlay could
+# unprotect `asf/engine/`, or hand back an MCP tool the defaults withhold.
+ADDED_ONLY = (("protected_files",), ("harness", "deny_tools"))
+# Keys an older factory.yaml may still say, and what became of each. Refused
+# like any key the defaults lack — but with the answer, not just the name.
+OBSOLETE = {"observability": "`observability:` is gone since 1.2 — nothing reads it, so "
+                             "delete the block"}
 AGENT_FILE = "agent.md"
 AGENT_RESERVED = ("name", "prompt_engineering")
 # What an agent.md said at the top of its frontmatter before 1.3, and the key
@@ -41,27 +55,25 @@ def root_of(config_path: str | Path) -> Path:
     return Path(config_path).parent
 
 
+def defaults_of(config_path: str | Path) -> Path:
+    """The defaults file a config is an overlay on: the one beside it."""
+    return root_of(config_path) / DEFAULTS_FILE
+
+
 def load(config_path: str | Path = DEFAULT_CONFIG) -> FactoryConfig:
-    """factory.yaml + every agents/<name>/agent.md, each merged over the
-    factory's `harness:` block."""
+    """factory.yaml merged onto factory-defaults.yaml, + every
+    agents/<name>/agent.md, each merged over the factory's `harness:` block."""
     path = Path(config_path)
-    if not path.is_file():
-        raise SystemExit(f"no config at {path} — is the factory installed here?")
-    raw = yaml.safe_load(path.read_text()) or {}
-    if "agents" in raw:
-        raise SystemExit(f"{path}: `agents:` does not belong in factory.yaml — an agent is "
-                         f"a directory under {root_of(path) / 'agents'} with an "
-                         f"{AGENT_FILE} in it")
-    refused = _refused(raw)
-    if refused:
-        raise SystemExit(f"{path}: {refused}")
-    factory_harness = (raw.get("harness") or {}).get("name") or HarnessDefaults().name
-    raw["agents"] = [_agent_entry(directory, factory_harness)
-                     for directory in agent_dirs(root_of(path))]
+    raw = settings(path)
+    try:                            # first, and alone: every agent is merged over it
+        harness = HarnessDefaults.model_validate(raw.get("harness") or {}).name
+    except ValidationError as error:
+        raise SystemExit(f"{path}: {refusal(error, defaults_of(path), 'harness')}") from None
+    raw["agents"] = [_agent_entry(directory, harness) for directory in agent_dirs(root_of(path))]
     try:
         cfg = agents.merge_harness(raw)
     except ValidationError as error:
-        raise SystemExit(f"{path}: {error}") from None
+        raise SystemExit(f"{path}: {refusal(error, defaults_of(path))}") from None
     main_root = git_helper.main_root(path.resolve().parent)
     problems = _roster_refused(cfg, main_root)
     if problems:
@@ -73,15 +85,113 @@ def load(config_path: str | Path = DEFAULT_CONFIG) -> FactoryConfig:
     return cfg
 
 
-def _refused(raw: dict) -> str:
+def settings(config_path: str | Path = DEFAULT_CONFIG) -> dict:
+    """The config as the engine runs it, before it is validated: factory.yaml
+    merged onto the defaults file beside it (`resolve`)."""
+    path = Path(config_path)
+    if not path.is_file():
+        raise SystemExit(f"no config at {path} — is the factory installed here?")
+    defaults = defaults_of(path)
+    if not defaults.is_file():
+        raise SystemExit(f"no {defaults} beside {path} — it holds every setting's default, and "
+                         f"the skill's installer writes it: run `install.py` again from the "
+                         f"skill (your factory.yaml is kept)")
+    base, raw = _mapping(defaults), _mapping(path)
+    if "agents" in raw:
+        raise SystemExit(f"{path}: `agents:` does not belong in factory.yaml — an agent is "
+                         f"a directory under {root_of(path) / 'agents'} with an "
+                         f"{AGENT_FILE} in it")
+    refused = _refused(raw, (base.get("harness") or {}).get("name") or "")
+    if refused:
+        raise SystemExit(f"{path}: {refused}")
+    return resolve(base, raw)
+
+
+def _mapping(path: Path) -> dict:
+    raw = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(raw, dict):
+        raise SystemExit(f"{path} is not a mapping of settings")
+    return raw
+
+
+def resolve(defaults: dict, overlay: dict) -> dict:
+    """`overlay` merged onto `defaults`: a map merges key by key, a scalar or a
+    list replaces, `null` deletes a map entry — a default route, say. The
+    lists in `ADDED_ONLY` are added to and never replaced, and a `null` on one
+    takes nothing away.
+
+    A `harness:` on another harness than the defaults' inherits from theirs
+    only what an agent.md on another harness would (`agents.NEUTRAL_KEYS`):
+    tools, options and extensions are one harness's vocabulary, and the model is
+    the new harness's own unless the overlay names one.
+    """
+    base = dict(defaults)
+    block = overlay.get("harness")
+    if isinstance(block, dict) and isinstance(base.get("harness"), dict):
+        base["harness"] = _harness_base(base["harness"], block.get("name"))
+    return _merge(base, overlay, ())
+
+
+def _harness_base(block: dict, name: str | None) -> dict:
+    if not name or name == block.get("name"):
+        return block
+    driver = harnesses.HARNESSES.get(name)
+    # Not defaults: what an agent.md on another harness is given of these —
+    # nothing (`agents.harness_settings`), and its `tools` left unset.
+    return {**{key: block[key] for key in agents.NEUTRAL_KEYS if key in block},
+            "model": driver.DEFAULT_MODEL if driver else block.get("model"),
+            "harness_engineering": [], "deny_tools": [], "options": {}}
+
+
+def _merge(base: dict, overlay: dict, at: tuple[str, ...]) -> dict:
+    merged = dict(base)
+    for key, value in overlay.items():
+        path = (*at, key)
+        if path in ADDED_ONLY:
+            if isinstance(value, list) and isinstance(merged.get(key), list):
+                merged[key] = agents.added(merged[key], value)
+            elif value is not None:
+                merged[key] = value                    # not a list: validation says so
+        elif value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value, path)
+        else:
+            merged[key] = value
+    return merged
+
+
+def refusal(error: ValidationError, defaults: Path, block: str = "") -> str:
+    """A validation error as one line per key, each named by its path — a key
+    the defaults lack (a typo, most often) and one they no longer hold are
+    said as what they are rather than as pydantic's words."""
+    lines = []
+    for problem in error.errors():
+        key = ".".join(str(part) for part in [*([block] if block else []), *problem["loc"]])
+        if problem["type"] == "extra_forbidden":
+            lines.append(f"`{key}` is not a setting — {defaults.name} holds every key there is, "
+                         f"spelt as it is there")
+        elif problem["type"] == "missing":
+            lines.append(f"`{key}` has no value — factory.yaml deletes it with `null`, or "
+                         f"{defaults}, which holds every key's default, lost it (`install.py` "
+                         f"again from the skill restores that file)")
+        else:
+            lines.append(f"`{key}`: {problem['msg']}")
+    return "\n- ".join(["", *lines]) if len(lines) > 1 else lines[0] if lines else str(error)
+
+
+def _refused(raw: dict, harness: str) -> str:
     """What this config says that the engine no longer runs, or "".
 
     Read off the YAML before it is validated, so the refusal names what to say
     instead rather than listing the values a field accepts — and so `check`,
-    `doctor` and every run say the same thing.
+    `doctor` and every run say the same thing. `harness` is the defaults'.
     """
     if "defaults" in raw:
-        return _defaults_refused(raw["defaults"] or {})
+        return _defaults_refused(raw["defaults"] or {}, harness)
+    for key, why in OBSOLETE.items():
+        if key in raw:
+            return why
     if not isinstance(raw.get("harness") or {}, dict):
         return (f"`harness: {raw['harness']}` is a block, not a name — write "
                 f"`harness: {{name: {raw['harness']}}}` and the rest of it beneath")
@@ -168,14 +278,14 @@ def _removed(harness: str) -> dict[str, str]:
     return getattr(harnesses.HARNESSES.get(harness), "REMOVED_OPTIONS", {})
 
 
-def _defaults_refused(defaults: dict) -> str:
+def _defaults_refused(defaults: dict, harness: str) -> str:
     """`defaults:` (before 1.3), refused with the literal block that replaces it.
 
     No loader reads both shapes: one that did would keep the old one alive in
     every stamp nobody re-read, and with it `setting_sources: [project]` —
     which handed an agent the repository's hooks along with its skills.
     """
-    name = defaults.get("harness") or HarnessDefaults().name
+    name = defaults.get("harness") or harness
     block: dict = {"name": name}
     for key in ("model", "thinking", "timeout_seconds", "tools", "harness_engineering"):
         if key in defaults:

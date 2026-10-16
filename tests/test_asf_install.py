@@ -10,7 +10,8 @@ import yaml
 
 from .asf_helpers import SKILL_ROOT, asf, fake_roster, git, install
 
-STAMPED = ["asf/asf.py", "asf/factory.yaml", "asf/engine/session.py", "asf/engine/workflow.py",
+STAMPED = ["asf/asf.py", "asf/factory.yaml", "asf/factory-defaults.yaml",
+           "asf/engine/session.py", "asf/engine/workflow.py",
            "asf/stages/plan/stage.py", "asf/stages/plan/task.md", "asf/stages/verify/fix.md",
            "asf/agents/planner/agent.md", "asf/engine/frontmatter.py",
            "asf/workflows/sdlc/workflow.yaml", "asf/workflows/ship/workflow.yaml",
@@ -28,7 +29,7 @@ def test_a_fresh_repo_is_stamped_and_its_workflows_check(repo: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     for relative in STAMPED:
         assert (repo / relative).is_file(), relative
-    assert "harness:\n  name: claude_code" in (repo / "asf" / "factory.yaml").read_text()
+    assert "harness:\n  name: claude_code" in (repo / "asf" / "factory-defaults.yaml").read_text()
     assert "ASF_SKILL=" in (repo / ".env").read_text()
     # Detected from the fixture's pyproject, written into the stamped quality.py.
     assert '"pytest"' in (repo / "asf" / "engine" / "quality.py").read_text()
@@ -90,6 +91,7 @@ def test_the_worktree_s_copy_and_setup_are_filled_from_what_the_repo_has(repo: P
                                 "playwright/.auth/*.json"]
     assert worktree["setup"] == [["bun", "install"], ["uv", "sync"]]
     assert "worktree.copy: .env, .env.local" in result.stdout
+    assert "check them in asf/factory.yaml" in result.stdout
     checked = asf(repo, "check")
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
@@ -97,10 +99,23 @@ def test_the_worktree_s_copy_and_setup_are_filled_from_what_the_repo_has(repo: P
 def test_a_repo_with_nothing_to_copy_or_install_keeps_the_defaults(repo: Path):
     result = install(repo, "--harness", "claude_code")
     assert result.returncode == 0, result.stdout + result.stderr
-    worktree = yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["worktree"]
+    # Nothing found that the defaults do not already say, so the overlay is silent.
+    assert "worktree" not in yaml.safe_load((repo / "asf" / "factory.yaml").read_text())
+    worktree = yaml.safe_load((repo / "asf" / "factory-defaults.yaml").read_text())["worktree"]
 
     assert worktree["copy"] == [".env"]
     assert worktree["setup"] == []
+
+
+def test_a_tracked_env_is_not_copied_and_the_overlay_says_so(repo: Path):
+    (repo / ".env").write_text("NOT_SECRET=1\n")
+    git(repo, "add", ".env")
+    git(repo, "commit", "-q", "-m", "a tracked .env")
+
+    install(repo, "--harness", "claude_code")
+
+    assert yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["worktree"] == {
+        "copy": []}
 
 
 def test_a_web_app_is_told_accept_exists_and_its_mcp_servers_how_to_bind_one(repo: Path):
@@ -135,7 +150,7 @@ def test_a_web_app_is_told_accept_exists_and_its_mcp_servers_how_to_bind_one(rep
 def test_a_repo_that_is_no_web_app_hears_of_neither(repo: Path):
     said = install(repo, "--harness", "claude_code").stdout
     assert "the `accept` stage" not in said and "checked-in MCP server" not in said
-    assert yaml.safe_load((repo / "asf" / "factory.yaml").read_text())["serve"]["commands"] == []
+    assert "serve" not in yaml.safe_load((repo / "asf" / "factory.yaml").read_text())
 
 
 def test_convex_starts_the_app_itself_once_its_functions_are_pushed(repo: Path):
@@ -308,6 +323,12 @@ observability:
 """
 
 
+# A full factory.yaml as the installer rendered it just before the overlay:
+# what an upgraded stamp is left holding, since a re-stamp never rewrites it.
+FULL = (Path(__file__).resolve().parent / "golden" / "factory-yaml"
+        / "before-overlay-claude_code.yaml")
+
+
 def line_of(text: str, needle: str) -> int:
     return next(number for number, line in enumerate(text.splitlines(), 1) if needle in line)
 
@@ -318,7 +339,7 @@ def test_force_over_a_pre_1_1_stamp_names_each_obsolete_key_and_still_stamps(rep
     install(repo, "--harness", "claude_code")
     (repo / "asf" / ".skill-version").unlink()                # as every stamp before 1.1
     config = repo / "asf" / "factory.yaml"
-    old = config.read_text().replace("mode: pr ", "mode: none", 1) + PRE_1_1_KEYS
+    old = FULL.read_text().replace("mode: pr ", "mode: none", 1) + PRE_1_1_KEYS
     config.write_text(old)
 
     forced = install(repo, "--harness", "claude_code", "--force")
@@ -330,7 +351,7 @@ def test_force_over_a_pre_1_1_stamp_names_each_obsolete_key_and_still_stamps(rep
     named = forced.stdout
     observability = next(line for line in named.splitlines() if "`observability:`" in line)
     assert f"asf/factory.yaml:{line_of(old, 'observability:')}" in observability
-    assert "ignored" in observability and "can be deleted" in observability
+    assert "refused since 1.3" in observability and "delete it" in observability
     integration = next(line for line in named.splitlines() if "`worktree.integration.mode: "
                        "none`" in line)
     assert f"asf/factory.yaml:{line_of(old, 'mode: none')}" in integration
@@ -357,7 +378,7 @@ def test_a_pre_1_3_config_is_refused_by_check_with_the_rewrite_and_named_by_forc
     refuses it with the block to write instead, and the re-stamp names it."""
     install(repo, "--harness", "claude_code")
     config = repo / "asf" / "factory.yaml"
-    rest = config.read_text().split("\nbudget:", 1)[1]
+    rest = FULL.read_text().split("\nbudget:", 1)[1]
     config.write_text(PRE_1_3_HEAD + "\nbudget:" + rest)
 
     checked = asf(repo, "check")

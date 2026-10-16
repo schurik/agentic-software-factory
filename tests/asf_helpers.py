@@ -4,6 +4,8 @@ record back."""
 
 from __future__ import annotations
 
+import functools
+import importlib.util
 import json
 import os
 import re
@@ -13,10 +15,27 @@ from pathlib import Path
 
 import yaml
 
-from engine import events, frontmatter   # conftest puts templates/asf on the path first
+from engine import events, factory, frontmatter   # conftest puts templates/asf on the path first
+from engine.data_types import FactoryConfig
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent / "skills" / "agentic-sf"
 INSTALL = SKILL_ROOT / "scripts" / "install.py"
+
+
+@functools.cache
+def _installer():
+    spec = importlib.util.spec_from_file_location("asf_install", INSTALL)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def defaults(harness: str = "claude_code", **overlay) -> FactoryConfig:
+    """The factory's settings as a stamp on `harness` resolves them, with
+    `overlay` merged on: what a test that needs a config and no repository
+    builds, now that the models carry no defaults of their own."""
+    rendered = yaml.safe_load(_installer().render_defaults(harness))
+    return FactoryConfig.model_validate(factory.resolve(rendered, overlay))
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -75,8 +94,11 @@ def fake_roster(repo: Path, **agents: list[dict]) -> None:
     needs.
     """
     config = repo / "asf" / "factory.yaml"
-    raw = yaml.safe_load(config.read_text())
-    raw["harness"].update({"name": "fake", "model": "fake", "tools": None, "options": {}})
+    raw = yaml.safe_load(config.read_text()) or {}
+    # Another harness than the defaults' inherits none of their tools or
+    # options; said anyway, for a config that names its own.
+    raw.setdefault("harness", {}).update({"name": "fake", "model": "fake", "tools": None,
+                                          "options": {}})
     config.write_text(yaml.safe_dump(raw))
     for name, replies in agents.items():
         directory = repo / "asf" / "agents" / name
@@ -307,9 +329,10 @@ def forge_data(repo: Path, name: str, payload) -> None:
 
 
 def set_config(repo: Path, **sections) -> None:
-    """Merge whole sections into the stamped factory.yaml."""
+    """Merge whole sections into the stamped factory.yaml — the overlay, which
+    the loader merges onto factory-defaults.yaml in turn."""
     config = repo / "asf" / "factory.yaml"
-    raw = yaml.safe_load(config.read_text())
+    raw = yaml.safe_load(config.read_text()) or {}
     for key, value in sections.items():
         raw[key] = {**(raw.get(key) or {}), **value} if isinstance(value, dict) else value
     config.write_text(yaml.safe_dump(raw))

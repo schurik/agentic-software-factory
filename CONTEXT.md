@@ -10,6 +10,16 @@ Exactly one stamped `asf/` in exactly one repository: its config, workflows, age
 A repository holds at most one factory.
 _Avoid_: instance, installation, deployment
 
+**Factory defaults**:
+`asf/factory-defaults.yaml`: every setting a factory has, its default and what it means, rendered
+for one harness. The skill's, not the repository's — every install rewrites it (ADR 0007).
+_Avoid_: template, base config
+
+**Overlay**:
+`asf/factory.yaml`: what a repository says about its factory that differs from the factory
+defaults, merged onto them. The repository's own; an install never rewrites it.
+_Avoid_: config file, manifest (for the overlay alone), settings file
+
 **Workflow**:
 A named, checked composition of stages inside a factory, started against a prompt, an issue or a pull request.
 _Avoid_: pipeline, flow

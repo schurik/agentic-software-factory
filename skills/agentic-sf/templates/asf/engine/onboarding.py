@@ -109,7 +109,7 @@ def _settings(here: _Here) -> tuple[bool, str, str]:
         return True, f"walked {here.record.marks['settings'].at[:10]}", ""
     if here.on_default("asf/factory.yaml"):
         return True, f"decided before this checkout: the factory is on {here.default}", ""
-    return (False, "asf/factory.yaml holds the stamped defaults",
+    return (False, "asf/factory.yaml says only what the installer chose",
             f"walk them with the person, each with the question tool "
             f"({COOKBOOK}/install.md#the-factorys-settings), then `just onboard --mark settings`")
 
