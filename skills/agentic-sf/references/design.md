@@ -93,11 +93,7 @@ stand-in `gh` on PATH.
 Before 1.3 these were fifteen `*_command` argv prefixes, and the claim that other
 CLIs fit the same verbs. They did not — the engine appended `gh`'s flags,
 parsed its JSON and sent GitHub's graphql whatever the prefix said — and a key
-that only works with one value is a promise the code cannot keep. A full
-factory.yaml that still carries one at its old default loads with a warning and
-the key dropped: nothing is lost, and a watcher under cron does not stop
-because its factory was upgraded. One a person changed is refused by name,
-because that is the one case where a customisation would vanish silently.
+that only works with one value is a promise the code cannot keep.
 
 ### Agents
 

@@ -186,7 +186,6 @@ worktree:
     merge_flags: ["--no-ff"]
     remote: origin
     open_pr: true                  # mode: pr — push AND open it; false = push only
-    pr_command: ["gh", "pr", "create", "--fill"]
     pr_body_template: ""
 
 # ── the running app ─────────────────────────────────────────────────────────
@@ -235,21 +234,14 @@ issues:
   project: ""                      # e.g. "acme/widgets"
   # Commands, not API calls: the forge CLI is installed and authenticated in
   # your shell already. glab, jira and linear fit the same four verbs.
-  fetch_command:   ["gh", "issue", "view"]
-  list_command:    ["gh", "issue", "list"]
-  comment_command: ["gh", "issue", "comment"]
-  state_command:   ["gh", "issue", "edit"]
   # Reading the answers a person wrote, and writing the requirements block back
   # into the description. Separate entries although `gh` spells both with verbs
   # it already has: a tracker that is not the forge routes comments, labels and
   # the description to three different places.
-  comments_command: ["gh", "issue", "view"]
-  body_command:     ["gh", "issue", "edit"]
   # Filing an issue — the one place the factory opens one itself: when a scorer
   # keeps failing (`self_improvement:` above), it files one labelled
   # `asf:improve:<scorer>` and queues it for the `issue` workflow. Empty = it
   # says the pattern on the console and files nothing.
-  create_command:   ["gh", "issue", "create"]
   # Reading which labels this project DEFINES, and defining one. EVERY LABEL
   # NAMED BELOW HAS TO EXIST BEFORE ANYTHING CAN APPLY IT: a route label the
   # forge never heard of cannot be applied by anyone, so the workflow behind it
@@ -263,14 +255,11 @@ issues:
   # `view | list | comment | edit`, and none of them define labels the way
   # `gh label` does. Empty on either = skip, which is the honest answer for a
   # tracker whose labels are not created this way.
-  labels_list_command:   ["gh", "label", "list"]
-  labels_create_command: ["gh", "label", "create"]
   # WHO TRIGGERED a labelled run: the watcher reads the issue's `labeled`
   # events (graphql — `gh issue view` has no timeline) and the run records
   # whoever last applied its route or queued label as `triggered_by`. A run
   # started by hand records you, as `gh` knows you. It authorizes nothing: who
   # may label is the forge's call. Empty = skip, and the run records nobody.
-  labeller_command: ["gh", "api", "graphql"]
   # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
   # AND a label here launches that workflow. `route: {}` means nothing ever
   # launches, whatever `enabled` says.
@@ -324,10 +313,6 @@ pull_requests:
   # Review THREADS are the one thing `gh pr view --json` cannot return, so a
   # pull request is read through graphql (state, threads AND comments, one snapshot) and
   # replies and resolves are written back the same way.
-  list_command:    ["gh", "pr", "list"]
-  comment_command: ["gh", "pr", "comment"]
-  state_command:   ["gh", "pr", "edit"]
-  graphql_command: ["gh", "api", "graphql"]
   # [] accepts everyone: being able to review this repository's pull requests
   # is itself the authorization. Narrow it where that is not true.
   trusted_reviewers: []

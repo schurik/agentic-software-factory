@@ -89,30 +89,6 @@ OBSOLETE = (
 # there is none, and the operator's copy is kept where there is.
 USER_OWNED = (Path("asf") / "scorers",)
 
-# The forge commands a factory.yaml spelt before 1.3, at the default each was
-# stamped with: `forge:` and `tracker:` select an implementation that owns them
-# now. The engine's own table is `engine/forge/github.py`'s RETIRED, which a
-# test holds this copy to — this script imports nothing from the stamp. The
-# loader drops one still at its default and refuses one a person changed, so
-# lint says which is which before `asf check` does.
-RETIRED: dict[tuple[str, ...], list[str]] = {
-    ("worktree", "integration", "pr_command"): ["gh", "pr", "create", "--fill"],
-    ("issues", "fetch_command"): ["gh", "issue", "view"],
-    ("issues", "list_command"): ["gh", "issue", "list"],
-    ("issues", "comment_command"): ["gh", "issue", "comment"],
-    ("issues", "state_command"): ["gh", "issue", "edit"],
-    ("issues", "comments_command"): ["gh", "issue", "view"],
-    ("issues", "body_command"): ["gh", "issue", "edit"],
-    ("issues", "create_command"): ["gh", "issue", "create"],
-    ("issues", "labels_list_command"): ["gh", "label", "list"],
-    ("issues", "labels_create_command"): ["gh", "label", "create"],
-    ("issues", "labeller_command"): ["gh", "api", "graphql"],
-    ("pull_requests", "list_command"): ["gh", "pr", "list"],
-    ("pull_requests", "comment_command"): ["gh", "pr", "comment"],
-    ("pull_requests", "state_command"): ["gh", "pr", "edit"],
-    ("pull_requests", "graphql_command"): ["gh", "api", "graphql"],
-}
-
 # What the skill owns in this stamp: every file under `asf/` that `--force`
 # overwrites, one path per line. Self-improvement reads it (`engine/
 # diagnose.py`): a change to one of these is lost on the next re-stamp, so a
@@ -396,36 +372,12 @@ def lint_config(config: Path) -> list[str]:
         return []
     found = []
     for path, value, number in config_keys(config.read_text()):
-        where = f"{config.parent.name}/{config.name}:{number}"
         for obsolete in OBSOLETE:
             if path == obsolete.path and obsolete.value in (None, value):
                 key = ".".join(path) + (f": {value}" if obsolete.value else ":")
-                found.append(f"{where} `{key}` — {obsolete.why}")
-        if path in RETIRED:
-            found.append(f"{where} `{'.'.join(path)}` — {_retired(path, value)}")
+                found.append(f"{config.parent.name}/{config.name}:{number} `{key}` — "
+                             f"{obsolete.why}")
     return found
-
-
-def _retired(path: tuple[str, ...], value: str) -> str:
-    axis = "tracker" if path[0] == "issues" else "forge"
-    said = _flow_list(value)
-    if said == RETIRED[path]:
-        return (f"retired since 1.3 and still its old default, so it is dropped with a "
-                f"warning on every load — `{axis}: github` runs the same commands: delete it")
-    if said is None:
-        return (f"retired since 1.3 — `{axis}:` selects an implementation that owns its "
-                f"commands: delete it (`asf check` refuses it if it is not the old default)")
-    return (f"refused since 1.3, and changed from the old default — `{axis}:` selects an "
-            f"implementation that owns its commands, so this customisation would vanish "
-            f"silently: delete it; a forge other than GitHub is a module in asf/engine/forge/")
-
-
-def _flow_list(value: str) -> list[str] | None:
-    """`[gh, "issue", 'view']` as its items, or None for anything else."""
-    if not (value.startswith("[") and value.endswith("]")):
-        return None
-    inner = value[1:-1].strip()
-    return [item.strip().strip("\"'") for item in inner.split(",")] if inner else []
 
 
 JUSTFILE_MARK = "# agentic-sf recipes."

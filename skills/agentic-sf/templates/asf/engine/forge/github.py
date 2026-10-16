@@ -52,29 +52,6 @@ LABEL_LIMIT = "500"
 # same failing run again. cli/cli#13282, released in gh 2.98.0.
 LABELS_FIXED = (2, 98)
 
-# The commands factory.yaml spelt before 1.3, each with the default it was
-# stamped with and the key that took its place — this module, behind `forge:`
-# or `tracker:`. Only `gh` ever worked behind them. The loader drops one still
-# at its default and refuses one a person changed (`factory._retired`), and the
-# installer says which is which (`install.py`'s own copy of this table).
-RETIRED: dict[tuple[str, ...], tuple[list[str], str]] = {
-    ("worktree", "integration", "pr_command"): (["gh", "pr", "create", "--fill"], "forge"),
-    ("issues", "fetch_command"): (["gh", "issue", "view"], "tracker"),
-    ("issues", "list_command"): (["gh", "issue", "list"], "tracker"),
-    ("issues", "comment_command"): (["gh", "issue", "comment"], "tracker"),
-    ("issues", "state_command"): (["gh", "issue", "edit"], "tracker"),
-    ("issues", "comments_command"): (["gh", "issue", "view"], "tracker"),
-    ("issues", "body_command"): (["gh", "issue", "edit"], "tracker"),
-    ("issues", "create_command"): (["gh", "issue", "create"], "tracker"),
-    ("issues", "labels_list_command"): (["gh", "label", "list"], "tracker"),
-    ("issues", "labels_create_command"): (["gh", "label", "create"], "tracker"),
-    ("issues", "labeller_command"): (["gh", "api", "graphql"], "tracker"),
-    ("pull_requests", "list_command"): (["gh", "pr", "list"], "forge"),
-    ("pull_requests", "comment_command"): (["gh", "pr", "comment"], "forge"),
-    ("pull_requests", "state_command"): (["gh", "pr", "edit"], "forge"),
-    ("pull_requests", "graphql_command"): (["gh", "api", "graphql"], "forge"),
-}
-
 
 def _run(argv: list[str], tree) -> subprocess.CompletedProcess:
     """Run one `gh` command. Never raises: a CLI that is not installed is an

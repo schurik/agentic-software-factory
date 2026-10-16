@@ -21,7 +21,6 @@ trace — knows the roster changed shape.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import yaml
@@ -29,7 +28,6 @@ from pydantic import ValidationError
 
 from . import agents, frontmatter, git_helper, harnesses, integration, mcp, worktree
 from .data_types import AgentConfig, FactoryConfig, HarnessDefaults
-from .forge.github import RETIRED
 from .utils import anchor
 
 DEFAULT_CONFIG = "asf/factory.yaml"
@@ -42,12 +40,6 @@ ADDED_ONLY = (("protected_files",), ("harness", "deny_tools"))
 # like any key the defaults lack — but with the answer, not just the name.
 OBSOLETE = {"observability": "`observability:` is gone since 1.2 — nothing reads it, so "
                              "delete the block"}
-# The forge commands factory.yaml spelt before 1.3 (`forge.github.RETIRED`). One
-# that still says its old default is DROPPED, with a warning: nothing is lost,
-# and a watcher under cron must not stop because its factory was upgraded. One
-# a person changed is REFUSED by name — the one case where a customisation
-# would otherwise vanish without a word.
-_WARNED: set[tuple[str, str]] = set()
 AGENT_FILE = "agent.md"
 AGENT_RESERVED = ("name", "prompt_engineering")
 # What an agent.md said at the top of its frontmatter before 1.3, and the key
@@ -109,40 +101,10 @@ def settings(config_path: str | Path = DEFAULT_CONFIG) -> dict:
         raise SystemExit(f"{path}: `agents:` does not belong in factory.yaml — an agent is "
                          f"a directory under {root_of(path) / 'agents'} with an "
                          f"{AGENT_FILE} in it")
-    refused = _refused(raw, (base.get("harness") or {}).get("name") or "") or _retired(path, raw)
+    refused = _refused(raw, (base.get("harness") or {}).get("name") or "")
     if refused:
         raise SystemExit(f"{path}: {refused}")
     return resolve(base, raw)
-
-
-def _retired(path: Path, raw: dict) -> str:
-    """The refusal naming every retired forge command a person changed, or "";
-    when there is none, each one still at its old default is dropped from
-    `raw` — never merged — with a warning, once per process."""
-    said = {}
-    for keys, (default, axis) in RETIRED.items():
-        block = raw
-        for parent in keys[:-1]:
-            block = block.get(parent) if isinstance(block, dict) else None
-        if isinstance(block, dict) and keys[-1] in block:
-            said[keys] = (block, default, axis)
-    changed = [f"`{'.'.join(keys)}: {block[keys[-1]]}`"
-               for keys, (block, default, _) in said.items() if block[keys[-1]] != default]
-    if changed:
-        return (f"{', '.join(changed)} — gone since 1.3, and changed from the default, so a "
-                f"customisation would vanish here: `forge:` and `tracker:` now select an "
-                f"implementation in asf/engine/forge/ that owns its own commands, and only "
-                f"`github` ships. Delete the key; a forge or tracker other than GitHub is a "
-                f"new module there")
-    for keys, (block, _, axis) in said.items():
-        del block[keys[-1]]
-        name = ".".join(keys)
-        if (str(path), name) not in _WARNED:
-            _WARNED.add((str(path), name))
-            print(f"warning: {path}: `{name}` is retired since 1.3 and still holds its old "
-                  f"default, so it is dropped — `{axis}: github` runs the same commands. "
-                  f"Delete it from factory.yaml", file=sys.stderr)
-    return ""
 
 
 def _mapping(path: Path) -> dict:

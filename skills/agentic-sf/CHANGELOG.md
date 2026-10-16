@@ -418,9 +418,7 @@ before — `None` when there are none, never omitted.
   parsing; only `github` ships, both default to it, and GitHub Enterprise is `gh`'s own `GH_HOST`.
   Every `gh` call moved behind it — the cockpit's `gh auth token`, the operator's login and
   `GITHUB_ACTOR`, the `gh` version check in `doctor`, `GITHUB_HEAD_REF` in the self-description —
-  so `engine/forge/github.py` is the only file that names `gh` or `GITHUB_`. A full factory.yaml
-  still carrying a command key at its old default loads with a warning and the key dropped; one a
-  person changed is refused by name, and `install.py` says which is which. `hitl.notify_command`
+  so `engine/forge/github.py` is the only file that names `gh` or `GITHUB_`. `hitl.notify_command`
   is not a forge command and stays. The "empty means skip" a few of the keys offered goes with
   them: a tracker that defines no labels, or cannot say who applied one, says so through its
   Protocol.
@@ -542,16 +540,9 @@ before — `None` when there are none, never omitted.
       in pins its value, and later releases' defaults never reach it.
     - Never edit `asf/factory-defaults.yaml`: the next `install.py` rewrites it, and `just doctor`
       says when it was edited. A change goes in factory.yaml.
-14. The forge commands: a full factory.yaml carries fifteen `*_command` keys under `issues:`,
-    `pull_requests:` and `worktree.integration:`. `install.py` names each one. Delete them all —
-    `forge: github` and `tracker: github` run the same commands. One still at its old default
-    only warns until then; one you changed (another binary, a wrapper script, an empty list that
-    turned a step off) makes `just check` refuse the config until it is gone: GitHub through
-    `gh` was the only thing that ever worked behind it, so put the wrapper's job in `gh`'s own
-    config (`GH_HOST`, `gh auth`) or leave it out, and to stop the factory filing
-    self-improvement issues set `issues.enabled: false` or raise `self_improvement:`. Tests or
-    scripts of your own that stood in for `gh` through those keys put a `gh` of their own on
-    `PATH` instead.
+14. Delete the fifteen `*_command` keys from a full factory.yaml (under `issues:`,
+    `pull_requests:` and `worktree.integration:`): `just check` refuses each as a key that is not
+    a setting. `forge: github` and `tracker: github` run the same commands.
 
 ## 1.2.0 — 2026-10-02
 

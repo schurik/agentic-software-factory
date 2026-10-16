@@ -15,15 +15,13 @@ import re
 from pathlib import Path
 
 import pytest
-import yaml
 
 from engine import forge, issues, labels
 from engine.data_types import IssueRef, IssueUpdate, NewIssue
 from engine.forge import fake
-from engine.forge.github import RETIRED
 
-from .asf_helpers import (SKILL_ROOT, _installer, asf, defaults, forge_calls, forge_data, install,
-                          issue_json, new_repo, stand_in_gh)
+from .asf_helpers import (SKILL_ROOT, asf, defaults, forge_calls, forge_data, issue_json,
+                          stand_in_gh)
 
 ENGINE = SKILL_ROOT / "templates" / "asf" / "engine"
 GITHUB = ENGINE / "forge" / "github.py"
@@ -56,59 +54,6 @@ def test_an_unknown_forge_is_refused_by_name(stamped: Path):
 
     assert checked.returncode == 1
     assert "tracker" in checked.stdout + checked.stderr
-
-
-# ── the retired keys in a full factory.yaml ──────────────────────────────────
-
-FULL = Path(__file__).resolve().parent / "golden" / "factory-yaml" / \
-    "before-overlay-claude_code.yaml"
-
-
-def test_a_full_config_whose_commands_are_untouched_loads_with_a_warning(tmp_path: Path):
-    repo = new_repo(tmp_path / "full")
-    assert install(repo, "--harness", "claude_code").returncode == 0
-    (repo / CONFIG).write_text(FULL.read_text())
-
-    checked = asf(repo, "check")
-
-    assert checked.returncode == 0, checked.stdout + checked.stderr
-    said = checked.stdout + checked.stderr
-    assert "issues.fetch_command" in said and "worktree.integration.pr_command" in said
-    assert "dropped" in said
-
-
-def test_a_command_a_person_changed_is_refused_by_name(tmp_path: Path):
-    repo = new_repo(tmp_path / "changed")
-    assert install(repo, "--harness", "claude_code").returncode == 0
-    raw = yaml.safe_load(FULL.read_text())
-    raw["issues"]["list_command"] = ["glab", "issue", "list"]
-    (repo / CONFIG).write_text(yaml.safe_dump(raw))
-
-    checked = asf(repo, "check")
-
-    assert checked.returncode == 1
-    said = checked.stdout + checked.stderr
-    assert "issues.list_command" in said and "glab" in said
-    assert "issues.fetch_command" not in said          # the untouched ones are not the problem
-
-
-def test_the_installer_names_each_retired_command_and_what_becomes_of_it(tmp_path: Path):
-    repo = new_repo(tmp_path / "linted")
-    assert install(repo, "--harness", "claude_code").returncode == 0
-    raw = yaml.safe_load(FULL.read_text())
-    raw["pull_requests"]["graphql_command"] = ["my-gh", "api", "graphql"]
-    (repo / CONFIG).write_text(yaml.safe_dump(raw, default_flow_style=None))
-
-    again = install(repo, "--harness", "claude_code")
-
-    said = again.stdout + again.stderr
-    assert "issues.fetch_command" in said and "dropped" in said
-    assert "pull_requests.graphql_command" in said and "refused" in said
-
-
-def test_the_installer_s_table_of_retired_commands_is_the_engine_s():
-    installer = _installer()
-    assert installer.RETIRED == {path: default for path, (default, _) in RETIRED.items()}
 
 
 # ── the GitHub implementation, through a `gh` on PATH ────────────────────────
