@@ -174,8 +174,8 @@ and a key the defaults lack is refused by name, so `just check` names any typo
 the old file carried silently. `asf/factory.yaml.new` is what a fresh stamp
 would say: one pointer line and the keys particular to this repository. A
 factory.yaml stamped before 1.3 carries every key and keeps working as it is;
-shrinking it to the overlay is optional, and each key deleted from it is one
-whose future defaults it takes. Most new keys apply without anything copied.
+shrinking it to the overlay is optional (step 8, last), and each key it drops
+is one whose future defaults it takes. Most new keys apply without anything copied.
 These do not, and each is the repository's call: put the ones that apply to the
 engineer in one question-tool call (up to four; the rest in the next), each
 option saying what it does, and edit `asf/factory.yaml` with their answer —
@@ -237,6 +237,30 @@ only an answer that differs from the defaults. The options are below each.
    repository that TRACKS its `.env` is refused by `just check` until `copy`
    leaves it out. Options: **Take the `.new`'s lists** `(Recommended)` ·
    **Keep the defaults** · **Copy nothing** (`copy: []`).
+
+8. **A whole factory.yaml** (stamped before 1.3: it says `harness:`,
+   `budget:`, `issues:` and the rest, every key, with its prose) — every key in
+   it pins the value it says, so a later release's default never reaches it.
+   Do this last, once 1–7 are settled: it refuses whatever `just check` refuses
+   by name (`defaults:`, `mode: none`). Outside the repository, so nothing
+   commits it by accident:
+
+   ```bash
+   uv run asf/asf.py config --non-default > "${TMPDIR:-/tmp}/factory.yaml.shrunk"
+   diff -u asf/factory.yaml "${TMPDIR:-/tmp}/factory.yaml.shrunk"
+   ```
+
+   The shrunk file resolves to exactly the settings the current one does,
+   saying only what differs from the defaults: `protected_files` as what it
+   adds, a default route the file removed as `null`. Each `~` line it printed
+   is a key left out because the defaults do not hold it, with the value it
+   held — the fifteen `*_command` keys of a 1.2 stamp are expected there and
+   need nothing; read out any other (a typo that was being ignored, most
+   often). The diff drops the old file's prose, which lives in
+   `asf/factory-defaults.yaml` now. Show the diff and the `~` lines, then ask
+   with the question tool: **Shrink it** `(Recommended)` · **Keep the whole
+   file**. On yes, move the shrunk file over `asf/factory.yaml` and `just
+   check`; on no, delete it. Either way the factory runs as it did.
 
 Then delete `asf/factory.yaml.new` — it was a proposal, and leaving it is how
 the next `--force` writes over the one they read.

@@ -10,6 +10,9 @@ Usage:
     uv run asf/asf.py check --json [--ship]      the factory's self-description, as JSON;
                                                  --ship sends it to the cockpit as a CI station
     uv run asf/asf.py doctor                     is this repo ready to run? checks + fixes
+    uv run asf/asf.py config [--non-default]     the settings as runs see them, merged onto the
+                                                 defaults; --non-default: the smallest
+                                                 factory.yaml that resolves to them
     uv run asf/asf.py labels [--create]          the forge labels this config names
     uv run asf/asf.py onboard [--json] [--mark step[=value]] [--forget step]
                                                  where onboarding stands, and its next step
@@ -160,6 +163,20 @@ def cmd_doctor(args) -> int:
     print()
     args.workflow = None
     return max(code, cmd_check(args))
+
+
+def cmd_config(args) -> int:
+    """The merged settings, or — `--non-default` — the overlay that says only
+    what differs from the defaults: on stdout and nothing else, so it can be
+    written to a file; what it left out goes to stderr."""
+    if not args.non_default:
+        sys.stdout.write(factory.settings_text(args.config))
+        return 0
+    text, notes = factory.non_default(args.config)
+    for note in notes:
+        print(f"~ {note}", file=sys.stderr)
+    sys.stdout.write(text)
+    return 0
 
 
 def cmd_onboard(args) -> int:
@@ -366,6 +383,12 @@ def build_parser() -> argparse.ArgumentParser:
     check.set_defaults(func=cmd_check)
     _config_on(sub.add_parser("doctor", help="is this repo ready to run? checks + fixes")
                ).set_defaults(func=cmd_doctor)
+    conf = _config_on(sub.add_parser("config", help="the settings as runs see them"))
+    conf.add_argument("--non-default", action="store_true",
+                      help="print only what differs from asf/factory-defaults.yaml: the smallest "
+                           "factory.yaml that resolves to the same settings, keys it cannot "
+                           "keep named on stderr")
+    conf.set_defaults(func=cmd_config)
     lbl = _config_on(sub.add_parser("labels", help="the forge labels this config names"))
     lbl.add_argument("--create", action="store_true",
                      help="define the missing ones; never edits or deletes an existing label")

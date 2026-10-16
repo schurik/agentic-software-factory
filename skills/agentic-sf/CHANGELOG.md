@@ -408,6 +408,14 @@ before — `None` when there are none, never omitted.
   re-stamp with `--harness`. `asf doctor` warns (`factory defaults`) when the defaults file was
   edited since the installer wrote it. `asf/factory-defaults.yaml` is protected and listed in
   `asf/.skill-files`; `uninstall.py` reads the worktree and data settings from it too.
+- **A whole factory.yaml shrinks to the keys that differ.** `asf config --non-default` prints the
+  smallest factory.yaml that resolves to the settings the current one does: the pointer line, then
+  only the keys whose value differs from `asf/factory-defaults.yaml` — `protected_files` and
+  `harness.deny_tools` as what they add, a default map entry the file removed as `null`. A key the
+  defaults no longer hold (a retired `*_command`, `observability:`, a typo) is left out and named
+  on stderr with the value it held. It writes nothing: the upgrade cookbook shows the diff and
+  writes it when the person says so. `asf config` alone prints the settings as runs see them,
+  merged.
 - **`forge:` and `tracker:` select a GitHub implementation, and the `gh`-only command keys are
   gone.** factory.yaml used to carry fifteen `*_command` argv prefixes (`issues.fetch_command`,
   `pull_requests.graphql_command`, `worktree.integration.pr_command`, …) and claimed other CLIs
@@ -535,14 +543,18 @@ before — `None` when there are none, never omitted.
       ignored.
     - If factory.yaml never listed `cockpit.commands`, a station obeyed none before and still
       obeys none; nothing to do unless you want them (`cookbooks/upgrade.md`, step 5).
-    - Optional: shrink factory.yaml to the overlay, keeping only the keys whose value differs from
-      `asf/factory-defaults.yaml` (`asf/factory.yaml.new` is what a fresh stamp says). A key left
-      in pins its value, and later releases' defaults never reach it.
     - Never edit `asf/factory-defaults.yaml`: the next `install.py` rewrites it, and `just doctor`
       says when it was edited. A change goes in factory.yaml.
 14. Delete the fifteen `*_command` keys from a full factory.yaml (under `issues:`,
     `pull_requests:` and `worktree.integration:`): `just check` refuses each as a key that is not
-    a setting. `forge: github` and `tracker: github` run the same commands.
+    a setting. `forge: github` and `tracker: github` run the same commands. Step 15 leaves them out
+    for you.
+15. Optional, and last: shrink a full factory.yaml to the overlay. Every key it says pins its value,
+    so a later release's default never reaches it. `uv run asf/asf.py config --non-default`
+    prints the overlay that resolves to the same settings — only the keys whose value differs
+    from `asf/factory-defaults.yaml`, and a note on stderr for each key it left out because the
+    defaults do not hold it. `cookbooks/upgrade.md` § The config, step 8, shows the diff and asks
+    before it writes.
 
 ## 1.2.0 — 2026-10-02
 

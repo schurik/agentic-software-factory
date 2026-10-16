@@ -65,6 +65,18 @@ upgrade, and belongs in the overlay.
 recommends into a new overlay: a permission a station obeys is said in the
 repository's own reviewed file, and never arrives through an upgrade.
 
+A factory.yaml stamped before the overlay says every key, and each pins the
+value it says. `asf config --non-default` (`engine.factory.non_default`) is
+`resolve` run backwards: from the merged settings it prints the smallest
+overlay that resolves to them — a map's entries that differ, what the two
+growing lists add, `null` for a default map entry the file removed — in the
+installer's own renderer (`engine/overlay.py`, stdlib only so that `install.py`
+can load it), so a whole file at today's defaults shrinks to exactly what a
+fresh stamp says. A key the defaults no longer hold is left out
+and named with its value: every run refuses it anyway. It writes nothing; the
+installer never rewrites factory.yaml, and shrinking it is the person's yes in
+the upgrade cookbook.
+
 ### The forge and the tracker
 
 Two keys, two axes: `forge:` names what holds the branches, the pull requests

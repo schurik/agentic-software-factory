@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
+import importlib.util
 import re
 import shutil
 import sys
@@ -113,9 +113,6 @@ HARNESS_BLOCK = "# @harness-block@\n"
 DIGEST_LINE = ("# sha256 {} — of everything above, as the installer wrote it; "
                "`asf doctor` checks it\n")
 
-# The overlay's only comment, its first line. Everything else it says is a key.
-OVERLAY_HEAD = ("# Overlay on asf/factory-defaults.yaml, which holds every key, its default and "
-                "what it means — say here only what differs.\n")
 # What a new overlay says whatever the repository is: the commands a station
 # obeys. None by default, so that a permission is said in the repo's own file
 # and never arrives through an upgrade of the defaults (ADR 0007).
@@ -253,19 +250,19 @@ def write_defaults(harness: str, root: Path, stamped: list, skipped: list) -> No
 
 
 def render_overlay(keys: dict) -> str:
-    """A new factory.yaml: the pointer line, then `keys` in block style with
-    JSON values — JSON is YAML, and this script has no YAML writer."""
-    return OVERLAY_HEAD + "".join(_block(keys, 0))
+    """A new factory.yaml: the pointer line, then `keys`."""
+    return _overlay().render(keys)
 
 
-def _block(mapping: dict, indent: int) -> Iterator[str]:
-    for key, value in mapping.items():
-        name = key if re.fullmatch(r"[A-Za-z_][\w-]*", key) else json.dumps(key)
-        if isinstance(value, dict) and value:
-            yield f"{' ' * indent}{name}:\n"
-            yield from _block(value, indent + 2)
-        else:
-            yield f"{' ' * indent}{name}: {json.dumps(value)}\n"
+def _overlay():
+    """`asf/engine/overlay.py`, loaded out of the templates: the one renderer of
+    an overlay, which `asf config --non-default` writes with too. It is stdlib
+    only so that this script can, without importing the engine."""
+    spec = importlib.util.spec_from_file_location("asf_overlay",
+                                                  TEMPLATES / "asf" / "engine" / "overlay.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def detected_overlay(root: Path) -> tuple[dict, list[str], list[str]]:
