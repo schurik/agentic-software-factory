@@ -25,9 +25,9 @@ from pathlib import Path
 from engine import events
 
 from . import projection
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, fake_roster, forge,
-                          forge_calls, forge_data, git, issue_json, run_state, scorer,
-                          session_dir, set_config, wire, with_origin, write_workflow)
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, fake_roster, forge_calls,
+                          forge_data, git, issue_json, run_state, scorer, session_dir, set_config,
+                          stand_in_gh, wire, with_origin, write_workflow)
 from .test_asf_benchmarks import benchmark, build_reply, task_of
 
 LOCAL = {"CI": ""}
@@ -110,13 +110,10 @@ def test_each_task_is_worked_n_times_per_variant_under_that_variant_s_files(stam
 def issue_factory(repo: Path) -> None:
     """Issues read from and reported to the stand-in, every branch published as
     it is cut, and a pull request opened on integration."""
-    base = forge(repo)
-    set_config(repo, issues={"enabled": True, "project": "acme/widgets",
-                             "fetch_command": [*base, "view"], "state_command": [*base, "edit"],
-                             "comment_command": [*base, "comment"]},
+    stand_in_gh(repo)
+    set_config(repo, issues={"enabled": True, "project": "acme/widgets"},
                worktree={"publish": "on_create",
-                         "integration": {"mode": "pr", "open_pr": True,
-                                         "pr_command": [*base, "pr-create"]}})
+                         "integration": {"mode": "pr", "open_pr": True}})
     write_workflow(repo, "fix", {
         "description": "implement an issue, verify, commit and open a pull request",
         "input": "issue",
@@ -134,7 +131,7 @@ _commit = run
 def run(ctx, opts):
     from engine import git_helper, issues
     from engine.data_types import IssueUpdate
-    issues.comment(ctx.run.main_root, ctx.run.cfg.issues,
+    issues.comment(ctx.run.main_root, ctx.run.cfg,
                    IssueUpdate(number=12, comment="a stage of the variant's own, reaching out"))
     git_helper.push(ctx.run.main_root, "origin", ctx.run.workspace.branch)
     return _commit(ctx, opts)
@@ -287,11 +284,8 @@ BROKEN = [build_reply("1/0\n", "feat: broken"), build_reply("2/0\n", "feat: stil
 
 def test_benchmark_sessions_are_scored_by_the_station_s_scorers_and_counted_in_no_window(
         stamped: Path):
-    base = forge(stamped)
-    set_config(stamped, issues={
-        "enabled": True, "project": "acme/widgets", "list_command": [*base, "list"],
-        "create_command": [*base, "create"], "comment_command": [*base, "comment"],
-        "state_command": [*base, "edit"], "labels_create_command": [*base, "label-create"]})
+    stand_in_gh(stamped)
+    set_config(stamped, issues={"enabled": True, "project": "acme/widgets"})
     source = source_run(stamped, "add app.py")
     on_a_branch(stamped, lambda repo: fake_roster(repo, builder=BROKEN))
     # The scorer is the station's, written after the change was cut: its

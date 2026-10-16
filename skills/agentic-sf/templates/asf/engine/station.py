@@ -45,7 +45,6 @@ import http.client
 import json
 import os
 import socket
-import subprocess
 import sys
 import threading
 import urllib.error
@@ -54,11 +53,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
-from . import artifacts, events, git_helper
+from . import artifacts, events, forge, git_helper
 from .data_types import (Cockpit, EventLine, FactoryConfig, ShipAck, ShipResult, Station,
                          StationCredential, StationKind, StationRecord)
-from .cockpit import forge_host
-from .utils import anchor, engineer_name, ensure_dir, new_id, now_iso, operator_env, write_atomic
+from .utils import anchor, engineer_name, ensure_dir, new_id, now_iso, write_atomic
 
 STATION_FILE = "station.json"
 SHIPPED_FILE = "shipped.json"
@@ -132,23 +130,13 @@ def _login() -> str:
         return os.environ.get("USER", "someone")
 
 
-def operator() -> str:
-    """The person running this process, by forge login: the account `gh` acts
-    as on the host it is aimed at, read from `gh`'s own config — no network —
-    else, in a GitHub Actions job, the actor the forge ran it for
-    (`GITHUB_ACTOR`), else the name the factory already calls them
-    (`ENGINEER_NAME`, git's `user.name`), which a cockpit then cannot match to
-    a login. What a run started by hand records as who triggered it
-    (`session.triggered_by`)."""
-    try:
-        done = subprocess.run(["gh", "config", "get", "-h", forge_host(), "user"],
-                              capture_output=True, text=True, timeout=10, env=operator_env())
-    except (OSError, subprocess.SubprocessError):
-        done = None
-    login = done.stdout.strip() if done is not None and done.returncode == 0 else ""
-    if len(login.split()) == 1:
-        return login
-    return os.environ.get("GITHUB_ACTOR", "").strip() or engineer_name()
+def operator(cfg: FactoryConfig) -> str:
+    """The person running this process, by forge login — as the forge knows
+    the person at this machine, read without the network (`Forge.person`) —
+    else the name the factory already calls them (`ENGINEER_NAME`, git's
+    `user.name`), which a cockpit then cannot match to a login. What a run
+    started by hand records as who triggered it (`session.triggered_by`)."""
+    return forge.forge_of(cfg).person() or engineer_name()
 
 
 def host() -> str:

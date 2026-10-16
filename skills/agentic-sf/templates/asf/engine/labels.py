@@ -1,8 +1,8 @@
 """The labels this config names, and whether the forge has heard of them.
 
 WHY THIS EXISTS. `issues.route`, `issues.states`, `issues.refined_label` and
-`pull_requests.states.failed` are all names the factory will eventually hand to
-`--add-label`, and a forge answers that with an error when nothing ever defined
+`pull_requests.states.failed` are all names the factory will eventually add to
+an item, and a tracker answers that with an error when nothing ever defined
 the name. Both halves of that fail quietly until the moment they cost something:
 
   * an undefined ROUTE label cannot be applied by anybody, so the workflow
@@ -13,9 +13,9 @@ the name. Both halves of that fail quietly until the moment they cost something:
     leave its stop-mark, so the condition that launched it survives and the
     next poll buys the same failing run again.
 
-`watch.stale_states()` already says this out loud for the `--remove-label` side
-("on a name the repository never defined is an error, and it would fail the
-claim it rides on"). This module is the other half.
+`watch.stale_states()` already says this out loud for the removing side ("on a
+name the repository never defined is an error, and it would fail the claim it
+rides on"). This module is the other half.
 
 THE SET IS DERIVED, NEVER WRITTEN DOWN. The labels grew from three to nine
 across two releases and nothing noticed, because every one of them was a name
@@ -30,19 +30,12 @@ one round-trip per claim, to learn something that changes about twice a year.
 
 from __future__ import annotations
 
-import json
-import subprocess
 from pathlib import Path
 
-from . import benchmark_session
+from . import forge
 from .data_types import FactoryConfig, IssueResult, Label, LabelSurvey
+from .forge import ForgeError
 from .issues import resolve_project
-from .utils import operator_env
-
-# `gh label list` answers 30 at a time unless told otherwise, and a repository
-# with a real taxonomy has more than that. A truncated listing would report
-# labels as missing and then try to create ones that already exist.
-LIST_LIMIT = "500"
 
 # What each role LOOKS like on the page, for the person who finds the label on a
 # work item months later. The factory only ever matches on the name; everything
@@ -118,53 +111,30 @@ def referenced(cfg: FactoryConfig) -> list[Label]:
     return kept
 
 
-def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    """As everywhere else on a forge path: never raises, and runs under the
-    operator's environment rather than the ephemeral venv `uv run` hands us.
-    A CLI that is not installed is an answer too — `doctor` on a bare machine
-    is exactly when it is asked. A benchmark's session makes no forge call."""
-    refused = benchmark_session.refused(argv)
-    if refused is not None:
-        return refused
-    try:
-        return subprocess.run(argv, cwd=str(cwd), env=operator_env(),
-                              capture_output=True, text=True)
-    except OSError as error:
-        return subprocess.CompletedProcess(argv, 127, "", str(error))
-
-
 def survey(cfg: FactoryConfig, main_root: Path) -> LabelSurvey:
     """What the config names, what the forge defines, and whether we could ask.
 
     `asked=False` is a real answer and not a failure: there is no remote, no
-    auth, no network, or the tracker does not define labels with a command at
-    all. Every caller has to distinguish it from "the forge defines nothing",
+    auth, no network. A tracker that does not define labels at all is the
+    third answer, `applicable=False`. Every caller has to distinguish it from "the forge defines nothing",
     because reporting nine missing labels to somebody on a plane is a confident
     wrong answer that costs them an afternoon.
     """
     found = LabelSurvey(referenced=referenced(cfg))
-    command = cfg.issues.labels_list_command
-    if not found.referenced or not command:
+    if not found.referenced:
         found.applicable = False
-        found.note = ("no issues.labels_list_command is configured — this tracker does "
-                      "not define labels that way" if found.referenced else
-                      "no path that applies labels is enabled")
-        return found
-
-    project = resolve_project(cfg.issues, main_root)
-    argv = [*command, *(["--repo", project] if project else []),
-            "--limit", LIST_LIMIT, "--json", "name"]
-    completed = _run(argv, main_root)
-    if completed.returncode != 0:
-        found.note = (f"`{' '.join(command)}` failed: "
-                      f"{(completed.stderr or completed.stdout).strip()[-300:]}")
+        found.note = "no path that applies labels is enabled"
         return found
     try:
-        payload = json.loads(completed.stdout or "[]")
-    except json.JSONDecodeError as error:
-        found.note = f"`{' '.join(command)}` did not return JSON: {error}"
+        defined = forge.tracker_of(cfg).labels(main_root, resolve_project(cfg.issues, main_root))
+    except ForgeError as error:
+        found.note = str(error)[-300:]
         return found
-    found.defined = [entry.get("name", "") for entry in payload if isinstance(entry, dict)]
+    if defined is None:
+        found.applicable = False
+        found.note = f"the {cfg.tracker} tracker does not define labels"
+        return found
+    found.defined = defined
     found.asked = True
     return found
 
@@ -173,8 +143,8 @@ def define(cfg: FactoryConfig, main_root: Path, label: Label) -> IssueResult:
     """Define ONE label at the forge. Adds; never edits and never deletes.
 
     An existing label is left exactly as it is — its colour and description may
-    have been set by a person on purpose, and `--force` would quietly overwrite
-    that. Callers only pass what `survey().missing` returned.
+    have been set by a person on purpose, and redefining it would quietly
+    overwrite that. Callers only pass what `survey().missing` returned.
 
     Returns an `IssueResult` although no issue is involved: it is this package's
     shape for "what a tracker write actually did — evidence, never a claim", and
@@ -182,17 +152,11 @@ def define(cfg: FactoryConfig, main_root: Path, label: Label) -> IssueResult:
     site would say nothing the first one does not.
     """
     result = IssueResult()
-    command = cfg.issues.labels_create_command
-    if not command:
-        result.notes.append("no labels_create_command is configured")
-        return result
-    project = resolve_project(cfg.issues, main_root)
-    argv = [*command, label.name, *(["--repo", project] if project else []),
-            "--color", label.color, "--description", label.why]
-    completed = _run(argv, main_root)
-    if completed.returncode != 0:
-        result.notes.append(f"{label.name}: "
-                            f"{(completed.stderr or completed.stdout).strip()[-300:]}")
+    try:
+        forge.tracker_of(cfg).define_label(main_root, resolve_project(cfg.issues, main_root),
+                                           label)
+    except ForgeError as error:
+        result.notes.append(str(error))
         return result
     result.ok = True
     result.labels_changed = [label.name]

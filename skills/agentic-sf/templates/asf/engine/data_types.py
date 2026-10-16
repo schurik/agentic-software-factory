@@ -518,7 +518,7 @@ class Label(BaseModel):
     """
 
     name: str
-    color: str = ""                 # six hex digits, no `#` — what `gh label` wants
+    color: str = ""                 # six hex digits, no `#`
     why: str = ""                   # the label's description at the forge
     role: str = ""                  # route | queued | running | done | failed | refined | …
 
@@ -1111,6 +1111,10 @@ class HarnessDefaults(BaseModel):
 # `none` is refused when the config is loaded — see `integration.none_is_refused`.
 IntegrationMode = Literal["merge", "pr"]
 
+# The implementations `engine/forge/` holds, for `forge:` and `tracker:`. `fake`
+# is the in-memory one tests select, as the fake harness is; nothing offers it.
+ForgeName = Literal["github", "fake"]
+
 
 class IntegrationConfig(BaseModel):
     """How a run's branch gets back to the base branch. Convention, not code.
@@ -1127,18 +1131,12 @@ class IntegrationConfig(BaseModel):
     mode: IntegrationMode
     merge_flags: list[str]
     remote: str                                  # mode: pr — where the branch is pushed
-    open_pr: bool                                # mode: pr — also run pr_command
-    # Left as a command rather than an API call: whichever forge CLI the repo
-    # uses is already authenticated in the engineer's shell, and the phase runs
-    # under operator_env() so it resolves exactly as it does in their terminal.
-    pr_command: list[str]
+    open_pr: bool                                # mode: pr — also open the pull request
     # Rendered with {adw_id}, {branch}, {base_ref} and — for an issue-triggered
-    # run — {issue_number} and {issue_url}, then passed as --body ahead of that
+    # run — {issue_number} and {issue_url}, then sent as the body ahead of that
     # run's own `Closes #<n>` line. Left empty, an issue-triggered run still
     # sends `Closes #<n>` as the whole body; a run with no issue sends nothing,
-    # and pr_command decides on its own (`--fill` does).
-    # NOTE: `--fill` and an explicit body are mutually exclusive in gh; the
-    # integrate phase drops --fill from the command itself once there is a body.
+    # and the forge fills the pull request in from the branch's commits.
     pr_body_template: str
 
 
@@ -1479,9 +1477,9 @@ class IssueStates(BaseModel):
 class IssuesConfig(BaseModel):
     """Where work items come from, and which chain each label asks for.
 
-    Commands rather than API calls, for the reason `pr_command` already gives:
-    whichever forge CLI the repo uses is installed and authenticated in the
-    engineer's shell already, and everything here runs under operator_env().
+    What the tracker is — and so how it is read and written — is `tracker:`
+    at the top of the config (`engine/forge/`); this block is what the
+    factory does with it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1496,46 +1494,6 @@ class IssuesConfig(BaseModel):
     # do. A tracker that is not the forge has no remote to infer from and must
     # set this. It is the same normalised identity the trace records.
     project: str
-    fetch_command: list[str]
-    list_command: list[str]
-    comment_command: list[str]
-    state_command: list[str]
-    # Reading the answers a person wrote, and writing the requirements block
-    # back into the description. Separate entries although `gh` spells both
-    # with verbs it already has: a tracker that is not the forge routes
-    # comments, labels and the description to three different places, and a
-    # config that had conflated them could not say so.
-    comments_command: list[str]
-    body_command: list[str]
-    # Filing an issue: the one the factory opens on itself, when a scorer keeps
-    # failing (`engine/improve.py`). Every other path works an issue a person
-    # opened; this is the only one that opens one. EMPTY MEANS SKIP: a tracker
-    # the factory cannot file on is told the pattern on the console instead.
-    create_command: list[str]
-    # Reading which labels the project DEFINES, and defining one. Every name in
-    # `route`, `states`, `refined_label` and `pull_requests.states.failed` is
-    # one this factory will hand to `--add-label`, and a forge answers that with
-    # an error when nothing ever defined it — so an undefined route label makes
-    # a workflow that looks configured unreachable, and an undefined
-    # `refined_label` kills a `refine` run at its last write.
-    #
-    # A FIFTH VERB the other four do not imply: glab, jira and linear all fit
-    # `view | list | comment | edit`, and none of them define labels the way
-    # `gh label` does. EMPTY MEANS SKIP, on both of these, which is the honest
-    # answer for a tracker whose labels are not created this way — better than
-    # inventing `gh` for it. They live here rather than under `pull_requests`
-    # because a label is a fact about the project, not about issues, and the
-    # two paths share one project (see `issues.resolve_project`).
-    labels_list_command: list[str]
-    labels_create_command: list[str]
-    # WHO TRIGGERED a labelled run: the forge's `labeled` events on the issue,
-    # read through graphql because `gh issue view --json` has no timeline. The
-    # watcher asks once per launch and the run records the answer as
-    # `triggered_by` — it authorizes nothing (the forge already decided who may
-    # label) and `trusted_authors` keeps its own meaning. EMPTY MEANS SKIP, for
-    # a tracker whose label history is not read this way: the run then records
-    # nobody rather than guess.
-    labeller_command: list[str]
     # label -> workflow. The watcher routes on this; no workflow knows about it.
     # An empty map launches nothing, whatever `enabled` says.
     route: dict[str, str]
@@ -1590,15 +1548,8 @@ class PullRequestsConfig(BaseModel):
     review, not by the engineer at the keyboard — `trusted_reviewers` is where a
     repository with strangers among its reviewers narrows that.
 
-    Commands rather than API calls, as everywhere else here — with one shape the
-    issue path does not need. Review THREADS (their ids, and whether they are
-    resolved) exist only in the forge's graphql API; `gh pr view --json comments`
-    returns issue-level comments and review bodies, never the inline threads
-    where the actual asks are. So `graphql_command` reads a pull request and
-    writes back into its threads, and there is deliberately no `fetch_command`
-    beside it: one query returns the state AND the threads in one consistent
-    snapshot, where two commands would disagree about a pull request that was
-    merged between them.
+    What the forge is — and so how a pull request and its threads are read
+    and written — is `forge:` at the top of the config (`engine/forge/`).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1608,10 +1559,6 @@ class PullRequestsConfig(BaseModel):
     # IssuesConfig.project: a watcher that cannot name its project polls
     # nothing, and polling nothing looks exactly like having nothing to do.
     project: str
-    list_command: list[str]
-    comment_command: list[str]
-    state_command: list[str]
-    graphql_command: list[str]
     # Empty = every reviewer is accepted, because the ability to review this
     # repository's pull requests is itself the authorization. Narrow it where
     # that is not true — a public fork's PR can be reviewed by anyone.
@@ -1648,6 +1595,12 @@ class FactoryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     harness: HarnessDefaults
+    # What holds the branches, pull requests and review threads, and what holds
+    # the work items and their labels — each selects an implementation in
+    # `engine/forge/` that owns the conversation with it. Two keys, because a
+    # team can track in one place and review in another.
+    forge: ForgeName
+    tracker: ForgeName
     # Off-limits to every agent that has not named them in its own `writes`.
     # The factory's own code is the default: an agent must not be able to edit
     # the machinery that decides whether its work passed.
@@ -2024,13 +1977,19 @@ class NewIssue(BaseModel):
 
 
 class OpenIssue(BaseModel):
-    """An open issue as a listing gives it: its number, where it is, its
-    title, its description and the body of each comment on it, oldest first."""
+    """An issue as the tracker gives it (`engine/forge/`): its number, where it
+    is, its title and description, its labels and who opened it — and, from a
+    listing that asked for them, the body of each comment, oldest first. A
+    read fills what it asked for and leaves the rest empty."""
 
     number: int
     url: str = ""
     title: str = ""
     body: str = ""
+    labels: list[str] = Field(default_factory=list)
+    author: str = ""                # a login
+    assignees: list[str] = Field(default_factory=list)
+    state: str = ""
     comments: list[str] = Field(default_factory=list)
 
 
@@ -2075,11 +2034,8 @@ class ReviewComment(BaseModel):
 class ReviewThread(BaseModel):
     """One review conversation, anchored to a file and line.
 
-    `thread_id` is the GraphQL node id, and it is the only handle that can
-    resolve a thread — REST has no notion of thread state at all. That is why
-    the threads are read through graphql rather than through `gh pr view`, which
-    returns issue-level comments and review bodies but never the inline threads
-    where the actual asks live.
+    `thread_id` is the forge's own handle on the thread, and the only one
+    that can resolve it.
     """
 
     thread_id: str = ""
@@ -2131,6 +2087,34 @@ class PullRequestContext(BaseModel):
     @property
     def open(self) -> bool:
         return self.state.upper() == "OPEN"
+
+
+class OpenPull(BaseModel):
+    """An open pull request as a listing gives it: enough to decide whether to
+    read it in full (`Forge.pull_request`)."""
+
+    number: int
+    branch: str = ""                # the head branch
+    labels: list[str] = Field(default_factory=list)
+    draft: bool = False
+
+
+class Proposal(BaseModel):
+    """A pull request to open: `head` into `base`. An empty title or body is
+    the forge's to fill in from the branch's commits."""
+
+    base: str
+    head: str
+    title: str = ""
+    body: str = ""
+
+
+class Pull(BaseModel):
+    """The pull request a proposal ended in — one it opened, or the one the
+    branch already had (`existing`), which the push already updated."""
+
+    url: str = ""
+    existing: bool = False
 
 
 class PullRequestUpdate(BaseModel):

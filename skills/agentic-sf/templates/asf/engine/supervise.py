@@ -31,7 +31,6 @@ watcher killed with SIGKILL reads as gone rather than as its last row.
 from __future__ import annotations
 
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -42,7 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import artifacts, commands, git_helper, issues, station, worktree
+from . import artifacts, commands, factory, git_helper, issues, preflight, station, worktree
 from . import cockpit as local_cockpit
 from .data_types import FactoryConfig, Station, StationCredential
 from .station import Destination
@@ -187,10 +186,11 @@ def check(cfg: FactoryConfig, want: set[str]) -> str | None:
             local = "join"
         else:
             local = "start"
-    forge = (cfg.issues.list_command or ["gh"])[0]
-    if want & set(WATCHERS) and not shutil.which(forge):
-        print(paint(WARN, f"  ! {forge!r} is not on PATH — the watchers can start, but every "
-                          f"poll will fail to list anything"))
+    if want & set(WATCHERS):
+        for finding in preflight.forge(cfg):
+            if finding.level != "ok":
+                print(paint(WARN, f"  ! {finding.detail} — the watchers can start, but a "
+                                  f"poll may fail to list anything"))
     return local
 
 
@@ -200,9 +200,9 @@ def services(want: set[str], config_path: str, interval: int,
     if "cockpit" in want:
         # compose stops its containers on SIGTERM, and a Convex backend takes
         # its own stop_grace_period to go — more than a watcher's 8s.
-        # …and it asks the forge as whoever started it: their `gh auth token`
+        # …and it asks the forge as whoever started it: their own token
         # goes to the app container in the child's environment, not its argv.
-        forge = local_cockpit.forge_credential()
+        forge = local_cockpit.forge_credential(factory.load(anchor(main_root, config_path)))
         found.append(Service("cockpit", local_cockpit.up_argv(), main_root,
                              {**local_cockpit.compose_env(), **forge.env()},
                              grace=30.0, retire_if=_superseded, summary=("forge", forge.line)))

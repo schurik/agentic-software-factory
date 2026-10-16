@@ -2,7 +2,7 @@
 
 WHY THIS FILE EXISTS. Every label in `issues.route`, `issues.states`,
 `issues.refined_label` and `pull_requests.states.failed` is a name the factory
-will one day hand to `--add-label`, and a forge answers that with an error when
+will one day add to an item, and a tracker answers that with an error when
 nothing ever defined the name. Both halves fail silently until they matter: an
 undefined route label cannot be applied, so the workflow behind it looks
 configured and is inert; an undefined `refined_label` kills a `refine` run at
@@ -20,8 +20,9 @@ import json
 from pathlib import Path
 
 from engine import factory, labels, preflight
+from engine.forge import fake
 
-from .asf_helpers import asf, forge, forge_calls, forge_data, set_config
+from .asf_helpers import asf, forge_calls, forge_data, set_config, stand_in_gh
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "labels"
 
@@ -30,19 +31,12 @@ SHIPPED = ["asf:ship", "asf:refine", "asf:refine-ship", "asf:bugfix", "asf:queue
            "asf:running", "asf:done", "asf:failed", "asf:refined", "asf:pr-failed"]
 
 
-def tracked(repo: Path, defined: list[str] | None = None, **issues) -> list[str]:
-    """Point both forge paths at the stand-in, and tell it which labels exist."""
-    base = forge(repo)
-    set_config(repo, issues={
-        "enabled": True, "project": "acme/widgets",
-        "list_command": [*base, "list"], "state_command": [*base, "edit"],
-        "labels_list_command": [*base, "label-list"],
-        "labels_create_command": [*base, "label-create"],
-        **issues})
-    set_config(repo, pull_requests={"enabled": True, "project": "acme/widgets",
-                                    "list_command": [*base, "list"]})
+def tracked(repo: Path, defined: list[str] | None = None, **issues) -> None:
+    """Both forge paths on the stand-in `gh`, which is told which labels exist."""
+    stand_in_gh(repo)
+    set_config(repo, issues={"enabled": True, "project": "acme/widgets", **issues})
+    set_config(repo, pull_requests={"enabled": True, "project": "acme/widgets"})
     forge_data(repo, "labels.json", [{"name": name} for name in (defined or [])])
-    return base
 
 
 def survey(repo: Path):
@@ -132,10 +126,16 @@ def test_a_forge_that_cannot_be_asked_warns_and_never_fails_the_run(stamped: Pat
     assert preflight.before_run(cfg, stamped) is not None      # no SystemExit
 
 
-def test_an_empty_labels_command_skips_the_check_entirely(stamped: Path):
-    """A tracker that is not the forge does not define labels with a fifth verb.
-    Silence is the honest answer there — inventing `gh` would be worse."""
-    tracked(stamped, labels_list_command=[])
+def test_a_tracker_that_defines_no_labels_skips_the_check_entirely(stamped: Path,
+                                                                     monkeypatch):
+    """A tracker that does not define labels at all says so (`Tracker.labels`
+    answers None). Silence is the honest answer there — reporting every label
+    missing would be worse."""
+    tracker = fake.Fake()
+    tracker.defines_labels = False
+    monkeypatch.setattr(fake, "FAKE", tracker)
+    tracked(stamped)
+    set_config(stamped, tracker="fake")
     assert preflight.labels(factory.load(stamped / "asf" / "factory.yaml"), stamped) == []
 
 

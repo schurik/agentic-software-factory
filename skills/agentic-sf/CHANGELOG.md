@@ -408,6 +408,20 @@ before — `None` when there are none, never omitted.
   re-stamp with `--harness`. `asf doctor` warns (`factory defaults`) when the defaults file was
   edited since the installer wrote it. `asf/factory-defaults.yaml` is protected and listed in
   `asf/.skill-files`; `uninstall.py` reads the worktree and data settings from it too.
+- **`forge:` and `tracker:` select a GitHub implementation, and the `gh`-only command keys are
+  gone.** factory.yaml used to carry fifteen `*_command` argv prefixes (`issues.fetch_command`,
+  `pull_requests.graphql_command`, `worktree.integration.pr_command`, …) and claimed other CLIs
+  fit the same verbs; they did not, since the engine appended `gh`'s flags, parsed its JSON and
+  sent GitHub's graphql whatever the prefix said. Now `forge:` (branches, pull requests, review
+  threads) and `tracker:` (work items, labels, the label queue) each name an implementation in
+  `asf/engine/forge/` behind a `Forge` or `Tracker` Protocol, which owns the command line and the
+  parsing; only `github` ships, both default to it, and GitHub Enterprise is `gh`'s own `GH_HOST`.
+  Every `gh` call moved behind it — the cockpit's `gh auth token`, the operator's login and
+  `GITHUB_ACTOR`, the `gh` version check in `doctor`, `GITHUB_HEAD_REF` in the self-description —
+  so `engine/forge/github.py` is the only file that names `gh` or `GITHUB_`. `hitl.notify_command`
+  is not a forge command and stays. The "empty means skip" a few of the keys offered goes with
+  them: a tracker that defines no labels, or cannot say who applied one, says so through its
+  Protocol.
 
 ### Upgrade
 
@@ -442,8 +456,9 @@ before — `None` when there are none, never omitted.
    after the re-stamp either way: it gives the four scorers a baseline from every chapter that
    ended before them — and a scorer whose baseline already fails on 3 of its last 10 sessions
    files its self-improvement issue then, queued for the `issue` workflow. To read the pattern
-   before anything is filed, set `issues.create_command: []` for that first run (the console
-   says where each scorer stands), then put it back. Pull requests opened before the re-stamp
+   before anything is filed, set `issues.enabled: false` for that first run (the console says
+   where each scorer stands) — with the watchers stopped, since it turns them off too — then put
+   it back. Pull requests opened before the re-stamp
    said nothing when they opened, so they count as merged but never as autonomous. Pull requests
    that closed before the re-stamp have no size, and are counted in no size. A factory with the CI
    workflow ships format 4 on its next default-branch push; until then the Measure tab shows
@@ -525,6 +540,9 @@ before — `None` when there are none, never omitted.
       in pins its value, and later releases' defaults never reach it.
     - Never edit `asf/factory-defaults.yaml`: the next `install.py` rewrites it, and `just doctor`
       says when it was edited. A change goes in factory.yaml.
+14. Delete the fifteen `*_command` keys from a full factory.yaml (under `issues:`,
+    `pull_requests:` and `worktree.integration:`): `just check` refuses each as a key that is not
+    a setting. `forge: github` and `tracker: github` run the same commands.
 
 ## 1.2.0 — 2026-10-02
 

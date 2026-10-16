@@ -28,9 +28,9 @@ from engine import events
 from engine.data_types import EVENT_KINDS, DomainEvent
 
 from . import projection
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster,
-                          forge, forge_data, issue_json, run_state, scorer, session_dir,
-                          set_config, wire, write_workflow)
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge_data,
+                          issue_json, run_state, scorer, session_dir, set_config, stand_in_gh, wire,
+                          write_workflow)
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "events"
 FIXED_TS = "2026-09-29T12:00:00.000+00:00"
@@ -180,12 +180,8 @@ def handoff(repo: Path, name: str) -> str:
 def a_story(repo: Path) -> None:
     """An issue run that asks a question, has its plan rejected and then
     approved, and builds with a deviation on the record — four processes."""
-    base = forge(repo)
-    set_config(repo, issues={
-        "enabled": True, "project": "acme/widgets",
-        "fetch_command": [*base, "view"], "comments_command": [*base, "view"],
-        "body_command": [*base, "edit"], "state_command": [*base, "edit"],
-        "comment_command": [*base, "comment"], "list_command": [*base, "list"]})
+    stand_in_gh(repo)
+    set_config(repo, issues={"enabled": True, "project": "acme/widgets"})
     forge_data(repo, "issue.json", issue_json())
     requirements = handoff(repo, "requirements.md")
     asking = {"topic": "scope", "question": "Which endpoint?",

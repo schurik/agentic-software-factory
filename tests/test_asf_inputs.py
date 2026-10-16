@@ -15,10 +15,9 @@ from engine.data_types import PullRequestContext, ReviewComment
 
 from . import projection
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, comment_json, commit_all, defaults, envelope,
-                          fake_roster, forge, forge_calls, forge_data, git, issue_json,
-                          phase_names, pr_json,
-                          run_state, session_dir, set_config, wire, with_origin,
-                          write_workflow)
+                          fake_roster, forge_calls, forge_data, git, issue_json, phase_names,
+                          pr_json, run_state, session_dir, set_config, stand_in_gh, wire,
+                          with_origin, write_workflow)
 
 ID = "1d5e4c0e"
 ID2 = "2d5e4c0e"
@@ -51,24 +50,16 @@ def document_reply() -> dict:
                                  documented_files=["app.py"], commit_message="docs: app")}
 
 
-def tracker(repo: Path, **issues) -> list[str]:
-    base = forge(repo)
-    set_config(repo, issues={
-        "enabled": True, "project": "acme/widgets",
-        "fetch_command": [*base, "view"], "list_command": [*base, "list"],
-        "comment_command": [*base, "comment"], "state_command": [*base, "edit"],
-        "route": {"asf:ship": "issue"}, **issues})
-    return base
+def tracker(repo: Path, **issues) -> None:
+    stand_in_gh(repo)
+    set_config(repo, issues={"enabled": True, "project": "acme/widgets",
+                             "route": {"asf:ship": "issue"}, **issues})
 
 
-def reviewed(repo: Path, **pull_requests) -> list[str]:
-    base = forge(repo)
-    set_config(repo, pull_requests={
-        "enabled": True, "project": "acme/widgets",
-        "list_command": [*base, "list"], "comment_command": [*base, "comment"],
-        "state_command": [*base, "edit"], "graphql_command": [*base, "graphql"],
-        **pull_requests})
-    return base
+def reviewed(repo: Path, **pull_requests) -> None:
+    stand_in_gh(repo)
+    set_config(repo, pull_requests={"enabled": True, "project": "acme/widgets",
+                                    **pull_requests})
 
 
 # ── issue ────────────────────────────────────────────────────────────────────
@@ -78,11 +69,10 @@ def test_an_issue_is_scouted_planned_shipped_and_reported_as_a_pull_request(stam
                 builder=[build_reply("ok = 1\n", "feat: app")], reviewer=[review_reply()],
                 documenter=[document_reply()])
     wire(stamped, "test", PY_CHECK)
-    base = tracker(stamped)
+    tracker(stamped)
     forge_data(stamped, "issue.json", issue_json(42))
     # `mode: merge` in the config, and it must NOT be honoured on this input.
-    set_config(stamped, worktree={"integration": {"mode": "merge", "open_pr": True,
-                                                  "pr_command": [*base, "pr-create"]}})
+    set_config(stamped, worktree={"integration": {"mode": "merge", "open_pr": True}})
     with_origin(stamped)
     commit_all(stamped)
     before = git(stamped, "rev-parse", "main")
@@ -374,7 +364,7 @@ def test_a_closed_or_foreign_pull_request_is_refused_before_a_session_exists(sta
 def landed(stamped: Path) -> list[str]:
     """A prompt run that integrated as a pull request (#9, as the stand-in opens
     every one). Returns the shas of the commits the session made."""
-    base = forge(stamped)
+    stand_in_gh(stamped)
     write_workflow(stamped, "land", {
         "description": "implement, verify, commit and open a pull request",
         "input": "prompt",
@@ -382,8 +372,7 @@ def landed(stamped: Path) -> list[str]:
                    {"commit": {"of": "implement"}}, {"integrate": {}}]})
     fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
     wire(stamped, "test", PY_CHECK)
-    set_config(stamped, worktree={"integration": {"mode": "pr", "open_pr": True,
-                                                  "pr_command": [*base, "pr-create"]}})
+    set_config(stamped, worktree={"integration": {"mode": "pr", "open_pr": True}})
     with_origin(stamped)
     commit_all(stamped)
     result = asf(stamped, "run", "land", "add app.py", "--adw-id", ID)

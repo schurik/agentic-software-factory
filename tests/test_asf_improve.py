@@ -18,12 +18,12 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from engine import events, factory, improve, scorers, watch
+from engine import events, factory, forge, improve, scorers, watch
 from engine.data_types import EventLine, ScorerClass, ScorerSpec
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, defaults, envelope, fake_roster,
-                          forge, forge_calls, forge_data, git, pr_json, scorer, session_dir, set_config,
-                          wire, with_origin, write_workflow)
+                          forge_calls, forge_data, git, pr_json, scorer, session_dir, set_config,
+                          stand_in_gh, wire, with_origin, write_workflow)
 
 CONFIG = "asf/factory.yaml"
 CRITERIA = "A chapter the workflow refused is work a person has to pick up by hand.\n"
@@ -36,14 +36,10 @@ def build_reply(content: str, message: str) -> dict:
             "envelope": envelope(changed_files=["app.py"], commit_message=message)}
 
 
-def on_the_forge(repo: Path) -> list[str]:
-    """Point the tracker at the stand-in, the way a stamp points it at `gh`."""
-    base = forge(repo)
-    set_config(repo, issues={
-        "enabled": True, "project": "acme/widgets", "list_command": [*base, "list"],
-        "create_command": [*base, "create"], "comment_command": [*base, "comment"],
-        "state_command": [*base, "edit"], "labels_create_command": [*base, "label-create"]})
-    return base
+def on_the_forge(repo: Path) -> None:
+    """The stand-in `gh` on PATH, and the tracker aimed at its project."""
+    stand_in_gh(repo)
+    set_config(repo, issues={"enabled": True, "project": "acme/widgets"})
 
 
 def prepared(repo: Path) -> None:
@@ -143,9 +139,8 @@ def test_the_issue_is_queued_for_the_issue_workflow_like_any_other(stamped: Path
     assert cfg.issues.states.queued in labels_of(issue)
     # ...and the issues watcher lists it with the rest of the queue.
     forge_data(stamped, "listing.json", [])
-    listed = watch._forge([*cfg.issues.list_command, "--label", cfg.issues.states.queued,
-                           "--state", "open", "--json", "number,labels"], stamped)
-    assert [entry["number"] for entry in listed] == [issue["number"]]
+    listed = forge.tracker_of(cfg).queued(stamped, "acme/widgets", cfg.issues.states.queued)
+    assert [entry.number for entry in listed] == [issue["number"]]
 
 
 def test_a_passing_score_asks_nothing_of_the_forge(stamped: Path):
@@ -210,11 +205,8 @@ REVIEWED = "5c0be7ed"
 
 
 def test_failing_chapters_of_one_session_count_once(stamped: Path):
-    base = on_the_forge(stamped)
-    set_config(stamped, pull_requests={
-        "enabled": True, "project": "acme/widgets",
-        "list_command": [*base, "list"], "comment_command": [*base, "comment"],
-        "state_command": [*base, "edit"], "graphql_command": [*base, "graphql"]})
+    on_the_forge(stamped)
+    set_config(stamped, pull_requests={"enabled": True, "project": "acme/widgets"})
     fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
     wire(stamped, "test", PY_CHECK)
     scorer(stamped, "review-rounds", {"workflow": "pr-review", "kind": "code",
@@ -250,13 +242,9 @@ def improved(repo: Path, issue: dict) -> str:
     issue, as the `issue` workflow would — whose pull request (#9, as the
     stand-in opens every one) the PR watcher then reaps merged, now. The
     forge closes the issue with it. Returns when it merged."""
-    base = forge(repo)
-    set_config(repo, issues={"fetch_command": [*base, "view"]}, pull_requests={
-        "enabled": True, "project": "acme/widgets", "list_command": [*base, "list"],
-        "comment_command": [*base, "comment"], "state_command": [*base, "edit"],
-        "graphql_command": [*base, "graphql"]},
-        worktree={"integration": {"mode": "pr", "open_pr": True,
-                                  "pr_command": [*base, "pr-create"]}})
+    stand_in_gh(repo)
+    set_config(repo, pull_requests={"enabled": True, "project": "acme/widgets"},
+               worktree={"integration": {"mode": "pr", "open_pr": True}})
     write_workflow(repo, "fix", {
         "description": "implement an issue, verify, commit and open a pull request",
         "input": "issue",
@@ -366,16 +354,17 @@ def test_a_factory_off_the_tracker_files_nothing(stamped: Path):
            "`issues.enabled` is false" in result.stdout
 
 
-def test_a_tracker_it_cannot_file_on_is_told_the_pattern_on_the_console(stamped: Path):
+def test_a_tracker_that_will_not_file_is_told_the_pattern_on_the_console(stamped: Path):
     on_the_forge(stamped)
-    set_config(stamped, issues={"create_command": []})
+    forge_data(stamped, "refuse.json", ["create"])
     scorer(stamped, "refused", REFUSED, CRITERIA)
     refused_run(stamped)
 
     result = refuse(stamped)
 
-    assert filed(stamped) == [] and calls(stamped, "label-create") == []
-    assert "failed on 2 of the last 2 sessions it judged, and no issue is filed" in result.stdout
+    assert filed(stamped) == []
+    assert "failed on 2 of the last 2 sessions it judged, and the issue was not filed: " \
+           "`gh issue create` failed" in result.stdout
 
 
 # ── what never reaches the tracker ───────────────────────────────────────────

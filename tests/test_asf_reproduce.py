@@ -31,9 +31,9 @@ import pytest
 from engine import events, factory, integration, issues, reproduction
 from engine.data_types import IntegrationResult, Option, Question, ReproOutput
 
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
-                          forge_calls, forge_data, git, issue_json, phase_names, run_state,
-                          session_dir, set_config, task_text, wire, write_workflow)
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge_calls,
+                          forge_data, git, issue_json, phase_names, run_state, session_dir,
+                          set_config, stand_in_gh, task_text, wire, write_workflow)
 
 ADW = "be9f1c0d"
 BUGGY = "def add(a, b):\n    return a + b + 1\n"
@@ -370,12 +370,8 @@ def not_reproduced(tried: str) -> dict:
 @pytest.fixture
 def tracked(stamped: Path, monkeypatch):
     monkeypatch.chdir(stamped)
-    base = forge(stamped)
-    set_config(stamped, issues={
-        "enabled": True, "project": "acme/widgets",
-        "fetch_command": [*base, "view"], "comments_command": [*base, "view"],
-        "body_command": [*base, "edit"], "state_command": [*base, "edit"],
-        "comment_command": [*base, "comment"], "list_command": [*base, "list"]})
+    stand_in_gh(stamped)
+    set_config(stamped, issues={"enabled": True, "project": "acme/widgets"})
     forge_data(stamped, "issue.json", issue_json(labels=("asf:queued", "asf:bugfix")))
     return stamped
 

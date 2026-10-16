@@ -466,7 +466,7 @@ def _consider(filing: Filing, scorer: "Scorer") -> None:
         return
     label = labels.improving(scorer.name)
     try:
-        already = issues.labelled(filing.main_root, cfg.issues, label.name)
+        already = issues.labelled(filing.main_root, cfg, label.name)
     except RuntimeError as error:
         say(f"scorer {scorer.name} failed on {counted.failed_on()}, and filed nothing: could not "
             f"search the tracker for {label.name} ({error})")
@@ -474,16 +474,12 @@ def _consider(filing: Filing, scorer: "Scorer") -> None:
     if already:
         _add_to(filing, scorer, counted, already[0])
         return
-    if not cfg.issues.create_command:
-        say(f"scorer {scorer.name} failed on {counted.failed_on()}, and no issue is filed: "
-            f"`issues.create_command` is empty")
-        return
     diagnosed = _diagnosed(filing, scorer, counted)
     # One that already exists stays as it is, and refuses to be defined again:
     # what that says matters only when filing then fails.
     defined = labels.define(cfg, filing.main_root, label)
     queued = queue_labels(cfg)
-    result = issues.create(filing.main_root, cfg.issues, NewIssue(
+    result = issues.create(filing.main_root, cfg, NewIssue(
         title=title(scorer, counted), body=issue_body(cfg, scorer, counted, diagnosed),
         labels=[label.name, *queued]))
     if not result.ok:
@@ -532,7 +528,7 @@ def _add_to(filing: Filing, scorer: "Scorer", counted: Window, issue: OpenIssue)
         filing.say(f"scorer {scorer.name} failed on {counted.failed_on()}; #{number} already "
                    f"cites them")
         return
-    result = issues.comment(filing.main_root, filing.cfg.issues, IssueUpdate(
+    result = issues.comment(filing.main_root, filing.cfg, IssueUpdate(
         number=number, comment=comment_body(filing.cfg, scorer, counted, new)))
     filing.say(f"scorer {scorer.name} failed on {counted.failed_on()}: "
                + (f"added {len(new)} session(s) to #{number}" if result.ok else

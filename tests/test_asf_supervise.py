@@ -23,7 +23,7 @@ from engine import cockpit as local_cockpit
 from engine import commands, events, factory, preflight, station, supervise
 from engine.data_types import EVENT_KINDS, Cockpit, Station, StationCredential
 
-from .asf_helpers import asf, fake_roster
+from .asf_helpers import asf, defaults, fake_roster, signed_in, stand_in_gh
 from .fake_cockpit import FakeCockpit
 from .test_asf_station import eventually
 
@@ -31,13 +31,13 @@ COCKPIT = Cockpit(url="http://cockpit.test:3211", token="asf_ingest_test")
 
 
 @pytest.fixture(autouse=True)
-def no_cockpit_from_the_shell(monkeypatch):
+def no_cockpit_from_the_shell(monkeypatch, tmp_path):
     for name in ("ASF_COCKPIT_URL", "ASF_COCKPIT_TOKEN", "ASF_COCKPIT_VERSION",
                  "ASF_STATION_NAME", "CI", "GH_HOST"):
         monkeypatch.delenv(name, raising=False)
-    # Nor a forge token from whoever runs the suite: `gh` is asked through
-    # this, and here it is a machine where nobody is logged in.
-    monkeypatch.setattr(local_cockpit, "_gh", minting())
+    # Nor a forge token from whoever runs the suite: the `gh` asked is the
+    # stand-in, on a machine where nobody is signed in until a test says so.
+    stand_in_gh(tmp_path)
 
 
 def a_session(root: Path, adw_id: str, count: int) -> Path:
@@ -254,39 +254,34 @@ def test_the_station_loop_polls_for_commands_between_shipping_rounds(stamped: Pa
 
 # ── the forge credential the local cockpit asks with ─────────────────────────
 
-def test_the_local_cockpit_is_started_with_the_persons_own_gh_token(stamped, monkeypatch):
-    gh = minting((0, "gho_0a1b2c\n"))
-    monkeypatch.setattr(local_cockpit, "_gh", gh)
+def test_the_local_cockpit_is_started_with_the_persons_own_gh_token(stamped, tmp_path):
+    signed_in(tmp_path, token="gho_0a1b2c")
 
     [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
 
-    assert gh.calls == [["gh", "auth", "token", "--hostname", "github.com"]]
     assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == "gho_0a1b2c"
     assert cockpit.env["ASF_COCKPIT_FORGE_HOST"] == "github.com"
     assert not any("gho_0a1b2c" in arg for arg in cockpit.argv)      # in the environment, never on argv
 
 
-def test_the_token_is_the_one_for_the_host_gh_is_aimed_at(stamped, monkeypatch):
-    gh = minting((0, "ghp_enterprise\n"))
-    monkeypatch.setattr(local_cockpit, "_gh", gh)
+def test_the_token_is_the_one_for_the_host_gh_is_aimed_at(stamped, tmp_path, monkeypatch):
+    signed_in(tmp_path, token="gho_public")
+    signed_in(tmp_path, token="ghp_enterprise", host="ghe.acme.test")
     monkeypatch.setenv("GH_HOST", "ghe.acme.test")
 
     [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
 
-    assert gh.calls == [["gh", "auth", "token", "--hostname", "ghe.acme.test"]]
     assert cockpit.env["ASF_COCKPIT_FORGE_HOST"] == "ghe.acme.test"
     assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == "ghp_enterprise"
 
 
 def test_without_a_gh_login_the_local_cockpit_starts_with_no_token_and_says_what_that_costs(
-        stamped, monkeypatch):
-    monkeypatch.setattr(local_cockpit, "_gh", minting((1, "")))
-
+        stamped, tmp_path):
     [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
 
     assert cockpit.env["ASF_COCKPIT_FORGE_TOKEN"] == ""
     assert cockpit.summary[0] == "forge" and "gh auth login" in cockpit.summary[1]
-    monkeypatch.setattr(local_cockpit, "_gh", minting((0, "gho_0a1b2c\n")))
+    signed_in(tmp_path, token="gho_0a1b2c")
     [cockpit] = supervise.services({"cockpit"}, "asf/factory.yaml", 120, stamped)
     said = cockpit.summary[1]
     assert "github.com" in said and "gho_0a1b2c" not in said         # named, never shown
@@ -304,14 +299,15 @@ def test_the_stamped_compose_file_runs_a_local_cockpit_that_asks_with_that_token
     assert ports and all(port.startswith("127.0.0.1:") for port in ports)
 
 
-def test_doctor_says_whether_the_local_cockpit_will_have_a_forge_token(docker_here, monkeypatch):
+def test_doctor_says_whether_the_local_cockpit_will_have_a_forge_token(docker_here, monkeypatch,
+                                                                       tmp_path):
     monkeypatch.setattr(local_cockpit, "missing_images", lambda *_: [])
 
-    without = [finding for finding in preflight.cockpit() if "forge" in finding.check]
+    without = [finding for finding in preflight.cockpit(defaults()) if "forge" in finding.check]
     assert [finding.level for finding in without] == ["warn"] and "gh auth login" in without[0].fix
 
-    monkeypatch.setattr(local_cockpit, "_gh", minting((0, "gho_0a1b2c\n")))
-    with_one = [finding for finding in preflight.cockpit() if "forge" in finding.check]
+    signed_in(tmp_path, token="gho_0a1b2c")
+    with_one = [finding for finding in preflight.cockpit(defaults()) if "forge" in finding.check]
     assert [finding.level for finding in with_one] == ["ok"]
     assert "gho_0a1b2c" not in with_one[0].line
 
@@ -409,18 +405,18 @@ def test_doctor_says_what_a_shared_cockpit_is_shipped_with_and_how_to_get_a_toke
     monkeypatch.delenv("ASF_COCKPIT_TOKEN", raising=False)
     data = tmp_path / "data"
 
-    [finding] = preflight.cockpit(data)
+    [finding] = preflight.cockpit(defaults(), data)
     assert finding.level == "warn" and "no ingest token" in finding.detail
     assert "station-register" in finding.fix and "connect_cockpit" in finding.fix
 
     held = StationCredential(cockpit=url, station="st_1", token="asf_station_1", owner="alex",
                              ingest_token="asf_ingest_1")
     station.keep(tmp_path, "data", held)
-    [finding] = preflight.cockpit(data)
+    [finding] = preflight.cockpit(defaults(), data)
     assert finding.level != "warn" and "alex" in finding.detail and url in finding.detail
 
     monkeypatch.setenv("ASF_COCKPIT_TOKEN", "asf_ingest_env")
-    [finding] = preflight.cockpit(data)
+    [finding] = preflight.cockpit(defaults(), data)
     assert "ASF_COCKPIT_TOKEN" in finding.detail
 
 
@@ -535,14 +531,14 @@ def test_doctor_names_a_running_local_cockpit_and_what_up_will_do_with_it(
     ours = local_cockpit.version()
 
     docker_here["version"] = "99.0.0"
-    joined = " ".join(finding.line for finding in preflight.cockpit())
+    joined = " ".join(finding.line for finding in preflight.cockpit(defaults()))
     assert "99.0.0" in joined and "joins" in joined
 
     docker_here["version"] = "0.0.1"
-    older = preflight.cockpit()
+    older = preflight.cockpit(defaults())
     assert any(finding.level == "warn" and "0.0.1" in finding.detail and ours in finding.detail
                for finding in older)
 
     monkeypatch.setenv("ASF_COCKPIT_VERSION", "0.0.1")
     assert any("ASF_COCKPIT_VERSION" in finding.detail and finding.level == "warn"
-               for finding in preflight.cockpit())
+               for finding in preflight.cockpit(defaults()))

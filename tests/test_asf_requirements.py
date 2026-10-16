@@ -23,8 +23,8 @@ from engine.data_types import (IssueComment, IssueRef, Option, Question,
                                Reply, RequirementsOutput, RunState, WaitingFor)
 
 from .asf_helpers import (adw_id_of, asf, comment_json, commit_all, envelope, fake_roster,
-                          forge, forge_calls, forge_data, issue_json, phase_names, run_state,
-                          session_dir, set_config, write_workflow)
+                          forge_calls, forge_data, issue_json, phase_names, run_state, session_dir,
+                          set_config, stand_in_gh, write_workflow)
 
 CONFIG = "asf/factory.yaml"
 REPORTER = "The /health endpoint returns 500.\n"
@@ -35,12 +35,8 @@ def tracked(stamped: Path, monkeypatch):
     """A stamped repo whose forge is the stand-in. Returns (cfg, issue) — call
     `issue(...)` to set what the next read of #42 returns."""
     monkeypatch.chdir(stamped)
-    base = forge(stamped)
-    set_config(stamped, issues={
-        "enabled": True, "project": "acme/widgets",
-        "fetch_command": [*base, "view"], "comments_command": [*base, "view"],
-        "body_command": [*base, "edit"], "state_command": [*base, "edit"],
-        "comment_command": [*base, "comment"], "list_command": [*base, "list"]})
+    stand_in_gh(stamped)
+    set_config(stamped, issues={"enabled": True, "project": "acme/widgets"})
 
     def issue(**fields) -> None:
         forge_data(stamped, "issue.json", issue_json(**fields))
@@ -202,7 +198,7 @@ def test_the_comments_a_run_acts_on_come_from_the_forge_as_typed_comments(tracke
     issue(comments=[comment_json("the refresh path", author="schurik"),
                     comment_json("+1", author="someone", id="IC_2")])
 
-    heard = issues.comments(Path.cwd(), cfg.issues, IssueRef(number=42))
+    heard = issues.comments(Path.cwd(), cfg, IssueRef(number=42))
 
     assert [(c.author, c.body) for c in heard] == [("schurik", "the refresh path"),
                                                    ("someone", "+1")]
@@ -336,7 +332,7 @@ def test_a_description_with_a_dangling_open_mark_is_repaired_not_stacked():
 def test_writing_the_block_reads_the_description_first_and_sends_back_the_whole_of_it(tracked):
     cfg, _ = tracked
 
-    result = issues.set_body(Path.cwd(), cfg.issues, IssueRef(number=42),
+    result = issues.set_body(Path.cwd(), cfg, IssueRef(number=42),
                              "## Requirements\n- a 500 is never the contract")
 
     assert result.ok
@@ -349,7 +345,7 @@ def test_a_forge_that_refuses_the_edit_is_evidence_and_not_an_exception(tracked)
     cfg, _ = tracked
     forge_data(Path.cwd(), "refuse.json", ["edit"])
 
-    result = issues.set_body(Path.cwd(), cfg.issues, IssueRef(number=42), "## Requirements\n- x")
+    result = issues.set_body(Path.cwd(), cfg, IssueRef(number=42), "## Requirements\n- x")
 
     # The requirements are in the run's own directory either way. A tracker
     # that did not hear about them is a thing a person can finish by hand.
@@ -359,7 +355,7 @@ def test_a_forge_that_refuses_the_edit_is_evidence_and_not_an_exception(tracked)
 def test_marking_refined_adds_that_label_and_moves_no_state(tracked):
     cfg, _ = tracked
 
-    result = issues.mark_refined(Path.cwd(), cfg.issues, IssueRef(number=42))
+    result = issues.mark_refined(Path.cwd(), cfg, IssueRef(number=42))
 
     assert result.ok
     edit = next(call for call in forge_calls(Path.cwd()) if call[0] == "edit")
@@ -878,7 +874,7 @@ class Fetching:
 def fetched(repo: Path, cfg, tmp: Path):
     handoff = tmp / "handoff"
     handoff.mkdir(exist_ok=True)
-    return issues.fetch(Fetching(repo, handoff), cfg.issues, IssueRef(number=42))
+    return issues.fetch(Fetching(repo, handoff), cfg, IssueRef(number=42))
 
 
 def test_a_refined_item_says_which_half_a_person_confirmed(tracked, tmp_path: Path):

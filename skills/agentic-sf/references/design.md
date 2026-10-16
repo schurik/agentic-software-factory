@@ -65,6 +65,36 @@ upgrade, and belongs in the overlay.
 recommends into a new overlay: a permission a station obeys is said in the
 repository's own reviewed file, and never arrives through an upgrade.
 
+### The forge and the tracker
+
+Two keys, two axes: `forge:` names what holds the branches, the pull requests
+and their review threads, `tracker:` what holds the work items, their labels and
+the label queue. Each selects an implementation in `asf/engine/forge/` behind a
+Protocol of its own — `Tracker` (read an issue and its comments, list the queue,
+comment, move labels, edit the description, file one, the labels a project
+defines, who applied one) and `Forge` (list the open pull requests, read one
+with its threads and conversation in one snapshot, how one closed, comment,
+reply, resolve, move labels, open one, and who the person at this machine is).
+The implementation owns the whole conversation: the command line, its flags,
+the shapes it answers in. `issues.py`, `pull_requests.py`, `labels.py`, the
+watchers and integration keep what the factory does with the answers, and
+reach the service only through `forge.tracker_of(cfg)` / `forge.forge_of(cfg)`.
+Method names follow the cockpit's `apps/cockpit/convex/forge/forge.ts` where
+they mean the same thing.
+
+Only `github` ships, through `gh` — the one module the strings `gh` and
+`GITHUB_` appear in, which a test holds it to. GitHub Enterprise is `gh`'s own
+host config (`GH_HOST`). Another forge or tracker is another module there,
+implementing one Protocol or both; until one needs otherwise, an issue is an
+integer and a project an `owner/name`. `fake` is an in-memory one the tests
+select, as the fake harness is; the rest of the suite meets GitHub through a
+stand-in `gh` on PATH.
+
+Before 1.3 these were fifteen `*_command` argv prefixes, and the claim that other
+CLIs fit the same verbs. They did not — the engine appended `gh`'s flags,
+parsed its JSON and sent GitHub's graphql whatever the prefix said — and a key
+that only works with one value is a promise the code cannot keep.
+
 ### Agents
 
 ```
@@ -442,7 +472,7 @@ asks nothing of the forge.
   station counts from the merges it holds the record of — the PR watcher's, or `asf score`'s
   backfill of a close no watcher saw.
 - **At most one open issue per scorer**, labelled `asf:improve:<scorer>`. Before filing, the
-  station lists the open issues carrying that label (`issues.list_command`); if there is one, it
+  station lists the open issues carrying that label (`Tracker.labelled`); if there is one, it
   comments with the failing sessions the issue does not cite yet, and says nothing when it cites
   them all. Which sessions a body or a comment cites is written in it, in an `<!-- asf:improve
   … sessions=… -->` mark, so the tracker is the only state two stations share. A listing that
@@ -453,8 +483,8 @@ asks nothing of the forge.
   first, with each failing chapter's class and the events its evidence cites — kind and payload,
   cut to fit a tracker's body. A tracker may be public, and the transcripts opt-in is a
   cockpit's: a cited `prompt_rendered` or `harness_output` is named by seq and kind only, and a
-  judge's reasoning never leaves the session's record (invariant 11). The station defines the label the first time (`issues.labels_create_command`),
-  then files it with `issues.create_command` (`gh issue create`).
+  judge's reasoning never leaves the session's record (invariant 11). The station defines the label the first time (`Tracker.define_label`),
+  then files it (`Tracker.create`).
 - **On the record**: what was filed — or added to an open issue — is an `improvement_filed`
   (`{scorer, number, url, title, commented, sessions, cause, surface, not_diagnosed}`) appended to
   the newest failing session it cites, a late event like the score, flushed to a cockpit as it is

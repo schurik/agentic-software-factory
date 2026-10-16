@@ -43,12 +43,10 @@ two rules follow, and both used to be broken:
 
 from __future__ import annotations
 
-import subprocess
-
-from . import artifacts, benchmark_session, git_helper, pull_requests, reproduction
+from . import artifacts, forge, git_helper, pull_requests, reproduction
 from .data_types import (FactoryConfig, IntegrationMode, IntegrationRequest, IntegrationResult,
-                         ProvenanceRecorded, PullRequestOpened)
-from .utils import operator_env
+                         Proposal, ProvenanceRecorded, PullRequestOpened)
+from .forge import ForgeError
 
 
 def none_is_refused(setting: str) -> str:
@@ -317,49 +315,23 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
                             f"({run.pr_url}) — the push updated it")
         return result
 
-    argv = [*config.pr_command, "--base", result.base_ref, "--head", result.branch]
-    if params.title:
-        argv += ["--title", params.title]
-    body = params.body or _pr_body(run, config.pr_body_template, result)
-    if body:
-        # gh rejects --fill together with an explicit --body, and an
-        # issue-triggered run always has a body now (its `Closes #<n>` line) —
-        # so --fill has to go the moment there is one, not just when an
-        # operator configured pr_body_template themselves.
-        argv = [flag for flag in argv if flag != "--fill"]
-        argv += ["--body", body]
-        if "--title" not in argv:
-            # --fill would have supplied the title too, and gh refuses to run
-            # non-interactively with neither --fill nor --title. The first
-            # commit unique to this branch is what --fill itself falls back
-            # to for a single-commit PR, and reads fine for a multi-commit
-            # one too — a standalone integrate (`adw_integrate.py`, no
-            # `params.title`) hits this every time the run also has a body.
-            fallback_title = git_helper.first_subject(tree, result.base_ref, result.branch)
-            if fallback_title:
-                argv += ["--title", fallback_title]
-    # The forge CLI is already authenticated in the engineer's shell, so it runs
-    # under their environment rather than the ADW's ephemeral `uv run` venv.
-    completed = benchmark_session.refused(argv) or subprocess.run(
-        argv, cwd=tree, env=operator_env(), capture_output=True, text=True)
-    output = (completed.stderr or completed.stdout).strip()
-    if completed.returncode != 0:
+    proposal = Proposal(base=result.base_ref, head=result.branch, title=params.title,
+                        body=params.body or _pr_body(run, config.pr_body_template, result))
+    try:
         # The record is not the only way a branch gets a pull request: someone
         # opened one by hand, `open_pr` was turned on afterwards. The forge says
-        # so and names the url, and that answer is worth exactly as much as the
-        # recorded one — the push already updated whichever PR it is.
-        existing = _existing_pr_url(output)
-        if not existing:
-            result.ok = False
-            result.notes.append(f"`{' '.join(config.pr_command)}` failed: "
-                                f"{output[-500:]}")
-            return result
-        result.pr_url = existing
+        # so and names it, and that answer is worth exactly as much as the
+        # recorded one — the push already updated whichever it is.
+        pull = forge.forge_of(run.cfg).pull(tree, proposal)
+    except ForgeError as error:
+        result.ok = False
+        result.notes.append(str(error))
+        return result
+    result.pr_url = pull.url
+    if pull.existing:
         result.notes.append(f"{result.branch} already had a pull request "
-                            f"({existing}) — the push updated it")
+                            f"({pull.url}) — the push updated it")
     else:
-        result.pr_url = next((line for line in completed.stdout.split()
-                              if line.startswith("http")), "")
         result.notes.append(f"opened a pull request"
                             f"{': ' + result.pr_url if result.pr_url else ''}")
         if result.pr_url:
@@ -375,20 +347,3 @@ def _open_pr(run, result: IntegrationResult, params: IntegrationRequest) -> Inte
     if run.pr_url:
         artifacts.record_provenance(run.session_dir, ProvenanceRecorded(pr_url=run.pr_url))
     return result
-
-
-def _existing_pr_url(output: str) -> str:
-    """The url a forge CLI names when it refuses to open a second pull request.
-
-    `gh` answers `a pull request for branch "x" into branch "main" already
-    exists:` followed by the url, and other CLIs word it their own way — so the
-    match is on the phrase family, not on one vendor's sentence, and a url is
-    required before the refusal is read as "there is already one". Anything else
-    stays a failure: this must not turn an authentication error into a success.
-    """
-    lowered = output.lower()
-    if not any(phrase in lowered for phrase in
-               ("already exists", "already open", "existing pull request")):
-        return ""
-    return next((word.rstrip(".,);") for word in output.split()
-                 if word.startswith("http")), "")

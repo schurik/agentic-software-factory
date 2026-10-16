@@ -6,14 +6,12 @@ fetch a thing, adapt it into an envelope, write the outcome back, never raise on
 a rejected write. Reading a pull request is a known command, so the phases over
 this are `kind="code"` (SKILL.md rule 8).
 
-WHY GRAPHQL, WHEN EVERYTHING ELSE HERE IS A CLI SUBCOMMAND. Review threads are
-the only thing the factory needs that `gh pr view --json` cannot produce: it
-returns issue-level comments and review bodies, but the inline threads — where
-the actual asks live, and the only place `isResolved` exists — are reachable
-only through the forge's graphql API. One query returns the pull request's state
-AND its threads in one consistent snapshot, which two commands could not: a pull
-request merged between them would be read as open with open threads, and the
-watcher would launch a run against a branch that has already landed.
+ONE READ, NOT TWO. A pull request's state AND its threads arrive in one
+consistent snapshot (`Forge.pull_request`): read separately, a pull request
+merged between them would be read as open with open threads, and the watcher
+would launch a run against a branch that has already landed. What the forge is,
+and how it is asked, is `forge:` and `engine/forge/` — every function here
+that reaches it takes the whole `FactoryConfig` for that reason.
 
 THE RESOLVED FLAG IS THE QUEUE for threads. Nothing here keeps a watermark of
 which thread a run has already seen, and no column was added for one. An
@@ -31,22 +29,18 @@ The mark names what was READ, not when the summary was written: a comment that
 lands while a run is working is newer than what that run read, and the next
 poll picks it up instead of the summary swallowing it. It is still on the
 forge, in the comment the reviewer reads — still no column of our own.
-
-Everything runs under `operator_env()`: the forge CLI is authenticated in the
-engineer's shell, and an ADW launched by `uv run` would otherwise hand it that
-ephemeral venv's PATH.
 """
 
 from __future__ import annotations
 
-import json
 import re
 
-from . import artifacts
-from .data_types import (PullRequestClosed, PullRequestContext, PullRequestOutput,
-                         PullRequestRef, PullRequestResult, PullRequestsConfig,
+from . import artifacts, forge
+from .data_types import (FactoryConfig, PullRequestClosed, PullRequestContext,
+                         PullRequestOutput, PullRequestRef, PullRequestResult, PullRequestsConfig,
                          PullRequestUpdate, ReviewComment, ReviewThread)
-from .issues import ANSWER_MARKER, _aim, _run, resolve_project
+from .forge import ForgeError
+from .issues import ANSWER_MARKER, resolve_project
 from .utils import write_atomic
 
 THREADS_FILENAME = "pr_review.md"
@@ -81,143 +75,7 @@ HANDOFF_NOTES = (
     "is a better outcome than a change nobody asked for."
 )
 
-# One query for the state, the threads and the conversation. `first: 100` on
-# threads and `50` on their comments is not pagination — it is a ceiling, and
-# `max_threads` narrows what is acted on afterwards. A review that outgrows it is
-# a conversation to have with a human, not a batch to page through. The
-# conversation is read from its END (`last:`), because what is outstanding there
-# is what came after the factory's own latest word.
-_PR_QUERY = """
-query($owner:String!, $name:String!, $number:Int!) {
-  repository(owner:$owner, name:$name) {
-    pullRequest(number:$number) {
-      number title url state isDraft baseRefName headRefName reviewDecision
-      author { login }
-      reviewThreads(first:100) {
-        nodes {
-          id isResolved isOutdated path line
-          comments(first:50) { nodes { databaseId body createdAt author { login } } }
-        }
-      }
-      comments(last:100) { nodes { databaseId body createdAt author { login } } }
-      reviews(last:50) { nodes { databaseId body state submittedAt author { login } } }
-    }
-  }
-}
-"""
-
-# What a pull request that closed is read for, and only then — one query more
-# per pull request reaped, never one per poll. `commits` is capped where the
-# forge caps a pull request's commits anyway; `parents` is how a merge commit
-# is told from the commits around it. Reviews come oldest first.
-_CLOSED_QUERY = """
-query($owner:String!, $name:String!, $number:Int!) {
-  repository(owner:$owner, name:$name) {
-    pullRequest(number:$number) {
-      number url state mergedAt additions deletions
-      reviews(first:1) { nodes { submittedAt } }
-      commits(first:250) {
-        nodes { commit { oid parents(first:2) { nodes { oid } } } }
-      }
-    }
-  }
-}
-"""
-
-_REPLY_MUTATION = """
-mutation($threadId:ID!, $body:String!) {
-  addPullRequestReviewThreadReply(
-    input:{pullRequestReviewThreadId:$threadId, body:$body}) {
-    comment { id }
-  }
-}
-"""
-
-_RESOLVE_MUTATION = """
-mutation($threadId:ID!) {
-  resolveReviewThread(input:{threadId:$threadId}) { thread { isResolved } }
-}
-"""
-
-
-def _graphql(config: PullRequestsConfig, tree, query: str,
-             **variables) -> tuple[dict, str]:
-    """Run one graphql call. Returns (data, error) — never raises.
-
-    The forge CLI reports a graphql error with exit code 0 and an `errors` key
-    often enough that checking the return code alone is not enough; a caller
-    that trusted it would read a missing pull request as an empty one.
-    """
-    argv = [*config.graphql_command, "-f", f"query={query}"]
-    for key, value in variables.items():
-        flag = "-F" if isinstance(value, int) else "-f"
-        argv += [flag, f"{key}={value}"]
-    completed = _run(argv, tree)
-    text = (completed.stdout or "").strip()
-    if completed.returncode != 0 and not text:
-        return {}, (completed.stderr or "").strip()[-500:]
-    try:
-        payload = json.loads(text or "{}")
-    except json.JSONDecodeError:
-        return {}, f"the graphql command did not return JSON: {text[-300:]}"
-    if payload.get("errors"):
-        messages = "; ".join(entry.get("message", "") for entry in payload["errors"])
-        return {}, messages[-500:]
-    return payload.get("data") or {}, ""
-
-
-def _split(project: str) -> tuple[str, str]:
-    owner, _, name = project.partition("/")
-    return owner, name
-
-
-def _threads_of(payload: dict) -> list[ReviewThread]:
-    threads: list[ReviewThread] = []
-    for node in (payload.get("reviewThreads") or {}).get("nodes") or []:
-        comments = [
-            ReviewComment(
-                comment_id=int(entry.get("databaseId") or 0),
-                author=(entry.get("author") or {}).get("login", ""),
-                body=entry.get("body") or "",
-                created_at=entry.get("createdAt") or "",
-            )
-            for entry in (node.get("comments") or {}).get("nodes") or []
-        ]
-        threads.append(ReviewThread(
-            thread_id=node.get("id") or "",
-            path=node.get("path") or "",
-            line=node.get("line"),
-            resolved=bool(node.get("isResolved")),
-            outdated=bool(node.get("isOutdated")),
-            comments=comments,
-        ))
-    return threads
-
-
-def _comments_of(payload: dict) -> list[ReviewComment]:
-    """The conversation, oldest first: plain comments, and the body of every
-    submitted review. A review with no body is the envelope its inline comments
-    came in — they are in the threads already — and a PENDING one is a draft
-    only its author can see, which the forge still hands that author's token."""
-    plain = [(entry, entry.get("createdAt"))
-             for entry in (payload.get("comments") or {}).get("nodes") or []]
-    reviews = [(entry, entry.get("submittedAt"))
-               for entry in (payload.get("reviews") or {}).get("nodes") or []
-               if (entry.get("body") or "").strip()
-               and str(entry.get("state") or "").upper() != "PENDING"]
-    comments = [
-        ReviewComment(
-            comment_id=int(entry.get("databaseId") or 0),
-            author=(entry.get("author") or {}).get("login", ""),
-            body=entry.get("body") or "",
-            created_at=at or "",
-        )
-        for entry, at in [*plain, *reviews]
-    ]
-    return sorted(comments, key=lambda comment: comment.created_at)
-
-
-def describe(tree, config: PullRequestsConfig, ref: PullRequestRef) -> PullRequestContext:
+def describe(tree, cfg: FactoryConfig, ref: PullRequestRef) -> PullRequestContext:
     """Read one pull request and its threads. No Run, nothing written.
 
     Takes the TREE rather than a Run for the reason `issues.comment()` does: the
@@ -229,37 +87,13 @@ def describe(tree, config: PullRequestsConfig, ref: PullRequestRef) -> PullReque
     request, and deciding it against an empty answer would mean launching a run
     with no feedback in it, or reaping a session over a network blip.
     """
-    project = ref.project or resolve_project(config, tree)
+    project = ref.project or resolve_project(cfg.pull_requests, tree)
     if not project:
         raise RuntimeError(
             "no project for the pull request: pull_requests.project is empty and "
-            "no origin remote could be read. A graphql query has to name the "
+            "no origin remote could be read. The forge has to be told the "
             "repository — there is no cwd for it to fall back to.")
-
-    owner, name = _split(project)
-    data, error = _graphql(config, tree, _PR_QUERY,
-                           owner=owner, name=name, number=int(ref.number))
-    if error:
-        raise RuntimeError(f"could not read pull request #{ref.number} in "
-                           f"{project}: {error}")
-    payload = ((data.get("repository") or {}).get("pullRequest") or {})
-    if not payload:
-        raise RuntimeError(f"there is no pull request #{ref.number} in {project}")
-
-    return PullRequestContext(
-        number=int(payload.get("number", ref.number)),
-        project=project,
-        url=payload.get("url") or "",
-        title=payload.get("title") or "",
-        state=payload.get("state") or "",
-        draft=bool(payload.get("isDraft")),
-        author=(payload.get("author") or {}).get("login", ""),
-        branch=payload.get("headRefName") or "",
-        base_ref=payload.get("baseRefName") or "",
-        review_decision=payload.get("reviewDecision") or "",
-        threads=_threads_of(payload),
-        comments=_comments_of(payload),
-    )
+    return forge.forge_of(cfg).pull_request(tree, project, int(ref.number))
 
 
 def number_of(url: str) -> int:
@@ -268,46 +102,19 @@ def number_of(url: str) -> int:
     return int(tail) if tail.isdigit() else 0
 
 
-def outcome_of(tree, config: PullRequestsConfig, ref: PullRequestRef) -> PullRequestClosed:
+def outcome_of(tree, cfg: FactoryConfig, ref: PullRequestRef) -> PullRequestClosed:
     """How a pull request that is no longer open ended: what `pull_request_closed`
     says of it. Raises on failure, as `describe` does — the caller records it,
     and a record made of a network blip would say the pull request had no
-    commits.
-
-    A BASE MERGE is a commit with a parent outside the pull request's own
-    commits other than its first: it brought history from elsewhere in, and on
-    a session's branch that is the base branch — "Update branch", or a person
-    merging it by hand. The first commit's own parent is outside too, which is
-    why only a second parent counts.
+    commits. Its `base_merges` are the commits that brought the base branch in.
     """
-    project = ref.project or resolve_project(config, tree)
-    owner, name = _split(project)
-    data, error = _graphql(config, tree, _CLOSED_QUERY,
-                           owner=owner, name=name, number=int(ref.number))
-    payload = ((data.get("repository") or {}).get("pullRequest") or {})
-    if error or not payload:
-        raise RuntimeError(f"could not read how #{ref.number} in {project} closed: "
-                           f"{error or 'there is no such pull request'}")
-    commits = [node.get("commit") or {}
-               for node in (payload.get("commits") or {}).get("nodes") or []]
-    shas = [commit.get("oid") or "" for commit in commits]
-    ours = set(shas)
-    merges = [commit.get("oid") or "" for commit in commits
-              if any(parent.get("oid") not in ours
-                     for parent in ((commit.get("parents") or {}).get("nodes") or [])[1:])]
-    reviews = (payload.get("reviews") or {}).get("nodes") or []
-    return PullRequestClosed(
-        url=payload.get("url") or "", number=int(payload.get("number") or ref.number),
-        merged=str(payload.get("state") or "").upper() == "MERGED",
-        merged_at=payload.get("mergedAt") or "",
-        first_review_at=(reviews[0].get("submittedAt") or "") if reviews else "",
-        head_shas=shas, base_merges=merges,
-        additions=int(payload.get("additions") or 0), deletions=int(payload.get("deletions") or 0))
+    project = ref.project or resolve_project(cfg.pull_requests, tree)
+    return forge.forge_of(cfg).closed(tree, project, int(ref.number))
 
 
-def fetch(run, config: PullRequestsConfig, ref: PullRequestRef) -> PullRequestContext:
+def fetch(run, cfg: FactoryConfig, ref: PullRequestRef) -> PullRequestContext:
     """Read a pull request into a run: `describe()` then `attach()`."""
-    return attach(run, config, describe(run.main_root, config, ref))
+    return attach(run, cfg.pull_requests, describe(run.main_root, cfg, ref))
 
 
 def attach(run, config: PullRequestsConfig,
@@ -508,7 +315,7 @@ def feedback(threads: list, comments: list) -> str:
 
 # ── writing back ─────────────────────────────────────────────────────────────
 
-def comment(tree, config: PullRequestsConfig, update: PullRequestUpdate) -> PullRequestResult:
+def comment(tree, cfg: FactoryConfig, update: PullRequestUpdate) -> PullRequestResult:
     """Post one pull-request-level comment. Evidence, not exceptions.
 
     Same contract as `issues.comment()`, and the same signature discipline: the
@@ -520,13 +327,11 @@ def comment(tree, config: PullRequestsConfig, update: PullRequestUpdate) -> Pull
         result.notes.append("nothing to say")
         return result
 
-    project = update.project or resolve_project(config, tree)
-    argv = _aim([*config.comment_command], project, update.number)
-    argv += ["--body", update.comment]
-    completed = _run(argv, tree)
-    if completed.returncode != 0:
-        result.notes.append(f"`{' '.join(config.comment_command)}` failed: "
-                            f"{(completed.stderr or completed.stdout).strip()[-500:]}")
+    project = update.project or resolve_project(cfg.pull_requests, tree)
+    try:
+        forge.forge_of(cfg).comment(tree, project, update.number, update.comment)
+    except ForgeError as error:
+        result.notes.append(str(error))
         return result
     result.ok = True
     result.commented = True
@@ -534,8 +339,7 @@ def comment(tree, config: PullRequestsConfig, update: PullRequestUpdate) -> Pull
     return result
 
 
-def answer_thread(tree, config: PullRequestsConfig,
-                  update: PullRequestUpdate) -> PullRequestResult:
+def answer_thread(tree, cfg: FactoryConfig, update: PullRequestUpdate) -> PullRequestResult:
     """Reply inside one review thread, then resolve it. Both optional, in order.
 
     ORDER MATTERS AND IS NOT ARBITRARY. The reply goes first so that a reviewer
@@ -555,15 +359,15 @@ def answer_thread(tree, config: PullRequestsConfig,
         result.notes.append("no thread named")
         return result
 
+    config, forge_ = cfg.pull_requests, forge.forge_of(cfg)
     replied_ok = True
     if update.reply and config.reply_to_threads:
-        _, error = _graphql(config, tree, _REPLY_MUTATION,
-                            threadId=update.thread_id, body=update.reply)
-        if error:
+        try:
+            forge_.reply(tree, update.thread_id, update.reply)
+            result.replied = True
+        except ForgeError as error:
             replied_ok = False
             result.notes.append(f"reply to thread failed: {error}")
-        else:
-            result.replied = True
 
     if update.resolve and config.resolve_threads:
         if not replied_ok:
@@ -571,24 +375,22 @@ def answer_thread(tree, config: PullRequestsConfig,
                                 "a resolved thread with no answer in it reads as "
                                 "feedback that was dismissed")
         else:
-            _, error = _graphql(config, tree, _RESOLVE_MUTATION,
-                                threadId=update.thread_id)
-            if error:
-                result.notes.append(f"resolve failed: {error}")
-            else:
+            try:
+                forge_.resolve(tree, update.thread_id)
                 result.resolved.append(update.thread_id)
+            except ForgeError as error:
+                result.notes.append(f"resolve failed: {error}")
 
     result.ok = replied_ok and not any("failed" in note for note in result.notes)
     return result
 
 
-def set_state(tree, config: PullRequestsConfig,
-              update: PullRequestUpdate) -> PullRequestResult:
+def set_state(tree, cfg: FactoryConfig, update: PullRequestUpdate) -> PullRequestResult:
     """Move a pull request's labels. The watcher's loop-stop, and its release.
 
     NOT a claim and not a lock — see `PullRequestStates` on why this path has
-    only one label. `gh pr edit --add-label` on a label that is already there
-    succeeds, which is what makes calling this unconditionally safe.
+    only one label. Adding a label that is already there succeeds, which is
+    what makes calling this unconditionally safe.
     """
     result = PullRequestResult(number=update.number)
     if not (update.add_labels or update.remove_labels):
@@ -596,16 +398,11 @@ def set_state(tree, config: PullRequestsConfig,
         result.notes.append("no label change asked for")
         return result
 
-    project = update.project or resolve_project(config, tree)
-    argv = _aim([*config.state_command], project, update.number)
-    for label in update.add_labels:
-        argv += ["--add-label", label]
-    for label in update.remove_labels:
-        argv += ["--remove-label", label]
-    completed = _run(argv, tree)
-    if completed.returncode != 0:
-        result.notes.append(f"`{' '.join(config.state_command)}` failed: "
-                            f"{(completed.stderr or completed.stdout).strip()[-500:]}")
+    project = update.project or resolve_project(cfg.pull_requests, tree)
+    try:
+        forge.forge_of(cfg).set_labels(tree, update.model_copy(update={"project": project}))
+    except ForgeError as error:
+        result.notes.append(str(error))
         return result
     result.ok = True
     result.labels_changed = [*update.add_labels, *update.remove_labels]

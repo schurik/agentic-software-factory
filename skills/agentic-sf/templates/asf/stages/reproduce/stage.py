@@ -155,7 +155,7 @@ def _give_up(ctx, tried: list[ReproOutput]) -> None:
         if run.benchmark is not None:
             ph.log(ok=True, notes="a benchmark's session writes nothing to the tracker")
             return
-        posted = issues.comment(run.main_root, run.cfg.issues, IssueUpdate(
+        posted = issues.comment(run.main_root, run.cfg, IssueUpdate(
             number=run.issue_number, comment=_tried(run.adw_id, tried)))
         ph.log(ok=posted.ok, number=run.issue_number, notes=" · ".join(posted.notes))
 

@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 from . import projection
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, fake_roster, forge, forge_data,
-                          git, issue_json, session_dir, set_config, wire, with_origin,
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, fake_roster, forge_data, git,
+                          issue_json, session_dir, set_config, stand_in_gh, wire, with_origin,
                           write_workflow)
 from .test_asf_events import build_reply
 from .test_asf_slice2 import plan_reply
@@ -147,11 +147,8 @@ def test_an_issue_run_that_asks_on_its_work_item_has_pushed_what_it_asks_about(s
     unspent = [{"envelope": {"status": "success", "summary": "never reached"}}]
     fake_roster(stamped, scout=[{"envelope": {"status": "success", "summary": "scouted"}}],
                 planner=[plan_reply()], builder=unspent, reviewer=unspent, documenter=unspent)
-    base = forge(stamped)
-    set_config(stamped, issues={"enabled": True, "project": "acme/widgets",
-                                "fetch_command": [*base, "view"],
-                                "comment_command": [*base, "comment"],
-                                "state_command": [*base, "edit"]})
+    stand_in_gh(stamped)
+    set_config(stamped, issues={"enabled": True, "project": "acme/widgets"})
     forge_data(stamped, "issue.json", issue_json(42))
     origin = with_origin(stamped)
     set_config(stamped, worktree={"publish": "on_create"})
@@ -249,8 +246,8 @@ def test_a_session_whose_pull_request_is_known_keeps_its_branch_whatever_git_tra
     origin = gated(stamped, "on_create", then=LANDS)
     fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app"),
                                   build_reply("ok = 2\n", "feat: app, again")])
-    set_config(stamped, worktree={"publish": "on_create", "integration": {
-        "open_pr": True, "pr_command": [*forge(stamped), "pr-create"]}})
+    stand_in_gh(stamped)
+    set_config(stamped, worktree={"publish": "on_create", "integration": {"open_pr": True}})
     commit_all(stamped)
     adw_id = adw_id_of(asf(stamped, "run", "gated", "add app.py"))
     assert asf(stamped, "approve", adw_id).returncode == 0

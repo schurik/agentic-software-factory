@@ -37,7 +37,6 @@ import hashlib
 import os
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -47,6 +46,7 @@ from . import cockpit as local_cockpit
 from . import factory, git_helper, harnesses, publish, station
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
+from .forge import forge_of, tracker_of
 from .utils import anchor, write_atomic
 
 # ── git: the tree a run cuts from ────────────────────────────────────────────
@@ -354,80 +354,14 @@ def browser(main_root: Path) -> list[Finding]:
     return findings
 
 
-# ── the forge CLI: what the watchers and integration shell out to ────────────
-
-# `gh pr edit` and `gh issue edit` asked for `projectCards` on every edit until
-# this release, and GitHub now answers that field with a hard error — so on
-# anything older EVERY label edit fails, whatever the edit was for. That is not
-# cosmetic: the label is how both watchers mark a run's outcome, and a `failed`
-# that cannot be applied means the next poll finds the same work and buys the
-# same failing run again. cli/cli#13282, released in gh 2.98.0.
-GH_LABELS_FIXED = (2, 98)
-
-
-def _gh_version(binary: str) -> tuple[int, ...]:
-    """(major, minor) of the CLI's own `--version`, or () when it cannot be read.
-
-    A QUESTION, not a command — an unreadable answer is not a finding. `gh
-    version 2.70.0 (2025-04-11)` is the shape; distribution and enterprise
-    builds append to it and are read by the same expression.
-    """
-    try:
-        completed = subprocess.run([binary, "--version"], capture_output=True,
-                                   text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return ()
-    found = re.search(r"(\d+)\.(\d+)\.\d+", completed.stdout or "")
-    return (int(found.group(1)), int(found.group(2))) if found else ()
-
+# ── the forge and the tracker: what the watchers and integration reach ───────
 
 def forge(cfg: FactoryConfig) -> list[Finding]:
-    """Whether the CLI each enabled forge path needs is on PATH, and can label.
-
-    Only asked about the paths this repository actually turned on. A repo that
-    integrates with `mode: merge` and has both watchers off needs no forge CLI
-    at all, and telling it about `gh` would be noise.
-
-    THE VERSION IS ASKED BECAUSE PRESENCE IS NOT ENOUGH. An authenticated `gh`
-    on PATH that cannot move a label passes every check this used to make, and
-    fails the one thing the watchers need it for. `before_run` says a CLI version
-    probe belongs here rather than in front of every run, which is where it is.
-    """
-    wanted: dict[str, list[str]] = {}
-    integration = cfg.worktree.integration
-    if integration.mode == "pr" and integration.open_pr and integration.pr_command:
-        wanted.setdefault(integration.pr_command[0], []).append("worktree.integration.open_pr")
-    if cfg.issues.enabled and cfg.issues.list_command:
-        wanted.setdefault(cfg.issues.list_command[0], []).append("issues.enabled")
-    if cfg.pull_requests.enabled and cfg.pull_requests.list_command:
-        wanted.setdefault(cfg.pull_requests.list_command[0], []).append("pull_requests.enabled")
-
-    labels_wanted = (cfg.issues.enabled and cfg.issues.state_command) or \
-                    (cfg.pull_requests.enabled and cfg.pull_requests.state_command)
-
-    findings: list[Finding] = []
-    for binary, wanted_by in sorted(wanted.items()):
-        if shutil.which(binary):
-            findings.append(Finding(check=f"forge: {binary}",
-                                    detail=f"on PATH, needed by {', '.join(wanted_by)}"))
-            version = _gh_version(binary) if binary == "gh" and labels_wanted else ()
-            if version and version < GH_LABELS_FIXED:
-                findings.append(Finding(
-                    check=f"forge: {binary}", level="warn",
-                    detail=f"gh {version[0]}.{version[1]} cannot move a label: "
-                           f"`gh pr edit` and `gh issue edit` still ask for Projects "
-                           f"(classic), which GitHub answers with an error, so every "
-                           f"edit fails. The watchers mark a run's outcome with a label "
-                           f"— unmarked, a failed run is relaunched on the next poll",
-                    fix=f"upgrade gh to {GH_LABELS_FIXED[0]}.{GH_LABELS_FIXED[1]} or "
-                        f"newer (`brew upgrade gh`, or your package manager)"))
-        else:
-            findings.append(Finding(
-                check=f"forge: {binary}", level="warn",
-                detail=f"{binary!r} is not on PATH, but {', '.join(wanted_by)} needs it",
-                fix=f"install {binary} and authenticate it, or turn that path off in "
-                    f"the config. A watcher without it polls forever and lists nothing"))
-    return findings
+    """Whether what `forge:` and `tracker:` need on this machine is here, for
+    the paths this repository turned on — each implementation knows what that
+    is (`engine/forge/`), and asks it once when the two are the same."""
+    found = forge_of(cfg).doctor(cfg)
+    return found + (tracker_of(cfg).doctor(cfg) if cfg.tracker != cfg.forge else [])
 
 
 # ── the labels the config names, and whether the forge defines them ──────────
@@ -453,10 +387,9 @@ def labels(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
         return [Finding(
             check="forge labels", level="warn",
             detail=f"could not ask which labels the project defines — {found.note}",
-            fix="name the project in issues.project, authenticate the forge CLI, or "
-                "clear issues.labels_list_command if this tracker does not define "
-                "labels that way. Nothing is assumed either way: the labels below "
-                "may all be fine")]
+            fix=f"name the project in issues.project, or sign in to the {cfg.tracker} "
+                f"tracker on this machine. Nothing is assumed either way: the labels below "
+                f"may all be fine")]
     # Said in both outcomes, never only the green one: a renamed route leaves its
     # old label behind, and the items still carrying it are evidence rather than
     # litter — which is also why nothing here offers to delete it.
@@ -594,7 +527,7 @@ def skill() -> list[Finding]:
 
 # ── the cockpit `asf up` starts ──────────────────────────────────────────────
 
-def cockpit(data: Path | None = None) -> list[Finding]:
+def cockpit(cfg: FactoryConfig, data: Path | None = None) -> list[Finding]:
     """Whether `asf up` can start the local cockpit, and which one it would run
     — or, with a shared cockpit configured, what this station ships to it with.
 
@@ -637,13 +570,14 @@ def cockpit(data: Path | None = None) -> list[Finding]:
         return findings
     # The `up` that starts the local cockpit is the one whose token it asks
     # the forge with; one that joins another's hands over nothing.
-    forge = local_cockpit.forge_credential()
+    credential = local_cockpit.forge_credential(cfg)
     findings.append(Finding(
-        check="cockpit forge", level="ok" if forge.token else "warn", detail=forge.line,
-        fix="" if forge.token else
-            "gh auth login (with GH_HOST set for an Enterprise Server) — the local cockpit "
-            "asks the forge with your own token, and without one its Factories page shows "
-            "only what this machine's stations ship"))
+        check="cockpit forge", level="ok" if credential.token else "warn",
+        detail=credential.line,
+        fix="" if credential.token else
+            f"{credential.sign_in} — the local cockpit asks the forge with your own token, "
+            f"and without one its Factories page shows only what this machine's stations "
+            f"ship"))
     if already and already != running:
         findings.append(Finding(
             check="cockpit", level="warn",
@@ -701,5 +635,5 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg, root) + quality(root)
             + browser(root) + forge(cfg) + labels(cfg, root) + stamped_version(root)
             + defaults_file(root)
-            + cockpit(anchor(root, cfg.data_dir))
+            + cockpit(cfg, anchor(root, cfg.data_dir))
             + publishing(cfg, root) + skill())

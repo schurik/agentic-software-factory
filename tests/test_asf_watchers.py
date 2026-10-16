@@ -14,8 +14,8 @@ import pytest
 from engine import artifacts, factory, watch
 from engine.data_types import Launch, RunState, WaitingFor
 
-from .asf_helpers import (asf, comment_json, fake_roster, forge, forge_calls, forge_data,
-                          issue_json, pr_json, set_config)
+from .asf_helpers import (asf, comment_json, fake_roster, forge_calls, forge_data, issue_json,
+                          pr_json, set_config, stand_in_gh)
 
 CONFIG = "asf/factory.yaml"
 
@@ -26,15 +26,11 @@ def tracked(stamped: Path, monkeypatch):
     (cfg, listing) — `listing(*numbers)` sets what the next poll lists."""
     monkeypatch.chdir(stamped)
     fake_roster(stamped, builder=[{"envelope": {"status": "success"}}])
-    base = forge(stamped)
-    commands = {"list_command": [*base, "list"], "comment_command": [*base, "comment"],
-                "state_command": [*base, "edit"]}
+    stand_in_gh(stamped)
     set_config(stamped,
                issues={"enabled": True, "project": "acme/widgets",
-                       "fetch_command": [*base, "view"], "route": {"asf:ship": "issue"},
-                       "labeller_command": [*base, "graphql"], **commands},
-               pull_requests={"enabled": True, "project": "acme/widgets",
-                              "graphql_command": [*base, "graphql"], **commands})
+                       "route": {"asf:ship": "issue"}},
+               pull_requests={"enabled": True, "project": "acme/widgets"})
     forge_data(stamped, "listing.json", [])
 
     def listing(*entries) -> None:
@@ -245,16 +241,15 @@ def test_a_review_run_the_watcher_starts_is_triggered_by_nobody_it_can_name(trac
     assert [(item.number, item.triggered_by) for item in launched] == [(72, "")]
 
 
-def test_a_tracker_without_a_labeller_command_launches_without_asking(tracked, stamped,
-                                                                     monkeypatch):
+def test_a_tracker_that_will_not_say_who_labelled_launches_with_nobody(tracked, stamped,
+                                                                      monkeypatch):
     cfg, listing = tracked
-    cfg.issues.labeller_command = []
+    forge_data(stamped, "refuse.json", ["graphql"])
     listing(queued(42))
     launched = []
     monkeypatch.setattr(watch, "launch", lambda *a: launched.append(a[2]) or 0)
     assert watch.issues_once(cfg, CONFIG) == 0
     assert [item.triggered_by for item in launched] == [""]
-    assert not [call for call in forge_calls(stamped) if call[0] == "graphql"]
 
 
 def test_a_watcher_refuses_a_route_to_a_workflow_with_the_wrong_input(stamped):

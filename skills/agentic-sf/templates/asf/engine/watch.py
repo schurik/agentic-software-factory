@@ -48,7 +48,6 @@ than prompt whoever is watching the queue.
 from __future__ import annotations
 
 import fcntl
-import json
 import os
 import random
 import signal
@@ -58,13 +57,14 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
-from . import (artifacts, claims, git_helper, hitl, inputs, issues, operate, pull_requests,
-               session, station, worktree)
+from . import (artifacts, claims, forge, git_helper, hitl, inputs, issues, operate,
+               pull_requests, session, station, worktree)
 from .data_types import (ClaimAsk, Decision, IssueRef, IssueUpdate, Launch, PullRequestContext,
                          PullRequestRef, PullRequestUpdate, FactoryConfig, Reply, WaitingFor)
-from .utils import anchor, ensure_dir, new_id, now_iso, operator_env
+from .forge import ForgeError
+from .utils import anchor, ensure_dir, new_id, now_iso
 
 RUNNER = "asf/asf.py"
 EXIT_WAITING = hitl.EXIT_WAITING
@@ -84,17 +84,12 @@ _HELD: set[tuple[str, int]] = set()
 
 # ── shared ───────────────────────────────────────────────────────────────────
 
-def _forge(argv: list[str], main_root) -> list[dict]:
+def _listed(listing: Callable[[], list]) -> list:
     """One listing. Never raises — an outage is not a crash."""
-    completed = subprocess.run(argv, cwd=str(main_root), env=operator_env(),
-                               capture_output=True, text=True)
-    if completed.returncode != 0:
-        print(f"  ! could not list: {(completed.stderr or completed.stdout).strip()[-300:]}")
-        return []
     try:
-        return json.loads(completed.stdout or "[]")
-    except json.JSONDecodeError:
-        print("  ! the list command did not return JSON")
+        return listing()
+    except ForgeError as error:
+        print(f"  ! could not list: {str(error)[-300:]}")
         return []
 
 
@@ -248,8 +243,8 @@ def route(cfg: FactoryConfig, labels: list) -> str:
 
 def stale_states(cfg: FactoryConfig, labels: list, keep: str) -> list[str]:
     """State labels this issue still carries from an EARLIER run, and only ones
-    it actually carries: `gh issue edit --remove-label` on a name the repository
-    never defined is an error, and it would fail the claim it rides on.
+    it actually carries: removing a name the repository never defined is an
+    error, and it would fail the claim it rides on.
 
     THE FOUR STATES ARE THE ONLY THINGS THIS CLEARS. `refined_label` is not one
     of them — it is a different axis, and a refined item is still queued, still
@@ -265,7 +260,7 @@ def stale_states(cfg: FactoryConfig, labels: list, keep: str) -> list[str]:
 
 def flip(cfg: FactoryConfig, main_root, project: str, number: int,
          add: str, remove: list[str]) -> bool:
-    result = issues.set_state(main_root, cfg.issues, IssueUpdate(
+    result = issues.set_state(main_root, cfg, IssueUpdate(
         number=number, project=project, add_labels=[add], remove_labels=list(remove)))
     if not result.ok:
         print(f"  #{number}: {' · '.join(result.notes)}")
@@ -286,16 +281,15 @@ def issues_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
         beat(cfg, main_root, "issues", "error", note="issues.project is unresolved")
         return 2
 
-    argv = [*cfg.issues.list_command, "--label", cfg.issues.states.queued, "--state", "open",
-            "--json", "number,title,labels,author", "--limit", "50", "--repo", project]
-    queued = _forge(argv, main_root)
+    queued = _listed(lambda: forge.tracker_of(cfg).queued(main_root, project,
+                                                          cfg.issues.states.queued))
     print(f"{project}: {len(queued)} issue(s) labelled {cfg.issues.states.queued}")
     beat(cfg, main_root, "issues", "polling", project=project, interval=interval,
          note=f"{len(queued)} queued")
     launched = waiting = 0
     for entry in queued:
-        number = entry.get("number")
-        workflow = route(cfg, entry.get("labels") or [])
+        number = entry.number
+        workflow = route(cfg, entry.labels)
         if not workflow:
             print(f"  #{number}: no routing label — leaving it queued")
             continue
@@ -314,8 +308,7 @@ def issues_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
             # The flip clears whatever an earlier run left on this issue in the
             # same edit, so the flip after the run removes only a label it put on.
             if not flip(cfg, main_root, project, number, cfg.issues.states.running,
-                        stale_states(cfg, entry.get("labels") or [],
-                                     keep=cfg.issues.states.running)):
+                        stale_states(cfg, entry.labels, keep=cfg.issues.states.running)):
                 give_back_unused(cfg, claimed)
                 continue
             beat(cfg, main_root, "issues", "working", project=project, interval=interval,
@@ -323,10 +316,9 @@ def issues_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int:
             # Whoever made it runnable: the route label, or the queued label
             # that went on after it. Asked after the claim, so only a run that
             # is about to start pays for the question.
-            carried = _names(entry.get("labels") or [])
             labelled = [label for label, routed in cfg.issues.route.items()
-                        if routed == workflow and label in carried]
-            by = issues.labeller(main_root, cfg.issues, IssueRef(number=number, project=project),
+                        if routed == workflow and label in entry.labels]
+            by = issues.labeller(main_root, cfg, IssueRef(number=number, project=project),
                                  [*labelled, cfg.issues.states.queued])
             code = launch(config_path, main_root,
                           Launch(workflow=workflow, number=number, triggered_by=by, claim=claimed))
@@ -379,9 +371,8 @@ def issues_status(cfg: FactoryConfig) -> int:
           f"  (running now: {len(live_runs(cfg, main_root))})")
     print(f"force_pr:       {cfg.issues.force_pr}")
     print(f"trusted:        {', '.join(cfg.issues.trusted_authors) or '(anyone who gets labelled)'}")
-    labeller = ("whoever last applied the route or queued label" if cfg.issues.labeller_command
-                else "(not read — issues.labeller_command is empty)")
-    print(f"triggered by:   {labeller}")
+    print(f"triggered by:   whoever last applied the route or queued label, as the "
+          f"{cfg.tracker} tracker says")
     print("routes:")
     for label, workflow in cfg.issues.route.items():
         print(f"  {label:<16} -> {workflow}")
@@ -419,7 +410,7 @@ def _heard(cfg: FactoryConfig, main_root, what) -> list:
     # written on the item, including ones from before the question.
     since = what.asked_at or what.since
     try:
-        comments = issues.comments(main_root, cfg.issues, IssueRef(number=what.issue_number))
+        comments = issues.comments(main_root, cfg, IssueRef(number=what.issue_number))
     except RuntimeError as error:
         print(f"  #{what.issue_number}: could not be read ({error})")
         return []
@@ -565,7 +556,7 @@ def answers_status(cfg: FactoryConfig) -> int:
 
 def mark(cfg: FactoryConfig, main_root, project: str, number: int, add: str = "",
          remove: str = "") -> bool:
-    result = pull_requests.set_state(main_root, cfg.pull_requests, PullRequestUpdate(
+    result = pull_requests.set_state(main_root, cfg, PullRequestUpdate(
         number=number, project=project,
         add_labels=[add] if add else [], remove_labels=[remove] if remove else []))
     if not result.ok:
@@ -599,10 +590,10 @@ def waiting_on(cfg: FactoryConfig, main_root, number: int) -> str:
 
 
 def has_work(cfg: FactoryConfig, main_root, project: str, number: int) -> bool:
-    """The full read, not the listing: `gh pr list` cannot see review threads,
+    """The full read, not the listing: a listing cannot see review threads,
     nor which comments the factory has already answered."""
     try:
-        context = pull_requests.describe(main_root, cfg.pull_requests,
+        context = pull_requests.describe(main_root, cfg,
                                          PullRequestRef(number=number, project=project))
     except RuntimeError as error:
         print(f"  #{number}: could not read it ({error})")
@@ -681,7 +672,7 @@ def _read(cfg: FactoryConfig, main_root, adw_id: str,
     """A session's pull request, read, and said when it is no longer open;
     None, and said, when the forge could not be read."""
     try:
-        context = pull_requests.describe(main_root, cfg.pull_requests, ref)
+        context = pull_requests.describe(main_root, cfg, ref)
     except RuntimeError as error:
         print(f"  ~ {adw_id}: could not read #{ref.number} ({error}) — left alone")
         return None
@@ -708,9 +699,8 @@ def _not_listed_open(cfg: FactoryConfig, main_root, project: str,
                      unclosed: dict[str, str]) -> list[str]:
     """The sessions in `unclosed` whose pull request one listing of the open
     ones does not show — closed, or unknown to a listing that failed."""
-    argv = [*cfg.pull_requests.list_command, "--state", "open", "--json", "number",
-            "--limit", "1000", "--repo", project]
-    still_open = {entry.get("number") for entry in _forge(argv, main_root)}
+    still_open = {pull.number for pull in
+                  _listed(lambda: forge.forge_of(cfg).pulls(main_root, project, 1000))}
     return [adw_id for adw_id, url in unclosed.items()
             if pull_requests.number_of(url) not in still_open]
 
@@ -722,7 +712,7 @@ def _record_closed(cfg: FactoryConfig, main_root, session_dir: Path,
     cockpit learns a merge (ADR 0006). `run.json` remembers it was said, so it
     is said once. False when the forge could not say how it ended."""
     try:
-        outcome = pull_requests.outcome_of(main_root, cfg.pull_requests, ref)
+        outcome = pull_requests.outcome_of(main_root, cfg, ref)
     except RuntimeError as error:
         print(f"    could not read how #{ref.number} closed ({error}) — not recorded")
         return False
@@ -844,13 +834,11 @@ def prs_once(cfg: FactoryConfig, config_path: str, only: int = 0, interval: int 
         if reaped:
             print(f"reaped {reaped} finished pull request(s)")
 
-    argv = [*pr.list_command, "--state", "open", "--json", "number,headRefName,labels,isDraft",
-            "--limit", "50", "--repo", project]
     prefix = cfg.worktree.branch_prefix
-    entries = [entry for entry in _forge(argv, main_root)
-               if str(entry.get("headRefName", "")).startswith(prefix)]
+    entries = [entry for entry in _listed(lambda: forge.forge_of(cfg).pulls(main_root, project, 50))
+               if entry.branch.startswith(prefix)]
     if only:
-        entries = [entry for entry in entries if entry.get("number") == only]
+        entries = [entry for entry in entries if entry.number == only]
         if not entries:
             print(f"#{only} is no longer open — done watching it")
             return 3
@@ -860,11 +848,11 @@ def prs_once(cfg: FactoryConfig, config_path: str, only: int = 0, interval: int 
          note=f"{len(entries)} open")
     launched = 0
     for entry in entries:
-        number = entry.get("number")
-        if entry.get("isDraft"):
+        number = entry.number
+        if entry.draft:
             print(f"  #{number}: draft — not answering review feedback on it yet")
             continue
-        if pr.states.failed in _names(entry.get("labels") or []):
+        if pr.states.failed in entry.labels:
             print(f"  #{number}: carries {pr.states.failed} — a run already failed on it; "
                   f"remove the label to try again")
             continue
@@ -889,7 +877,7 @@ def prs_once(cfg: FactoryConfig, config_path: str, only: int = 0, interval: int 
             # The pull request names its session; another station may hold it.
             go, claimed = ask_cockpit(cfg, ClaimAsk(
                 kind="pr", number=number, repo=project,
-                session=inputs.session_of(str(entry.get("headRefName", "")), prefix)))
+                session=inputs.session_of(entry.branch, prefix)))
             if not go:
                 continue
             beat(cfg, main_root, "prs", "working", project=project, interval=interval,

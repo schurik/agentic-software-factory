@@ -19,13 +19,12 @@ each station's config drift against.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Callable
 
-from . import (benchmarks, commands, factory, git_helper, integration, issues, publish, scorers,
-               station, workflow)
+from . import (benchmarks, commands, factory, forge, git_helper, integration, issues, publish,
+               scorers, station, workflow)
 from .data_types import (BenchmarkProblem, CheckedCheckout, Cockpit, DescribedAgent,
                          DescribedBenchmark, DescribedForge, DescribedGate, DescribedHitl,
                          DescribedIntake, DescribedLabels, DescribedLanding,
@@ -59,7 +58,7 @@ def build(config_path: str | Path = factory.DEFAULT_CONFIG) -> SelfDescription:
     benched, unbenched = benchmarks.load(factory.root_of(config_path), cfg, main_root)
     return SelfDescription(
         skill_version=_skill_version(main_root),
-        checked=CheckedCheckout(head=_head(main_root), ref=_ref(main_root),
+        checked=CheckedCheckout(head=_head(main_root), ref=_ref(cfg, main_root),
                                 config_hash=commands.config_hash(main_root,
                                                                  cfg.data_dir)),
         ok=not problems and not refused and not unbenched, budget=cfg.budget,
@@ -184,14 +183,13 @@ def _head(main_root: Path) -> str:
         return ""
 
 
-def _ref(main_root: Path) -> str:
-    """The branch described. In a GitHub Actions job the checkout is detached
-    — a pull request's merge commit, or the pushed commit — so the job's own
-    word for it comes first: the pull request's branch, else the pushed one."""
-    for name in ("GITHUB_HEAD_REF", "GITHUB_REF_NAME"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
+def _ref(cfg: FactoryConfig, main_root: Path) -> str:
+    """The branch described. In a CI job the checkout is often detached — a
+    pull request's merge commit, or the pushed commit — so the job's own word
+    for it comes first, as the forge running it says it (`Forge.ci_ref`)."""
+    said = forge.forge_of(cfg).ci_ref()
+    if said:
+        return said
     try:
         branch = git_helper.current_branch(main_root)
     except Exception:              # noqa: BLE001

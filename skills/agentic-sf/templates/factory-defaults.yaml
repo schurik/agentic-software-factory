@@ -174,8 +174,7 @@ worktree:
     mode: pr                       # merge | pr
     merge_flags: ["--no-ff"]
     remote: origin
-    open_pr: true                  # mode: pr — push AND open it; false = push only
-    pr_command: ["gh", "pr", "create", "--fill"]
+    open_pr: true                  # mode: pr — push AND open it, at `forge:`; false = push only
     pr_body_template: ""
 
 # ── the running app ─────────────────────────────────────────────────────────
@@ -211,8 +210,19 @@ serve:
 # whoever can file an issue or review a pull request, not by the engineer at
 # the keyboard — so where anyone can label or review, narrow `trusted_authors`
 # and `trusted_reviewers`, or set `enabled: false`. A workflow says which it
-# takes with `input: issue` or `input: pr`; these blocks say how the tracker is
-# read and written.
+# takes with `input: issue` or `input: pr`; these blocks say what the factory
+# does with what it reads there.
+#
+# WHERE: `tracker` holds the work items, their labels and the label queue;
+# `forge` holds the branches, the pull requests and their review threads. Each
+# names an implementation in asf/engine/forge/ that owns the whole conversation
+# with that service — its command line, its flags, the shape of its answers —
+# so nothing here spells a command. `github` works through `gh`, installed and
+# authenticated in your shell (`gh auth login`); GitHub Enterprise is `gh`'s own
+# host config (GH_HOST). Only `github` ships; another forge is another module
+# there.
+forge: github
+tracker: github
 
 # Work items. THE LABEL IS THE QUEUE and the routing label is the authorization:
 # a human applied it, and the watcher (`asf issues loop`, or `asf up`) never
@@ -223,45 +233,23 @@ issues:
   # this checkout. Set it explicitly for cron — a watcher that silently polls
   # the wrong project looks exactly like one with nothing to do.
   project: ""                      # e.g. "acme/widgets"
-  # Commands, not API calls: the forge CLI is installed and authenticated in
-  # your shell already. glab, jira and linear fit the same four verbs.
-  fetch_command:   ["gh", "issue", "view"]
-  list_command:    ["gh", "issue", "list"]
-  comment_command: ["gh", "issue", "comment"]
-  state_command:   ["gh", "issue", "edit"]
-  # Reading the answers a person wrote, and writing the requirements block back
-  # into the description. Separate entries although `gh` spells both with verbs
-  # it already has: a tracker that is not the forge routes comments, labels and
-  # the description to three different places.
-  comments_command: ["gh", "issue", "view"]
-  body_command:     ["gh", "issue", "edit"]
+  # EVERY LABEL NAMED BELOW HAS TO EXIST BEFORE ANYTHING CAN APPLY IT: a route
+  # label the tracker never heard of cannot be applied by anyone, so the
+  # workflow behind it looks configured and is inert, and adding an undefined
+  # label fails the write it rides on. `just labels` says which are missing;
+  # `just labels --create` defines exactly those and touches nothing else. `just
+  # doctor` asks the same question every time it runs, which is how an UPGRADE
+  # that adds a label gets noticed — an upgrade rewrites this file, and defines
+  # no label at the tracker.
+  #
+  # WHO TRIGGERED a labelled run: the watcher asks the tracker who last applied
+  # its route or queued label, and the run records them as `triggered_by`. A
+  # run started by hand records you, as the forge knows you. It authorizes
+  # nothing: who may label is the tracker's call.
+  #
   # Filing an issue — the one place the factory opens one itself: when a scorer
   # keeps failing (`self_improvement:` above), it files one labelled
-  # `asf:improve:<scorer>` and queues it for the `issue` workflow. Empty = it
-  # says the pattern on the console and files nothing.
-  create_command:   ["gh", "issue", "create"]
-  # Reading which labels this project DEFINES, and defining one. EVERY LABEL
-  # NAMED BELOW HAS TO EXIST BEFORE ANYTHING CAN APPLY IT: a route label the
-  # forge never heard of cannot be applied by anyone, so the workflow behind it
-  # looks configured and is inert, and `--add-label` on an undefined name fails
-  # the write it rides on. `just labels` says which are missing; `just labels
-  # --create` defines exactly those and touches nothing else. `just doctor`
-  # asks the same question every time it runs, which is how an UPGRADE that
-  # adds a label gets noticed — an upgrade rewrites this file, and defines no
-  # label at the forge.
-  #
-  # A FIFTH VERB the four above do not imply: glab, jira and linear all fit
-  # `view | list | comment | edit`, and none of them define labels the way
-  # `gh label` does. Empty on either = skip, which is the honest answer for a
-  # tracker whose labels are not created this way.
-  labels_list_command:   ["gh", "label", "list"]
-  labels_create_command: ["gh", "label", "create"]
-  # WHO TRIGGERED a labelled run: the watcher reads the issue's `labeled`
-  # events (graphql — `gh issue view` has no timeline) and the run records
-  # whoever last applied its route or queued label as `triggered_by`. A run
-  # started by hand records you, as `gh` knows you. It authorizes nothing: who
-  # may label is the forge's call. Empty = skip, and the run records nobody.
-  labeller_command: ["gh", "api", "graphql"]
+  # `asf:improve:<scorer>` and queues it for the `issue` workflow.
   # label -> WORKFLOW (one with `input: issue`). An issue carrying `asf:queued`
   # AND a label here launches that workflow. A route in factory.yaml JOINS
   # these — `route: {}` there changes nothing — and `"asf:bugfix": null` takes
@@ -314,13 +302,9 @@ pull_requests:
   enabled: true
   project: ""                      # "" = resolved once from origin, as in issues
   workflow: pr-review              # which workflow answers a review; must say `input: pr`
-  # Review THREADS are the one thing `gh pr view --json` cannot return, so a
-  # pull request is read through graphql (state, threads AND comments, one snapshot) and
-  # replies and resolves are written back the same way.
-  list_command:    ["gh", "pr", "list"]
-  comment_command: ["gh", "pr", "comment"]
-  state_command:   ["gh", "pr", "edit"]
-  graphql_command: ["gh", "api", "graphql"]
+  # A pull request is read in one snapshot — its state, its review threads and
+  # its conversation together — so one merged between two reads is never worked
+  # as open. Replies and resolves go back into the threads.
   # [] accepts everyone: being able to review this repository's pull requests
   # is itself the authorization. Narrow it where that is not true.
   trusted_reviewers: []

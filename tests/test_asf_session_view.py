@@ -31,8 +31,8 @@ from engine import events
 from engine.data_types import EventLine
 
 from . import projection
-from .asf_helpers import (adw_id_of, asf, commit_all, envelope, fake_roster, forge, forge_data,
-                          git, issue_json, new_repo, session_dir, set_config, stamp,
+from .asf_helpers import (adw_id_of, asf, commit_all, envelope, fake_roster, forge_data, git,
+                          issue_json, new_repo, session_dir, set_config, stamp, stand_in_gh,
                           write_workflow)
 
 TOLD_ID = "7e11ed00"           # pinned, so scripted agents can name the handoff dir
@@ -56,12 +56,8 @@ def build_reply(content: str, message: str) -> dict:
 
 
 def tell(repo: Path) -> None:
-    base = forge(repo)
-    set_config(repo, issues={
-        "enabled": True, "project": "acme/widgets",
-        "fetch_command": [*base, "view"], "comments_command": [*base, "view"],
-        "body_command": [*base, "edit"], "state_command": [*base, "edit"],
-        "comment_command": [*base, "comment"], "list_command": [*base, "list"]})
+    stand_in_gh(repo)
+    set_config(repo, issues={"enabled": True, "project": "acme/widgets"})
     forge_data(repo, "issue.json", issue_json())
     fake_roster(
         repo,

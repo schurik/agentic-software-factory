@@ -20,6 +20,7 @@ package, and why it sits beside the skill rather than inside it.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -47,6 +48,9 @@ def no_one_s_gh(tmp_path_factory, monkeypatch):
     description names `GITHUB_HEAD_REF`/`GITHUB_REF_NAME` over the checkout's
     own, and a push to main would have every test describe `main`."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path_factory.mktemp("gh-config")))
+    # Recorded so it is restored: a test puts the stand-in `gh` first on PATH
+    # (`asf_helpers.stand_in_gh`) for as long as it runs, and no longer.
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
     for name in ("GITHUB_ACTOR", "GITHUB_HEAD_REF", "GITHUB_REF_NAME"):   # ...nor CI's
         monkeypatch.delenv(name, raising=False)
 

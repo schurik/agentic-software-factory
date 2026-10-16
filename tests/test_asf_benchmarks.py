@@ -26,8 +26,8 @@ import yaml
 
 from engine import events
 
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
-                          forge_data, git, issue_json, scorer, session_dir, set_config, wire,
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge_data,
+                          git, issue_json, scorer, session_dir, set_config, stand_in_gh, wire,
                           with_origin, write_workflow)
 
 LOCAL = {"CI": ""}
@@ -79,12 +79,9 @@ def improving(repo: Path, name: str) -> str:
     """The scorer's self-improvement issue worked by a session of its own,
     whose pull request (#9, as the stand-in opens every one) is still open.
     Returns that session's branch."""
-    base = forge(repo)
-    set_config(repo, issues={"enabled": True, "project": "acme/widgets",
-                             "fetch_command": [*base, "view"], "state_command": [*base, "edit"],
-                             "comment_command": [*base, "comment"]},
-               worktree={"integration": {"mode": "pr", "open_pr": True,
-                                         "pr_command": [*base, "pr-create"]}})
+    stand_in_gh(repo)
+    set_config(repo, issues={"enabled": True, "project": "acme/widgets"},
+               worktree={"integration": {"mode": "pr", "open_pr": True}})
     write_workflow(repo, "fix", {
         "description": "implement an issue, verify, commit and open a pull request",
         "input": "issue",
@@ -152,11 +149,8 @@ def test_from_scorer_pins_the_cited_failures_two_passing_controls_and_the_defaul
 
 def test_once_an_issue_is_filed_it_pins_what_the_issue_cites_however_the_window_moved(
         stamped: Path):
-    base = forge(stamped)
-    set_config(stamped, issues={
-        "enabled": True, "project": "acme/widgets", "list_command": [*base, "list"],
-        "create_command": [*base, "create"], "comment_command": [*base, "comment"],
-        "state_command": [*base, "edit"], "labels_create_command": [*base, "label-create"]})
+    stand_in_gh(stamped)
+    set_config(stamped, issues={"enabled": True, "project": "acme/widgets"})
     scorer(stamped, "refused", {**REFUSED, "improve_after": {"failures": 2, "of_last": 2}})
     first = refused_run(stamped, "add app.py, first")
     second = refused_run(stamped, "add app.py, second")

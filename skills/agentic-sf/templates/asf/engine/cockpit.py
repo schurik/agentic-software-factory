@@ -27,8 +27,8 @@ approving it (`asf station register` is for a shared cockpit).
 A team's cockpit reaches the forge through a GitHub App and signs people in
 with it. A local one has neither: GitHub cannot reach localhost, and the one
 person in front of it is whoever ran `asf up`. So it asks the forge AS them,
-with the token `gh auth token` prints (`forge_credential`), handed to the app
-container in its environment — never on a command line, never in a file of
+with their own token for it (`forge_credential`, through `Forge.token`), handed
+to the app container in its environment — never on a command line, never in a file of
 this repository. The cockpit keeps it where it keeps everything: in its
 backend, in the `data` volume on this machine, until the next `asf up` hands
 it another or none. Without one the cockpit still shows every session this
@@ -48,7 +48,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .data_types import Cockpit, LocalCockpitRecord, Station, StationCredential
+from . import forge
+from .data_types import Cockpit, FactoryConfig, LocalCockpitRecord, Station, StationCredential
 from .utils import ensure_dir, now_iso, write_atomic
 
 HOME = Path(__file__).resolve().parent.parent / "cockpit"     # asf/cockpit, stamped
@@ -62,7 +63,6 @@ PROJECT = "asf-cockpit"            # compose.yaml's `name:`
 REGISTRY = "ghcr.io/schurik"
 IMAGES = ("asf-cockpit-backend", "asf-cockpit")
 APP_PORT, BACKEND_PORT, SITE_PORT = 3000, 3210, 3211
-FORGE_HOST = "github.com"
 MINT_RETRY = 5.0               # seconds between asking a cockpit still starting for a token
 
 _TOKEN = re.compile(r"asf_ingest_[0-9a-f]+")
@@ -167,27 +167,14 @@ def _run(argv: list[str]) -> tuple[int, str]:
 
 # ── the forge, as the local cockpit asks it ──────────────────────────────────
 
-def _gh(argv: list[str]) -> tuple[int, str]:
-    """stdout only: a token, or nothing. stderr is `gh` explaining itself."""
-    try:
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return 1, ""
-    return done.returncode, done.stdout or ""
-
-
-def forge_host() -> str:
-    """The forge `gh` is aimed at: GH_HOST, as `gh` itself reads it, else
-    github.com. An Enterprise Server is named there; nothing assumes one host."""
-    return os.environ.get("GH_HOST", "").strip() or FORGE_HOST
-
-
 @dataclass(frozen=True)
 class ForgeCredential:
     """What the local cockpit asks the forge with: the host, and the person's
-    own token for it — "" when `gh` is missing or not logged in."""
+    own token for it — "" when the forge's CLI is missing or not signed in —
+    and how they sign in, for when it is."""
     host: str
     token: str
+    sign_in: str = ""
 
     def env(self) -> dict[str, str]:
         """For the `cockpit` child: what the stamped compose file hands the app container."""
@@ -197,22 +184,20 @@ class ForgeCredential:
     def line(self) -> str:
         """One line on what was found, naming the host and never the token."""
         if self.token:
-            return f"{self.host}, as you (`gh auth token`)"
+            return f"{self.host}, as you (your own token)"
         return (f"no token for {self.host} — the local cockpit lists only the factories its "
-                f"stations ship: `gh auth login`, then start again")
+                f"stations ship: {self.sign_in}, then start again")
 
 
-def forge_credential() -> ForgeCredential:
-    """The token `gh auth token` prints for the host `gh` is aimed at, so the
+def forge_credential(cfg: FactoryConfig) -> ForgeCredential:
+    """The person's own token for the host `forge:` is reached at, so the
     local cockpit can ask the forge as the person who ran `asf up`.
 
-    Asked once, as the cockpit starts. A token changed later (`gh auth
-    login`, `gh auth refresh`) reaches the cockpit with the next `asf up`.
+    Asked once, as the cockpit starts. A token changed later — signing in
+    again — reaches the cockpit with the next `asf up`.
     """
-    host = forge_host()
-    code, output = _gh(["gh", "auth", "token", "--hostname", host])
-    token = output.strip() if code == 0 else ""
-    return ForgeCredential(host=host, token=token if len(token.split()) == 1 else "")
+    forge_ = forge.forge_of(cfg)
+    return ForgeCredential(host=forge_.host(), token=forge_.token(), sign_in=forge_.sign_in)
 
 
 # ── docker ───────────────────────────────────────────────────────────────────
