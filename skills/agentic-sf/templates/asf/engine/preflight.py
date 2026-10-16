@@ -33,6 +33,7 @@ or the harness itself.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -43,7 +44,7 @@ from pathlib import Path
 import yaml
 
 from . import cockpit as local_cockpit
-from . import git_helper, harnesses, publish, station
+from . import factory, git_helper, harnesses, publish, station
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
 from .utils import anchor, write_atomic
@@ -514,6 +515,35 @@ def stamped_version(main_root: Path) -> list[Finding]:
                         f"refused meanwhile")]
 
 
+# The installer's last line in the defaults file: a digest of everything above
+# it (`install.DIGEST_LINE`).
+DIGEST = re.compile(r"^# sha256 ([0-9a-f]{64}) ")
+
+
+def defaults_file(main_root: Path) -> list[Finding]:
+    """Whether asf/factory-defaults.yaml is still what the installer wrote.
+
+    It is the skill's: every run of `install.py` rewrites it whenever it
+    differs, so an edit made here holds only until the next upgrade, and then
+    a setting changes with nobody having changed it. Warn, never fatal — the
+    edited file runs — and say where the change belongs.
+    """
+    path = factory.defaults_of(main_root / factory.DEFAULT_CONFIG)
+    if not path.is_file():
+        return []                                  # the config would not have loaded
+    text = path.read_text()
+    cut = text.rstrip("\n").rfind("\n") + 1
+    digest = DIGEST.match(text[cut:])
+    if digest and hashlib.sha256(text[:cut].encode()).hexdigest() == digest[1]:
+        return [Finding(check="factory defaults", detail="asf/factory-defaults.yaml is as the "
+                                                         "installer wrote it")]
+    return [Finding(check="factory defaults", level="warn",
+                    detail="asf/factory-defaults.yaml was edited since the installer wrote it — "
+                           "the next `install.py` rewrites it, and the edit is lost",
+                    fix="say the change in asf/factory.yaml, the overlay on it, then run "
+                        "`install.py` again to restore the defaults")]
+
+
 def _release(version: str) -> tuple[int, int, int, int] | None:
     """A version's place in release order, or None when it is not semver. A
     pre-release (`1.2.0-rc1`) sorts before the release it leads to."""
@@ -670,5 +700,6 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg, root) + quality(root)
             + browser(root) + forge(cfg) + labels(cfg, root) + stamped_version(root)
+            + defaults_file(root)
             + cockpit(anchor(root, cfg.data_dir))
             + publishing(cfg, root) + skill())

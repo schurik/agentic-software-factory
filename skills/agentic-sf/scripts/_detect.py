@@ -220,7 +220,8 @@ def apply(quality_py: Path, found: dict[str, Detected]) -> list[str]:
 
 # ── a session's worktree: what to copy into it, and how to install into it ──
 #
-# The same two rules, for factory.yaml's `worktree.copy` and `worktree.setup`.
+# The same two rules, for factory.yaml's `worktree.copy` and `worktree.setup`,
+# which the installer writes as keys of the overlay it renders.
 # A file is offered only when this repository has it AND ignores it: the
 # factory refuses to copy anything a commit stage's `git add -A` could carry,
 # and an installer that wrote such an entry would stamp a factory that refuses
@@ -269,22 +270,24 @@ def detect_worktree(root: Path) -> tuple[list[str], list[list[str]]]:
     return copy, setup
 
 
-def apply_worktree(config: Path, copy: list[str], setup: list[list[str]]) -> list[str]:
-    """Write them into a factory.yaml this install just rendered, over the two
-    lines the template ships — `copy: [".env"]` and `setup: []`, each unique in
-    the file — and return what to print. JSON is YAML, and quoted, a glob's
-    leading `*` is not read as an alias."""
-    if not config.is_file():
-        return []
-    text = config.read_text()
-    lines = {"copy": f"  copy: {json.dumps(copy)}", "setup": f"  setup: {json.dumps(setup)}"}
-    for key, line in lines.items():
-        text = re.sub(rf'^  {key}: .*$', lambda _match: line, text, count=1, flags=re.M)
-    config.write_text(text)
-    notes = [f"worktree.copy: {', '.join(copy) or '(nothing)'}"]
+# What factory-defaults.yaml says `worktree.copy` is. Only an answer that
+# differs from it is written into the overlay — a fresh stamp's factory.yaml
+# says what is particular to this repository, and nothing the defaults say.
+DEFAULT_COPY = [".env"]
+
+
+def worktree_keys(copy: list[str], setup: list[list[str]]) -> tuple[dict, list[str]]:
+    """The `worktree:` keys of a new factory.yaml, as this repository answers
+    them, and what to print — each only when it differs from the defaults."""
+    keys: dict = {}
+    if copy != DEFAULT_COPY:
+        keys["copy"] = copy
+    if setup:
+        keys["setup"] = setup
+    notes = [f"worktree.copy: {', '.join(copy) or '(nothing)'}"] if "copy" in keys else []
     if setup:
         notes.append(f"worktree.setup: {' · '.join(' '.join(argv) for argv in setup)}")
-    return notes
+    return keys, notes
 
 
 # ── how the app is run, for the `accept` stage ───────────────────────────────
@@ -311,15 +314,12 @@ def detect_serve(root: Path) -> list[list[str]]:
     return [app]
 
 
-def apply_serve(config: Path, commands: list[list[str]]) -> list[str]:
-    """Write them over the `commands: []` the template's `serve:` block ships,
-    and return what to print."""
-    if not config.is_file() or not commands:
-        return []
-    text = re.sub(r"^(serve:\n  commands: )\[\]$", lambda match: match[1] + json.dumps(commands),
-                  config.read_text(), count=1, flags=re.M)
-    config.write_text(text)
-    return [f"serve.commands: {json.dumps(commands)}"]
+def serve_keys(commands: list[list[str]]) -> tuple[dict, list[str]]:
+    """The `serve:` keys of a new factory.yaml, and what to print — nothing
+    when nothing says how the app starts, which is the defaults' `[]`."""
+    if not commands:
+        return {}, []
+    return {"commands": commands}, [f"serve.commands: {json.dumps(commands)}"]
 
 
 # ── what the installer suggests, and never wires ─────────────────────────────

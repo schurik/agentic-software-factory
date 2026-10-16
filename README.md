@@ -60,7 +60,7 @@ cannot express is a new stage — not an `if:` key.
 
 An **agent is one file**. YAML frontmatter for the engine (`purpose`, `writes`, and a `harness:`
 block — model, thinking, tools, the repository skills and files it is handed — laid over
-factory.yaml's own), prose below it for the model. Its *task* is not in there: a task belongs to the stage that calls
+the factory's own), prose below it for the model. Its *task* is not in there: a task belongs to the stage that calls
 the agent, and a workflow may override it with `tasks/<key>.md`.
 
 The eight stages: `scout`, `plan`, `implement`, `verify`, `review`, `document`, `commit`,

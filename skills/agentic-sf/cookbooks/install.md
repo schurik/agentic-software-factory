@@ -16,7 +16,8 @@ repo yourself reproduces the *files* and none of the decisions around them:
 | the `# agentic-sf runtime` block in `.gitignore` | `asf/data/` and `.asf-worktrees/` become tracked, and a commit stage running `git add -A` sweeps the run record into the repository |
 | quality detection | every `verify` block stays a placeholder, and a placeholder **fails** with exit 78 |
 | `justfile` vs `asf.justfile` | a repository's own justfile gets overwritten, or the recipes never land |
-| the assembled `asf/factory.yaml` | the harness's `harness.yaml` (the `harness:` block) followed by `templates/factory.yaml` (everything harness-agnostic, `protected_files` and `data_dir` included); neither half is the config on its own |
+| the rendered `asf/factory-defaults.yaml` | the harness's `harness.yaml` (the `harness:` block) inside `templates/factory-defaults.yaml` (everything harness-agnostic, `protected_files` and `data_dir` included), closed by the digest `doctor` checks; neither half is the defaults on its own |
+| the overlay, `asf/factory.yaml` | one pointer line and what detection found here that differs from the defaults — the worktree's files and installs, how the app starts — plus the commands a cockpit may send; copying the defaults in its place pins every value, and a later release's default never arrives |
 
 If you are looking at a repo that has `asf/` but no `.env`, that is what
 happened. Re-running `install.py` from the repo root repairs it: it skips every
@@ -65,9 +66,11 @@ stage otherwise; `on_integrate` keeps branches local even with a cockpit, at
 the price of gates the cockpit cannot show).
 
 Apply the answers by editing `asf/factory.yaml` and `asf/engine/quality.py`
-**after** stamping. The installer takes no flags for any of it, on purpose: the
-config is the record of what this repo decided, and a flag would hide that
-decision in a shell history.
+**after** stamping — in factory.yaml, only an answer that differs from
+`asf/factory-defaults.yaml`, the file every key's default and meaning is in.
+The installer takes no flags for any of it, on purpose: the overlay is the
+record of what this repo decided, and a flag would hide that decision in a
+shell history.
 
 ## Run it
 
@@ -105,7 +108,8 @@ is the answer: it comes with connecting, and you say why
 
 | Stamped | From | Tracked? |
 |---|---|---|
-| `asf/factory.yaml` | assembled: `templates/harnesses/<harness>/harness.yaml` + `templates/factory.yaml` | yes — the manifest, and yours the moment it lands |
+| `asf/factory-defaults.yaml` | rendered: `templates/harnesses/<harness>/harness.yaml` inside `templates/factory-defaults.yaml` | yes — every setting, its default and what it means. **The skill's, not theirs**: every run of `install.py` rewrites it when it differs, `--force` or not, so a newer release's default reaches this stamp; `doctor` warns when it was edited. Protected, like the engine |
+| `asf/factory.yaml` | rendered: a pointer line, `cockpit.commands: [answer, abort, kill, resume]`, and what detection found that the defaults do not say | yes — the **overlay** merged onto the defaults, and theirs the moment it lands: a map merges key by key, a scalar or a list replaces, `null` deletes a map entry, `protected_files` only adds, and a key the defaults lack is refused by name ([design.md](../references/design.md#the-config-is-an-overlay)) |
 | `asf/asf.py` | `templates/asf/asf.py` | yes — the one entry point |
 | `asf/engine/` | `templates/asf/engine/` | yes — session, worktree, gates, permissions, hitl, tracer, harnesses |
 | `asf/stages/<name>/` | `templates/asf/stages/` | yes — the closed vocabulary: scout, plan, implement, verify, review, document, commit, integrate. Each is `stage.py` plus its default task files |
@@ -144,7 +148,10 @@ in.
 
 `--force` refreshes stamped code (`asf/engine/`, `asf/stages/`, the shipped
 workflows and agents, `asf/.skill-version`) to the skill's current version.
-**It does not overwrite `asf/factory.yaml`**: a fresh render lands beside it as
+`asf/factory-defaults.yaml` and `asf/.skill-files` need no `--force`: every run
+rewrites them when they differ, because they say what the skill ships, not what
+the repo decided — re-run with the harness the repo runs, since switching
+harness is a re-stamp. **It does not overwrite `asf/factory.yaml`**: a fresh render lands beside it as
 `asf/factory.yaml.new` and the installer prints `YOUR CONFIG WAS NOT TOUCHED`,
 leaving the diff to you. **Nor anything under `asf/scorers/`**: a scorer is the
 team's criteria, kept as written — the four a stamp ships included, once they
@@ -154,7 +161,7 @@ including agent prose you edited, so commit before you force.
 
 Every re-run also **lints the config it kept**: each key a release dropped is
 printed under `YOUR CONFIG NAMES OBSOLETE KEYS`, with its line and what to say
-instead — `observability:` is ignored and can be deleted;
+instead — `observability:` is refused since 1.3 and can be deleted;
 `worktree.integration.mode: none` is refused since 1.2, so set `pr`. It never
 refuses to stamp, because the stamp is what brings the code the fix needs, and
 it never edits the file. Over an older stamp, that is the moment for
@@ -228,25 +235,30 @@ without.
    the answer without changing anything; `--create` adds exactly the missing
    ones and never edits or deletes an existing label. `doctor` asks the same
    question on every run, so an **upgrade** that adds a label is caught too —
-   `install.py` never rewrites the `factory.yaml` you own, so a new label
-   reference arrives in the code with no way for the name to exist.
+   a new default route arrives in `asf/factory-defaults.yaml` with no way for
+   its label to exist, since the installer defines nothing at the forge.
 9. **`just list`** — the workflows, one line each. Then a first run:
    [run_workflow.md](run_workflow.md).
 
 ## The factory's settings
 
-`install.py` stamped one set of defaults into `asf/factory.yaml`, and the
-file is theirs from that moment. After a **first** install — and again
-whenever they ask to "go through the config" — walk it with them: read the
-file, and put each setting below to them with the question tool
+Every setting's default is in `asf/factory-defaults.yaml`, the skill's file;
+`asf/factory.yaml` is the overlay on it, theirs from the moment it lands,
+saying only what differs. After a **first** install — and again whenever they
+ask to "go through the config" — walk it with them: read both files, and put
+each setting below to them with the question tool
 ([SKILL.md § Asking the person](../SKILL.md#asking-the-person)), in the calls
-below, each question naming the value the file holds now. Skip a question
-whose setting they already changed, and one whose subsystem is off (no
-tracker questions when issues and reviews start nothing). The four install
-decisions were asked before stamping: do not ask them again.
+below, each question naming the value in force now — factory.yaml's where it
+says one, the defaults' otherwise. Skip a question whose setting they already
+changed, and one whose subsystem is off (no tracker questions when issues and
+reviews start nothing). The four install decisions were asked before stamping:
+do not ask them again.
 
-Each option's `preview` shows the lines it writes. Nothing is written until
-they have answered, and only what they chose.
+Each option's `preview` shows the lines it writes into factory.yaml. Nothing is
+written until they have answered, and only what they chose — and **never an
+answer that is the default**: a key copied into the overlay pins that value,
+and the next release's default never reaches it. Choosing the default for a key
+the overlay already says is deleting that key.
 
 **First call — what a run may spend, and where it stops for a person.**
 
@@ -262,16 +274,16 @@ they have answered, and only what they chose.
 | Setting | Question | Options |
 |---|---|---|
 | `cockpit.transcripts` | Send the cockpit every prompt and the harness's raw output? | **Leave it off** `(Recommended)` · **Send transcripts** — the description says it carries tool arguments and results, so whatever an agent read |
-| `cockpit.commands` | Which commands may a cockpit send this factory's stations? | **`answer`, `abort`, `kill`, `resume`** `(Recommended)`, as stamped · **Those four and `run`** — anyone the station trusts can start a prompt workflow on their own station from the cockpit · **None** — the cockpit only watches |
+| `cockpit.commands` | Which commands may a cockpit send this factory's stations? | **`answer`, `abort`, `kill`, `resume`** `(Recommended)`, as the installer wrote them into factory.yaml · **Those four and `run`** — anyone the station trusts can start a prompt workflow on their own station from the cockpit · **None** — the cockpit only watches (`commands: []`, or the key deleted: the defaults obey nothing). The one setting whose answer stays in the overlay whatever it is: a permission a station obeys is said in their own file, never in one an upgrade rewrites |
 | `hitl.when_unattended` — only when issues or reviews start runs | A gate fires on a run the tracker started — the `issue` workflow's plan, say: | **Suspend and wait** `(Recommended)`, as stamped — answered on the issue or in the cockpit · **Approve it and go on** — recorded as the policy's approval, with nobody looking. A run the engineer starts always stops |
 
 Then edit `asf/factory.yaml` with the answers, run `uv run asf/asf.py check`,
 show them `git diff asf/factory.yaml`, and record it: `just onboard --mark
 settings`. Committing it, with the rest of the stamp, is the next step of
 onboarding and has its own question
-([onboard.md § 3](onboard.md#3-commit-and-publish-the-factory)). Anything else in the file — limits, worktrees, the
-tracker's commands — keeps its stamped value; its comment says what it does,
-and they can ask.
+([onboard.md § 3](onboard.md#3-commit-and-publish-the-factory)). Anything else — limits, worktrees, the
+tracker's commands — keeps the defaults' value; its comment in
+`asf/factory-defaults.yaml` says what it does, and they can ask.
 
 ## If the skill is vendored inside the repo
 

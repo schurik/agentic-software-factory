@@ -17,8 +17,6 @@ import pytest
 import yaml
 
 from engine import factory, frontmatter, workflow
-from engine.data_types import FactoryConfig
-
 from .conftest import TEMPLATES
 from .asf_helpers import (adw_id_of, asf, commit_all, envelope, fake_roster, session_dir,
                           write_workflow)
@@ -58,7 +56,11 @@ def refused() -> str:
 
 
 def config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "asf" / "factory.yaml").read_text())
+    """The stamped overlay, with a `harness.options` block to edit — merged
+    onto the defaults' own key by key, like every map in it."""
+    raw = yaml.safe_load((repo / "asf" / "factory.yaml").read_text()) or {}
+    raw.setdefault("harness", {}).setdefault("options", {})
+    return raw
 
 
 def save(repo: Path, raw: dict) -> None:
@@ -76,7 +78,7 @@ def loaded(name: str):
 
 
 def test_the_stamped_config_says_the_harness_once_and_the_factory_s_settings_beside_it(here):
-    raw = config(here)
+    raw = yaml.safe_load((here / "asf" / "factory-defaults.yaml").read_text())
     assert "defaults" not in raw
     assert raw["harness"]["name"] == "claude_code" and raw["harness"]["skills"] == []
     assert raw["data_dir"] == "asf/data" and "asf/engine/" in raw["protected_files"]
@@ -90,7 +92,7 @@ def test_the_stamped_config_says_the_harness_once_and_the_factory_s_settings_bes
                        for p in TEMPLATES.iterdir() if p.name != "__pycache__"}
     assert stamped_entries <= set(cfg.protected_files)
     assert ".github/workflows/asf-check.yml" in cfg.protected_files
-    assert set(raw["protected_files"]) == set(FactoryConfig().protected_files)
+    assert cfg.protected_files == raw["protected_files"]       # an overlay that adds none
     builder = next(a for a in cfg.agents if a.name == "builder")
     assert builder.harness == "claude_code" and builder.model == "opus"
     assert builder.tools == ["Read", "Bash", "Edit", "Write", "Grep", "Glob"]
@@ -99,7 +101,7 @@ def test_the_stamped_config_says_the_harness_once_and_the_factory_s_settings_bes
 def test_a_defaults_block_is_refused_with_the_block_that_replaces_it(here):
     raw = config(here)
     for key in ("harness", "protected_files", "data_dir"):
-        raw.pop(key)
+        raw.pop(key, None)
     save(here, {**yaml.safe_load(OLD_DEFAULTS), **raw})
 
     message = refused()

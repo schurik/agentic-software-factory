@@ -11,10 +11,10 @@ import json
 from pathlib import Path
 
 from engine import events, pull_requests
-from engine.data_types import PullRequestContext, PullRequestsConfig, ReviewComment
+from engine.data_types import PullRequestContext, ReviewComment
 
 from . import projection
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, comment_json, commit_all, envelope,
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, comment_json, commit_all, defaults, envelope,
                           fake_roster, forge, forge_calls, forge_data, git, issue_json,
                           phase_names, pr_json,
                           run_state, session_dir, set_config, wire, with_origin,
@@ -260,7 +260,7 @@ def said(author: str, body: str, at: str) -> ReviewComment:
 
 
 def test_a_comment_is_outstanding_until_a_summary_says_it_read_it():
-    config = PullRequestsConfig(ignore_authors=["codecov[bot]"])
+    config = defaults(pull_requests={"ignore_authors": ["codecov[bot]"]}).pull_requests
     context = PullRequestContext(number=72, comments=[
         said("alice", "rename it", "2026-01-01T00:00:00Z"),
         # A summary from before the mark existed reaches as far as it was posted.
@@ -287,7 +287,8 @@ def test_a_comment_is_outstanding_until_a_summary_says_it_read_it():
     assert pull_requests.read_through_mark(PullRequestContext(number=1), []) \
         == "<!-- asf:read-through -->"
     # Capped like the threads, oldest first.
-    assert pull_requests.outstanding(PullRequestsConfig(max_threads=0), context) == []
+    capped = defaults(pull_requests={"max_threads": 0}).pull_requests
+    assert pull_requests.outstanding(capped, context) == []
 
 
 def test_a_conversation_comment_is_answered_in_one_comment_that_marks_it_read(stamped: Path):

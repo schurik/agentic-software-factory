@@ -19,9 +19,9 @@ from types import SimpleNamespace
 import pytest
 
 from engine import events, permissions
-from engine.data_types import AgentConfig, FactoryConfig, PromptEngineering
+from engine.data_types import AgentConfig, PromptEngineering
 
-from .asf_helpers import (adw_id_of, asf, commit_all, envelope, fake_roster, git,
+from .asf_helpers import (adw_id_of, asf, commit_all, defaults, envelope, fake_roster, git,
                           session_dir, write_workflow)
 
 
@@ -88,7 +88,7 @@ def boundary(repo: Path, writes: list[str]) -> tuple[SimpleNamespace, AgentConfi
     """What `enforce` reads — where the tree is, and what may be written — and
     the tracer it says a rollback to, which keeps what it was told in `said`."""
     said: list = []
-    run = SimpleNamespace(repo_root=repo, cfg=FactoryConfig(), said=said,
+    run = SimpleNamespace(repo_root=repo, cfg=defaults(), said=said,
                           tracer=SimpleNamespace(event=said.append))
     agent = AgentConfig(name="scout", writes=writes,
                         prompt_engineering=PromptEngineering(system="agent.md"))

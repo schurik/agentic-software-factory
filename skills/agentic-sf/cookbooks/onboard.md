@@ -53,10 +53,12 @@ more interesting, and the order is load-bearing.
 
 ### 2. Ready, and the settings decided
 
-`just doctor` until nothing is fatal (`ready`). Then walk the stamped
-`asf/factory.yaml` with them, one question-tool call at a time
+`just doctor` until nothing is fatal (`ready`). Then walk the settings with
+them — every default in `asf/factory-defaults.yaml`, what this repository
+chose in `asf/factory.yaml` — one question-tool call at a time
 ([install.md § The factory's settings](install.md#the-factorys-settings)),
-write what they chose, and `just onboard --mark settings`.
+write into factory.yaml what they chose that differs from the defaults, and
+`just onboard --mark settings`.
 
 ### 3. Commit and publish the factory
 
@@ -121,8 +123,9 @@ tool; it is the team's call, because every round costs a browser session. A
    judged against the report and the failing test instead of a plan. Any
    workflow can take the stage the same way; keep that order.
 2. **The server.** `serve.commands` in `asf/factory.yaml` — argv lists, `{port}`
-   where the free port goes (`PORT` is set too). `install.py` filled them from a
-   Next or Vite dependency; check them. Code starts every one, each in its own
+   where the free port goes (`PORT` is set too). `install.py` wrote them there
+   from a Next or Vite dependency; check them, and add the key when it found
+   none (the defaults say `[]`). Code starts every one, each in its own
    process group, waits until `http://localhost:<port>/` answers, hands the agent
    the URL and stops them all, so each must reload on change: the builder's
    revision lands while they run. Its `.env` and packages come from
@@ -284,9 +287,10 @@ Stations tab in the cockpit; it goes in `secrets.ASF_COCKPIT_TOKEN`.
 ### Update the factory
 
 **"There's a new release."** — update the skill copy first, then re-stamp with
-`install.py --force`. `--force` never rewrites their `asf/factory.yaml`: each
-key a release added is a decision put to them, and `CHANGELOG.md` names the
-steps. → [upgrade.md](upgrade.md)
+`install.py --force`. Every run of the installer rewrites
+`asf/factory-defaults.yaml`, so a new default arrives by itself; it never
+rewrites their `asf/factory.yaml`, the overlay on it. What a release turns on
+only when asked is a decision put to them, and `CHANGELOG.md` names the steps. → [upgrade.md](upgrade.md)
 
 ### Make it theirs
 
@@ -308,7 +312,11 @@ machine does. A workflow can narrow an agent, never widen it.
 
 **"Can I change the settings?"** — `asf/factory.yaml` is theirs from the moment
 it is stamped: the harness, budget, gates, worktree and landing, the tracker, the
-cockpit. `uv run asf/asf.py check --json` shows them as the factory reads
+cockpit. It is an overlay: every key, its default and what it means is in
+`asf/factory-defaults.yaml`, which is the skill's and rewritten on upgrade, so
+a change goes in factory.yaml and says only what differs — a map merges key by
+key, `null` deletes an entry (a default route), and a misspelt key is refused
+by name. `uv run asf/asf.py check --json` shows them as the factory reads
 them, every default resolved. What a cockpit sees
 (`cockpit.transcripts`) and which commands it may send (`cockpit.commands`) are
 the repository's decisions, made in that reviewed file — never yours.

@@ -19,10 +19,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engine import events, factory, improve, scorers, watch
-from engine.data_types import EventLine, FactoryConfig, ScorerClass, ScorerSpec
+from engine.data_types import EventLine, ScorerClass, ScorerSpec
 
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
-                          forge_calls, forge_data, git, pr_json, scorer, session_dir, set_config,
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, defaults, envelope, fake_roster,
+                          forge, forge_calls, forge_data, git, pr_json, scorer, session_dir, set_config,
                           wire, with_origin, write_workflow)
 
 CONFIG = "asf/factory.yaml"
@@ -393,11 +393,11 @@ def test_the_issue_never_quotes_a_transcript_or_a_judge_s_reasoning(tmp_path: Pa
                            ScorerSpec(workflow="quick", kind="judge",
                                       classes=[ScorerClass(name="lost", fail=True)]),
                            "Did it stay on the prompt?\n")
-    counted = improve.Window(judge.threshold(FactoryConfig()), judged=["0badc0de"],
+    counted = improve.Window(judge.threshold(defaults()), judged=["0badc0de"],
                              failing=[improve.Failing("0badc0de", [score],
                                                       {4: prompt, 9: finished, 11: score})])
 
-    body = improve.issue_body(FactoryConfig(), judge, counted)
+    body = improve.issue_body(defaults(), judge, counted)
 
     assert "seq 4 · `prompt_rendered` · a transcript" in body
     assert "SECRET PROMPT TEXT" not in body and "THE JUDGE'S OWN WORDS" not in body
