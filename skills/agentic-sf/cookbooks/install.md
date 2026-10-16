@@ -309,9 +309,10 @@ check the copy moved before stamping from it.
 
 On by default, but nothing polls until a watcher is started: `just up` runs
 the station loop, the local cockpit and every watcher in one process. `just issues-status` and
-`just prs-status` say what the watchers would do and whether they can — both
-need the forge CLI (`gh`) on PATH and authenticated, and `doctor` warns when it
-is not. `issues.route` decides which label launches which workflow (`asf:ship`
+`just prs-status` say what the watchers would do and whether they can — on
+`forge: github` / `tracker: github`, the stamped default and the only one that
+ships, both need `gh` on PATH and authenticated, and `doctor` warns when it is
+not. `issues.route` decides which label launches which workflow (`asf:ship`
 → `issue` as stamped); `issues.enabled` and `pull_requests.enabled` in
 `asf/factory.yaml` turn a path off.
 
@@ -340,15 +341,20 @@ the scorers named.
 
 The labels themselves are a separate job from routing them: run
 `just labels --create` once, and again after any upgrade or any edit that names
-a new one. On a tracker that is not the forge, clear `issues.labels_list_command`
-and `issues.labels_create_command` — empty means skip, and skipping is honest
-where `gh label` has no equivalent.
+a new one. They are defined on the TRACKER (`tracker:`), which need not be the
+forge: a team can track in one place and review in another, and the labels
+live where the work items do — `pull_requests.states.failed` included, which
+goes on a pull request at the forge and is defined on the tracker only because
+GitHub keeps both in one repository. A tracker that does not define labels at
+all says so, and `just labels` and `doctor` then skip the check rather than
+report every label missing. Only `github` ships; another tracker is a module in
+`asf/engine/forge/` (`references/design.md`, "The forge and the tracker").
 
 A run records **who triggered it** (`triggered_by` in its `run.json` and on
 `session_started`): for a labelled issue, whoever last applied its route or
-queued label, which the watcher reads from the issue's `labeled` events
-(`issues.labeller_command`, `gh api graphql` as stamped); for anything else,
-the operator, as `gh` knows them on this machine. A cockpit ranks those runs
+queued label, which the watcher asks the tracker for (GitHub: the issue's
+`labeled` events); for anything else, the operator, as the forge knows them on
+this machine (GitHub: the account `gh` is signed in as). A cockpit ranks those runs
 first for that person, and its Trigger button applies the two labels as them —
 it finds them by the descriptions `just labels --create` writes, so a
 hand-made route label is not offered there. It authorizes nothing: the forge

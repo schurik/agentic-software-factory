@@ -122,7 +122,7 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
     # branch a second time instead of pushing to the PR it has.
     if recorded:
         run.adopt_provenance(recorded.trigger, recorded.issue_url, recorded.pr_url)
-    triggered_by = recorded.triggered_by if recorded else _launched_by()
+    triggered_by = recorded.triggered_by if recorded else _launched_by(cfg)
     # Where the run executes and what launched it, in the session's OWN
     # directory: `command` is the argv as a list, so `just resume` can launch
     # this workflow again without unquoting. The `session_started` event it is
@@ -192,13 +192,13 @@ def _source_commit(cfg: FactoryConfig, main_root: Path,
     return commit
 
 
-def _launched_by() -> str:
+def _launched_by(cfg: FactoryConfig) -> str:
     """Who triggered a session this process is the first to take: the login
     its launcher named (a watcher, for a labelled issue — "" when the forge
     would not say, which is nobody, not the watcher's operator), else the
     operator running it."""
     named = os.environ.get(TRIGGERED_BY_ENV)
-    return named.strip() if named is not None else station.operator()
+    return named.strip() if named is not None else station.operator(cfg)
 
 
 def _workspace_line(workspace) -> str:

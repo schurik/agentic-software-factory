@@ -23,8 +23,8 @@ import pytest
 from engine import claims, events, factory, station, watch
 from engine.data_types import ClaimAsk
 
-from .asf_helpers import (asf, commit_all, envelope, fake_roster, forge, forge_data, issue_json,
-                          session_dir, set_config)
+from .asf_helpers import (asf, commit_all, envelope, fake_roster, forge_data, issue_json,
+                          session_dir, set_config, stand_in_gh)
 from .fake_cockpit import FakeCockpit
 from .test_asf_watchers import CONFIG, labels, open_pr, queued, tracked  # noqa: F401 — a fixture
 
@@ -209,11 +209,9 @@ def test_with_a_shared_cockpit_the_watcher_does_not_warn(tracked, stamped, monke
 def an_issue_that_fails(stamped: Path) -> None:
     """Issue #42 on the fake forge, and a roster that gives up at once — the
     record is written before any agent is asked, and the session ends `fail`."""
-    base = forge(stamped)
+    stand_in_gh(stamped)
     set_config(stamped, issues={"enabled": True, "project": "acme/widgets",
-                                "fetch_command": [*base, "view"],
-                                "comment_command": [*base, "comment"],
-                                "state_command": [*base, "edit"], "route": {"asf:ship": "issue"}})
+                                "route": {"asf:ship": "issue"}})
     forge_data(stamped, "issue.json", issue_json(42))
     gives_up = [{"envelope": envelope(status="fail", summary="no")}]
     fake_roster(stamped, scout=gives_up, planner=gives_up, builder=gives_up, reviewer=gives_up,

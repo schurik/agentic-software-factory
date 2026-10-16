@@ -7,38 +7,28 @@ operator, named as the forge knows them: the account `gh` acts as on this
 machine. The session records it once — in `run.json` and on `session_started`
 — and every later process that takes the session keeps it.
 
-`gh` here is a script on PATH: the operator's login is read from `gh`'s own
+`gh` here is the stand-in on PATH: the operator's login is read from `gh`'s own
 config, so nothing opens a socket.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from engine import events
 from engine.data_types import ProvenanceRecorded
 
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
-                          forge_data, issue_json, run_state, session_dir, set_config, wire,
-                          write_workflow)
-
-GH = """#!/bin/sh
-if [ "$1 $2 $3 $4 $5" = "config get -h github.com user" ]; then
-  {answer}
-fi
-exit 1
-"""
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge_data,
+                          issue_json, run_state, session_dir, set_config, signed_in, stand_in_gh,
+                          wire, write_workflow)
 
 
 def gh_says(repo: Path, login: str | None) -> dict:
-    """An environment whose `gh` is logged in to github.com as `login` (None: not at all)."""
-    bin_dir = repo.parent / "bin"
-    bin_dir.mkdir(exist_ok=True)
-    script = bin_dir / "gh"
-    script.write_text(GH.format(answer=f"echo {login}; exit 0" if login else "exit 1"))
-    script.chmod(0o755)
-    return {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "ENGINEER_NAME": "Alex Doe"}
+    """An environment whose `gh` is logged in as `login` (None: not at all)."""
+    stand_in_gh(repo)
+    (repo / ".forge" / "login").unlink(missing_ok=True)
+    signed_in(repo, login=login or "")
+    return {"ENGINEER_NAME": "Alex Doe"}
 
 
 def plan_reply() -> dict:
@@ -124,10 +114,9 @@ def test_every_later_process_keeps_who_triggered_the_session(stamped):
 
 def test_an_issue_run_says_who_wrote_the_issue_and_whom_it_is_assigned_to(stamped):
     """What a cockpit ranks a viewer's own work first by, besides who triggered it."""
-    base = forge(stamped)
+    stand_in_gh(stamped)
     set_config(stamped, issues={"enabled": True, "project": "acme/widgets",
-                                "fetch_command": [*base, "view"], "comment_command": [*base, "comment"],
-                                "state_command": [*base, "edit"], "route": {"asf:ship": "issue"}})
+                                "route": {"asf:ship": "issue"}})
     forge_data(stamped, "issue.json", issue_json(42, author="bob", assignees=("carol", "dave")))
     # The scout gives up: the record is written before any agent is asked.
     gives_up = [{"envelope": envelope(status="fail", summary="no")}]

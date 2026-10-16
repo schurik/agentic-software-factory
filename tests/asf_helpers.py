@@ -237,24 +237,56 @@ def phase_names(repo: Path, adw_id: str) -> list[str]:
 
 # ── a forge that records ─────────────────────────────────────────────────────
 #
-# The forge commands are config, so a python script standing in for `gh` is a
-# supported deployment, not a mock. It answers `view` from issue.json, `list`
+# `forge: github` runs `gh`, so the stand-in IS a `gh`: a python script put
+# first on PATH (`stand_in_gh`) that reads `gh <noun> <verb> …` as one of the
+# verbs below and answers from files in its home, `<repo>/.forge/`. Every
+# variant of the old stand-in survives: it answers `view` from issue.json, `list`
 # from listing.json, `label-list` from labels.json, `graphql` from pr.json (or,
-# asked for an issue's timeline, from timeline.json, and logged),
-# prints a url for `pr-create`, and appends every other call to calls.json —
-# `label-create` among them, so a test reads back which labels were defined.
-# `create` files an issue into created.json and prints its url; `list --label`
-# lists the open ones filed so far that carry every label asked for, after
-# listing.json; and a `comment` on one of them joins its comments, so a second
-# look finds what the first one said.
-# `refuse.json` names verbs it refuses with exit 1, the way a real one does
-# when it cannot do an edit.
+# asked for an issue's timeline, from timeline.json, and logged), prints a url
+# for `pr-create`, and appends every other call to calls.json — `label-create`
+# among them, so a test reads back which labels were defined. `create` files an
+# issue into created.json and prints its url; `list --label` lists the open
+# ones filed so far that carry every label asked for, after listing.json; and a
+# `comment` on one of them joins its comments, so a second look finds what the
+# first one said. `refuse.json` names verbs it refuses with exit 1, the way a
+# real one does when it cannot do an edit. `login` and `tokens.json` are who it
+# is signed in as, and the token it prints for each host; without them it is
+# signed in as nobody (`signed_in`).
+# The verbs logged are spelt as before (`edit`, `comment`, …) for an issue and a
+# pull request alike: what tells them apart is the noun, `issue` or `pr`, which
+# `calls.json` does not keep.
 
-FORGE = '''\
+FORGE = """\
 import json, sys
 from pathlib import Path
-home = Path(sys.argv[1])
-verb, argv = sys.argv[2], sys.argv[3:]
+home = Path(__file__).resolve().parent.parent
+args = sys.argv[1:]
+VERBS = {("issue", "view"): "view", ("issue", "list"): "list", ("pr", "list"): "list",
+         ("issue", "comment"): "comment", ("pr", "comment"): "comment",
+         ("issue", "edit"): "edit", ("pr", "edit"): "edit", ("issue", "create"): "create",
+         ("label", "list"): "label-list", ("label", "create"): "label-create",
+         ("api", "graphql"): "graphql", ("pr", "create"): "pr-create"}
+if args[:1] == ["--version"]:
+    print("gh version 2.99.0 (stand-in)")
+    sys.exit(0)
+if args[:2] == ["config", "get"]:
+    login = home / "login"
+    if not login.exists():
+        sys.exit(1)
+    print(login.read_text().strip())
+    sys.exit(0)
+if args[:2] == ["auth", "token"]:
+    tokens = json.loads((home / "tokens.json").read_text()) \
+        if (home / "tokens.json").exists() else {}
+    host = args[args.index("--hostname") + 1] if "--hostname" in args else "github.com"
+    if host not in tokens:
+        print(f"no oauth token found for {host}", file=sys.stderr)
+        sys.exit(1)
+    print(tokens[host])
+    sys.exit(0)
+verb = VERBS.get(tuple(args[:2]))
+argv = args[2:] if verb else args[1:]
+verb = verb or (args[0] if args else "")
 refuse = home / "refuse.json"
 if refuse.exists() and verb in json.loads(refuse.read_text()):
     print(f"GraphQL: {verb} is not something this forge will do", file=sys.stderr)
@@ -308,15 +340,22 @@ elif verb == "pr-create":
 else:
     entries.append([verb, *argv])
 log.write_text(json.dumps(entries))
-'''
+"""
 
 
-def forge(repo: Path) -> list[str]:
-    """Install the stand-in and return the argv prefix every forge command starts with."""
+def stand_in_gh(repo: Path) -> Path:
+    """Put the stand-in first on PATH, as `gh`, and return its home. Every test
+    starts from the PATH it was given (`conftest.no_one_s_gh`), so this lasts
+    until the test ends; a subprocess the test starts inherits it."""
     home = repo / ".forge"
-    home.mkdir(exist_ok=True)
-    (home / "forge.py").write_text(FORGE)
-    return [sys.executable, str(home / "forge.py"), str(home)]
+    (home / "bin").mkdir(parents=True, exist_ok=True)
+    gh = home / "bin" / "gh"
+    gh.write_text(f"#!{sys.executable}\n{FORGE}")
+    gh.chmod(0o755)
+    path = os.environ.get("PATH", "")
+    if not path.startswith(f"{gh.parent}{os.pathsep}"):
+        os.environ["PATH"] = f"{gh.parent}{os.pathsep}{path}"
+    return home
 
 
 def forge_calls(repo: Path) -> list[list[str]]:
@@ -325,7 +364,20 @@ def forge_calls(repo: Path) -> list[list[str]]:
 
 
 def forge_data(repo: Path, name: str, payload) -> None:
+    (repo / ".forge").mkdir(exist_ok=True)
     (repo / ".forge" / name).write_text(json.dumps(payload))
+
+
+def signed_in(repo: Path, login: str = "", token: str = "", host: str = "github.com") -> None:
+    """Who the stand-in `gh` is signed in as, and the token it prints for `host`."""
+    home = repo / ".forge"
+    home.mkdir(exist_ok=True)
+    if login:
+        (home / "login").write_text(f"{login}\n")
+    if token:
+        tokens = home / "tokens.json"
+        held = json.loads(tokens.read_text()) if tokens.exists() else {}
+        tokens.write_text(json.dumps({**held, host: token}))
 
 
 def set_config(repo: Path, **sections) -> None:

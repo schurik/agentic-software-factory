@@ -198,8 +198,8 @@ def _record(ctx, number: int, draft: RequirementsOutput) -> None:
             ph.log(ok=True, number=number, notes="a benchmark's session writes nothing to "
                                                  "the tracker — the requirements stay here")
             return
-        written = issues.set_body(ctx.run.main_root, config, ref, block)
-        marked = issues.mark_refined(ctx.run.main_root, config, ref)
+        written = issues.set_body(ctx.run.main_root, ctx.run.cfg, ref, block)
+        marked = issues.mark_refined(ctx.run.main_root, ctx.run.cfg, ref)
         ph.log(ok=written.ok and marked.ok, number=number,
                label=config.refined_label,
                notes=" · ".join([*written.notes, *marked.notes]))

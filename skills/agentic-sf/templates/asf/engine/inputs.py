@@ -73,7 +73,7 @@ def open_issue(run, cfg: FactoryConfig, number: int) -> Opened:
     with run.phase(PhaseParams(name="issue", kind="code", owner="tracker",
                                description="Read the reporter's own words and labels, "
                                            "before anyone paraphrases them into a task")) as ph:
-        issue = issues.fetch(run, cfg.issues, IssueRef(number=number))
+        issue = issues.fetch(run, cfg, IssueRef(number=number))
         run.record_issue(issue)
         ph.log(url=issue.url, title=issue.title, author=issue.author,
                labels=", ".join(issue.labels), body=issue.body_path)
@@ -128,7 +128,7 @@ def report_issue(run, cfg: FactoryConfig, opened: Opened, accepted: bool) -> Non
     with run.phase(PhaseParams(name="report", kind="code", owner="tracker",
                                description="Tell the reporter what happened and where "
                                            "the work went")) as ph:
-        posted = issues.comment(run.main_root, cfg.issues, IssueUpdate(
+        posted = issues.comment(run.main_root, cfg, IssueUpdate(
             number=issue.number, project=issue.project,
             comment=_issue_comment(run, accepted)))
         ph.log(ok=posted.ok, notes=" · ".join(posted.notes))
@@ -168,8 +168,7 @@ def locate_pr(cfg: FactoryConfig, number: int, adw_id: Optional[str]) -> tuple[s
     the session `--adw-id` named.
     """
     main_root = git_helper.main_root()
-    context = pull_requests.describe(main_root, cfg.pull_requests,
-                                     PullRequestRef(number=number))
+    context = pull_requests.describe(main_root, cfg, PullRequestRef(number=number))
     if not context.open:
         print(f"pull request #{number} is {context.state.lower() or 'not open'} — there is "
               f"nothing to answer on a branch that is no longer under review.",
@@ -271,7 +270,6 @@ def _write_back(run, cfg: FactoryConfig, opened: Opened, outcome: str, reason: s
     off it. A run that ends red is stopped by the `failed` label, not by
     leaving its comments to be read again."""
     context, threads, comments = opened.context, opened.threads, opened.comments
-    config = cfg.pull_requests
     replied = resolved = 0
     notes: list[str] = []
     mark = f"{pull_requests.MARKER} · `{run.adw_id}`"
@@ -287,7 +285,7 @@ def _write_back(run, cfg: FactoryConfig, opened: Opened, outcome: str, reason: s
         else:
             body = (f"{mark} — picked this up and could not finish it. The checks never "
                     f"came back clean, so nothing was committed; this thread stays open.")
-        result = pull_requests.answer_thread(run.main_root, config, PullRequestUpdate(
+        result = pull_requests.answer_thread(run.main_root, cfg, PullRequestUpdate(
             number=context.number, project=context.project, thread_id=thread.thread_id,
             reply=body, resolve=outcome == "addressed"))
         replied += 1 if result.replied else 0
@@ -319,7 +317,7 @@ def _write_back(run, cfg: FactoryConfig, opened: Opened, outcome: str, reason: s
     lines += [f"<sub>Resume or inspect with `--adw-id {run.adw_id}`; "
               f"events: `just tail {run.adw_id}`</sub>",
               pull_requests.read_through_mark(context, comments)]
-    summary = pull_requests.comment(run.main_root, config, PullRequestUpdate(
+    summary = pull_requests.comment(run.main_root, cfg, PullRequestUpdate(
         number=context.number, project=context.project, comment="\n".join(lines)))
     notes += summary.notes
     return {"replied": replied, "resolved": resolved, "notes": notes}
@@ -357,7 +355,7 @@ def land_label(cfg: FactoryConfig, main_root, state, code: int) -> None:
         return                              # refused before it ran — abandoned, say: not its label
     landed = cfg.issues.states.done if code == 0 else cfg.issues.states.failed
     try:
-        result = issues.set_state(main_root, cfg.issues, IssueUpdate(
+        result = issues.set_state(main_root, cfg, IssueUpdate(
             number=state.issue_number, project=state.issue_project,
             add_labels=[landed], remove_labels=[cfg.issues.states.running]))
     except Exception as error:                              # noqa: BLE001

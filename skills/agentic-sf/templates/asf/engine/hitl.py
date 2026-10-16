@@ -443,13 +443,13 @@ def publish(run, waiting: WaitingFor, questions: list) -> None:
     config = run.cfg.issues
     ref = IssueRef(number=waiting.issue_number)
     try:
-        heard = issues.comments(run.main_root, config, ref)
+        heard = issues.comments(run.main_root, run.cfg, ref)
     except RuntimeError as error:
         run.console.note(f"could not read #{waiting.issue_number} before asking: {error}")
         heard = []
 
     if not issues.already_asked(heard, run.adw_id, waiting.round):
-        posted = issues.comment(run.main_root, config, IssueUpdate(
+        posted = issues.comment(run.main_root, run.cfg, IssueUpdate(
             number=waiting.issue_number,
             comment=issues.render_questions(questions, run.adw_id, waiting.round,
                                             config.max_question_chars)))
@@ -463,7 +463,7 @@ def publish(run, waiting: WaitingFor, questions: list) -> None:
         run.console.note(f"asked {len(questions)} question(s) on #{waiting.issue_number}, "
                          f"round {waiting.round}")
         try:
-            heard = issues.comments(run.main_root, config, ref)
+            heard = issues.comments(run.main_root, run.cfg, ref)
         except RuntimeError:
             heard = []
 

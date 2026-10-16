@@ -28,9 +28,9 @@ import pytest
 
 from engine import events, git_helper
 
-from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge,
-                          forge_data, git, install, pr_json, run_state, scorer, session_dir,
-                          set_config, wire, with_origin, write_workflow)
+from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, forge_data,
+                          git, install, pr_json, run_state, scorer, session_dir, set_config,
+                          stand_in_gh, wire, with_origin, write_workflow)
 
 REVIEWED = "5c0be7ed"
 
@@ -252,11 +252,8 @@ def test_not_accepted_is_a_chapter_its_workflow_refused_and_not_one_that_failed(
 def test_review_chapters_are_counted_per_session_and_scored_on_the_latest(stamped: Path):
     fake_roster(stamped, builder=[build_reply("ok = 1\n", "feat: app")])
     wire(stamped, "test", PY_CHECK)
-    base = forge(stamped)
-    set_config(stamped, pull_requests={
-        "enabled": True, "project": "acme/widgets",
-        "list_command": [*base, "list"], "comment_command": [*base, "comment"],
-        "state_command": [*base, "edit"], "graphql_command": [*base, "graphql"]})
+    stand_in_gh(stamped)
+    set_config(stamped, pull_requests={"enabled": True, "project": "acme/widgets"})
     scorer(stamped, "review-rounds", {"workflow": "pr-review", "kind": "code",
                                       "predicate": "review_chapters_above(1)"})
     with_origin(stamped)

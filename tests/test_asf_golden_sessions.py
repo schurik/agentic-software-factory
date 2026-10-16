@@ -44,9 +44,9 @@ import yaml
 from engine import events, frontmatter
 from engine.data_types import EVENT_KINDS
 
-from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forge,
-                          forge_data, git, issue_json, new_repo, pr_json, scorer, session_dir,
-                          set_config, stamp, wire, with_origin)
+from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forge_data, git,
+                          issue_json, new_repo, pr_json, scorer, session_dir, set_config, stamp,
+                          stand_in_gh, wire, with_origin)
 
 THIS_REPO = Path(__file__).resolve().parent.parent
 SESSIONS = Path(__file__).resolve().parent / "golden" / "sessions"
@@ -187,19 +187,12 @@ CEILING = 0.17
 
 def tell(repo: Path) -> None:
     """One session, the way a team's would go: STORY, on the fake harness."""
-    base = forge(repo)
+    stand_in_gh(repo)
     set_config(repo,
                issues={"enabled": True, "project": "acme/widgets",
-                       "fetch_command": [*base, "view"], "list_command": [*base, "list"],
-                       "comment_command": [*base, "comment"], "state_command": [*base, "edit"],
                        "route": {"asf:ship": "issue"}},
-               pull_requests={"enabled": True, "project": "acme/widgets",
-                              "list_command": [*base, "list"],
-                              "comment_command": [*base, "comment"],
-                              "state_command": [*base, "edit"],
-                              "graphql_command": [*base, "graphql"]},
-               worktree={"integration": {"mode": "pr", "open_pr": True,
-                                         "pr_command": [*base, "pr-create"]}},
+               pull_requests={"enabled": True, "project": "acme/widgets"},
+               worktree={"integration": {"mode": "pr", "open_pr": True}},
                cockpit={"transcripts": True},
                budget={"max_cost_usd": CEILING})
     scorer(repo, "review-rounds", {"workflow": "pr-review", "kind": "code",
