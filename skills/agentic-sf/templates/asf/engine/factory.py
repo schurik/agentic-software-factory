@@ -21,6 +21,7 @@ trace — knows the roster changed shape.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -28,6 +29,7 @@ from pydantic import ValidationError
 
 from . import agents, frontmatter, git_helper, harnesses, integration, mcp, worktree
 from .data_types import AgentConfig, FactoryConfig, HarnessDefaults
+from .overlay import render as render_overlay
 from .utils import anchor
 
 DEFAULT_CONFIG = "asf/factory.yaml"
@@ -89,6 +91,18 @@ def settings(config_path: str | Path = DEFAULT_CONFIG) -> dict:
     """The config as the engine runs it, before it is validated: factory.yaml
     merged onto the defaults file beside it (`resolve`)."""
     path = Path(config_path)
+    base, raw = _sources(path)
+    _refuse(path, base, raw)
+    return resolve(base, raw)
+
+
+def settings_text(config_path: str | Path = DEFAULT_CONFIG) -> str:
+    """`settings` as YAML — what `asf config` prints."""
+    return yaml.safe_dump(settings(config_path), sort_keys=False)
+
+
+def _sources(path: Path) -> tuple[dict, dict]:
+    """The defaults file and factory.yaml, each as the mapping it says."""
     if not path.is_file():
         raise SystemExit(f"no config at {path} — is the factory installed here?")
     defaults = defaults_of(path)
@@ -101,10 +115,97 @@ def settings(config_path: str | Path = DEFAULT_CONFIG) -> dict:
         raise SystemExit(f"{path}: `agents:` does not belong in factory.yaml — an agent is "
                          f"a directory under {root_of(path) / 'agents'} with an "
                          f"{AGENT_FILE} in it")
+    return base, raw
+
+
+def _refuse(path: Path, base: dict, raw: dict) -> None:
+    """Stop on what `raw` says that the engine no longer runs (`_refused`)."""
     refused = _refused(raw, (base.get("harness") or {}).get("name") or "")
     if refused:
         raise SystemExit(f"{path}: {refused}")
-    return resolve(base, raw)
+
+
+def non_default(config_path: str | Path = DEFAULT_CONFIG) -> tuple[str, list[str]]:
+    """The smallest factory.yaml that resolves to the settings this one does —
+    the pointer line, then only the keys whose value differs from the defaults
+    file — and a note for each key it left out.
+
+    For a factory.yaml stamped before the overlay, which says every key and so
+    pins every default it says (`asf config --non-default`, the upgrade
+    cookbook). It is `resolve` run backwards: a map says the entries that
+    differ, `protected_files` and `harness.deny_tools` what they add, and a
+    default map entry the config removed comes back as `null`. A key the
+    defaults do not hold — retired, obsolete or misspelt — is refused by every
+    run, so it is left out, and the note says what it held.
+    """
+    path = Path(config_path)
+    defaults, raw = _sources(path)
+    notes = [_left_out(key, raw.pop(key)) for key in OBSOLETE if key in raw]
+    _refuse(path, defaults, raw)
+    merged = resolve(defaults, raw)
+    error = _invalid(merged)
+    if error:
+        for problem in error.errors():
+            if problem["type"] == "extra_forbidden":
+                found, said = _pop_at(raw, problem["loc"])
+                if found:
+                    notes.append(_left_out(".".join(map(str, problem["loc"])), said))
+        merged = resolve(defaults, raw)
+        error = _invalid(merged)
+    if error:
+        raise SystemExit(f"{path}: {refusal(error, defaults_of(path))}")
+    base = _base_for(defaults, (merged.get("harness") or {}).get("name"))
+    return render_overlay(_differs(base, merged, ())), notes
+
+
+def _left_out(key: str, said: object) -> str:
+    return (f"`{key}` left out — not a setting, and every run refuses it; it said "
+            f"{json.dumps(said, default=str)}")
+
+
+def _invalid(merged: dict) -> ValidationError | None:
+    try:
+        FactoryConfig.model_validate(merged)
+    except ValidationError as error:
+        return error
+    return None
+
+
+def _pop_at(raw: dict, loc: tuple) -> tuple[bool, object]:
+    """Remove the key at `loc` from `raw`: whether it was there, and what it
+    held. Not there, it came from the defaults file — and stays."""
+    *parents, last = loc
+    node: object = raw
+    for part in parents:
+        try:
+            node = node[part]                                   # type: ignore[index]
+        except (KeyError, IndexError, TypeError):
+            return False, None
+    if isinstance(node, dict) and last in node:
+        return True, node.pop(last)
+    return False, None
+
+
+def _differs(base: dict, target: dict, at: tuple[str, ...]) -> dict:
+    """What `target` says that `base` does not, as an overlay `_merge` would
+    turn `base` back into `target` with."""
+    differs: dict = {}
+    for key, value in target.items():
+        path = (*at, key)
+        if key not in base:
+            differs[key] = value
+        elif path in ADDED_ONLY and isinstance(value, list) and isinstance(base[key], list):
+            added = [each for each in value if each not in base[key]]
+            if added:
+                differs[key] = added
+        elif isinstance(value, dict) and isinstance(base[key], dict):
+            inner = _differs(base[key], value, path)
+            if inner:
+                differs[key] = inner
+        elif value != base[key]:
+            differs[key] = value
+    differs.update({key: None for key in base if key not in target})
+    return differs
 
 
 def _mapping(path: Path) -> dict:
@@ -125,11 +226,18 @@ def resolve(defaults: dict, overlay: dict) -> dict:
     tools, options and extensions are one harness's vocabulary, and the model is
     the new harness's own unless the overlay names one.
     """
-    base = dict(defaults)
     block = overlay.get("harness")
-    if isinstance(block, dict) and isinstance(base.get("harness"), dict):
-        base["harness"] = _harness_base(base["harness"], block.get("name"))
-    return _merge(base, overlay, ())
+    return _merge(_base_for(defaults, block.get("name") if isinstance(block, dict) else None),
+                  overlay, ())
+
+
+def _base_for(defaults: dict, harness: str | None) -> dict:
+    """`defaults` as an overlay naming `harness` is merged onto: its `harness:`
+    block what another harness inherits of it (`_harness_base`)."""
+    base = dict(defaults)
+    if isinstance(base.get("harness"), dict):
+        base["harness"] = _harness_base(base["harness"], harness)
+    return base
 
 
 def _harness_base(block: dict, name: str | None) -> dict:

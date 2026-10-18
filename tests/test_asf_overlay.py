@@ -223,3 +223,109 @@ def test_doctor_warns_when_the_defaults_file_was_edited(stamped: Path):
     line, fix = doctor_line(stamped)
     assert "✓" not in line and "edited" in line
     assert "asf/factory.yaml" in fix
+
+
+# ── shrinking a whole config to what differs ─────────────────────────────────
+
+def shrunk(repo: Path) -> tuple[str, str]:
+    """`asf config --non-default`: the overlay on stdout, its notes on stderr."""
+    result = asf(repo, "config", "--non-default")
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout, result.stderr
+
+
+def test_a_whole_config_shrinks_to_what_a_fresh_stamp_says(tmp_path: Path):
+    """The full file a stamp was given before the overlay, with what detection
+    found here, shrinks to exactly the factory.yaml a fresh stamp writes — and
+    it resolves to the same settings."""
+    fresh = new_repo(tmp_path / "fresh")
+    (fresh / ".gitignore").write_text(".env.local\n")
+    (fresh / ".env.local").write_text("CONVEX_DEPLOYMENT=dev:x\n")
+    (fresh / "bun.lock").write_text("{}\n")
+    git(fresh, "add", ".gitignore", "bun.lock")
+    git(fresh, "commit", "-q", "-m", "a repo with things to copy")
+    assert install(fresh, "--harness", "claude_code").returncode == 0
+    written = (fresh / CONFIG).read_text()
+    full = yaml.safe_load(FULL.read_text())
+    full["worktree"].update(yaml.safe_load(written)["worktree"])
+    (fresh / CONFIG).write_text(yaml.safe_dump(full, sort_keys=False))
+    before = described(fresh)
+
+    text, notes = shrunk(fresh)
+
+    assert text == written and notes == ""
+    (fresh / CONFIG).write_text(text)
+    assert described(fresh) == before
+
+
+def test_shrinking_keeps_exactly_the_keys_a_person_changed(here: Path):
+    full = yaml.safe_load(FULL.read_text())
+    full["harness"]["model"] = "opus"
+    full["harness"]["options"]["max_budget_usd"] = 3
+    full["protected_files"].append("docs/")
+    full["hitl"]["wait_seconds"] = 30
+    full["worktree"]["integration"]["mode"] = "merge"
+    full["issues"]["route"]["asf:bugfix"] = None
+    (here / CONFIG).write_text(yaml.safe_dump(full, sort_keys=False))
+    before = described(here)
+
+    text, _ = shrunk(here)
+
+    assert text.startswith("# Overlay on asf/factory-defaults.yaml")
+    assert yaml.safe_load(text) == {
+        "harness": {"model": "opus", "options": {"max_budget_usd": 3}},
+        "protected_files": ["docs/"],                 # what it adds, never the defaults'
+        "hitl": {"wait_seconds": 30},
+        "cockpit": {"commands": ["answer", "abort", "kill", "resume"]},
+        "worktree": {"integration": {"mode": "merge"}},
+        "issues": {"route": {"asf:bugfix": None}},    # a default deleted stays deleted
+    }
+    (here / CONFIG).write_text(text)
+    assert described(here) == before
+
+
+def test_an_overlay_on_another_harness_keeps_its_name(here: Path):
+    overlay(here, "harness:\n  name: pi\n  thinking: high\n")
+
+    text, _ = shrunk(here)
+
+    assert yaml.safe_load(text)["harness"] == {"name": "pi", "thinking": "high"}
+
+
+def test_a_key_that_is_not_a_setting_is_left_out_and_named(here: Path):
+    """What a full file may still say that the defaults no longer hold — a
+    retired `*_command`, `observability:`, a typo — goes, each named with the
+    value it held, so the person reading the diff knows what it said."""
+    overlay(here, "issues:\n  view_command: [glab, issue, view]\n"
+                  "observability:\n  db: asf/data/asf.db\n")
+
+    text, notes = shrunk(here)
+
+    assert "view_command" not in text and "observability" not in text
+    assert "issues.view_command" in notes and "glab" in notes
+    assert "observability" in notes
+    (here / CONFIG).write_text(text)
+    assert asf(here, "check").returncode == 0
+
+
+def test_config_prints_the_settings_as_the_engine_runs_them(here: Path):
+    overlay(here, "hitl:\n  wait_seconds: 30\n")
+
+    result = asf(here, "config")
+
+    assert result.returncode == 0, result.stderr
+    settings = yaml.safe_load(result.stdout)
+    assert settings["hitl"]["wait_seconds"] == 30 and settings["data_dir"] == "asf/data"
+
+
+def test_a_key_yaml_would_read_as_a_boolean_is_quoted(here: Path):
+    """`yes`, `on`, `null` — YAML 1.1 reads them unquoted as something other than
+    the label they are, and the shrunk config would not load."""
+    overlay(here, "issues:\n  route:\n    'yes': issue\n    'on': refine\n")
+
+    text, _ = shrunk(here)
+
+    assert set(yaml.safe_load(text)["issues"]["route"]) == {"yes", "on"}
+    (here / CONFIG).write_text(text)
+    checked = asf(here, "check")
+    assert checked.returncode == 0, checked.stdout + checked.stderr
