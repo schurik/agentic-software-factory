@@ -34,7 +34,76 @@ TEMPLATES = SKILL_ROOT / "templates" / "asf"
 if str(TEMPLATES) not in sys.path:
     sys.path.insert(0, str(TEMPLATES))
 
+from . import affected  # noqa: E402
 from .asf_helpers import new_repo, stamp  # noqa: E402
+
+SELECTION = pytest.StashKey[affected.Selection]()
+
+
+# ── `pytest --affected [BASE]`: only what a change can reach (`affected.py`) ──
+
+def pytest_addoption(parser):
+    parser.addoption("--affected", nargs="?", const="main", default=None, metavar="BASE",
+                     help="run only the tests a change since BASE (default: main) can affect, "
+                          "and say which rule chose each; CI runs them all")
+
+
+def pytest_configure(config):
+    base = config.getoption("--affected")
+    if base is None:
+        return
+    try:
+        paths = affected.changed_paths(base)
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from None
+    config.stash[SELECTION] = affected.select(paths)
+    config.stash[BASE] = base
+
+
+BASE = pytest.StashKey[str]()
+
+
+def pytest_ignore_collect(collection_path, config):
+    selection = config.stash.get(SELECTION, None)
+    if selection is None or collection_path.parent != TESTS_DIR \
+            or not collection_path.name.startswith("test_"):
+        return None
+    return True if not selection.keeps_file(collection_path.name) else None
+
+
+def pytest_collection_modifyitems(config, items):
+    selection = config.stash.get(SELECTION, None)
+    if selection is None:
+        return
+    kept = [item for item in items
+            if selection.keeps(item.path.name, getattr(item, "originalname", item.name))]
+    dropped = [item for item in items if item not in kept]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = kept
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionstart(session):
+    """Said once, by the process at the terminal: under `-n` the workers
+    collect, and their output never reaches it."""
+    config = session.config
+    selection = config.stash.get(SELECTION, None)
+    reporter = config.pluginmanager.get_plugin("terminalreporter")
+    if selection is None or reporter is None or hasattr(config, "workerinput"):
+        return
+    total = len(list(TESTS_DIR.glob("test_*.py")))
+    for line in affected.report(selection, config.stash[BASE], total):
+        reporter.write_line(line)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Nothing selected is a pass, not pytest's "no tests ran" (exit 5): a
+    change to the cockpit alone has no Python test to run."""
+    selection = session.config.stash.get(SELECTION, None)
+    if selection is not None and exitstatus == pytest.ExitCode.NO_TESTS_COLLECTED \
+            and not (selection.everything or selection.files or selection.only):
+        session.exitstatus = pytest.ExitCode.OK
 
 
 @pytest.fixture(autouse=True)

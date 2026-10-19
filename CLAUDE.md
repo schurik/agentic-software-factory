@@ -35,8 +35,19 @@ pytest -n auto                                               # the whole suite, 
 pytest tests/test_asf_e2e.py                                 # one file
 pytest tests/test_asf_e2e.py::test_name                      # one test
 pytest -k permissions                                        # by name
+pytest --affected -n auto                                    # what a change since main can reach
 ruff check .                            # line-length 100; apps/ (TypeScript) excluded
 ```
+
+Before pushing, run the affected tests; CI runs everything on every pull request. `--affected`
+(`tests/affected.py`) maps each path changed since BASE — commits, index, work tree, untracked —
+to the tests that read it, prints which rule chose what, and runs the union: a cockpit change
+alone runs nothing, a golden fixture the tests that read its kind, skill prose the docs and
+release tests, an engine module its importers plus every test that runs a stamped factory. The
+mapping is explicit rather than coverage-based, because most tests run `asf/asf.py` out of a stamp
+in `tmp_path`, where coverage never sees the template. So it leans wide: `conftest.py`,
+`asf_helpers.py`, `pyproject.toml`, anything else under `templates/` or `scripts/`, and any path no
+rule knows run the whole suite. A new kind of path a test reads gets a rule in `RULES`.
 
 The test dependencies are the stamped scripts' four plus pytest and pytest-xdist, unpinned; with
 no virtualenv, `uv run --no-project --with pytest --with pytest-xdist --with pydantic --with
