@@ -233,9 +233,13 @@ the tests — at the repo root in `tests/`, so they never ship to anyone who ins
 import straight out of it and install into a real `git init`'d tmpdir.
 
 ```bash
-pytest                  # nothing calls a model, opens a socket or needs a token
+pip install pydantic python-dotenv pyyaml rich pytest pytest-xdist   # what CI installs, unpinned
+pytest -n auto          # nothing calls a model, opens a socket or needs a token
 ruff check .
 ```
+
+`-n auto` runs the tests in parallel, one worker per core; a plain `pytest` runs the same tests
+one at a time, in about twice as long.
 
 The `fake` harness answers from a script, so the whole machinery — stages, gates, retries,
 envelopes, permissions, budgets, the trace — is exercised for free in CI. `CLAUDE.md` is the

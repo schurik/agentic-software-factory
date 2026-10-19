@@ -31,13 +31,20 @@ cookbooks, and `references/design.md` — and the rest is prose next to the code
 ## Commands
 
 ```bash
-pytest                                                       # testpaths + addopts in pyproject.toml
+pytest -n auto                                               # the whole suite, as CI runs it
 pytest tests/test_asf_e2e.py                                 # one file
 pytest tests/test_asf_e2e.py::test_name                      # one test
 pytest -k permissions                                        # by name
 ruff check .                            # line-length 100; apps/ (TypeScript) excluded
 ```
 
+The test dependencies are the stamped scripts' four plus pytest and pytest-xdist, unpinned; with
+no virtualenv, `uv run --no-project --with pytest --with pytest-xdist --with pydantic --with
+python-dotenv --with pyyaml --with rich python -m pytest -n auto` is the same run. `-n auto`
+(one worker per core) is a flag, not an `addopts` default — `pyproject.toml` says why — and it
+roughly halves the suite (about ten minutes serially) rather than dividing it by the core count,
+since most of the time is subprocesses competing for the machine. Every test installs into its own
+`tmp_path`, so a test that passes alone and fails under `-n` is a real bug, not noise to retry.
 Nothing in the suite calls a model, opens a socket, or needs a token — the `fake` harness answers
 from a script. `filterwarnings = ["error::DeprecationWarning"]` is deliberate: a dependency release
 can turn CI red with no PR change, and the fix belongs in the module the traceback names.
