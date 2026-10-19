@@ -9,6 +9,16 @@
 testpaths = ["tests"]
 # Failures print the assertion and stop at the tenth — a suite that scrolls off
 # the top of a CI log is one nobody reads.
+#
+# `-n auto` (pytest-xdist) is not in here, though CI and the documented command
+# both pass it. It changes how fast the suite runs, never what it tests, and an
+# `-n` in addopts would make a plain `pytest` refuse to start on any machine
+# without xdist — and with no package to install, every environment here lists
+# its test dependencies by hand, so some will leave it out. It would also start
+# a worker per core to run one test, and take `--pdb` and `-s` from the run you
+# are debugging. The suite is mostly subprocesses (an installer, `asf/asf.py` in
+# a stamped repo, `git`) competing for the machine, so `-n auto` roughly halves
+# it rather than dividing it by the cores.
 addopts = "-q --maxfail=10"
 # A deprecation is how the factory finds out it is about to break in someone
 # else's repository — pydantic 2.11 deprecating `self.model_fields` was already
