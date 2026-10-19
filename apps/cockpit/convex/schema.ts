@@ -438,7 +438,9 @@ export default defineSchema({
   // digest of its command token — the owner's, for this station alone — and
   // null once revoked, which is what takes it offline for commands. `seenAt`
   // is when its long-lived loop last polled; `report` what that poll, or a
-  // run's own, said it would obey and where its checkout stands.
+  // run's own, said it would obey and where its checkout stands. `formerly` is
+  // the ids it was registered under before its checkout was stamped again
+  // (stations.ts, `own`); absent from a station that never was.
   stations: defineTable({
     factory: v.string(),
     station: v.string(),
@@ -449,6 +451,7 @@ export default defineSchema({
     token: v.union(v.null(), v.string()),
     seenAt: v.number(),               // 0: its loop has never polled
     report: v.union(v.null(), reportValidator),
+    formerly: v.optional(v.array(v.string())),
   })
     .index("by_station", ["factory", "station"])
     .index("by_token", ["token"])

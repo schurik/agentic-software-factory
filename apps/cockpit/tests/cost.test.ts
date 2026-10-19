@@ -135,6 +135,24 @@ describe("who spent and who asked", () => {
     ]);
     expect(spend?.people).toEqual([{ person: "sam", cost: 0.0185, tokens: 1_200 }]);
   });
+
+  it("charge a checkout registered again under a fresh id as the one station it is (#237)", async () => {
+    const forge = fakeForge();
+    const { t, ingestToken } = await localOf(forge);
+    const reinstalled = { ...STATION, id: "st_b2e04d" };
+    await t.action(internal.stations.local, { factory: "acme/widgets", station: STATION });
+    await ingest(t, ingestToken, { session: "5c0075aa", events: spending("5c0075aa", {
+      workflow: "ship", person: "alex", station: STATION, calls: 1,
+    }) });
+    await t.action(internal.stations.local, { factory: "acme/widgets", station: reinstalled });
+    await ingest(t, ingestToken, { session: "6d1186bb", events: spending("6d1186bb", {
+      workflow: "ship", person: "alex", station: reinstalled, calls: 1,
+    }) });
+
+    expect((await spendOf(t, "acme/widgets", SEPTEMBER))?.stations).toEqual([
+      { station: reinstalled.id, name: STATION.name, owner: "alex", cost: 0.037, tokens: 2_400 },
+    ]);
+  });
 });
 
 describe("who may see cost", () => {

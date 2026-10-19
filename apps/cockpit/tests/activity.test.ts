@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
 import { type Attention, needsAttention } from "../convex/model/attention";
+import { ONLINE_FOR } from "../convex/model/command";
 import { fakeForge, type FakeForge } from "./forge";
 import { catchUp, factory, fixture, ingest, signIn, type WireEvent } from "./helpers";
 import { approved, poll, post, REPORT, STATION, teamOf } from "./station";
@@ -392,5 +393,22 @@ describe("the stations of a factory", () => {
   it("is nothing to someone who may not read the factory", async () => {
     const { t } = await seeded();
     expect(await stationsOf(t)).toBeNull();
+  });
+
+  it("lists a checkout registered again under a fresh id once, holding what its old id still holds (#237)", async () => {
+    const { t, alex } = await seeded();
+    const reinstalled = { ...ALEX, id: "st_b2e04d" };
+    vi.advanceTimersByTime(ONLINE_FOR);                            // uninstalling stopped its loop
+    await poll(t, await approved(t, await factory(t, "acme/widgets"), alex, reinstalled), {}, reinstalled);
+
+    const shown = await stationsOf(t, alex);
+
+    expect(shown!.stations.map(({ station, name, registered, sessions }) => ({
+      station, name, registered, sessions: sessions.map((row) => row.session),
+    }))).toEqual([
+      { station: reinstalled.id, name: ALEX.name, registered: true, sessions: ["w1", "r1", "f1"] },
+      { station: BOB.id, name: BOB.name, registered: false, sessions: ["b1"] },
+    ]);
+    expect(shown!.stations[0].period).toEqual({ sessions: 4, failed: 1, cost: 0.75 });
   });
 });

@@ -36,7 +36,7 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery, mutation, type MutationCtx, query, type QueryCtx } from "./_generated/server";
 import { LAPSED_PER_WRITE } from "./handshakes";
 import {
-  normalCode, REGISTRATION_FOR, stationFieldsValidator, TOKENLESS_PENDING, TOKENLESS_PER_FACTORY, TOKENLESS_PER_SOURCE, writes,
+  liveness, normalCode, REGISTRATION_FOR, stationFieldsValidator, TOKENLESS_PENDING, TOKENLESS_PER_FACTORY, TOKENLESS_PER_SOURCE, writes,
 } from "./model/command";
 import { digest, secret } from "./model/digest";
 import { spellingFor } from "./spelling";
@@ -56,13 +56,53 @@ export async function stationOf(ctx: QueryCtx, factory: string, station: string)
 /** A station as it asks to be registered: which factory's, its id, and what it calls itself. */
 type Asking = Pick<Doc<"registrations">, "factory" | "station" | "name" | "kind">;
 
-/** Make the station `asking` describes the owner's, holding the token with digest `token`. */
+/**
+ * Make the station `asking` describes the owner's, holding the token with digest `token`.
+ *
+ * A station's id lives in its checkout's `asf/data/`, which uninstalling the
+ * factory deletes: stamped again, the checkout mints another id and registers
+ * as that (#237). So a station of the same factory, name and kind that is the
+ * same owner's is that checkout as it was, and is retired here rather than
+ * listed beside it, its id kept in `formerly` so what it still holds is shown
+ * under the station it is now. Someone else's station of the same name is
+ * never touched — a name is no more a secret than an id — and neither is one
+ * that is online: a loop polling now is a second checkout of the same name,
+ * not one whose `asf/data/` is gone.
+ */
 async function own(ctx: MutationCtx, asking: Asking, owner: Doc<"viewers"> | null, token: string): Promise<void> {
   const { factory, station, name, kind } = asking;
   const facts = { name, kind, owner: owner?._id ?? null, ownerLogin: owner?.login ?? "", token };
-  const known = await stationOf(ctx, factory, station);
-  if (known === null) await ctx.db.insert("stations", { factory, station, ...facts, seenAt: 0, report: null });
-  else await ctx.db.patch(known._id, facts);       // its owner registering again rotates the token
+  const rows = await ctx.db.query("stations").withIndex("by_station", (q) => q.eq("factory", factory)).collect();
+  const known = rows.find((row) => row.station === station);
+  const formerly = new Set(known?.formerly ?? []);
+  for (const was of rows) {
+    if (was.station === station || was.name !== name || was.kind !== kind || was.owner !== facts.owner) continue;
+    if (liveness(was.seenAt, null, Date.now()).online) continue;
+    await retire(ctx, was);
+    for (const id of [was.station, ...was.formerly ?? []]) formerly.add(id);
+  }
+  const held = { ...facts, ...(formerly.size > 0 ? { formerly: [...formerly] } : {}) };
+  if (known === undefined) await ctx.db.insert("stations", { factory, station, ...held, seenAt: 0, report: null });
+  else await ctx.db.patch(known._id, held);        // its owner registering again rotates the token
+}
+
+/**
+ * Take a station off its factory: its row, the ingest tokens it was handed —
+ * whose only copies went with its checkout's `asf/data/` — and the commands
+ * still waiting for it, which nothing will ever poll for now.
+ */
+async function retire(ctx: MutationCtx, row: Doc<"stations">): Promise<void> {
+  const { factory, station } = row;
+  await ctx.db.delete(row._id);
+  await revokeStation(ctx, factory, station);
+  for (const state of ["queued", "delivered"] as const) {
+    const waiting = await ctx.db.query("commands")
+      .withIndex("by_station_state", (q) => q.eq("factory", factory).eq("station", station).eq("state", state))
+      .collect();
+    for (const command of waiting) {
+      await ctx.db.patch(command._id, { state: "expired", detail: "its station registered again under a fresh id" });
+    }
+  }
 }
 
 // ── 1. a station asks ────────────────────────────────────────────────────────

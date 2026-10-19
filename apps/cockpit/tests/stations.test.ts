@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import { ATTENDED_FOR, liveness, REDELIVER_AFTER, TOKENLESS_PER_FACTORY, TOKENLESS_PER_SOURCE, TTL } from "../convex/model/command";
+import { ATTENDED_FOR, liveness, ONLINE_FOR, REDELIVER_AFTER, TOKENLESS_PER_FACTORY, TOKENLESS_PER_SOURCE, TTL } from "../convex/model/command";
 import { fakeForge, type FakeForge, type Role } from "./forge";
 import { factory, fixture, ingest, signIn } from "./helpers";
 import {
@@ -152,6 +152,90 @@ describe("registering a station", () => {
     expect(issued.owner).toBe("alex");
     expect((await poll(t, issued.token)).status).toBe(200);
     expect(await t.query(api.stations.mine, {})).toEqual([expect.objectContaining({ owner: "alex", registered: true })]);
+  });
+});
+
+// ── registering again under a fresh id (#237) ────────────────────────────────
+
+describe("a checkout that registers again under a fresh id", () => {
+  // Uninstalling the factory deletes `asf/data/`, its station id with it, so
+  // the checkout stamped again mints another and registers as that.
+  const REINSTALLED = { ...STATION, id: "st_b2e04d" };
+
+  it("is the station it was on a local cockpit: listed once, under the id it holds now", async () => {
+    const forge = fakeForge();
+    const { t } = await localOf(forge);
+    const before = await t.action(internal.stations.local, { factory: "acme/widgets", station: STATION });
+
+    const after = await t.action(internal.stations.local, { factory: "acme/widgets", station: REINSTALLED });
+
+    expect(await t.query(api.stations.mine, {})).toEqual([
+      expect.objectContaining({ station: REINSTALLED.id, name: STATION.name, registered: true }),
+    ]);
+    expect((await poll(t, after.token, {}, REINSTALLED)).status).toBe(200);
+    expect((await poll(t, before.token)).status).toBe(401);       // nothing holds it: its file went with asf/data/
+  });
+
+  it("is its owner's same station on a team cockpit, and the ingest token its old id was handed goes with it", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write" });
+    const alex = await signIn(t, forge, "alex");
+    const handOver = async (station: typeof STATION) => {
+      const { device, code } = await registerNamed(t, "acme/widgets", station);
+      await t.mutation(api.stations.approve, { code, signIn: alex });
+      return await json(await handed(t, device));
+    };
+    const before = await handOver(STATION);
+
+    await handOver(REINSTALLED);
+
+    expect(await t.query(api.stations.mine, { signIn: alex })).toEqual([
+      expect.objectContaining({ station: REINSTALLED.id, name: STATION.name, owner: "alex", registered: true }),
+    ]);
+    expect((await ingest(t, before.ingest_token as string, { session: SESSION, events: running() })).status).toBe(401);
+    expect((await t.query(api.tokens.listed, { factory: "acme/widgets", signIn: alex }))?.tokens)
+      .toEqual([expect.objectContaining({ station: REINSTALLED.id })]);
+  });
+
+  it("expires the commands still waiting for the station it was, which nothing will poll for now", async () => {
+    const forge = fakeForge();
+    const { t, ingestToken } = await localOf(forge);
+    const before = await t.action(internal.stations.local, { factory: "acme/widgets", station: STATION });
+    await ingest(t, ingestToken, { session: SESSION, events: running() });
+    await poll(t, before.token);
+    expect(await t.mutation(api.commands.kill, { factory: "acme/widgets", session: SESSION })).toMatchObject({ ok: true });
+    vi.advanceTimersByTime(ONLINE_FOR);                            // uninstalling stopped its loop
+
+    await t.action(internal.stations.local, { factory: "acme/widgets", station: REINSTALLED });
+
+    expect(await t.run(async (ctx) => await ctx.db.query("commands").collect())).toEqual([
+      expect.objectContaining({ station: STATION.id, state: "expired", detail: "its station registered again under a fresh id" }),
+    ]);
+  });
+
+  it("leaves a station of the same name alone while it is online: that is a second checkout, not this one", async () => {
+    const forge = fakeForge();
+    const { t } = await localOf(forge);
+    const twin = await t.action(internal.stations.local, { factory: "acme/widgets", station: STATION });
+    await poll(t, twin.token);
+
+    await t.action(internal.stations.local, { factory: "acme/widgets", station: REINSTALLED });
+
+    expect((await poll(t, twin.token)).status).toBe(200);
+    expect((await t.query(api.stations.mine, {})).map((row) => row.station)).toEqual([STATION.id, REINSTALLED.id]);
+  });
+
+  it("leaves a station of the same name alone when it is someone else's", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { alex: "write", sam: "write" });
+    const ingestToken = await factory(t, "acme/widgets");
+    const sams = await approved(t, ingestToken, await signIn(t, forge, "sam"));
+
+    await approved(t, ingestToken, await signIn(t, forge, "alex"), REINSTALLED);
+
+    expect((await poll(t, sams)).status).toBe(200);
+    expect((await t.query(api.stations.mine, { signIn: await signIn(t, forge, "sam") })).map((row) => row.station))
+      .toEqual([STATION.id]);
   });
 });
 

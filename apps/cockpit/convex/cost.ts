@@ -75,6 +75,11 @@ export async function rolledUp(ctx: QueryCtx, factory: string, rows: Doc<"spend"
   const stations = new Map<string, StationCost>();
   const people = new Map<string, PersonCost>();
   const total: Spend = { cost: 0, tokens: 0 };
+  // A checkout registered again under a fresh id is charged as the station it is now (stations.ts, `own`).
+  const now = new Map<string, string>();
+  for (const station of await ctx.db.query("stations").withIndex("by_station", (q) => q.eq("factory", factory)).collect()) {
+    for (const was of station.formerly ?? []) now.set(was, station.station);
+  }
 
   for (const row of rows) {
     const key = JSON.stringify([row.factory, row.session]);
@@ -82,7 +87,8 @@ export async function rolledUp(ctx: QueryCtx, factory: string, rows: Doc<"spend"
     const charge = chargeIn(row, summaries.get(key)!);
     add(total, row);
     add(entry(workflows, charge.workflow, () => ({ workflow: charge.workflow })), row);
-    add(entry(stations, charge.station, () => ({ station: charge.station, name: charge.stationName, owner: "" })), row);
+    const station = now.get(charge.station) ?? charge.station;
+    add(entry(stations, station, () => ({ station, name: charge.stationName, owner: "" })), row);
     add(entry(people, charge.person, () => ({ person: charge.person })), row);
   }
 

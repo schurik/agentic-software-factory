@@ -430,6 +430,17 @@ before — `None` when there are none, never omitted.
   is not a forge command and stays. The "empty means skip" a few of the keys offered goes with
   them: a tracker that defines no labels, or cannot say who applied one, says so through its
   Protocol.
+- **A checkout stamped again is the station it was.** A station's id lives in
+  `asf/data/station.json`, which `uninstall.py` deletes with the rest of `asf/data/`, so the
+  checkout stamped again minted another id, registered as that, and the cockpit listed it beside
+  the station it had been — same name, one of them never online again. Now a registration
+  retires the station of the same factory, name and kind that is the same person's: its row goes,
+  the ingest tokens it was handed are revoked (their only copies went with `asf/data/`), and the
+  commands still waiting for it expire. The station it is now keeps the old id (`formerly`), and
+  the Stations tab and the cost by station list what that id still holds — sessions, claims,
+  spend — under it. Someone else's station of the same name is left alone, and so is one that is
+  online: a loop polling now is a second checkout of that name, which `ASF_STATION_NAME` tells
+  apart. `asf station sync` never created a station, and is unchanged.
 
 ### Upgrade
 
@@ -479,7 +490,9 @@ before — `None` when there are none, never omitted.
 5. `just onboard` and `just benchmark` (`new` and `run`) come with the re-stamp's justfile; a justfile that was
    kept (the repository's own, or a stamped one that diverged) needs their recipes copied from
    the fresh one, or run `uv run asf/asf.py onboard` and `uv run asf/asf.py benchmark`. The
-   duplicate-station fix is the cockpit's: upgrade it.
+   duplicate-station fixes are the cockpit's: upgrade it. A station a cockpit already lists twice
+   since its checkout was stamped again goes the next time it registers — `just station-register`
+   on a team cockpit; on a local one, `just up` after deleting `asf/data/cockpit.json`.
 6. A factory connected to a team cockpit without the CI workflow: stamp it, `install.py --harness
    <harness> --ci`, and set `vars.ASF_COCKPIT_URL` and `secrets.ASF_COCKPIT_TOKEN`
    (`cookbooks/connect_cockpit.md` § CI). A cockpit older than this release never says whether the
