@@ -81,11 +81,20 @@ def pytest_collection_modifyitems(config, items):
     if dropped:
         config.hook.pytest_deselected(items=dropped)
         items[:] = kept
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionstart(session):
+    """Said once, by the process at the terminal: under `-n` the workers
+    collect, and their output never reaches it."""
+    config = session.config
+    selection = config.stash.get(SELECTION, None)
     reporter = config.pluginmanager.get_plugin("terminalreporter")
-    if reporter is not None:
-        total = len(list(TESTS_DIR.glob("test_*.py")))
-        for line in affected.report(selection, config.stash[BASE], total):
-            reporter.write_line(line)
+    if selection is None or reporter is None or hasattr(config, "workerinput"):
+        return
+    total = len(list(TESTS_DIR.glob("test_*.py")))
+    for line in affected.report(selection, config.stash[BASE], total):
+        reporter.write_line(line)
 
 
 def pytest_sessionfinish(session, exitstatus):

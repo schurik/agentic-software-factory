@@ -110,6 +110,13 @@ def benchmark(repo: Path, name: str, body: dict) -> Path:
     return path
 
 
+def task_line(adw_id: str) -> str:
+    """A pinned task's first line as the file spells it: an id that happens to
+    be all digits (one in forty-odd) is quoted, or it would read back as a
+    number."""
+    return "- " + yaml.safe_dump({"session": adw_id}).strip()
+
+
 def task_of(repo: Path, adw_id: str, request: str) -> dict:
     return {"session": adw_id, "request": request, "commit": started_from(repo, adw_id)}
 
@@ -180,8 +187,8 @@ def test_the_definition_says_which_task_is_a_failure_and_which_a_control(stamped
     assert result.returncode == 0, result.stdout + result.stderr
     text = (stamped / "asf" / "benchmarks" / "nightly.yaml").read_text()
     assert "asf benchmark new --from-scorer refused" in text
-    assert text.index("failing: not_accepted") < text.index(f"session: {failing}")
-    assert text.index("control: accepted") < text.index(f"session: {passing}")
+    assert text.index("failing: not_accepted") < text.index(task_line(failing))
+    assert text.index("control: accepted") < text.index(task_line(passing))
     # Variants given replace the defaults, and a label is the ref unless one is given.
     assert written(stamped, "nightly")["variants"] == [{"ref": "main", "label": "main"},
                                                        {"ref": "main~1", "label": "before"}]
