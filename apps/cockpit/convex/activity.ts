@@ -227,27 +227,32 @@ export const stations = query({
       shown.set(station, Object.assign(found, facts));
       return found;
     };
+    // A checkout registered again under a fresh id retired the station it was (stations.ts, `own`):
+    // what that id still holds — its sessions, claims and spend — is listed under the station it is now.
+    const formerly = new Map<string, StationDetail>();
     for (const row of await reporting(ctx, factory)) {
-      detail(row.station, {
+      const found = detail(row.station, {
         name: row.name, kind: row.kind, owner: row.ownerLogin, registered: row.token !== null, seenAt: row.seenAt, report: row.report,
         revocable: await mayRevoke(ctx, who, row), commands: await waitingFor(ctx, factory, row.station),
       });
+      for (const was of row.formerly ?? []) formerly.set(was, found);
     }
+    const entryOf = (station: string) => shown.get(station) ?? formerly.get(station);
     for (const each of known.filter(held)) {
       const { stationId, stationName, stationKind } = each.summary;
       if (!stationId || stationKind === "ci") continue;
-      const found = shown.get(stationId) ?? detail(stationId, { name: stationName || stationId, kind: stationKind || "local" });
+      const found = entryOf(stationId) ?? detail(stationId, { name: stationName || stationId, kind: stationKind || "local" });
       found.sessions.push(rowOf(each));
     }
     for (const claim of claims) {
-      (shown.get(claim.station) ?? detail(claim.station, { name: claim.stationName })).claims.push(claim);
+      (entryOf(claim.station) ?? detail(claim.station, { name: claim.stationName })).claims.push(claim);
     }
     // The release a station runs is the one the session it started last said — by when it started,
     // not when it last moved: a long session on an old release must not hide a newer one. Its record
     // is over the sessions `recentOf` read, the factory's most recently active.
     const latest = new Map<string, number>();
     for (const each of known) {
-      const found = shown.get(each.summary.stationId);
+      const found = entryOf(each.summary.stationId);
       if (found === undefined) continue;
       const started = Date.parse(each.summary.startedAt) || 0;
       if (each.summary.skillVersion && started >= (latest.get(found.station) ?? -1)) {
@@ -267,7 +272,7 @@ export const stations = query({
       const rows = ctx.db.query("spend").withIndex("by_factory_at", (q) => q.eq("factory", spelling).gte("at", period.from).lt("at", period.to));
       for await (const row of rows) {
         if ((summed += 1) > SPEND_SUMMED) break;
-        const found = shown.get(row.station ?? stationOf.get(row.session) ?? "");
+        const found = entryOf(row.station ?? stationOf.get(row.session) ?? "");
         if (found !== undefined) found.period.cost += row.cost;
       }
     }
