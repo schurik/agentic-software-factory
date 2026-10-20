@@ -51,7 +51,7 @@ from .asf_helpers import (PY_CHECK, asf, commit_all, envelope, fake_roster, forg
 THIS_REPO = Path(__file__).resolve().parent.parent
 SESSIONS = Path(__file__).resolve().parent / "golden" / "sessions"
 EVENT_FIXTURES = Path(__file__).resolve().parent / "golden" / "events"
-RECORDING = "issue-then-two-reviews-scored"
+RECORDING = "issue-then-two-reviews-set-up"
 # The recording made before a phase said which stage it belongs to: the cockpit's session page
 # draws it as a flat chain of phases (apps/cockpit/tests/graph.test.ts), never a guessed grouping.
 # RECORDING moves on when a new story is recorded; this one stays.
@@ -175,10 +175,15 @@ session's cost ceiling refuses the builder's first turn, a limit hit that
 fails the chapter again. With the ceiling raised, `asf resume` builds, and the
 review, documentation and pull request follow; the gates hitl leaves off pass
 by policy. Chapters 2 and 3 are two rounds of review on that pull request.
-Every time a chapter ends it is scored: the issue's by the four scorers a
+Every chapter's worktree is set up first, by a `worktree.setup` command, in
+a phase that belongs to no stage. Every time a chapter ends it is scored: the issue's by the four scorers a
 stamp ships, which find the rollback and the limit hit, and each review
 round by a team's `review_chapters_above(1)`, which the second one fails.
 Transcripts are on, so the prompts each agent was sent are in the stream."""
+
+# What sets a chapter's worktree up: a command on every machine, by its bare name, that says the
+# same thing on each.
+SETUP = ["git", "rev-parse", "--is-inside-work-tree"]
 
 # The session's cost ceiling: past what the scouts and the planner spend before
 # the builder's first turn, so that turn is the one it refuses.
@@ -192,7 +197,7 @@ def tell(repo: Path) -> None:
                issues={"enabled": True, "project": "acme/widgets",
                        "route": {"asf:ship": "issue"}},
                pull_requests={"enabled": True, "project": "acme/widgets"},
-               worktree={"integration": {"mode": "pr", "open_pr": True}},
+               worktree={"integration": {"mode": "pr", "open_pr": True}, "setup": [SETUP]},
                cockpit={"transcripts": True},
                budget={"max_cost_usd": CEILING})
     scorer(repo, "review-rounds", {"workflow": "pr-review", "kind": "code",
@@ -308,15 +313,16 @@ def test_the_recorded_story_still_runs_and_is_written_only_when_asked(tmp_path: 
     chapters = [(line.payload["workflow"], line.payload["chapter"])
                 for line in lines if line.kind == "workflow_started"]
     assert chapters == [("issue", 1), ("pr-review", 2), ("pr-review", 3)]
-    # A gate, a revision, a verify and a commit belong to the stage that opened them.
+    # A gate, a revision, a verify and a commit belong to the stage that opened them; the setup,
+    # the work item and the report to none.
     second = next(at for at, line in enumerate(lines)
                   if line.kind == "workflow_started" and line.payload["chapter"] == 2)
     stage_of = {line.payload["name"]: line.payload["stage_index"]
                 for line in lines[:second] if line.kind == "phase_started"}
     assert {name: stage_of[name] for name in (
-        "issue", "plan", "approve_plan", "plan_revise_1", "approve_plan_2", "commit_plan",
+        "setup", "issue", "plan", "approve_plan", "plan_revise_1", "approve_plan_2", "commit_plan",
         "verify_1", "review_1", "commit_implement", "integrate", "report")} == {
-        "issue": None, "plan": 1, "approve_plan": 1, "plan_revise_1": 1, "approve_plan_2": 1,
+        "setup": None, "issue": None, "plan": 1, "approve_plan": 1, "plan_revise_1": 1, "approve_plan_2": 1,
         "commit_plan": 2, "verify_1": 4, "review_1": 5, "commit_implement": 6, "integrate": 9,
         "report": None}
     assert json.loads((session_dir(repo, ID) / "run.json").read_text())["status"] == "success"
