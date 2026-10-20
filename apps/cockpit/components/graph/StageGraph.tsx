@@ -11,8 +11,10 @@ import { useWho } from "../viewer";
 
 /**
  * The stage graph (#104, the prototype's Cards look, round 9): a chapter as a
- * chain — a start pill, its stages as cards joined by connectors coloured by
- * progress, an end pill — and the phases each stage produced inside its card.
+ * chain — a start pill, what prepared the chapter outside every stage (a
+ * worktree's setup) as cards of their own, its stages as cards joined by
+ * connectors coloured by progress, an end pill — and the phases each stage
+ * produced inside its card.
  * One component, for every page that draws a workflow: the session page's
  * chapters here, as `MiniGraph` one row of a list, and as `WorkflowGraph` a
  * workflow with no session behind it, on a factory's Workflows tab.
@@ -58,6 +60,10 @@ export function StageGraph({ graph, opened, onToggle, openPhase, openStage }: St
     return <Chain focus={graph.current === null ? null : `[data-phase="${graph.phases[graph.current].phaseId}"]`}>{links}</Chain>;
   }
   links.push(<End key="start" phase={graph.start} label={graph.start ? phaseName(graph.start) : "prompt"} openPhase={openPhase} />);
+  for (const phase of graph.before) {
+    links.push(<Connector key={`c${phase.phaseId}`} done={markOf(phase) !== "pending"} />);
+    links.push(<PhaseCard key={phase.phaseId} phase={phase} current={false} openPhase={openPhase} />);
+  }
   for (const stage of graph.stages) {
     links.push(<Connector key={`c${stage.index}`} done={stage.phases.length > 0} />);
     links.push(
@@ -66,7 +72,7 @@ export function StageGraph({ graph, opened, onToggle, openPhase, openStage }: St
     );
   }
   links.push(<Connector key="cend" done={graph.end !== null} />);
-  links.push(<End key="end" phase={graph.end} label="report" openPhase={openPhase} />);
+  links.push(<End key="end" phase={graph.end} label={graph.end ? phaseName(graph.end) : "report"} openPhase={openPhase} />);
   return <Chain focus={graph.current === null ? null : `[data-stage="${graph.current}"]`}>{links}</Chain>;
 }
 
@@ -191,7 +197,7 @@ function PhaseRow({ phase, openPhase }: { phase: Phase; openPhase?: OpenPhase })
   );
 }
 
-/** A phase as a card of its own: the chain of a chapter recorded before stages. */
+/** A phase as a card of its own: one that prepared a chapter outside its stages, or the chain of a chapter recorded before them. */
 function PhaseCard({ phase, current, openPhase }: { phase: Phase; current: boolean; openPhase?: OpenPhase }) {
   const mark = markOf(phase);
   const status = lookOf(mark);

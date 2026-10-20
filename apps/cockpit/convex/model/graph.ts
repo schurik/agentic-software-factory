@@ -4,8 +4,12 @@
  * stage index each `phase_started` (v3) carried — never by a phase's name.
  *
  * The phase that read the work item and the report belong to no stage: they
- * are the chain's two ends. A chapter from a factory before stages, or one
- * whose phases do not all sit in a stage it named, is drawn as what it is —
+ * are the chain's two ends. So does what prepared the chapter before its first
+ * stage — a worktree's setup, a prompt's request — which is drawn between the
+ * start and that stage. Which is which is said by where a phase sits, never by
+ * its name: outside every stage before the first one it prepared the chapter,
+ * after the last one it is the end. A chapter from a factory before stages, or
+ * one with a phase outside its stages anywhere else, is drawn as what it is —
  * a flat chain of its phases — rather than a grouping guessed at.
  *
  * A stage's status is its latest phase's: a stage whose verify failed once and
@@ -37,7 +41,8 @@ export interface Stage {
 
 export type Graph =
   // `current` is the stage the chapter is in now: the first one moving, waiting or failed.
-  | { kind: "stages"; start: Phase | null; stages: Stage[]; end: Phase | null; current: number | null }
+  // `before` is what ran outside every stage ahead of the first, in order.
+  | { kind: "stages"; start: Phase | null; before: Phase[]; stages: Stage[]; end: Phase | null; current: number | null }
   // `current` indexes `phases` the same way.
   | { kind: "phases"; phases: Phase[]; current: number | null };
 
@@ -93,9 +98,16 @@ export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">, {
   if (!chapter.stages.length) return flat();
 
   const start = chapter.reader;
-  const unstaged = phases.filter((phase) => phase !== start && phase.stageIndex === null);
   const placed = phases.every((phase) => phase.stageIndex === null || phase.stageIndex < chapter.stages.length);
-  if (unstaged.length > 1 || !placed) return flat();
+  if (!placed) return flat();
+  // In the order they ran: what came before the first staged phase prepared the chapter, what came after the last ends it.
+  const rest = phases.filter((phase) => phase !== start);
+  const first = rest.findIndex((phase) => phase.stageIndex !== null);
+  const last = rest.findLastIndex((phase) => phase.stageIndex !== null);
+  const before = first === -1 ? rest : rest.slice(0, first);
+  const after = first === -1 ? [] : rest.slice(last + 1);
+  const between = first === -1 ? [] : rest.slice(first, last + 1).filter((phase) => phase.stageIndex === null);
+  if (between.length || after.length > 1) return flat();
 
   const stages = chapter.stages.map((name, index): Stage => {
     const mine = phases.filter((phase) => phase.stageIndex === index);
@@ -107,7 +119,7 @@ export function graphOf(chapter: Pick<Chapter, "stages" | "reader" | "items">, {
     };
   });
   const current = currentOf(stages, (stage) => stage.status, (stage) => stage.phases.length > 0);
-  return { kind: "stages", start, stages, end: unstaged[0] ?? null, current };
+  return { kind: "stages", start, before, stages, end: after[0] ?? null, current };
 }
 
 /**

@@ -35,7 +35,7 @@ export function channelWords(channel: string, issueNumber = 0): string {
 
 const NAMED: Record<string, string> = {
   commit_plan: "commit plan", commit_implement: "commit code", commit_document: "commit docs",
-  issue: "read the issue", pr: "read the review", changes: "collect the diff",
+  issue: "read the issue", pr: "read the review", changes: "collect the diff", setup: "set up the worktree",
 };
 
 /**

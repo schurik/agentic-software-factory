@@ -326,6 +326,10 @@ before — `None` when there are none, never omitted.
   `bun install`, `uv sync`, … from the lockfiles it finds. The root `.env` holds the factory's own
   settings too (`ASF_SKILL`, `ASF_COCKPIT_URL`, `ASF_COCKPIT_TOKEN`): every agent and quality
   block already had them in its environment, and a worktree now holds them on disk as well.
+  A cockpit draws `setup` as a card of its own between the work item and the first stage: a
+  phase outside every stage before the first one prepared the chapter, and only one after the
+  last is its end — so a chapter that sets up still groups by stage, and the report's pill stays
+  dashed until the report runs.
 - **Browser tests are a quality block, `e2e`, and opt-in.** `asf/engine/quality.py` ships it
   beside `test` and `lint` as a placeholder, outside the new `DEFAULT` list `run_quality()` runs,
   so a stamp that never names it never runs it and `doctor` never mentions it. A workflow turns

@@ -10,6 +10,7 @@ import { fixture, recorded, type WireEvent } from "./helpers";
 
 const STAGED = recorded["issue-then-two-reviews-in-stages"].events;
 const BEFORE = recorded["issue-then-two-reviews"].events;
+const SET_UP = recorded["issue-then-two-reviews-set-up"].events;
 
 function graphs(events: WireEvent[]): Graph[] {
   const stored = events.map((event) => ({ ...event, payload: JSON.stringify(event.payload) }));
@@ -110,5 +111,34 @@ describe("a chapter's graph, from a factory before stages", () => {
     expect(review.kind === "phases" && review.phases.map((phase) => phase.name))
       .toEqual(["pr", "implement", "verify_1", "commit_implement", "report"]);
     expect(issue.current).toBeNull();
+  });
+});
+
+describe("a chapter's graph, from a factory that sets its worktree up", () => {
+  // Every chapter's first phase is `setup`, in no stage, before the work item is even read.
+  const names = (phases: { name: string }[]) => phases.map((phase) => phase.name);
+  const setUpTo = (seq: number) => SET_UP.filter((event) => event.seq <= seq);
+
+  it("draws the setup between the start and the first stage, and still ends on the report", () => {
+    for (const graph of graphs(SET_UP)) {
+      if (graph.kind !== "stages") throw new Error("not drawn in stages");
+      expect(names(graph.before)).toEqual(["setup"]);
+      expect(graph.end?.name).toBe("report");
+    }
+    expect(outline(graphs(SET_UP)[1])).toEqual(["implement done: implement", "verify done: verify_1", "commit done: commit_implement"]);
+  });
+
+  it("has no end while the report has not run, rather than the setup in its place", () => {
+    const [waiting] = graphs(setUpTo(63));          // suspended at the plan gate
+    expect(waiting).toMatchObject({ kind: "stages", start: { name: "issue" }, before: [{ name: "setup" }], end: null, current: 1 });
+
+    const [, verifying] = graphs(setUpTo(287));     // the review round's verify has just started
+    expect(verifying).toMatchObject({ kind: "stages", start: { name: "pr" }, before: [{ name: "setup" }], end: null, current: 1 });
+  });
+
+  it("is only the setup and the work item before any stage has run", () => {
+    const [reading] = graphs(setUpTo(8));           // the issue is being read
+    expect(reading).toMatchObject({ kind: "stages", start: null, end: null, current: null });
+    expect(reading.kind === "stages" && names(reading.before)).toEqual(["setup", "issue"]);
   });
 });

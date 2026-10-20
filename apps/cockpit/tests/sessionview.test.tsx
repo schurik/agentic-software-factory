@@ -24,6 +24,7 @@ import { fixture, recorded, type WireEvent } from "./helpers";
 const STAGED = recorded["issue-then-two-reviews-in-stages"].events;
 const { journal: STAGED_JOURNAL } = recorded["issue-then-two-reviews-in-stages"];
 const BEFORE = recorded["issue-then-two-reviews"].events;
+const SET_UP = recorded["issue-then-two-reviews-set-up"].events;
 const WHERE: Where = { factory: "acme/widgets", session: "a9f259f0", forge: "https://github.com" };
 // Three and a half minutes after the session started, on the recording's own clock.
 const NOW = Date.parse("2026-10-04T22:45:00Z");
@@ -228,6 +229,18 @@ describe("the chapters, each one row", () => {
     expect(row).toMatch(/<a href="\?tab=journal&amp;phase=a9f259f0_03_plan"/);
     // The gate waiting opens as its gate.
     expect(row).toMatch(/<a href="\?tab=journal&amp;gate=a9f259f0_04_approve_plan"/);
+  });
+
+  it("draws a worktree's setup as a card of its own before the stages, and the report only once it ran", () => {
+    const done = chapter(html({ events: SET_UP }), 3);
+    expect(done).toContain('data-phase="a9f259f0_24_setup"');
+    expect(read(done)).toMatch(/read the review .*set up the worktree .*implement .*verify .*commit .*report/);
+
+    const verifying = chapter(html({ events: SET_UP.filter((event) => event.seq <= 287) }), 2);
+    expect(verifying).toContain("data-stage=");
+    // The setup is its own card, not the report's pill: that one is dashed, with nothing to open, until the report runs.
+    expect(verifying).toContain('data-phase="a9f259f0_18_setup"');
+    expect(verifying).not.toContain("phase=a9f259f0_23_report");
   });
 
   it("draws a session recorded before stages as a flat chain of its phases", () => {
