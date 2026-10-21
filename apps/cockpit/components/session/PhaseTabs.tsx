@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Read } from "@/convex/artifacts";
-import { type Artifact, type PhaseDetail, READ_BYTES } from "@/convex/model/phase";
+import { type Artifact, type PhaseDetail, READ_BYTES, type ToolCall } from "@/convex/model/phase";
 import { type Pruned, prunedWord } from "@/convex/model/retention";
 import type { Phase } from "@/convex/model/graph";
 import type { GateItem } from "@/convex/model/story";
@@ -368,21 +368,29 @@ function Checks({ detail }: { detail: PhaseDetail }) {
 
 function Tools({ detail }: { detail: PhaseDetail }) {
   const { tools } = detail;
+  const rows = toolRows(tools);
   const failed = tools.filter((call) => !call.ok).length;
-  const spent = tools.reduce((total, call) => total + call.durationMs, 0);
+  const bySubagents = tools.filter((call) => call.parentCallId).length;
+  // The agent's own calls only: a subagent's time is already inside the call that ran it.
+  const spent = tools.filter((call) => !call.parentCallId).reduce((total, call) => total + call.durationMs, 0);
   return (
     <>
       {tools.length ? (
         <>
           <p>{tools.length} call{tools.length === 1 ? "" : "s"}{failed ? `, ${failed} failed` : ""}
+            {bySubagents ? `, ${bySubagents} by subagents` : ""}
             <span className="text-muted"> · {formatMs(spent)} in tools</span></p>
           <Table>
             <thead><tr><th>at</th><th>tool</th><th>outcome</th><th className={num}>took</th></tr></thead>
             <tbody>
-              {tools.map((call) => (
+              {rows.map(({ call, depth, made }) => (
                 <tr key={call.seq}>
                   <td>{formatClock(call.at)}</td>
-                  <td><code>{call.tool}</code></td>
+                  <td>
+                    {depth ? <span className="text-muted" style={{ marginLeft: `${depth - 1}em` }}>↳ </span> : null}
+                    <code>{call.tool}</code>
+                    {made ? <span className="text-muted"> · its subagent made {plural(made, "call")}</span> : null}
+                  </td>
                   <td className={call.ok ? undefined : "text-bad"}>{call.ok ? "✓ ok" : "✕ failed"}</td>
                   <td className={num}>{formatMs(call.durationMs)}</td>
                 </tr>
@@ -397,6 +405,33 @@ function Tools({ detail }: { detail: PhaseDetail }) {
       </p>
     </>
   );
+}
+
+/**
+ * The calls as the tab lists them: the agent's own in order, each followed by its subagent's, one step in. A
+ * subagent's calls come first on the wire — a call is sent when it returns, and the one that spawned them returns
+ * last — so they are moved under it. One whose spawning call never returned stays where it came, marked as a
+ * subagent's.
+ */
+export function toolRows(tools: ToolCall[]): { call: ToolCall; depth: number; made: number }[] {
+  const ids = new Set(tools.map((call) => call.callId).filter(Boolean));
+  const under = new Map<string, ToolCall[]>();
+  for (const call of tools) {
+    if (call.parentCallId && ids.has(call.parentCallId)) {
+      under.set(call.parentCallId, [...(under.get(call.parentCallId) ?? []), call]);
+    }
+  }
+  const rows: { call: ToolCall; depth: number; made: number }[] = [];
+  const place = (call: ToolCall, depth: number) => {
+    const made = call.callId ? under.get(call.callId) ?? [] : [];
+    rows.push({ call, depth, made: made.length });
+    for (const child of made) place(child, depth + 1);
+  };
+  for (const call of tools) {
+    if (call.parentCallId && ids.has(call.parentCallId)) continue;
+    place(call, call.parentCallId ? 1 : 0);
+  }
+  return rows;
 }
 
 const formatMs = (ms: number) => (ms < 1000 ? `${ms}ms` : formatDuration(ms / 1000));

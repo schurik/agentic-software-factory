@@ -1,0 +1,15 @@
+{
+  "seq": 1,
+  "ts": "2026-09-29T12:00:00.000+00:00",
+  "kind": "tool_called",
+  "v": 2,
+  "payload": {
+    "phase_id": "5c0075aa_03_plan",
+    "agent": "planner",
+    "tool": "Grep",
+    "ok": true,
+    "duration_ms": 212,
+    "call_id": "toolu_01Hq7Vb2xY4kLmN8pR3sT6wZ",
+    "parent_call_id": "toolu_01AbC9dEfG2hJkL5mN7pQ8rS"
+  }
+}

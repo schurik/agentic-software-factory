@@ -2,8 +2,13 @@
 
 One record per COMPLETED tool call, with the same keys whatever ran it:
 
-    tool, tool_call_id, args, ok, label, result_snippet,
+    tool, tool_call_id, parent_call_id, args, ok, label, result_snippet,
     started_at, ended_at, duration_ms
+
+`parent_call_id` is the call a SUBAGENT made this one under — Claude Code's
+`Task`, say — and empty for the agent's own calls. A subagent's calls arrive
+in the same stream as its parent's, so without it they would read as the
+agent's own, flattened beside the call that spawned them.
 
 That shape is the contract `agents._event_forwarder` turns into `tool_called`
 events, so it lives here rather than inside one harness.
@@ -55,14 +60,16 @@ class ToolCallLedger:
     def __init__(self) -> None:
         self._open: dict[str, dict] = {}
 
-    def announce(self, call_id, tool, args) -> None:
-        """First sighting starts the clock; a later sighting only fills gaps."""
+    def announce(self, call_id, tool, args, parent: str = "") -> None:
+        """First sighting starts the clock; a later sighting only fills gaps.
+        `parent` is the call whose subagent made this one, if any."""
         if not call_id:
             return
         known = self._open.get(str(call_id), {})
         self._open[str(call_id)] = {
             "tool": tool or known.get("tool", ""),
             "args": args or known.get("args", {}),
+            "parent": str(parent or known.get("parent") or ""),
             "started_at": known.get("started_at") or now_iso(),   # wall clock, for the row
             "clock": known.get("clock") or time.monotonic(),      # monotonic, for duration
         }
@@ -77,6 +84,7 @@ class ToolCallLedger:
         record = {
             "tool": name,
             "tool_call_id": key,
+            "parent_call_id": opened.get("parent", ""),
             "args": {k: clip(v, ARG_VALUE_CHARS) if isinstance(v, str) else v
                      for k, v in arguments.items()},
             "ok": ok,

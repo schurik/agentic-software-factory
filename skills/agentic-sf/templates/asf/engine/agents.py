@@ -599,7 +599,8 @@ class _HarnessOutput:
 
 def _event_forwarder(run, phase: Phase, agent_name: str, driver):
     """One `tool_called` event per real tool call: the tool, whether it worked,
-    how long it took — never its arguments or its result.
+    how long it took, and which call's subagent made it — never its arguments
+    or its result.
 
     The tracker comes from the harness; the record shape does not (it is
     tool_calls.py's, identical for both), which keeps the harness's stream
@@ -611,7 +612,9 @@ def _event_forwarder(run, phase: Phase, agent_name: str, driver):
         for record in tracker.observe(event):
             run.tracer.event(ToolCalled(phase_id=phase.phase_id, agent=agent_name,
                                         tool=record["tool"], ok=bool(record["ok"]),
-                                        duration_ms=record.get("duration_ms", 0)))
+                                        duration_ms=record.get("duration_ms", 0),
+                                        call_id=record.get("tool_call_id", ""),
+                                        parent_call_id=record.get("parent_call_id", "")))
     return forward
 
 

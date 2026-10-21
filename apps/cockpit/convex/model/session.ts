@@ -554,6 +554,11 @@ const READERS: Record<string, Record<number, Reader>> = {
       describe: (p) => `${p.str("agent")} called ${p.str("tool")}: ` +
         `${p.bool("ok") ? "ok" : "failed"} after ${p.num("duration_ms")}ms`,
     },
+    // v2: call_id, and parent_call_id — the call whose subagent made this one.
+    2: {
+      describe: (p) => `${p.str("agent")}${p.str("parent_call_id") ? "'s subagent" : ""} called ` +
+        `${p.str("tool")}: ${p.bool("ok") ? "ok" : "failed"} after ${p.num("duration_ms")}ms`,
+    },
   },
   process_started: {
     1: { describe: (p) => `process ${p.num("pid")} started: ${p.str("command") || p.str("name")}` },

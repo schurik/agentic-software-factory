@@ -58,6 +58,7 @@ const DESCRIBED: Record<string, string> = {
   "suspended/v1.json": "suspended at plan round 2",
   "suspended/v2.json": "suspended at requirements round 1",
   "tool_called/v1.json": "planner called bash: failed after 1840ms",
+  "tool_called/v2.json": "planner's subagent called Grep: ok after 212ms",
   "usage/v1.json": "planner · sonnet: 1200 tokens, $0.0185",
   "workflow_finished/v1.json":
     "chapter 1: ship finished: fail — the run's acceptance criterion was not met",

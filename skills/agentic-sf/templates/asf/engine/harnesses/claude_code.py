@@ -314,6 +314,12 @@ class ToolCallTracker:
     one `user` message can answer several parallel calls at once, which is why
     `observe` returns a list.
 
+    A subagent's messages come down the same stream, each carrying the
+    `parent_tool_use_id` of the `Task` call that spawned it — and its own tool
+    calls with it. That id is the record's `parent_call_id`, so the subagent's
+    work stays attributed to the call it ran under instead of reading as the
+    agent's own.
+
     The record shape is tool_calls.py's, identical to the pi tracker's, which
     is what lets `agents._event_forwarder` and the events it writes stay
     untouched by this harness existing.
@@ -334,10 +340,11 @@ class ToolCallTracker:
         if not isinstance(blocks, list):
             return []
         if etype == "assistant":
+            parent = str(event.get("parent_tool_use_id") or "")
             for block in blocks:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     self._ledger.announce(block.get("id"), block.get("name"),
-                                          block.get("input"))
+                                          block.get("input"), parent=parent)
             return []
         return [self._ledger.close(block.get("tool_use_id"),
                                    ok=not block.get("is_error", False),
@@ -581,7 +588,9 @@ def _stream(cmd: list[str], request: AgentRequest, result: AgentResult,
                 for denied, message in _unheld_denials(request.deny_tools,
                                                        list(event.get("tools") or [])):
                     _warn_once(f"deny:{request.agent}:{denied}", message, on_event)
-            elif etype == "assistant":
+            # A subagent's turn is a context of its own: its occupancy says
+            # nothing about how full the agent's window is.
+            elif etype == "assistant" and not event.get("parent_tool_use_id"):
                 usage = event.get("message", {}).get("usage") or {}
                 occupancy = _turn_context_tokens(usage)
                 if occupancy:

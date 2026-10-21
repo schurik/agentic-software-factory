@@ -73,7 +73,11 @@ export interface Command {
   pruned: Pruned | null;  // its output tail purged
 }
 
-/** A tool call: its name, whether it worked and how long it took — the factory sends nothing more. */
+/**
+ * A tool call: its name, whether it worked and how long it took — the factory sends nothing more.
+ * `parentCallId` is the call whose subagent made it (Claude Code's `Task`), "" for the agent's own;
+ * both ids are "" before tool_called v2.
+ */
 export interface ToolCall {
   seq: number;
   at: string;
@@ -81,6 +85,8 @@ export interface ToolCall {
   tool: string;
   ok: boolean;
   durationMs: number;
+  callId: string;
+  parentCallId: string;
 }
 
 /** One agent turn's spend, and the context window's occupancy after it. */
@@ -246,6 +252,12 @@ function own(fold: Detailer): Detailer {
   };
 }
 
+const toolCalled = own((state, p, { seq, ts }) => {
+  state.tools.push({ seq, at: ts, agent: p.str("agent"), tool: p.str("tool"), ok: p.bool("ok"),
+                     durationMs: p.num("duration_ms"), callId: p.str("call_id"),
+                     parentCallId: p.str("parent_call_id") });
+});
+
 function phaseStarted(state: DetailState, p: Payload, { ts }: At): void {
   if (p.str("name")) state.phaseNames.set(p.str("phase_id"), p.str("name"));
   if (!mine(state, p)) return;
@@ -330,12 +342,8 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
                             pruned: prunedOf(p) });
     }),
   },
-  tool_called: {
-    1: own((state, p, { seq, ts }) => {
-      state.tools.push({ seq, at: ts, agent: p.str("agent"), tool: p.str("tool"), ok: p.bool("ok"),
-                         durationMs: p.num("duration_ms") });
-    }),
-  },
+  // v2 adds the ids, which read as "" off a v1 line.
+  tool_called: { 1: toolCalled, 2: toolCalled },
   usage: {
     1: own((state, p, { seq, ts }) => {
       const usage = p.obj("usage");
