@@ -499,6 +499,15 @@ const READERS: Record<string, Record<number, Reader>> = {
       describe: (p) => `suspended at ${gateRound(p.obj("waiting_for"))}` +
         (p.bool("published") ? "" : ", its subject not on the forge"),
     },
+    // v3 gives each question its id (Q1, Q2, …), which the inbox shows (inbox.ts): the summary reads it as v2.
+    3: {
+      fold: ({ summary }, p) => {
+        summary.status = "waiting";
+        summary.waitingFor = suspendedFor(p, 3);
+      },
+      describe: (p) => `suspended at ${gateRound(p.obj("waiting_for"))}` +
+        (p.bool("published") ? "" : ", its subject not on the forge"),
+    },
   },
   decision_recorded: {
     1: {

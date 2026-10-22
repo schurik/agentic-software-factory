@@ -643,6 +643,11 @@ const TELLERS: Record<string, Record<number, Teller>> = {
       asked(state, p.obj("waiting_for"), at, p.str("head_sha"));
       current(state).status = "waiting";
     },
+    // v3's question ids are the inbox's too.
+    3: (state, p, at) => {
+      asked(state, p.obj("waiting_for"), at, p.str("head_sha"));
+      current(state).status = "waiting";
+    },
   },
   decision_recorded: {
     1: (state, p, { seq, ts }) => {

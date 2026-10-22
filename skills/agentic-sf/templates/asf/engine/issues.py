@@ -361,36 +361,73 @@ def asked_at(comments: list[IssueComment], adw_id: str, round: int) -> str:
     return ""
 
 
+def numbered(questions: list[Question], first: int = 1) -> list[Question]:
+    """The questions with their ids, Q<first> onward, over whatever the agent said.
+
+    The caller says where to start because only the stage knows how many it
+    asked in earlier rounds, and numbering on from there is what keeps an id
+    meaning one question for the whole run: round 2's first question is Q4,
+    not a second Q1 a reply could mean either way. Deterministic from the
+    envelope and the count, so a replayed round numbers exactly as it did.
+    """
+    return [question.model_copy(update={"id": f"Q{first + index}"})
+            for index, question in enumerate(questions)]
+
+
+def label_of(question: Question, index: int) -> str:
+    """What a question is called on the page: its id, or its place in the round.
+
+    The place is only for a list nobody numbered — a stage always does
+    (`issues.numbered`) — and it is the same fallback everywhere a question is
+    written down, so the comment and the answers file never disagree on names.
+    """
+    return question.id or f"Q{index}"
+
+
 def render_questions(questions: list[Question], adw_id: str, round: int,
                      limit: int = 4000) -> str:
     """The comment a person answers. Grouped by topic, because a list of eight
-    unrelated questions gets three of them answered."""
+    unrelated questions gets three of them answered.
+
+    EVERY QUESTION IS COUNTED AT THE TOP and called by its id. A question that
+    never reaches the person stands at its recommendation as surely as one
+    they read and agreed with, so the count is how a person tells "four
+    questions, I see four" from a page that lost one — and the id is how one
+    line answers one of them.
+    """
+    blocking = sum(1 for question in questions if question.blocking)
+    count = (f"**{len(questions)} question{'' if len(questions) == 1 else 's'}**"
+             + (f", {blocking} of them blocking" if blocking != len(questions) else ""))
     head = [questions_mark(adw_id, round),
             f"`{adw_id}` · **round {round}** — I need a few answers before these "
-            f"requirements are worth planning against.", ""]
+            f"requirements are worth planning against.", "",
+            f"{count}. Each has an id, so `Q2: 2` answers one.", ""]
 
-    topics: dict[str, list[Question]] = {}
-    for question in questions:
-        topics.setdefault(question.topic or "open", []).append(question)
+    topics: dict[str, list[tuple[int, Question]]] = {}
+    for index, question in enumerate(questions, start=1):
+        topics.setdefault(question.topic or "open", []).append((index, question))
 
-    body: list[str] = []
+    # One block per question, its topic heading on the first of each group, so
+    # the ceiling below cuts between questions and never through one.
+    blocks: list[list[str]] = []
     for topic, group in topics.items():
-        body.append(f"### {topic}")
-        for question in group:
+        for at, (index, question) in enumerate(group):
+            block = [f"### {topic}"] if at == 0 else []
             mark = "" if question.blocking else " _(nice to have)_"
-            body.append(f"**{question.question}**{mark}")
+            block.append(f"**{label_of(question, index)}** · **{question.question}**{mark}")
             if question.why:
-                body.append(f"<sub>{question.why}</sub>")
+                block.append(f"<sub>{question.why}</sub>")
             # The options are what make this answerable in one line. Recommended
             # first — `Question.ranked`, not the order the envelope happened to
             # carry — and numbered, because "2" is an answer a person can give
             # from a phone while the alternative is composing a paragraph.
-            for index, option in enumerate(question.ranked, start=1):
-                lead = f"{index}. **{option.answer}**"
+            for number, option in enumerate(question.ranked, start=1):
+                lead = f"{number}. **{option.answer}**"
                 if option.recommended:
                     lead += " — *recommended*"
-                body.append(lead + (f" · {option.because}" if option.because else ""))
-            body.append("")
+                block.append(lead + (f" · {option.because}" if option.because else ""))
+            block.append("")
+            blocks.append(block)
 
     tail = ["**You only need to write about what you would change.** A number per question "
             "is enough, or say something else entirely — the options are a starting point, "
@@ -403,13 +440,23 @@ def render_questions(questions: list[Question], adw_id: str, round: int,
             "terminal, `asf answer <adw_id> -m \"...\"` and `asf approve <adw_id>` both "
             "work.</sub>"]
 
-    text = "\n".join([*head, *body, *tail])
-    if len(text) > limit:
-        # Truncating the QUESTIONS is the right thing to lose: the marker line
-        # and the instructions are what make the comment answerable at all.
-        keep = limit - len("\n".join([*head, *tail])) - len("\n…\n")
-        text = "\n".join([*head, "\n".join(body)[:max(0, keep)], "…", *tail])
-    return text
+    text = "\n".join([*head, *(line for block in blocks for line in block), *tail])
+    if len(text) <= limit:
+        return text
+    # Over the ceiling, whole questions go, from the end, and the page SAYS how
+    # many — `gates.questions_are_answerable` refuses a round that does not fit,
+    # so this is the net under it, and a net that dropped questions quietly
+    # would be the very failure the count exists to show. The marker line and
+    # the instructions are never what is lost: they make the comment answerable.
+    for kept in range(len(blocks) - 1, -1, -1):
+        left = len(questions) - kept
+        note = [f"**…and {left} more question{'' if left == 1 else 's'} that did not fit in "
+                f"one comment.** `asf show {adw_id}` prints every one.", ""]
+        shown = [line for block in blocks[:kept] for line in block]
+        text = "\n".join([*head, *shown, *note, *tail])
+        if len(text) <= limit or kept == 0:
+            return text[:limit]
+    return text[:limit]
 
 
 def comments(tree, cfg: FactoryConfig, ref: IssueRef) -> list[IssueComment]:
@@ -500,16 +547,18 @@ def write_answers(path: Path, answers: list[IssueComment],
 
     if questions:
         lines += ["## What was asked, and what it stands at", ""]
-        for question in questions:
+        for index, question in enumerate(questions, start=1):
             default = question.default
-            lines.append(f"- **[{question.topic}]** {question.question} → "
+            lines.append(f"- **{label_of(question, index)} [{question.topic}]** "
+                         f"{question.question}"
+                         + ("" if question.blocking else " _(nice to have)_") + " → "
                          + (f"defaults to *{default.answer}*" if default
                             else "**no recommendation was given**"))
         lines += ["",
                   "A reply overrides the questions it addresses; every other question "
                   "stands at the option above. Say in the requirements which defaults you "
-                  "took, so a reader can see what was decided by agreement and what by "
-                  "silence on that point.", ""]
+                  "took, by each question's id, so a reader can see what was decided by "
+                  "agreement and what by silence on that point.", ""]
         if agreed:
             # Stated HERE, in the run's own record, rather than put in the
             # person's mouth below: "approve" at a question round is a verdict,

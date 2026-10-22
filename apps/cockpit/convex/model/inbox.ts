@@ -246,6 +246,8 @@ export interface Option {
 }
 
 export interface Question {
+  /** Q1, Q2, … as the factory numbered it (`suspended` v3), or its place in the round before that. */
+  id: string;
   topic: string;
   question: string;
   why: string;
@@ -356,11 +358,13 @@ function lastRoundOf(round: number, then: Payload | undefined, now: Payload | nu
   return { round, headSha: then.str("head_sha") };
 }
 
-function readQuestion(p: Payload): Question {
+function readQuestion(p: Payload, at: number): Question {
   const options = p.list("options").map((o) => ({
     answer: o.str("answer"), because: o.str("because"), recommended: o.bool("recommended"),
   }));
   return {
+    // Before v3 a question had no id; its place is what the factory's comment called it then.
+    id: p.str("id") || `Q${at + 1}`,
     topic: p.str("topic"), question: p.str("question"), why: p.str("why"),
     // Absent means blocking, as the factory's own default has it.
     blocking: p.value().blocking !== false,

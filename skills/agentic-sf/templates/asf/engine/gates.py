@@ -17,9 +17,11 @@ where it was told would be reported as having written nothing.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
+from . import issues
 from .data_types import EnvelopeBase, GateReport
 from .utils import anchor, operator_env
 
@@ -158,6 +160,9 @@ def screenshots_handed_off(envelope: EnvelopeBase, run) -> GateReport:
 
 
 MIN_OPTIONS, MAX_OPTIONS = 2, 3
+# A round a person answers in one sitting. Past this an analyst has stopped
+# deciding what it could decide, and the reporter answers the first few.
+MAX_QUESTIONS = 7
 
 
 def questions_are_answerable(envelope: EnvelopeBase, run) -> GateReport:
@@ -173,17 +178,49 @@ def questions_are_answerable(envelope: EnvelopeBase, run) -> GateReport:
     question has two honest answers and inventing a third to satisfy a gate
     would be worse than the gate not existing.
 
+    ONE QUESTION IS ONE DECISION, and a round is one comment. Two question
+    marks in one `question` is two decisions under one id, and a reply that
+    answers the first leaves the second at a default nobody saw; a round that
+    does not fit under `issues.max_question_chars` would be cut on the page,
+    and what is cut stands at its recommendation just as silently. Both are
+    the failure the ids and the count on the comment exist to make visible,
+    so both are refused here, before anything is posted.
+
     `needs_recon` is checked the same way every other claim in this package is:
     against the envelope, never against the future. Whether the recon would have
     helped is a prediction, and gates do not verify predictions — only that an
     analyst asking for one said what it is looking for.
     """
     report = GateReport()
-    for question in getattr(envelope, "open_questions", []):
+    asking = list(getattr(envelope, "open_questions", []))
+    if asking:
+        report.check("round · size", len(asking) <= MAX_QUESTIONS,
+                     f"{len(asking)} question(s)" if len(asking) <= MAX_QUESTIONS
+                     else f"{len(asking)} questions; a round asks at most {MAX_QUESTIONS} — "
+                          f"decide the ones you can, and keep the ones only a person can answer")
+        limit = getattr(getattr(getattr(run, "cfg", None), "issues", None),
+                        "max_question_chars", None)
+        if limit:
+            # Rendered as the comment will be, ids and all, which is the only
+            # length that matters: the one the page is cut at.
+            size = len(issues.render_questions(issues.numbered(asking),
+                                               getattr(run, "adw_id", ""),
+                                               getattr(envelope, "round", 1), limit=10**9))
+            report.check("round · fits", size <= limit,
+                         f"{size} of {limit} chars" if size <= limit
+                         else f"the comment would be {size} chars and the page holds "
+                              f"{limit}; shorten the questions, or ask fewer — whatever "
+                              f"is cut stands at its recommendation unseen")
+    for question in asking:
         name = (question.question or "<empty>")[:60]
         report.check(f"{name} · asked", bool(question.topic and question.question),
                      "has a topic and a question" if question.topic and question.question
                      else "a question needs both a topic and something to ask")
+        marks = question.question.count("?")
+        report.check(f"{name} · one thing", marks <= 1,
+                     "asks one thing" if marks <= 1
+                     else f"{marks} question marks; one entry asks one thing, so a reply "
+                          f"can answer it by its id — split it")
 
         count = len(question.options)
         report.check(f"{name} · options",
@@ -205,6 +242,34 @@ def questions_are_answerable(envelope: EnvelopeBase, run) -> GateReport:
                      f"looking for: {focus[:60]}" if focus
                      else "needs_recon is set with no recon_focus — a scout cannot be "
                           "sent to find out 'something'")
+    return report
+
+
+# A heading that files questions in prose. English because the task files are,
+# and `fragen` because a requirements file follows the language of the request.
+_QUESTIONS_HEADING = re.compile(r"^\s{0,3}#{1,6}\s.*\b(questions?|fragen?)\b", re.I | re.M)
+
+
+def questions_stay_in_the_envelope(envelope: EnvelopeBase, run) -> GateReport:
+    """No artifact keeps a section of questions of its own.
+
+    A question in the requirements file is one no person is asked: the comment
+    is RENDERED from `open_questions` (`issues.render_questions`), never from
+    the file, so a question written there reaches the issue only as part of
+    the requirements block, after the round that should have answered it. Only
+    a heading is looked for — a requirement may mention a question, and a gate
+    reading prose for intent would be judging, not verifying.
+    """
+    report = GateReport()
+    for declared in envelope.artifacts:
+        path = _in_tree(run, declared)
+        if path is None or not path.is_file() or path.suffix != ".md":
+            continue
+        found = _QUESTIONS_HEADING.search(path.read_text(errors="replace"))
+        report.check(f"{declared} · no questions section", found is None,
+                     "questions only in open_questions" if found is None
+                     else f"has {found.group(0).strip()!r}; a question goes in "
+                          f"`open_questions`, where a person is asked it — not in the file")
     return report
 
 

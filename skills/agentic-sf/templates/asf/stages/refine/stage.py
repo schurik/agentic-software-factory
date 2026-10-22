@@ -24,6 +24,11 @@ already read-only — and because that keeps the analyst a requirements thinker
 with no `Bash` and no `Grep`, which is a boundary worth having when the same
 agent is the one allowed to fetch a stranger's URL.
 
+WHETHER A ROUND IS ASKED is the analyst's answer and, for one thing only, the
+hitl policy's: a blocking question is always asked, and the policy decides
+whether a round whose questions are all nice to have is asked too
+(`hitl.asks_every_question`) — it can add a round, never take one away.
+
 WHERE THE QUESTIONS GO is not an option here: `hitl.channel_of` derives it from
 the run, work item first. A workflow cannot get that wrong because it cannot
 say anything about it.
@@ -102,6 +107,11 @@ class Options(BaseModel):
     max_rounds: int = Field(default=3, ge=1)   # question rounds; exhausting them stops the run
     recon: Recon = Field(default_factory=Recon)
     retries: int = 1                # gate-correction rounds into the same session
+    # Whether a person also sees the NICE-TO-HAVE questions: on, a round with
+    # nothing blocking is asked too, and its recommendations are agreed rather
+    # than dropped. Blocking questions are asked either way. None: factory.yaml's
+    # `hitl.gates.requirements` decides, and `--hitl` beats both.
+    hitl: Optional[bool] = None
 
 
 def _joined(envelope: Optional[EnvelopeBase], artifacts: list[str], notes: str,
@@ -151,7 +161,7 @@ def _draft(ctx, opts: Options, material, round: int) -> RequirementsOutput:
             output_type=RequirementsOutput, prompt=ctx.prompt, previous=material,
             task=ctx.task("ask" if round == 1 else "refine"),
             gates=[gates.artifacts_exist, gates.files_non_empty,
-                   gates.questions_are_answerable]))
+                   gates.questions_are_answerable, gates.questions_stay_in_the_envelope]))
 
 
 def _answers(ctx, draft: RequirementsOutput, decision, round: int) -> str:
@@ -209,6 +219,7 @@ def run(ctx, opts: Options):
     number = ctx.previous.number if isinstance(ctx.previous, IssueOutput) else 0
     material: Optional[EnvelopeBase] = ctx.previous
     recon_spent = 0
+    asked = 0                       # questions put to a person so far: where the next ids start
     focus = ""
 
     for round in range(1, opts.max_rounds + 1):
@@ -226,10 +237,23 @@ def run(ctx, opts: Options):
         focus = ""
 
         draft = _draft(ctx, opts, material, round)
-        if not draft.blocking_questions:
+        draft = draft.model_copy(update={
+            "open_questions": issues.numbered(draft.open_questions, asked + 1)})
+        if not draft.blocking_questions and not (
+                draft.open_questions and hitl.asks_every_question(ctx.run, GATE)):
             # Non-blocking questions are dropped here on purpose: they were
             # worth asking on a round that was going to happen anyway, and they
-            # are not worth a day of somebody's time on their own.
+            # are not worth a day of somebody's time on their own — unless the
+            # hitl policy says this gate is on, and a person sees every one.
+            break
+        if round == opts.max_rounds and not draft.blocking_questions:
+            # The policy wanted them asked, but a round asked now would wait
+            # for an answer no draft is left to fold in. The requirements hold
+            # without them, so they stand at their recommendations — said here,
+            # because nobody was asked.
+            ctx.run.console.note(
+                f"{len(draft.open_questions)} nice-to-have question(s) not asked: round "
+                f"{round} is the last (max_rounds), so they stand at their recommendations")
             break
         if round == opts.max_rounds:
             # Checked BEFORE asking, not after the loop: a round that asks,
@@ -242,10 +266,16 @@ def run(ctx, opts: Options):
                 f"draft and answer is in this run's own directory; raise max_rounds, or "
                 f"say what is missing on the item and start it again.")
 
+        # EVERY open question, not only the blocking ones. Blocking (or the
+        # policy) decides WHETHER a round is asked; once it is, the rest ride
+        # along — and they have to be on the page to ride: `_answers` records
+        # each of them as standing at its recommendation, which is only honest
+        # about a question somebody was shown.
         decision = hitl.asked(ctx.run, Subject(
             gate=GATE, round=round, summary=draft.summary,
             paths=draft.artifacts, notes=draft.notes_for_next_agent,
-            questions=draft.blocking_questions))
+            questions=draft.open_questions))
+        asked += len(draft.open_questions)
         material = _joined(material, [_answers(ctx, draft, decision, round)],
                            ANSWERS_NOTES, f"round {round} answered by {decision.by}")
         focus = draft.recon_focus.strip() if draft.needs_recon else ""

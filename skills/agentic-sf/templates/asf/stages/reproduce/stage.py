@@ -163,8 +163,11 @@ def _give_up(ctx, tried: list[ReproOutput]) -> None:
 def run(ctx, opts: Options):
     material: Optional[EnvelopeBase] = ctx.previous
     tried: list[ReproOutput] = []
+    asked = 0                       # questions put to a person so far: where the next ids start
     for round in range(1, opts.max_rounds + 1):
         attempt = _attempt(ctx, opts, material, round)
+        attempt = attempt.model_copy(update={
+            "open_questions": issues.numbered(attempt.open_questions, asked + 1)})
         if attempt.reproduced:
             reproduction.freeze(ctx.run, attempt)
             # The builder after this needs the reporter's words and the scout's
@@ -194,5 +197,6 @@ def run(ctx, opts: Options):
         decision = hitl.asked(ctx.run, Subject(
             gate=GATE, round=round, summary=attempt.summary, paths=attempt.artifacts,
             notes=attempt.tried, questions=attempt.open_questions))
+        asked += len(attempt.open_questions)
         material = _joined(material, [_answers(ctx, attempt, decision, round)],
                            ANSWERS_NOTES, f"round {round} answered by {decision.by}")

@@ -254,8 +254,15 @@ class Question(BaseModel):
     from their phone should be able to reply "2" and be done. The gate enforces
     the count and the single recommendation, because an instruction in a task
     file is a hope and a gate is a condition.
+
+    `id` IS CODE'S, NEVER THE AGENT'S: `issues.numbered` sets it — Q1, Q2, … and
+    on through later rounds, so an id names one question for the whole run —
+    over whatever the envelope said. It is what lets a reply say "Q2: 2" and
+    the requirements say which question decided what, and what lets a person
+    count that every question the analyst asked actually reached them.
     """
 
+    id: str = ""
     topic: str
     question: str
     why: str = ""
@@ -3081,10 +3088,13 @@ class SessionSuspended(DomainEvent):
     channel the factory will hear (`hitl.who_answers`), empty for anyone the
     forge lets reply. A cockpit offers the answer to those people and nobody
     else; the answers watcher is still what checks it.
+
+    v3: each question carries its `id` (`issues.numbered`), the one a reply and
+    the requirements cite it by.
     """
 
     KIND: ClassVar[str] = "suspended"
-    VERSION: ClassVar[int] = 2      # v2: published, questions, trusted
+    VERSION: ClassVar[int] = 3      # v2: published, questions, trusted · v3: question ids
 
     waiting_for: WaitingFor
     base_commit: str = ""

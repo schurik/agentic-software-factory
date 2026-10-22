@@ -682,6 +682,20 @@ def gated(run, gate: Gate, envelope: EnvelopeBase) -> EnvelopeBase:
         round += 1
 
 
+def asks_every_question(run, gate: str) -> bool:
+    """Whether the policy puts this gate's NICE-TO-HAVE questions to a person too.
+
+    A question round is not a gate the policy can pass: a blocking question is
+    asked whatever `hitl` says, because the alternative is guessing. What the
+    policy CAN decide is the other half — the questions the requirements
+    survive without, which are otherwise dropped when nothing blocks. `on`
+    for the round's gate (`hitl.gates: {requirements: on}`, `default: on`,
+    `--hitl all`) means a person sees, and agrees to, every one of them. So
+    the policy only ever adds a round; it never takes one away.
+    """
+    return run.hitl.mode(gate, _trigger_of(run)) == "on"
+
+
 def asked(run, subject: Subject) -> Decision:
     """Put ONE round of questions to a person and hand back what they said.
 
@@ -703,11 +717,12 @@ def asked(run, subject: Subject) -> Decision:
     name = (f"ask_{subject.gate}" if subject.round == 1
             else f"ask_{subject.gate}_{subject.round}")
     blocking = sum(1 for question in subject.questions if question.blocking)
+    why = (f"rather than guess at {blocking} thing(s) the request does not say" if blocking
+           else "because the policy puts every question to a person, nice to have or not")
     with run.phase(PhaseParams(
             name=name, kind="engineer", owner=run.engineer,
             description=f"Put {len(subject.questions)} open question(s) to a person and "
-                        f"wait, rather than guess at {blocking} thing(s) the request does "
-                        f"not say")) as ph:
+                        f"wait, {why}")) as ph:
         decision = ph.decide(subject.model_copy(update={"kind": "questions"}))
         if decision.verdict == "abort":
             raise Aborted(f"aborted by {decision.by} at the {subject.gate} questions"

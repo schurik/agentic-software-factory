@@ -32,6 +32,10 @@ planner can work from — and name what you cannot settle without asking.
      get, so nobody plans it by accident.
    - **Assumptions** — what the request implies but nobody actually said. This
      section is why a reader can trust the one above it.
+
+   No section of questions: a question in this file is one nobody is asked.
+   The comment on the work item is rendered from `open_questions` and nothing
+   else, and a gate refuses a file with a questions heading.
 4. Decide what you can decide. A question costs a person their attention and
    this run a day, so ask only where the answer changes the solution — and say
    in `why` what it changes.
@@ -43,8 +47,14 @@ planner can work from — and name what you cannot settle without asking.
    and a question nobody covers stands at what you recommended — so recommend
    what you would actually do.
 6. Set `blocking: false` on a question worth asking that the requirements
-   survive without. Only blocking questions stop the run; the rest ride along.
-7. If you cannot write a requirement because you do not know what this
+   survive without. Only blocking questions stop the run; when one does, every
+   question goes on the page with it, the rest marked *nice to have*.
+7. **One entry, one decision.** A `question` asks one thing — one question
+   mark — so a reply can answer it by its id. Two decisions are two entries,
+   under the same `topic` if they belong together. A round asks at most seven,
+   and must fit in one comment: decide the rest yourself. The factory numbers
+   the questions `Q1`, `Q2`, … in the order you list them; leave `id` out.
+8. If you cannot write a requirement because you do not know what this
    repository does today, set `needs_recon: true` and say in `recon_focus` what
    you need to know. A scout goes and looks, and you are asked again with its
    findings. Asking costs a phase; guessing costs the plan.

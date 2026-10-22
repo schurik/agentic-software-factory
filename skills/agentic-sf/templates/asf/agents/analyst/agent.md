@@ -45,6 +45,9 @@ not possible from the material you have, ask, with options.
   `recommended`.** You have read the issue and the code; you know the shapes an
   answer can take, and handing over a blank page wastes that. List them most
   important first. `because` is what the option buys and what it costs.
+- **One question asks one thing.** Questions live in `open_questions` only — the
+  factory numbers them `Q1`, `Q2`, … and puts every one of them on the page;
+  one written into the requirements file is one nobody is asked.
 - **The recommendation is the default.** A person who agrees writes one line, and
   a question nobody covers stands at its recommendation. So recommend the thing
   you would actually do, and never mark one you would argue against.
