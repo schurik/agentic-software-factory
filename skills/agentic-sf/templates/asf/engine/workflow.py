@@ -326,11 +326,15 @@ def _merge_hitl(cfg: FactoryConfig, stage: StageModule, opts: BaseModel) -> None
     """A stage's `hitl:` option decides its gate for this workflow. Three
     layers, each overriding the one below: `--hitl` on the command line, this,
     then factory.yaml's `hitl:` block. `None` here means the workflow has no
-    opinion and factory.yaml decides."""
+    opinion and factory.yaml decides.
+
+    Keyed by the GATE the stage places, which is what the policy is read for
+    (`hitl.mode`) and what the self-description reports — `refine` places
+    `requirements`, so keying by the stage's own name would switch nothing."""
     wanted = getattr(opts, "hitl", None)
     if wanted is None:
         return
-    cfg.hitl.gates[stage.name] = "on" if wanted else "off"
+    cfg.hitl.gates[stage.gate or stage.name] = "on" if wanted else "off"
 
 
 def _flat(error: ValidationError) -> str:

@@ -459,6 +459,14 @@ before — `None` when there are none, never omitted.
   and says how many, never cutting through one. The requirements' **Decided** section cites each
   question by its id. `suspended` v3 carries the ids; a 1.3.0 cockpit shows them on each question
   card, and calls a v2 round's questions by their place.
+- **The hitl policy can put every question to a person.** `hitl.gates: {requirements: on}` in
+  factory.yaml (or `default: on`, `--hitl all`), or `hitl: true` on a workflow's `refine` stage,
+  asks a round whose questions are all nice to have, too — they were dropped before — so a person
+  agrees to each recommendation rather than it standing unseen. Blocking questions are asked
+  whatever the policy says: it can add a round, never take one away. On the last round
+  (`max_rounds`) such questions stand at their recommendations and the console says so. A stage's
+  `hitl:` option now switches the gate the stage places — the same name for `plan` and
+  `integrate`, `requirements` for `refine`.
 
 ### Upgrade
 
@@ -588,7 +596,9 @@ before — `None` when there are none, never omitted.
     before it writes.
 16. Re-stamp with `--force` for the question rounds: the stages, the gates and the `refine` and
     `reproduce` task files come with it, and the analyst's prose. A session already suspended at
-    a question round keeps the comment it posted; its next round posts the new form.
+    a question round keeps the comment it posted; its next round posts the new form. To have a
+    person agree to the nice-to-have questions too, add `requirements: on` under `hitl.gates` in
+    `asf/factory.yaml`; without it nothing changes.
 
 ## 1.2.0 — 2026-10-02
 

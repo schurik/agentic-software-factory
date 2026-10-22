@@ -25,4 +25,7 @@ stages:
   # The loop is the stage's: recon, draft, ask, repeat. `max_rounds` is how many
   # times a person may be asked before the run gives up rather than guessing;
   # `recon.max_passes` bounds the looking, and round one always scouts.
+  # `hitl: true` asks a person even when every question is nice to have, so
+  # nothing is settled at a recommendation nobody saw; unset, factory.yaml's
+  # `hitl.gates.requirements` decides.
   - refine: {max_rounds: 3, recon: {agent: scout, max_passes: 2}}

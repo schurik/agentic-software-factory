@@ -821,6 +821,84 @@ def test_a_round_puts_every_question_on_the_item_and_ids_carry_on_into_the_next(
     assert "**1 question**" in posted(2)
 
 
+def nice_to_have(*pairs: tuple[str, str]) -> list[Question]:
+    return [question.model_copy(update={"blocking": False}) for question in questions(*pairs)]
+
+
+def only_nice_to_have(repo: Path) -> None:
+    fake_roster(repo,
+                scout=[recon_reply(repo)],
+                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                                     asking=nice_to_have(("data", "Log it?"))),
+                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+
+
+def test_a_round_with_nothing_blocking_is_not_asked_unless_the_policy_says_so(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    only_nice_to_have(repo)
+    refining(repo)
+    commit_all(repo)
+
+    finished = asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+
+    assert finished.returncode == 0, finished.stdout + finished.stderr
+    assert "ask_requirements" not in phase_names(repo, REFINE_ID)
+    assert not any(call[0] == "comment" and issues.QUESTIONS_MARKER in " ".join(call)
+                   for call in forge_calls(repo))
+
+
+@pytest.mark.parametrize("where", ["factory.yaml", "workflow"])
+def test_with_hitl_on_a_person_agrees_to_every_nice_to_have_question(tracked, where):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    only_nice_to_have(repo)
+    if where == "factory.yaml":
+        set_config(repo, hitl={"gates": {"requirements": True}})
+        refining(repo)
+    else:
+        # The workflow's switch is keyed by the gate the stage places —
+        # `requirements` — not by the stage's own name.
+        refining(repo, hitl=True)
+    commit_all(repo)
+
+    started = asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+
+    # Nothing blocks, and still a person is asked: the policy adds the round.
+    assert started.returncode == 75, started.stdout + started.stderr
+    posted = next(call[call.index("--body") + 1] for call in forge_calls(repo)
+                  if call[0] == "comment")
+    assert "**Q1** · **Log it?** _(nice to have)_" in posted
+
+    approved = asf(repo, "approve", REFINE_ID)
+    assert approved.returncode == 0, approved.stdout + approved.stderr
+    assert phase_names(repo, REFINE_ID) == [
+        "issue", "refine_recon", "refine_draft", "ask_requirements",
+        "refine_draft_2", "refine_record", "report"]
+    assert "Every recommendation above stands as it is" in Path(
+        handoff(repo, "answers_1.md")).read_text()
+
+
+def test_the_last_round_does_not_ask_what_no_draft_is_left_to_fold_in(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    only_nice_to_have(repo)
+    set_config(repo, hitl={"gates": {"requirements": True}})
+    refining(repo, max_rounds=1)
+    commit_all(repo)
+
+    finished = asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+
+    # Nice to have, so the requirements hold without them — unlike a blocking
+    # question on the last round, which stops the run.
+    assert finished.returncode == 0, finished.stdout + finished.stderr
+    assert "ask_requirements" not in phase_names(repo, REFINE_ID)
+    assert "stand at their recommendations" in finished.stdout + finished.stderr
+
+
 # ── what a stamped repo ships ────────────────────────────────────────────────
 
 def test_the_refine_workflow_is_stamped_routed_and_runnable(stamped: Path, monkeypatch):

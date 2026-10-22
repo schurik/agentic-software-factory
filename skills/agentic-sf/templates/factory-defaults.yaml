@@ -73,7 +73,9 @@ measurement:
 # stage); a workflow turns it on with `hitl: true` on that stage; this block is
 # the default underneath, and `--hitl` on the command line beats both.
 # A gate that fires stops the run with exit 75 and the session reading
-# `waiting`; nothing spends while it waits.
+# `waiting`; nothing spends while it waits. A question round (`requirements`,
+# in `refine`) is asked whenever a question blocks, whatever this says; `on`
+# for it also asks a round whose questions are all nice to have.
 hitl:
   default: off                     # off | on — for gates no workflow names
   gates: {}                        # by gate name: {plan: on}
