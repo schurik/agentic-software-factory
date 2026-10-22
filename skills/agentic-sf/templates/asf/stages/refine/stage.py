@@ -42,9 +42,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from engine import artifacts, gates, hitl, issues
 from engine.data_types import (AgentCall, EnvelopeBase, IssueComment, IssueOutput, IssueRef,
-                               PhaseParams, RequirementsOutput, ScoutOutput, Subject)
+                               PhaseParams, Question, RequirementsOutput, ScoutOutput, Subject)
 from engine.stage import StageStop
-from engine.utils import anchor
+from engine.utils import anchor, write_atomic
 
 NAME = "refine"
 KIND = "agent"
@@ -55,6 +55,9 @@ TASKS = {"recon": ("recon.md", ScoutOutput),
          "refine": ("refine.md", RequirementsOutput)}
 
 GATE = "requirements"
+# Where the rendered requirements live in the handoff — the path the analyst
+# reads its last draft from (refine.md), and the file the planner is handed.
+REQUIREMENTS_FILE = "requirements.md"
 GATE_KIND = "questions"
 
 # What the planner is told about what this stage appended, beside
@@ -150,7 +153,7 @@ def _recon(ctx, opts: Options, material, focus: str, round: int) -> EnvelopeBase
     return _joined(material, found.artifacts, RECON_NOTES, f"scouted: {found.summary}")
 
 
-def _draft(ctx, opts: Options, material, round: int) -> RequirementsOutput:
+def _draft(ctx, opts: Options, material, round: int, asked: list[str]) -> RequirementsOutput:
     """The analyst: the requirements as they stand, plus what it still cannot settle."""
     name = "refine_draft" if round == 1 else f"refine_draft_{round}"
     with ctx.run.phase(PhaseParams(
@@ -161,7 +164,29 @@ def _draft(ctx, opts: Options, material, round: int) -> RequirementsOutput:
             output_type=RequirementsOutput, prompt=ctx.prompt, previous=material,
             task=ctx.task("ask" if round == 1 else "refine"),
             gates=[gates.artifacts_exist, gates.files_non_empty,
-                   gates.questions_are_answerable, gates.questions_stay_in_the_envelope]))
+                   gates.questions_are_answerable, gates.requirements_hold,
+                   gates.every_question_decided(asked)]))
+
+
+def _written(ctx, draft: RequirementsOutput,
+             asked: list[Question]) -> tuple[RequirementsOutput, str]:
+    """Render the draft into the requirements file, and hand back both.
+
+    CODE WRITES THE DOCUMENT, every draft, at the one path the analyst is told
+    to read it from in the next round: what it returned, in the shape a person
+    will see on the item. The file leads the draft's artifacts, so the planner
+    is handed it exactly as the briefing describes; anything else the analyst
+    declared rides behind it.
+    """
+    draft = draft.model_copy(update={
+        "requirements": issues.numbered_requirements(draft.requirements)})
+    text = issues.render_requirements(draft, asked)
+    path = ctx.run.context_handoff_dir / REQUIREMENTS_FILE
+    write_atomic(path, text)
+    artifacts.record_artifacts(ctx.run, "output", [str(path)])
+    others = [a for a in draft.artifacts
+              if anchor(ctx.run.repo_root, str(a)).resolve() != path.resolve()]
+    return draft.model_copy(update={"artifacts": [str(path), *others]}), text
 
 
 def _answers(ctx, draft: RequirementsOutput, decision, round: int) -> str:
@@ -177,14 +202,14 @@ def _answers(ctx, draft: RequirementsOutput, decision, round: int) -> str:
     return str(path)
 
 
-def _record(ctx, number: int, draft: RequirementsOutput) -> None:
+def _record(ctx, number: int, block: str) -> None:
     """Put the requirements on the work item and mark it refined. Code, not the agent.
 
     The analyst's `writes: []` covers the REPOSITORY; the tracker is outside
     that boundary entirely, so an agent able to call `gh issue edit` would have
-    no boundary at all. It writes a file, and this reads it — which also makes
-    the block idempotent across rounds and keeps the reporter's own text, which
-    lives outside the marks, out of reach.
+    no boundary at all. Code renders the block from the envelope's fields
+    (`_written`) and puts exactly that between the marks — idempotent across
+    rounds, and the reporter's own text, outside the marks, out of reach.
     """
     config = ctx.run.cfg.issues
     ref = IssueRef(number=number)
@@ -192,18 +217,6 @@ def _record(ctx, number: int, draft: RequirementsOutput) -> None:
             name="refine_record", kind="code", owner="tracker",
             description="Put the settled requirements where the people who asked for the "
                         "work will read them, and mark the item refined")) as ph:
-        # `gates.artifacts_exist` ran on this envelope and refuses a declared
-        # path that resolves outside the run's own trees, so anchoring here is
-        # reading a file the gate already vouched for.
-        block = ""
-        for artifact in draft.artifacts:
-            candidate = anchor(ctx.run.repo_root, str(artifact))
-            if candidate.is_file():
-                block = candidate.read_text()
-                break
-        if not block.strip():
-            ph.log(ok=False, notes="the analyst named no readable requirements file")
-            return
         if ctx.run.benchmark is not None:
             ph.log(ok=True, number=number, notes="a benchmark's session writes nothing to "
                                                  "the tracker — the requirements stay here")
@@ -219,7 +232,7 @@ def run(ctx, opts: Options):
     number = ctx.previous.number if isinstance(ctx.previous, IssueOutput) else 0
     material: Optional[EnvelopeBase] = ctx.previous
     recon_spent = 0
-    asked = 0                       # questions put to a person so far: where the next ids start
+    asked: list[Question] = []      # every question put to a person so far, in order
     focus = ""
 
     for round in range(1, opts.max_rounds + 1):
@@ -236,9 +249,10 @@ def run(ctx, opts: Options):
                                  f"what the earlier passes found")
         focus = ""
 
-        draft = _draft(ctx, opts, material, round)
+        draft = _draft(ctx, opts, material, round, [question.id for question in asked])
         draft = draft.model_copy(update={
-            "open_questions": issues.numbered(draft.open_questions, asked + 1)})
+            "open_questions": issues.numbered(draft.open_questions, len(asked) + 1)})
+        draft, block = _written(ctx, draft, asked)
         if not draft.blocking_questions and not (
                 draft.open_questions and hitl.asks_every_question(ctx.run, GATE)):
             # Non-blocking questions are dropped here on purpose: they were
@@ -275,13 +289,13 @@ def run(ctx, opts: Options):
             gate=GATE, round=round, summary=draft.summary,
             paths=draft.artifacts, notes=draft.notes_for_next_agent,
             questions=draft.open_questions))
-        asked += len(draft.open_questions)
+        asked += draft.open_questions
         material = _joined(material, [_answers(ctx, draft, decision, round)],
                            ANSWERS_NOTES, f"round {round} answered by {decision.by}")
         focus = draft.recon_focus.strip() if draft.needs_recon else ""
 
     if number:
-        _record(ctx, number, draft)
+        _record(ctx, number, block)
 
     # Same handoff as `scout`: an issue-triggered run gives the planner ONE
     # envelope, the issue's, with the requirements appended to what it is told

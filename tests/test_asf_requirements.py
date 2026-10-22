@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 
 from engine import artifacts, factory, gates, hitl, issues, watch
-from engine.data_types import (IssueComment, IssueRef, Option, Question,
-                               Reply, RequirementsOutput, RunState, WaitingFor)
+from engine.data_types import (Decided, IssueComment, IssueRef, Option, Question,
+                               Reply, Requirement, RequirementsOutput, RunState, WaitingFor)
 
 from .asf_helpers import (adw_id_of, asf, comment_json, commit_all, envelope, fake_roster,
                           forge_calls, forge_data, issue_json, phase_names, run_state, session_dir,
@@ -375,20 +375,74 @@ def test_a_round_that_would_not_fit_on_the_page_is_refused_before_it_is_posted()
                                           Sized()).passed
 
 
-def test_a_requirements_file_with_a_questions_section_is_refused(tmp_path: Path):
-    class InTree:
-        repo_root = tmp_path
-        session_dir = tmp_path / "session"
+def requirement(statement: str = "the refresh path answers 200",
+                acceptance: str = "GET /oauth/refresh returns 200", **fields) -> Requirement:
+    return Requirement(statement=statement, acceptance=acceptance, **fields)
 
-    filed = tmp_path / "requirements.md"
-    filed.write_text("# Requirements\n\n- it 200s\n\n## Open questions\n\n- which caller?\n")
-    clean = tmp_path / "clean.md"
-    clean.write_text("# Requirements\n\n- it 200s; Q2 decided the caller\n")
 
-    report = gates.questions_stay_in_the_envelope(asked(artifacts=[str(filed)]), InTree())
-    assert not report.passed
-    assert any("Open questions" in violation for violation in report.violations)
-    assert gates.questions_stay_in_the_envelope(asked(artifacts=[str(clean)]), InTree()).passed
+def test_a_draft_with_nothing_blocking_must_say_what_must_be_true():
+    assert not gates.requirements_hold(asked(), None).passed
+    assert gates.requirements_hold(asked(requirements=[requirement()]), None).passed
+    # Still blocked: it may not know enough yet, and the question comes first.
+    assert gates.requirements_hold(asked(*questions(("scope", "Which?"))), None).passed
+
+
+def test_a_requirement_without_a_one_line_acceptance_is_refused():
+    for broken in (requirement(acceptance=""), requirement(acceptance="two\nlines"),
+                   requirement(statement="")):
+        report = gates.requirements_hold(asked(requirements=[broken]), None)
+        assert not report.passed
+
+
+def test_the_context_is_prose_bounded_and_never_a_section():
+    fine = asked(requirements=[requirement()], context="The refresh path 500s.\n\nToday.")
+    headed = asked(requirements=[requirement()], context="## Open questions\n- which?")
+    long = asked(requirements=[requirement()], context="x" * (gates.MAX_CONTEXT_CHARS + 1))
+
+    assert gates.requirements_hold(fine, None).passed
+    assert not gates.requirements_hold(headed, None).passed
+    assert not gates.requirements_hold(long, None).passed
+
+
+def test_every_asked_question_is_decided_once_and_none_is_invented():
+    decided = lambda *ids: asked(requirements=[requirement()], decisions=[  # noqa: E731
+        Decided(question=id, answer="the refresh path", by="person") for id in ids])
+    gate = gates.every_question_decided(["Q1", "Q2"])
+
+    assert gate(decided("Q1", "Q2"), None).passed
+    # The one that shipped, one step later: asked on the page, gone from the record.
+    assert not gate(decided("Q1"), None).passed
+    assert not gate(decided("Q1", "Q2", "Q3"), None).passed      # never asked
+    assert not gate(decided("Q1", "Q1", "Q2"), None).passed      # decided twice
+    assert gates.every_question_decided([])(decided(), None).passed
+
+
+def test_the_requirements_are_rendered_in_one_shape_by_code():
+    draft = RequirementsOutput(
+        status="success", context="The refresh path 500s today.",
+        requirements=issues.numbered_requirements([
+            requirement(source="Q1"), requirement("a 500 is logged", "the log has one line")]),
+        assumptions=["tokens are JWTs"],
+        decisions=[Decided(question="Q1", answer="the refresh path", by="person"),
+                   Decided(question="Q2", answer="yes, at warning", by="default")])
+    asking = issues.numbered(questions(("scope", "Which endpoint?"), ("data", "Log it?")))
+
+    text = issues.render_requirements(draft, asking)
+
+    assert text.startswith("## Requirements\n\n### Context\n\nThe refresh path 500s today.")
+    assert ("- **R1** the refresh path answers 200\n"
+            "  *Accepted when:* GET /oauth/refresh returns 200 *(from Q1)*") in text
+    assert "- **R2** a 500 is logged" in text
+    # An empty section says so, rather than leaving a reader to wonder.
+    assert "### Out of scope\n\n_None._" in text
+    assert "### Assumptions\n\n- tokens are JWTs" in text
+    assert ("- **Q1** Which endpoint? → **the refresh path** *(a person said so)*") in text
+    assert ("- **Q2** Log it? → **yes, at warning** *(stood at its recommendation)*") in text
+    # Sections in a fixed order, whatever order the analyst thought in.
+    order = ["### Context", "### What must be true", "### Out of scope", "### Assumptions",
+             "### Decided"]
+    assert [text.index(section) for section in order] == sorted(
+        text.index(section) for section in order)
 
 
 # ── writing it down ──────────────────────────────────────────────────────────
@@ -634,11 +688,17 @@ def recon_reply(repo: Path, name: str = "recon_1.md") -> dict:
                                  artifacts=[path])}
 
 
-def draft_reply(repo: Path, text: str, asking: list[Question] = (), **fields) -> dict:
-    path = handoff(repo, "requirements.md")
-    return {"writes": {path: text},
-            "envelope": envelope(artifacts=[path],
-                                 open_questions=[q.model_dump() for q in asking], **fields)}
+def draft_reply(repo: Path, statement: str, asking: list[Question] = (),
+                decided: tuple[str, ...] = (), **fields) -> dict:
+    """One analyst draft: a single requirement, the questions it asks, and a
+    decision a person made for each id in `decided` — every question asked in
+    an earlier round, which the gate holds every later draft to."""
+    return {"envelope": envelope(
+        requirements=[{"statement": statement, "acceptance": f"{statement}, checked",
+                       "source": "reporter"}],
+        decisions=[{"question": id, "answer": "the refresh path", "by": "person"}
+                   for id in decided],
+        open_questions=[q.model_dump() for q in asking], **fields)}
 
 
 def refining(repo: Path, **stages) -> None:
@@ -654,9 +714,9 @@ def test_a_question_round_reaches_the_issue_and_an_answer_brings_the_run_back(tr
     issue()
     fake_roster(repo,
                 scout=[recon_reply(repo)],
-                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                analyst=[draft_reply(repo, "draft",
                                      asking=questions(("scope", "Which endpoint?"))),
-                         draft_reply(repo, "# Requirements\n\n- the refresh path 200s\n")])
+                         draft_reply(repo, "the refresh path 200s", decided=("Q1",))])
     refining(repo)
     commit_all(repo)
 
@@ -684,6 +744,11 @@ def test_a_question_round_reaches_the_issue_and_an_answer_brings_the_run_back(tr
     edits = [call for call in forge_calls(repo) if call[0] == "edit"]
     body = next(call[call.index("--body") + 1] for call in edits if "--body" in call)
     assert issues.REQUIREMENTS_OPEN in body and "the refresh path 200s" in body
+    # Rendered by code from the envelope — the same text the planner is handed.
+    rendered = Path(handoff(repo, "requirements.md")).read_text()
+    assert rendered.strip() in body
+    assert "- **R1** the refresh path 200s" in rendered
+    assert "- **Q1** Which endpoint? → **the refresh path** *(a person said so)*" in rendered
     assert REPORTER.strip() in body                      # the reporter's own text survived
     assert any(cfg.issues.refined_label in call for call in edits)
 
@@ -694,9 +759,9 @@ def test_the_answer_reaches_the_analyst_as_a_file_with_the_defaults_beside_it(tr
     issue()
     fake_roster(repo,
                 scout=[recon_reply(repo)],
-                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                analyst=[draft_reply(repo, "draft",
                                      asking=questions(("scope", "Which endpoint?"))),
-                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+                         draft_reply(repo, "settled", decided=("Q1",))])
     refining(repo)
     commit_all(repo)
 
@@ -715,9 +780,9 @@ def test_approving_a_question_round_takes_every_recommendation_and_says_so(track
     issue()
     fake_roster(repo,
                 scout=[recon_reply(repo)],
-                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                analyst=[draft_reply(repo, "draft",
                                      asking=questions(("scope", "Which?"), ("data", "Log it?"))),
-                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+                         draft_reply(repo, "settled", decided=("Q1", "Q2"))])
     refining(repo)
     commit_all(repo)
 
@@ -738,11 +803,11 @@ def test_recon_runs_again_only_when_the_analyst_orders_it_and_says_what_for(trac
     issue()
     fake_roster(repo,
                 scout=[recon_reply(repo), recon_reply(repo, "recon_2.md")],
-                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                analyst=[draft_reply(repo, "draft",
                                      asking=questions(("scope", "Which?")),
                                      needs_recon=True,
                                      recon_focus="where the OAuth refresh is handled"),
-                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+                         draft_reply(repo, "settled", decided=("Q1",))])
     refining(repo)
     commit_all(repo)
 
@@ -761,9 +826,10 @@ def test_an_analyst_that_never_settles_stops_the_run_before_anything_claims_it_d
     cfg, issue = tracked
     repo = Path.cwd()
     issue()
-    asking = draft_reply(repo, "# Requirements\n\n- still unclear\n",
-                         asking=questions(("scope", "Which?")))
-    fake_roster(repo, scout=[recon_reply(repo)], analyst=[asking, asking])
+    asking = draft_reply(repo, "still unclear", asking=questions(("scope", "Which?")))
+    again = draft_reply(repo, "still unclear", asking=questions(("scope", "Which?")),
+                        decided=("Q1",))
+    fake_roster(repo, scout=[recon_reply(repo)], analyst=[asking, again])
     refining(repo, max_rounds=2)
     commit_all(repo)
 
@@ -792,10 +858,11 @@ def test_a_round_puts_every_question_on_the_item_and_ids_carry_on_into_the_next(
     first[1] = first[1].model_copy(update={"blocking": False})
     fake_roster(repo,
                 scout=[recon_reply(repo)],
-                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n", asking=first),
-                         draft_reply(repo, "# Requirements\n\n- closer\n",
-                                     asking=questions(("scope", "Which caller?"))),
-                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+                analyst=[draft_reply(repo, "draft", asking=first),
+                         draft_reply(repo, "closer",
+                                     asking=questions(("scope", "Which caller?")),
+                                     decided=("Q1", "Q2")),
+                         draft_reply(repo, "settled", decided=("Q1", "Q2", "Q3"))])
     refining(repo)
     commit_all(repo)
 
@@ -828,9 +895,9 @@ def nice_to_have(*pairs: tuple[str, str]) -> list[Question]:
 def only_nice_to_have(repo: Path) -> None:
     fake_roster(repo,
                 scout=[recon_reply(repo)],
-                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                analyst=[draft_reply(repo, "draft",
                                      asking=nice_to_have(("data", "Log it?"))),
-                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+                         draft_reply(repo, "settled", decided=("Q1",))])
 
 
 def test_a_round_with_nothing_blocking_is_not_asked_unless_the_policy_says_so(tracked):
@@ -940,9 +1007,9 @@ def suspended_on_42(repo: Path) -> None:
     """Run `refined` until it stops on its first question round."""
     fake_roster(repo,
                 scout=[recon_reply(repo)],
-                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n",
+                analyst=[draft_reply(repo, "draft",
                                      asking=questions(("scope", "Which endpoint?"))),
-                         draft_reply(repo, "# Requirements\n\n- the refresh path 200s\n")])
+                         draft_reply(repo, "the refresh path 200s", decided=("Q1",))])
     refining(repo)
     commit_all(repo)
     started = asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)

@@ -37,7 +37,7 @@ from pathlib import Path
 from . import artifacts, forge, git_helper
 from .data_types import (FactoryConfig, IssueComment, IssueContext, IssueOutput, IssueRef,
                          IssueResult, IssuesConfig, IssueUpdate, NewIssue, OpenIssue,
-                         PullRequestsConfig, Question, Said)
+                         PullRequestsConfig, Question, Requirement, RequirementsOutput, Said)
 from .forge import ForgeError
 from .utils import write_atomic
 
@@ -582,6 +582,67 @@ def write_answers(path: Path, answers: list[IssueComment],
     text = "\n".join(lines)
     write_atomic(path, text)
     return text
+
+
+# ── the requirements document ────────────────────────────────────────────────
+#
+# Rendered here from the analyst's envelope, for the reason the question
+# comment is: it lands on a page anyone can read. One function writes both the
+# handoff file the planner reads and the block on the work item, so the two
+# can never say different things — and the shape is the same on every item, so
+# a person learns where to look once.
+
+def numbered_requirements(requirements: list[Requirement]) -> list[Requirement]:
+    """The requirements with their ids, R1 onward, over whatever the agent said.
+    Every draft lists them all, so each draft numbers from R1 again."""
+    return [requirement.model_copy(update={"id": f"R{index}"})
+            for index, requirement in enumerate(requirements, start=1)]
+
+
+def render_requirements(draft: RequirementsOutput,
+                        asked: list[Question] | tuple[Question, ...] = ()) -> str:
+    """The agreed requirements as markdown: context, what must be true, what is
+    out of scope, what was assumed, and what each asked question came to.
+
+    An empty "out of scope" or "assumptions" says so rather than vanishing: a
+    reader who finds no assumptions should know none were made, not wonder
+    whether the section was forgotten. "Decided" appears once something was
+    asked, each question beside its answer and WHO settled it — the line a
+    reader needs to tell agreement from silence.
+    """
+    lines = ["## Requirements", ""]
+    if draft.context.strip():
+        lines += ["### Context", "", draft.context.strip(), ""]
+
+    lines += ["### What must be true", ""]
+    for index, requirement in enumerate(draft.requirements, start=1):
+        label = requirement.id or f"R{index}"
+        lines.append(f"- **{label}** {requirement.statement.strip()}")
+        source = f" *(from {requirement.source.strip()})*" if requirement.source.strip() else ""
+        lines.append(f"  *Accepted when:* {requirement.acceptance.strip()}{source}")
+    if not draft.requirements:
+        lines.append("_None yet._")
+    lines.append("")
+
+    for title, items in (("Out of scope", draft.out_of_scope),
+                         ("Assumptions", draft.assumptions)):
+        lines += [f"### {title}", ""]
+        lines += [f"- {item.strip()}" for item in items] or ["_None._"]
+        lines.append("")
+
+    if asked or draft.decisions:
+        questions = {label_of(question, index): question
+                     for index, question in enumerate(asked, start=1)}
+        lines += ["### Decided", ""]
+        for decided in draft.decisions:
+            question = questions.get(decided.question)
+            asked_as = f" {question.question.strip()}" if question else ""
+            who = ("a person said so" if decided.by == "person"
+                   else "stood at its recommendation")
+            lines.append(f"- **{decided.question}**{asked_as} → **{decided.answer.strip()}** "
+                         f"*({who})*")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def replace_block(body: str, block: str) -> str:
