@@ -468,6 +468,19 @@ before — `None` when there are none, never omitted.
   `hitl:` option now switches the gate the stage places — the same name for `plan` and
   `integrate`, `requirements` for `refine`.
 
+- **The refined requirements have one shape, and code writes it.** The analyst no longer writes
+  `requirements.md`: it returns the requirements as fields — `requirements` (each a `statement`,
+  a one-line `acceptance` and the `source` it rests on), `out_of_scope`, `assumptions`, an
+  optional `context` (prose, at most 2000 characters, no headings) and `decisions`, one per asked
+  question with what it came to and whether a `person` or the `default` settled it.
+  `issues.render_requirements` turns them into the block on the work item and the handoff file
+  the planner reads — the same text in both: *Context*, *What must be true* (`R1`, `R2`, … each
+  with *Accepted when*), *Out of scope*, *Assumptions* and *Decided*. Two gates hold the fields:
+  `requirements_hold` (at least one requirement once nothing blocks, every field one line, the
+  context bounded) and `every_question_decided`, which refuses a draft that leaves an asked
+  question without a decision or decides one never asked. `questions_stay_in_the_envelope` is
+  gone with the file it checked.
+
 ### Upgrade
 
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
@@ -599,6 +612,11 @@ before — `None` when there are none, never omitted.
     a question round keeps the comment it posted; its next round posts the new form. To have a
     person agree to the nice-to-have questions too, add `requirements: on` under `hitl.gates` in
     `asf/factory.yaml`; without it nothing changes.
+17. The re-stamp's `ask.md`, `refine.md` and analyst ask for the requirements as fields. A
+    `refine` session waiting at a question round when you re-stamp drafts its requirements again
+    from the answers once resumed — what its earlier draft wrote by hand is not carried over — so
+    answer or abort those first if that matters. A `refine/` task file of your own that still
+    asks for `requirements.md` gets nothing recorded: take the new Report blocks.
 
 ## 1.2.0 — 2026-10-02
 

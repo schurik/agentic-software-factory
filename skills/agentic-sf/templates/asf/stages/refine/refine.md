@@ -30,26 +30,30 @@ requirements you already wrote, and say what is still open.
    the person was given, so apply it exactly: agreeing with seven
    recommendations is one line, and reading that line as agreement to something
    else is how a cheap round becomes a wrong one.
-3. Update `<context_handoff_dir>/requirements.md` in place — the same path, not
-   a new file. Keep its three sections, and add a fourth:
-   - **Decided** — one line per question that was asked, by its id, saying what
-     was decided and **whether a person said so or it stood at its
-     recommendation**: `- **Q2** — the OAuth refresh path (a person said so)`.
-     Every id in the answers file gets its line, the *nice to have* ones too: a
-     reader has to be able to tell what was answered from what was defaulted,
-     and that nothing was skipped.
+3. Read `<context_handoff_dir>/requirements.md`: the factory rendered it from
+   what you returned last round. Return the **whole set again** in the
+   envelope's fields — `context`, `requirements`, `out_of_scope`,
+   `assumptions` — updated by the answers, not a diff: what you leave out is
+   gone. A requirement an answer settled says so in its `source` (`Q2`).
+4. Fill `decisions`: one entry per question the answers file lists, by its id,
+   the *nice to have* ones too — `answer` is what it came to, `by` is
+   `"person"` when a reply said so and `"default"` when it stood at its
+   recommendation. A gate refuses a round where an asked question has no
+   decision, or a decision names one that was never asked: a reader has to be
+   able to tell what was answered from what was defaulted, and that nothing
+   was skipped.
 
-   Still no section of questions: what is open goes in `open_questions`.
-4. An answer that opens a question you had not thought of is a new question.
+   Questions go in `open_questions` only.
+5. An answer that opens a question you had not thought of is a new question.
    Ask it the same way: one decision per entry, two or three options, exactly
    one `recommended`, most important first, and `why` it matters. The factory
    gives it the next id. Do not re-ask what was answered.
-5. If the answers point at code you have not seen, set `needs_recon: true` with
+6. If the answers point at code you have not seen, set `needs_recon: true` with
    a `recon_focus` — this is the round where that pays, because you now know
    what to look for.
-6. When nothing blocking is left, return no open questions. That ends the loop
-   and the requirements go onto the work item as they stand, so make sure the
-   file reads as a finished document rather than as notes.
+7. When nothing blocking is left, return no open questions. That ends the loop
+   and the requirements go onto the work item as they stand, so make sure they
+   read as a finished document rather than as notes.
 
 Change nothing in the repository.
 
@@ -62,10 +66,21 @@ Respond with ONLY valid JSON matching `RequirementsOutput` — no prose before o
   "status": "success",
   "summary": "<one sentence on what is now settled>",
   "round": 2,
+  "context": "<optional: what a reader needs before the list — prose, no headings>",
+  "requirements": [
+    { "statement": "<what must be true when the work is done>",
+      "acceptance": "<the one-line check that shows it holds>",
+      "source": "<reporter | recon | assumption | Q1>" }
+  ],
+  "out_of_scope": ["<what a reader might expect and will not get>"],
+  "assumptions": ["<what the request implies but nobody said>"],
+  "decisions": [
+    { "question": "Q1", "answer": "<what it came to>", "by": "person" }
+  ],
   "open_questions": [],
   "needs_recon": false,
   "recon_focus": "",
-  "artifacts": ["<context_handoff_dir>/requirements.md"],
+  "artifacts": [],
   "for_the_record": [
     { "kind": "deviation", "what": "<what is now true>", "instead_of": "<what the plan or the request said>", "because": "<the evidence — why the other way was not possible>" }
   ],

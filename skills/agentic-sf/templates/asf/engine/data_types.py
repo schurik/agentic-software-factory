@@ -306,13 +306,54 @@ class Question(BaseModel):
         return sorted(self.options, key=lambda option: not option.recommended)
 
 
+class Requirement(BaseModel):
+    """One thing that must be TRUE when the work is done, and how to tell.
+
+    `acceptance` is what makes it a requirement rather than a wish: a check a
+    reviewer or a QA agent can run, in one line. `source` says where it comes
+    from — `reporter`, `recon`, `assumption`, or the id of the question that
+    settled it — because a reader weighs a requirement by who stands behind it.
+
+    `id` is CODE'S, as `Question.id` is: the stage numbers them R1, R2, … in
+    the order the analyst lists them, every draft, over whatever it said.
+    """
+
+    id: str = ""
+    statement: str
+    acceptance: str
+    source: str = ""
+
+
+class Decided(BaseModel):
+    """What one asked question came to, and WHO settled it.
+
+    `by` is the line the requirements exist to keep visible: `person` when a
+    reply said so, `default` when the question stood at its recommendation
+    because nobody covered it. Every question a round asked gets one
+    (`gates.every_question_decided`), so nothing a person was asked about goes
+    silent between the comment and the requirements.
+    """
+
+    question: str                   # the id it was asked under: Q2
+    answer: str
+    by: Literal["person", "default"]
+
+
 class RequirementsOutput(EnvelopeBase):
     """What the analyst turned a request into, plus what it still cannot answer.
 
-    THE REQUIREMENTS ARE NOT A FIELD, for the reason IssueOutput gives about
-    bodies: they are prose a person reads and a planner works from, so they
-    live in `artifacts[0]` and the envelope carries only what CODE decides with
-    — whether to ask, whether to scout again, and which round this is.
+    THE REQUIREMENTS ARE FIELDS, and the document is CODE'S. The analyst says
+    what is true, what is out of scope, what it assumed and what each question
+    came to; `issues.render_requirements` turns that into the markdown a person
+    reads on the work item and a planner reads in the handoff — the same text
+    in both places, in the same shape every time. That is the bound the
+    question comment already has (`issues.render_questions`): the block lands
+    on a page anyone can read, so the agent's words reach it only inside the
+    fields, and a gate checks the fields before anything is written.
+
+    `context` is the one place for prose: what a reader needs to know to read
+    the list — background, the shape of the problem — never a section of its
+    own (no headings), and bounded.
 
     `needs_recon` / `recon_focus` are an ORDER, not a claim: the analyst says
     what it must know about this repository before the request can become
@@ -324,6 +365,11 @@ class RequirementsOutput(EnvelopeBase):
 
     number: int = 0                 # the work item these belong to; 0 = a prompt run
     round: int = 1
+    context: str = ""
+    requirements: list[Requirement] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    decisions: list[Decided] = Field(default_factory=list)
     open_questions: list[Question] = Field(default_factory=list)
     needs_recon: bool = False
     recon_focus: str = ""

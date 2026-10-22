@@ -183,7 +183,6 @@ def a_story(repo: Path) -> None:
     stand_in_gh(repo)
     set_config(repo, issues={"enabled": True, "project": "acme/widgets"})
     forge_data(repo, "issue.json", issue_json())
-    requirements = handoff(repo, "requirements.md")
     asking = {"topic": "scope", "question": "Which endpoint?",
               "options": [{"answer": "login", "because": "named", "recommended": True},
                           {"answer": "refresh", "because": "500s today"}]}
@@ -192,11 +191,12 @@ def a_story(repo: Path) -> None:
         scout=[{"writes": {handoff(repo, "recon_1.md"): "# recon\n"},
                 "envelope": envelope(findings=[{"file": "app.py", "note": "missing"}],
                                      artifacts=[handoff(repo, "recon_1.md")])}],
-        analyst=[{"writes": {requirements: "# Requirements\n\n- draft\n"}, "tokens": 30,
-                  "cost": 0.003,
-                  "envelope": envelope(artifacts=[requirements], open_questions=[asking])},
-                 {"writes": {requirements: "# Requirements\n\n- refresh 200s\n"},
-                  "envelope": envelope(artifacts=[requirements])}],
+        analyst=[{"tokens": 30, "cost": 0.003,
+                  "envelope": envelope(open_questions=[asking])},
+                 {"envelope": envelope(
+                     requirements=[{"statement": "refresh 200s",
+                                    "acceptance": "GET /refresh returns 200"}],
+                     decisions=[{"question": "Q1", "answer": "refresh", "by": "person"}])}],
         planner=[{"writes": {"docs/asf/spec/plan.md": "# Plan v1\n"}, "tokens": 100,
                   "cost": 0.01, "context_tokens": 900, "context_window": 200_000,
                   "envelope": envelope(artifacts=["docs/asf/spec/plan.md"])},

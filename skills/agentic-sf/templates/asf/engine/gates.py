@@ -245,32 +245,93 @@ def questions_are_answerable(envelope: EnvelopeBase, run) -> GateReport:
     return report
 
 
-# A heading that files questions in prose. English because the task files are,
-# and `fragen` because a requirements file follows the language of the request.
-_QUESTIONS_HEADING = re.compile(r"^\s{0,3}#{1,6}\s.*\b(questions?|fragen?)\b", re.I | re.M)
+# The one prose field's ceiling. Background a reader needs before the list, not
+# a second document: what does not fit here belongs in a requirement or nowhere.
+MAX_CONTEXT_CHARS = 2000
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s", re.M)
 
 
-def questions_stay_in_the_envelope(envelope: EnvelopeBase, run) -> GateReport:
-    """No artifact keeps a section of questions of its own.
+def requirements_hold(envelope: EnvelopeBase, run) -> GateReport:
+    """The requirements' fields, checked against themselves before code renders them.
 
-    A question in the requirements file is one no person is asked: the comment
-    is RENDERED from `open_questions` (`issues.render_questions`), never from
-    the file, so a question written there reaches the issue only as part of
-    the requirements block, after the round that should have answered it. Only
-    a heading is looked for — a requirement may mention a question, and a gate
-    reading prose for intent would be judging, not verifying.
+    Every field becomes one line of a document a person reads on the work item
+    (`issues.render_requirements`), so each is one line, and filled: a
+    requirement without an acceptance is a wish, and a newline inside one
+    would break the list it sits in. `context` is the prose field and may run
+    to paragraphs, but never to a heading — the sections are code's, and a
+    heading in the context would be a section the template does not have.
+
+    At least one requirement once nothing blocks: a draft that still has a
+    question blocking it may not know enough to write one, a draft that is
+    about to be recorded must.
     """
     report = GateReport()
-    for declared in envelope.artifacts:
-        path = _in_tree(run, declared)
-        if path is None or not path.is_file() or path.suffix != ".md":
-            continue
-        found = _QUESTIONS_HEADING.search(path.read_text(errors="replace"))
-        report.check(f"{declared} · no questions section", found is None,
-                     "questions only in open_questions" if found is None
-                     else f"has {found.group(0).strip()!r}; a question goes in "
-                          f"`open_questions`, where a person is asked it — not in the file")
+    requirements = list(getattr(envelope, "requirements", []))
+    blocking = [q for q in getattr(envelope, "open_questions", []) if q.blocking]
+    if not blocking:
+        report.check("requirements", bool(requirements),
+                     f"{len(requirements)} requirement(s)" if requirements
+                     else "nothing blocks, and no requirement is written — a planner "
+                          "would have nothing to work from")
+    for index, requirement in enumerate(requirements, start=1):
+        for field in ("statement", "acceptance"):
+            text = getattr(requirement, field).strip()
+            ok = bool(text) and "\n" not in text
+            report.check(f"R{index} · {field}", ok,
+                         "one line" if ok else f"{field} must be one line and not empty")
+        source = requirement.source.strip()
+        report.check(f"R{index} · source", "\n" not in source,
+                     "one line" if "\n" not in source else "source must be one line")
+    for field in ("out_of_scope", "assumptions"):
+        for index, item in enumerate(getattr(envelope, field, []), start=1):
+            ok = bool(item.strip()) and "\n" not in item.strip()
+            report.check(f"{field}[{index}]", ok,
+                         "one line" if ok else "each entry is one line and not empty")
+    context = (getattr(envelope, "context", "") or "").strip()
+    if context:
+        report.check("context · length", len(context) <= MAX_CONTEXT_CHARS,
+                     f"{len(context)} chars" if len(context) <= MAX_CONTEXT_CHARS
+                     else f"{len(context)} chars; context holds {MAX_CONTEXT_CHARS} — "
+                          f"what matters past that is a requirement")
+        heading = _HEADING.search(context)
+        report.check("context · no headings", heading is None,
+                     "prose only" if heading is None
+                     else "context has a heading; the sections are the factory's — "
+                          "write it as prose")
     return report
+
+
+def every_question_decided(asked: list[str]):
+    """Gate factory: each question a person was asked has exactly one decision,
+    and no decision names a question that was never asked.
+
+    Built by the stage with the ids it has asked so far, which only it knows.
+    A question that was put to a person and then vanished from the record is
+    the failure this whole loop exists to prevent, one step later: the comment
+    showed it, and the requirements would not say what became of it.
+    """
+    def gate(envelope: EnvelopeBase, run) -> GateReport:
+        report = GateReport()
+        said: dict[str, int] = {}
+        for decided in getattr(envelope, "decisions", []):
+            said[decided.question] = said.get(decided.question, 0) + 1
+            report.check(f"{decided.question} · asked", decided.question in asked,
+                         "was asked" if decided.question in asked
+                         else f"{decided.question} was never asked — what the analyst "
+                              f"decided on its own is an assumption")
+            ok = bool(decided.answer.strip()) and "\n" not in decided.answer.strip()
+            report.check(f"{decided.question} · answer", ok,
+                         "one line" if ok else "the answer must be one line and not empty")
+        for question in asked:
+            count = said.get(question, 0)
+            report.check(f"{question} · decided", count == 1,
+                         "decided once" if count == 1
+                         else "asked and never decided — say what it came to and who "
+                              "settled it" if count == 0
+                         else f"decided {count} times; one decision per question")
+        return report
+    gate.__name__ = "every_question_decided"
+    return gate
 
 
 def tests_pass(command: str):
