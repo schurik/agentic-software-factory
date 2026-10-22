@@ -25,6 +25,56 @@ A nudge is a hint, never the record, for the reason `model/webhook.ts` already g
 delivery once and does not retry. So the poll stays. It only runs less often while the station knows
 its cockpit receives webhooks, and it remains the only mechanism wherever no webhook arrives.
 
+## Bursts
+
+A nudge says "look sooner", never "do this once per event", so fifty deliveries become one earlier
+read of the forge, not fifty passes. Each hop collapses repeats:
+
+- **The cockpit keeps one row per item.** It answers every delivery with 202 before asking the forge
+  anything, as it does today, because GitHub gives a receiver ten seconds. The mutation upserts on
+  `(factory, kind, number)` and only moves the row's time forward. Thirty comments on one pull request
+  leave one row. The table grows with the number of distinct items, not with the delivery rate. A
+  cron deletes rows older than about ten minutes, because the poll would have found them anyway.
+- **The station takes a batch.** Each command poll fetches every nudge newer than the station's own
+  cursor, so the 2.5 s poll is also the debounce. The cockpit keeps no state per station.
+- **The watcher has a flag, not a queue.** A nudge marks a pass as due, and further nudges while one
+  is due change nothing. A watcher can be busy for minutes, because `issues_once` launches its runs
+  one after another and waits for each. The nudges that arrive meanwhile collapse into one extra pass
+  afterwards. That pass is an ordinary `*_once`: it lists the queue and respects `max_concurrent`,
+  so order, priority and limits need nothing new.
+- **Passes have a minimum gap** (about ten seconds), so a burst costs the forge's rate limit at most
+  what a poll at that interval would, and only while it lasts.
+
+Duplicate or out-of-order deliveries do no harm, because a pass reads the forge's current state and
+never the event.
+
+## Who starts it
+
+Nobody chooses a station. The cockpit nudges every online station of the factory that reports the
+matching watcher (the report already travels with each command poll). Each runs its pass and asks for
+the claim before it touches a label, and `claims.take` is one transaction: the first ask is granted,
+and every later one is told who holds it and skips the item. That is ADR 0003, unchanged.
+
+So whichever station polls first with a free slot starts the item. A station at `max_concurrent`
+stops its pass before asking, and a busy watcher's pass runs late, so both give way without code of
+their own. The cockpit does not assign an item to one station: a station chosen just as it went to
+sleep would leave the item waiting for the fallback poll. There is no load balancing and no
+affinity, such as "only the station with a GPU". If a case for one arrives, it is a field in the
+report and a filter on the nudge, and the claim stays the only arbiter.
+
+## No station online
+
+The queue is the forge's state, not the webhook. An issue labelled `asf:queued`, a reply after a
+waiting session's question and an unresolved review thread all stay on the forge whether or not
+anyone listens. A nudge that no station collects expires with its row, and nothing is lost: the
+cockpit already lists "queued work no online station is watching" under Needs attention, and every
+watcher's loop runs a full pass when it starts, before its first wait. A station that comes back
+online therefore picks up everything that queued while it was away, from the forge.
+
+The `answers` watcher is the exception, as it is today. A waiting session lives in the worktree of the
+station that started it, and only that station can resume it. A reply to it waits on the forge until
+that station is back.
+
 ## Considered options
 
 - **Deliver webhooks to the station directly**, through a tunnel (smee.io, `gh webhook forward`,
