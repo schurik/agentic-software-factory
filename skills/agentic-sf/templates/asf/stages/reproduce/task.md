@@ -66,7 +66,9 @@ Every question carries **two or three options, exactly one of them
 `recommended`**, most likely first; `because` says what each option would let
 you try. A gate refuses a question without them. Write each question so it
 says what you already tried — the reporter reads the questions, not your
-envelope.
+envelope. One entry asks one thing (one question mark), and a round asks at
+most seven: the factory numbers them `Q1`, `Q2`, … so a reply can answer one
+by its id, and a gate refuses a round that bundles or overflows.
 
 ## Report
 

@@ -446,6 +446,20 @@ before — `None` when there are none, never omitted.
   online: a loop polling now is a second checkout of that name, which `ASF_STATION_NAME` tells
   apart. `asf station sync` never created a station, and is unchanged.
 
+- **Every question the analyst asks reaches the person, by its id.** A `refine` round put only
+  its blocking questions on the work item, while the answers file recorded the nice-to-have ones as
+  standing at their recommendation — decided by a person who never saw them. A round that is asked
+  now posts every open question, the nice-to-have ones marked so. The factory numbers them `Q1`,
+  `Q2`, … on through later rounds (`issues.numbered`, in `refine` and `reproduce`), and the comment
+  opens with the count (*"2 questions, 1 of them blocking"*) and calls each by its id, so `Q2: 2`
+  answers one. `gates.questions_are_answerable` now also refuses a question with more than one
+  question mark, a round of more than seven, and a round whose comment would not fit under
+  `issues.max_question_chars`; a new gate, `questions_stay_in_the_envelope`, refuses a
+  requirements file with a questions heading. Past the ceiling the comment drops whole questions
+  and says how many, never cutting through one. The requirements' **Decided** section cites each
+  question by its id. `suspended` v3 carries the ids; a 1.3.0 cockpit shows them on each question
+  card, and calls a v2 round's questions by their place.
+
 ### Upgrade
 
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
@@ -572,6 +586,9 @@ before — `None` when there are none, never omitted.
     from `asf/factory-defaults.yaml`, and a note on stderr for each key it left out because the
     defaults do not hold it. `cookbooks/upgrade.md` § The config, step 8, shows the diff and asks
     before it writes.
+16. Re-stamp with `--force` for the question rounds: the stages, the gates and the `refine` and
+    `reproduce` task files come with it, and the analyst's prose. A session already suspended at
+    a question round keeps the comment it posted; its next round posts the new form.
 
 ## 1.2.0 — 2026-10-02
 

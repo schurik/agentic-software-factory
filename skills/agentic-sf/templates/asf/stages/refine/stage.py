@@ -151,7 +151,7 @@ def _draft(ctx, opts: Options, material, round: int) -> RequirementsOutput:
             output_type=RequirementsOutput, prompt=ctx.prompt, previous=material,
             task=ctx.task("ask" if round == 1 else "refine"),
             gates=[gates.artifacts_exist, gates.files_non_empty,
-                   gates.questions_are_answerable]))
+                   gates.questions_are_answerable, gates.questions_stay_in_the_envelope]))
 
 
 def _answers(ctx, draft: RequirementsOutput, decision, round: int) -> str:
@@ -209,6 +209,7 @@ def run(ctx, opts: Options):
     number = ctx.previous.number if isinstance(ctx.previous, IssueOutput) else 0
     material: Optional[EnvelopeBase] = ctx.previous
     recon_spent = 0
+    asked = 0                       # questions put to a person so far: where the next ids start
     focus = ""
 
     for round in range(1, opts.max_rounds + 1):
@@ -226,6 +227,8 @@ def run(ctx, opts: Options):
         focus = ""
 
         draft = _draft(ctx, opts, material, round)
+        draft = draft.model_copy(update={
+            "open_questions": issues.numbered(draft.open_questions, asked + 1)})
         if not draft.blocking_questions:
             # Non-blocking questions are dropped here on purpose: they were
             # worth asking on a round that was going to happen anyway, and they
@@ -242,10 +245,16 @@ def run(ctx, opts: Options):
                 f"draft and answer is in this run's own directory; raise max_rounds, or "
                 f"say what is missing on the item and start it again.")
 
+        # EVERY open question, not only the blocking ones. Blocking decides
+        # WHETHER a round is asked; once it is, the rest ride along — and they
+        # have to be on the page to ride: `_answers` records each of them as
+        # standing at its recommendation, which is only honest about a
+        # question somebody was shown.
         decision = hitl.asked(ctx.run, Subject(
             gate=GATE, round=round, summary=draft.summary,
             paths=draft.artifacts, notes=draft.notes_for_next_agent,
-            questions=draft.blocking_questions))
+            questions=draft.open_questions))
+        asked += len(draft.open_questions)
         material = _joined(material, [_answers(ctx, draft, decision, round)],
                            ANSWERS_NOTES, f"round {round} answered by {decision.by}")
         focus = draft.recon_focus.strip() if draft.needs_recon else ""

@@ -165,6 +165,7 @@ const FOLDS: Record<string, Record<number, Fold>> = {
   suspended: {
     1: (rows, p, { at }) => asked(rows, p.obj("waiting_for"), at),
     2: (rows, p, { at }) => asked(rows, p.obj("waiting_for"), at),
+    3: (rows, p, { at }) => asked(rows, p.obj("waiting_for"), at),
   },
   decision_recorded: {
     1: (rows, p, { at, summary }) => {

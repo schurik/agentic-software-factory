@@ -110,6 +110,42 @@ def test_the_comment_says_that_an_unanswered_question_takes_its_recommendation()
     assert "nothing proceeds on silence" in text
 
 
+def test_every_question_is_counted_and_called_by_its_id():
+    asking = issues.numbered(questions(("scope", "Which endpoint?"), ("data", "Log it?")))
+    asking[1] = asking[1].model_copy(update={"blocking": False})
+
+    text = issues.render_questions(asking, "abc123", 1)
+
+    # The count is how a person tells "two questions, I see two" from a page
+    # that lost one; the id is how one line answers one of them.
+    assert "**2 questions**, 1 of them blocking" in text
+    assert "**Q1** · **Which endpoint?**" in text
+    assert "**Q2** · **Log it?** _(nice to have)_" in text
+    assert "`Q2: 2` answers one" in text
+
+
+def test_ids_number_on_across_rounds_and_overwrite_what_the_agent_said():
+    asking = [question.model_copy(update={"id": "Q1"})
+              for question in questions(("scope", "Which caller?"), ("data", "Keep it?"))]
+
+    assert [question.id for question in issues.numbered(asking, 4)] == ["Q4", "Q5"]
+
+
+def test_a_round_over_the_ceiling_loses_whole_questions_and_says_how_many():
+    asking = issues.numbered([Question(topic="scope", question=f"Question {n}: " + "q" * 300,
+                                       options=options("this", "that")) for n in range(1, 6)])
+
+    text = issues.render_questions(asking, "abc123", 1, limit=2200)
+
+    assert len(text) <= 2200
+    assert "**5 questions**" in text                  # counted, whatever is cut
+    shown = sum(f"**Q{n}** ·" in text for n in range(1, 6))
+    assert 0 < shown < 5
+    assert f"…and {5 - shown} more questions that did not fit" in text
+    # Never cut THROUGH a question: what is on the page is whole.
+    assert text.count("— *recommended*") == shown
+
+
 def test_the_recommendation_is_the_question_s_default_and_the_gate_guarantees_one():
     asked = Question(topic="scope", question="Which?", options=options("a", "b", recommend=1))
 
@@ -305,6 +341,54 @@ def test_ordering_a_scout_without_saying_what_to_look_for_is_refused():
     # Not asking for recon is never a finding — the gate checks the pair, not
     # whether a scout would have helped. That would be a prediction.
     assert gates.questions_are_answerable(asked(), None).passed
+
+
+def test_a_question_that_asks_two_things_is_refused():
+    report = gates.questions_are_answerable(
+        asked(Question(topic="scope", question="Which endpoint? And should it log?",
+                       options=options("this", "that"))), None)
+
+    assert not report.passed
+    assert any("split it" in violation for violation in report.violations)
+
+
+def test_a_round_of_more_than_seven_is_refused():
+    many = questions(*[("scope", f"Which {n}?") for n in range(gates.MAX_QUESTIONS + 1)])
+
+    assert not gates.questions_are_answerable(asked(*many), None).passed
+    assert gates.questions_are_answerable(asked(*many[:gates.MAX_QUESTIONS]), None).passed
+
+
+def test_a_round_that_would_not_fit_on_the_page_is_refused_before_it_is_posted():
+    class Sized:
+        adw_id = "abc123"
+        cfg = type("Cfg", (), {"issues": type("Issues", (), {"max_question_chars": 1500})})
+
+    long = asked(*[Question(topic="scope", question="q" * 400 + "?",
+                            options=options("this", "that")) for _ in range(3)])
+
+    report = gates.questions_are_answerable(long, Sized())
+
+    assert not report.passed
+    assert any("the page holds 1500" in violation for violation in report.violations)
+    assert gates.questions_are_answerable(asked(*questions(("scope", "Which?"))),
+                                          Sized()).passed
+
+
+def test_a_requirements_file_with_a_questions_section_is_refused(tmp_path: Path):
+    class InTree:
+        repo_root = tmp_path
+        session_dir = tmp_path / "session"
+
+    filed = tmp_path / "requirements.md"
+    filed.write_text("# Requirements\n\n- it 200s\n\n## Open questions\n\n- which caller?\n")
+    clean = tmp_path / "clean.md"
+    clean.write_text("# Requirements\n\n- it 200s; Q2 decided the caller\n")
+
+    report = gates.questions_stay_in_the_envelope(asked(artifacts=[str(filed)]), InTree())
+    assert not report.passed
+    assert any("Open questions" in violation for violation in report.violations)
+    assert gates.questions_stay_in_the_envelope(asked(artifacts=[str(clean)]), InTree()).passed
 
 
 # ── writing it down ──────────────────────────────────────────────────────────
@@ -698,6 +782,43 @@ def test_an_analyst_that_never_settles_stops_the_run_before_anything_claims_it_d
     assert "refine_record" not in phase_names(repo, REFINE_ID)
     # Nothing claimed the requirements were agreed.
     assert not any(cfg.issues.refined_label in call for call in forge_calls(repo))
+
+
+def test_a_round_puts_every_question_on_the_item_and_ids_carry_on_into_the_next(tracked):
+    cfg, issue = tracked
+    repo = Path.cwd()
+    issue()
+    first = questions(("scope", "Which endpoint?"), ("data", "Log it?"))
+    first[1] = first[1].model_copy(update={"blocking": False})
+    fake_roster(repo,
+                scout=[recon_reply(repo)],
+                analyst=[draft_reply(repo, "# Requirements\n\n- draft\n", asking=first),
+                         draft_reply(repo, "# Requirements\n\n- closer\n",
+                                     asking=questions(("scope", "Which caller?"))),
+                         draft_reply(repo, "# Requirements\n\n- settled\n")])
+    refining(repo)
+    commit_all(repo)
+
+    asf(repo, "run", "refined", "42", "--adw-id", REFINE_ID)
+
+    def posted(round: int) -> str:
+        mark = issues.questions_mark(REFINE_ID, round)
+        return next(body for call in forge_calls(repo) if call[0] == "comment"
+                    for body in [call[call.index("--body") + 1]] if mark in body)
+
+    # The one that shipped: a nice-to-have question rode along on a round that
+    # was asked anyway, in the answers file, and never on the page.
+    one = posted(1)
+    assert "**Q1** · **Which endpoint?**" in one
+    assert "**Q2** · **Log it?** _(nice to have)_" in one
+
+    asf(repo, "answer", REFINE_ID, "-m", "Q1: the refresh path")
+    answers = Path(handoff(repo, "answers_1.md")).read_text()
+    assert "**Q2 [data]** Log it? _(nice to have)_ → defaults to *this*" in answers
+
+    # Round two's question is the run's third, not a second Q1.
+    assert "**Q3** · **Which caller?**" in posted(2)
+    assert "**1 question**" in posted(2)
 
 
 # ── what a stamped repo ships ────────────────────────────────────────────────

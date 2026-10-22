@@ -188,7 +188,7 @@ describe("any other gate's drawer", () => {
   it("puts a question round's questions first, each with its recommendation, and one action to take them all", () => {
     const asking: Gate = {
       ...GATE, row: { ...ROW, kind: "questions", gate: "requirements", questions: 1, round: 1 }, earlier: [],
-      questions: [{ topic: "scope", question: "Which endpoint?", why: "", blocking: true, options: [
+      questions: [{ id: "Q1", topic: "scope", question: "Which endpoint?", why: "", blocking: true, options: [
         { answer: "/health", because: "it is the one that 500s", recommended: true },
         { answer: "every endpoint", because: "", recommended: false }] }],
     };
@@ -196,6 +196,7 @@ describe("any other gate's drawer", () => {
     expect(read(markup)).toContain("1 question before the requirements");
     expect(tabs(markup)).toEqual(["Questions", "Issue #42"]);
     expect(markup).toContain("/health<em> — recommended</em>");
+    expect(read(markup)).toContain("Q1 · scope");
     expect(markup).toContain("leave empty to take “/health”");
     expect(read(markup)).toMatch(/Send answers .*Take all recommendations a .*Abort session/);
     expect(read(markup)).not.toContain("Reject");

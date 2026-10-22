@@ -393,7 +393,7 @@ function QuestionCard({ question, answer, disabled, onChange }: {
   const recommended = question.options.find((option) => option.recommended);
   return (
     <div className="grid gap-1 rounded-lg border border-line p-3">
-      <div className="text-sm text-muted">{question.topic}{question.blocking ? "" : " · nice to have"}</div>
+      <div className="text-sm text-muted">{question.id} · {question.topic}{question.blocking ? "" : " · nice to have"}</div>
       <strong className="font-medium">{question.question}</strong>
       {question.why ? <div className="text-sm text-muted">{question.why}</div> : null}
       <ol className="my-1 list-decimal pl-5 text-sm">

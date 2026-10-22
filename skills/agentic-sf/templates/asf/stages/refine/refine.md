@@ -32,12 +32,18 @@ requirements you already wrote, and say what is still open.
    else is how a cheap round becomes a wrong one.
 3. Update `<context_handoff_dir>/requirements.md` in place — the same path, not
    a new file. Keep its three sections, and add a fourth:
-   - **Decided** — one line per question that has been settled, saying what was
-     decided and **whether a person said so or it stood at its recommendation**.
-     A reader has to be able to tell those apart.
+   - **Decided** — one line per question that was asked, by its id, saying what
+     was decided and **whether a person said so or it stood at its
+     recommendation**: `- **Q2** — the OAuth refresh path (a person said so)`.
+     Every id in the answers file gets its line, the *nice to have* ones too: a
+     reader has to be able to tell what was answered from what was defaulted,
+     and that nothing was skipped.
+
+   Still no section of questions: what is open goes in `open_questions`.
 4. An answer that opens a question you had not thought of is a new question.
-   Ask it the same way: two or three options, exactly one `recommended`, most
-   important first, and `why` it matters. Do not re-ask what was answered.
+   Ask it the same way: one decision per entry, two or three options, exactly
+   one `recommended`, most important first, and `why` it matters. The factory
+   gives it the next id. Do not re-ask what was answered.
 5. If the answers point at code you have not seen, set `needs_recon: true` with
    a `recon_focus` — this is the round where that pays, because you now know
    what to look for.

@@ -523,7 +523,22 @@ describe("the answer view", () => {
                                                  signIn: await signIn(t, forge, "alex") });
 
     expect(gate!.row).toMatchObject({ kind: "questions", questions: 1 });
-    expect(gate!.questions).toEqual([{ ...question, options: [question.options[1], question.options[0]] }]);
+    // A `suspended` before v3 named no ids: the question is called by its place, as the comment called it.
+    expect(gate!.questions).toEqual([{ ...question, id: "Q1", options: [question.options[1], question.options[0]] }]);
+  });
+
+  it("calls each question by the id the factory gave it", async () => {
+    const forge = fakeForge();
+    const t = await teamOf(forge, { "acme/widgets": { alex: "write" } });
+    const asked = fixture("suspended", 2, 3).payload.questions as { id: string }[];
+    await ship(t, await factory(t, "acme/widgets"), "h3h3h3h3",
+               suspendedAt({ session: "h3h3h3h3", gate: "requirements", kind: "questions", questions: asked }));
+
+    const gate = await t.query(api.inbox.gate, { factory: "acme/widgets", session: "h3h3h3h3",
+                                                 signIn: await signIn(t, forge, "alex") });
+
+    expect(gate!.questions.map((question) => question.id)).toEqual(["Q1", "Q2"]);
+    expect(gate!.questions[1]).toMatchObject({ blocking: false });
   });
 
   it("says whom a wait is on to a viewer who may read it but not answer it, and that the factory hears only them", async () => {

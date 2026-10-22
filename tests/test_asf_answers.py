@@ -225,7 +225,7 @@ def test_a_suspend_names_who_the_factory_will_hear_and_asks_nothing_at_a_gate(tr
 
     event = suspended_events(repo, adw_id)[-1]
 
-    assert event["v"] == 2
+    assert event["v"] == 3
     assert event["payload"]["trusted"] == ["schurik", "dana"]
     assert event["payload"]["questions"] == []
 
@@ -237,4 +237,5 @@ def test_a_question_round_s_suspend_carries_its_questions(tracked):  # noqa: F81
     payload = suspended_events(repo, REFINE_ID)[-1]["payload"]
 
     assert [Question(**question).question for question in payload["questions"]] == ["Which endpoint?"]
+    assert [question["id"] for question in payload["questions"]] == ["Q1"]   # v3: code's id
     assert payload["trusted"] == []                 # nobody named: whoever the forge lets comment
