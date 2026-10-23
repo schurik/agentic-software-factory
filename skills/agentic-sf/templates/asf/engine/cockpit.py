@@ -11,6 +11,16 @@ one ASF_COCKPIT_VERSION names, never an older one, because the cockpit reads
 every event a factory has ever written and a factory only ever adds to them:
 the cockpit upgrades first.
 
+IT RUNS DETACHED (ADR 0009). The cockpit is one per machine, shared by every
+factory on it, so no factory's process owns it: `asf up` makes sure one is
+running (`compose up --detach`, which returns once its containers are
+started) and ships to it, and ctrl-c on that `up` stops the station and its
+watchers, never the cockpit another factory is shipping to. Docker restarts
+it with the machine (`restart: unless-stopped`); `asf cockpit down` is the
+one thing that stops it. A cockpit already running at this stamp's version
+or newer is joined and never recreated, so an `up` does not bounce the
+cockpit under everyone else; only an older one is replaced.
+
 Docker is the price. Without it — no CLI, no compose plugin, no daemon —
 `docker_problem()` says which, `asf up` drops the cockpit with a warning and
 the watchers run anyway, and `doctor` says the same thing before anyone asks.
@@ -30,8 +40,8 @@ person in front of it is whoever ran `asf up`. So it asks the forge AS them,
 with their own token for it (`forge_credential`, through `Forge.token`), handed
 to the app container in its environment — never on a command line, never in a file of
 this repository. The cockpit keeps it where it keeps everything: in its
-backend, in the `data` volume on this machine, until the next `asf up` hands
-it another or none. Without one the cockpit still shows every session this
+backend, in the `data` volume on this machine, until the `asf up` that next
+starts it hands it another or none. Without one the cockpit still shows every session this
 station ships; it just cannot ask the forge which other repositories hold a
 factory.
 """
@@ -43,6 +53,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -104,13 +115,13 @@ def ignored_pin() -> str:
     return asked if asked and _semver(asked) != _semver(version()) else ""
 
 
-def newer(than: str) -> bool:
-    """Whether `than` is newer than `version()` — a cockpit this stamp joins
-    rather than replaces. The same version is started (compose attaches to
-    the containers already there), so an `up` whose predecessor was killed
-    owns its cockpit again."""
-    found = _semver(than)
-    return found is not None and found > _semver(version())
+def current(running: str) -> bool:
+    """Whether a cockpit running at `running` is at least `version()` — one
+    this stamp joins as it is. The same version is joined too, never
+    recreated: `compose up` with another factory's token or compose file
+    would replace the containers every other factory is shipping to."""
+    found = _semver(running)
+    return found is not None and found >= _semver(version())
 
 
 def registry() -> str:
@@ -194,7 +205,8 @@ def forge_credential(cfg: FactoryConfig) -> ForgeCredential:
     local cockpit can ask the forge as the person who ran `asf up`.
 
     Asked once, as the cockpit starts. A token changed later — signing in
-    again — reaches the cockpit with the next `asf up`.
+    again — reaches it the next time it starts: `asf cockpit down`, then
+    `asf up`. An `up` that joins a running cockpit hands over nothing.
     """
     forge_ = forge.forge_of(cfg)
     return ForgeCredential(host=forge_.host(), token=forge_.token(), sign_in=forge_.sign_in)
@@ -236,8 +248,8 @@ def running(run: Run | None = None) -> str:
 
     Read from the tag of its app container, which is what `compose up` was
     given. Asked before starting one, because the cockpit is one per machine:
-    a second `asf up` joins a newer one rather than recreating it, so
-    an older stamp never downgrades a cockpit a newer one is using.
+    a second `asf up` joins one at least as new rather than recreating it,
+    so an older stamp never downgrades a cockpit a newer one is using.
     """
     code, output = (run or _run)(["docker", "ps", "--format", "{{.Image}}",
                                   "--filter", f"label=com.docker.compose.project={PROJECT}",
@@ -256,11 +268,63 @@ def compose(*args: str) -> list[str]:
 
 
 def up_argv() -> list[str]:
-    """The supervisor's `cockpit` child: in the foreground, so its output is
-    prefixed like every other child's and ctrl-c takes it down with the rest.
-    `--pull missing`: a release's tag is never republished, so an image
-    already here is the right one."""
-    return compose("up", "--pull", "missing")
+    """The supervisor's `cockpit` child: a one-shot that starts the cockpit
+    DETACHED and exits once its containers are up, so ctrl-c on the `up`
+    that ran it leaves it running for every other factory. Its pull and start
+    are prefixed like any child's output; what the cockpit logs after that is
+    `asf cockpit logs`. `--pull missing`: a release's tag is never
+    republished, so an image already here is the right one."""
+    return compose("up", "--detach", "--pull", "missing")
+
+
+def down_argv() -> list[str]:
+    """`asf cockpit down`: stops it for every factory on this machine and
+    keeps its `data` volume, so each one's sessions are there when it is
+    back. The project name is fixed, so any stamp's compose file stops the
+    cockpit whichever stamp started it."""
+    return compose("down")
+
+
+def logs_argv(follow: bool) -> list[str]:
+    return compose("logs", "--tail", "100", *(["--follow"] if follow else []))
+
+
+# ── `asf cockpit` ────────────────────────────────────────────────────────────
+
+def manage(action: str, follow: bool = False) -> int:
+    """`asf cockpit status | logs | down`: the machine's local cockpit, which
+    no `asf up` owns, asked after, read and stopped by name. `status` exits 1
+    when none is running, so a script can ask."""
+    problem = docker_problem()
+    if problem:
+        print(f"no local cockpit: {problem}", file=sys.stderr)
+        return 2
+    already = running()
+    if action == "status":
+        if shared():
+            print(f"ASF_COCKPIT_URL names a shared cockpit ({shared()}) — this factory ships "
+                  f"there, whatever runs here")
+        if not already:
+            print("the local cockpit is not running — `asf up` starts it")
+            return 1
+        print(f"the local cockpit {already} is running at {app_url()}, for every factory on "
+              f"this machine — `asf cockpit down` stops it")
+        return 0
+    if action == "down":
+        if not already:
+            print("the local cockpit is not running — nothing to stop")
+        else:
+            print(f"stopping the local cockpit {already} for every factory on this machine — "
+                  f"their stations keep every event and ship it when it is back")
+    return _attached(down_argv() if action == "down" else logs_argv(follow))
+
+
+def _attached(argv: list[str]) -> int:
+    """compose with this terminal: its output as it comes, ctrl-c to it."""
+    try:
+        return subprocess.call(argv, env={**os.environ, **compose_env()})
+    except KeyboardInterrupt:
+        return 0
 
 
 # ── the token the station ships with ─────────────────────────────────────────

@@ -299,6 +299,66 @@ def test_the_stamped_compose_file_runs_a_local_cockpit_that_asks_with_that_token
     assert ports and all(port.startswith("127.0.0.1:") for port in ports)
 
 
+def test_the_local_cockpit_comes_back_with_docker_and_its_one_shot_does_not_loop():
+    """Detached, no `asf up` restarts it: Docker does. `keygen` runs once — a
+    restart policy on it would run it forever."""
+    services = yaml.safe_load(local_cockpit.COMPOSE.read_text())["services"]
+
+    assert services["backend"]["restart"] == "unless-stopped"
+    assert services["app"]["restart"] == "unless-stopped"
+    assert "restart" not in services["keygen"]
+
+
+@pytest.fixture
+def compose_calls(monkeypatch):
+    """`asf cockpit` with Docker answering, and every compose call it makes kept."""
+    monkeypatch.setattr(local_cockpit, "docker_problem", lambda: None)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(local_cockpit.subprocess, "call",
+                        lambda argv, env: calls.append(argv) or 0)
+    return calls
+
+
+def test_asf_cockpit_status_says_whether_one_runs_and_exits_1_when_none_does(
+        compose_calls, monkeypatch, capsys):
+    monkeypatch.setattr(local_cockpit, "running", lambda *_: "")
+    assert local_cockpit.manage("status") == 1
+    assert "not running" in capsys.readouterr().out
+
+    monkeypatch.setattr(local_cockpit, "running", lambda *_: "1.4.2")
+    assert local_cockpit.manage("status") == 0
+    out = capsys.readouterr().out
+    assert "1.4.2" in out and local_cockpit.app_url() in out
+    assert compose_calls == []
+
+
+def test_asf_cockpit_down_stops_it_for_everyone_and_keeps_its_data(
+        compose_calls, monkeypatch, capsys):
+    monkeypatch.setattr(local_cockpit, "running", lambda *_: "1.4.2")
+
+    assert local_cockpit.manage("down") == 0
+
+    [argv] = compose_calls
+    assert argv[:2] == ["docker", "compose"] and argv[-1] == "down"
+    assert "--volumes" not in argv and "-v" not in argv
+    assert "every factory" in capsys.readouterr().out
+
+
+def test_asf_cockpit_logs_reads_the_cockpit_no_up_prints_any_more(compose_calls, monkeypatch):
+    monkeypatch.setattr(local_cockpit, "running", lambda *_: "1.4.2")
+    local_cockpit.manage("logs")
+    local_cockpit.manage("logs", follow=True)
+
+    assert [argv[argv.index("logs"):] for argv in compose_calls] == [
+        ["logs", "--tail", "100"], ["logs", "--tail", "100", "--follow"]]
+
+
+def test_asf_cockpit_without_docker_says_so(monkeypatch, tmp_path, capsys):
+    without_docker(monkeypatch, tmp_path)
+    assert local_cockpit.manage("down") == 2
+    assert "Docker" in capsys.readouterr().err
+
+
 def test_doctor_says_whether_the_local_cockpit_will_have_a_forge_token(docker_here, monkeypatch,
                                                                        tmp_path):
     monkeypatch.setattr(local_cockpit, "missing_images", lambda *_: [])
@@ -334,6 +394,9 @@ def test_up_with_no_shared_cockpit_starts_the_local_one_beside_the_watchers(cfg,
     assert cockpit.argv[:2] == ["docker", "compose"]
     assert any(arg.endswith("asf/cockpit/compose.yaml") for arg in cockpit.argv)
     assert cockpit.env["ASF_COCKPIT_VERSION"] == local_cockpit.minimum()
+    # started detached, by a one-shot: ctrl-c on this `up` is not the cockpit's end
+    assert cockpit.argv[-4:] == ["up", "--detach", "--pull", "missing"]
+    assert cockpit.done and "asf cockpit down" in cockpit.done
 
 
 def test_up_with_a_shared_cockpit_starts_no_cockpit_child(cfg, monkeypatch):
@@ -492,28 +555,73 @@ def test_up_joins_a_newer_local_cockpit_instead_of_starting_one(
     assert supervise.destination(cfg, stamped, local) is not None     # still ships to it
 
 
-def test_up_replaces_an_older_local_cockpit_and_owns_one_of_its_own_version(cfg, docker_here):
+def test_up_replaces_an_older_local_cockpit_and_joins_one_of_its_own_version(cfg, docker_here):
+    """The same version is joined, never started again: `compose up` with this
+    factory's token would recreate the containers the others ship to."""
     docker_here["version"] = "0.0.1"
     want = supervise.wanted(cfg, supervise.Children())
     assert supervise.check(cfg, want) == "start" and "cockpit" in want
 
-    docker_here["version"] = local_cockpit.version()       # left behind by a killed `up`
+    docker_here["version"] = local_cockpit.version()
+    want = supervise.wanted(cfg, supervise.Children())
+    assert supervise.check(cfg, want) == "join" and "cockpit" not in want
+
+    docker_here["version"] = ""
     want = supervise.wanted(cfg, supervise.Children())
     assert supervise.check(cfg, want) == "start" and "cockpit" in want
 
 
-def test_a_child_whose_place_was_taken_retires_instead_of_restarting(tmp_path: Path):
-    """Another `up` upgraded the shared cockpit under this one's `compose up`,
-    which exits. Restarting it at this stamp's version would downgrade it."""
+def supervising(services: list[supervise.Service]):
+    """`_supervise` on a thread, with what it said and what it returned."""
     lines: list[tuple[str, str]] = []
-    exits = supervise.Service("cockpit", [sys.executable, "-c", "pass"], tmp_path,
-                              retire_if=lambda: "joined the local cockpit 99.0.0")
     stopping = threading.Event()
-    supervise._spawn(exits, lambda name, line: lines.append((name, line)))
-    supervisor = threading.Thread(
-        target=lambda: lines.append(("result", supervise._supervise(
-            [exits], stopping, lambda name, line: lines.append((name, line))))))
-    supervisor.start()
+    for service in services:
+        supervise._spawn(service, lambda name, line: lines.append((name, line)))
+    thread = threading.Thread(target=lambda: lines.append(("result", supervise._supervise(
+        services, stopping, lambda name, line: lines.append((name, line))))))
+    thread.start()
+    return lines, stopping, thread
+
+
+def test_the_cockpit_child_is_done_once_it_has_started_the_cockpit_not_dead(tmp_path: Path):
+    """`compose up --detach` returns once the containers run: that child is
+    retired with its line, never restarted, and `asf station` — whose only
+    child it is — keeps supervising rather than calling everything given up."""
+    started = supervise.Service("cockpit", [sys.executable, "-c", "pass"], tmp_path,
+                                done="up at http://localhost:3000")
+    lines, stopping, thread = supervising([started])
+    try:
+        assert eventually(lambda: started.retired)
+        assert ("cockpit", "up at http://localhost:3000") in lines
+        time.sleep(0.6)
+        assert ("result", True) not in lines
+    finally:
+        stopping.set()
+        thread.join(5)
+    assert started.restarts == 0
+
+
+def test_a_cockpit_that_failed_to_start_is_tried_again(tmp_path: Path):
+    failing = supervise.Service("cockpit", [sys.executable, "-c", "raise SystemExit(1)"],
+                                tmp_path, done="up")
+    lines, stopping, thread = supervising([failing])
+    try:
+        assert eventually(lambda: failing.restarts >= 1)
+        assert ("cockpit", "exited (1) — restarting") in lines
+        assert not failing.retired
+    finally:
+        stopping.set()
+        thread.join(5)
+
+
+def test_a_child_whose_place_was_taken_retires_instead_of_restarting(tmp_path: Path):
+    """This `up` failed to start the cockpit, and another started one at least
+    as new meanwhile. Starting it again at this stamp's version could
+    downgrade it."""
+    exits = supervise.Service("cockpit", [sys.executable, "-c", "raise SystemExit(1)"],
+                              tmp_path, done="up",
+                              retire_if=lambda: "joined the local cockpit 99.0.0")
+    lines, stopping, thread = supervising([exits])
     try:
         assert eventually(lambda: exits.retired)
         assert ("cockpit", "joined the local cockpit 99.0.0") in lines
@@ -521,7 +629,7 @@ def test_a_child_whose_place_was_taken_retires_instead_of_restarting(tmp_path: P
         assert ("result", True) not in lines          # not "every service has given up"
     finally:
         stopping.set()
-        supervisor.join(5)
+        thread.join(5)
     assert exits.restarts == 0
 
 

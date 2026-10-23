@@ -85,7 +85,8 @@ works on a factory that is already broken — which is when it is most wanted.
 parts back to undo everything except the run record, which is gone either way.
 To stamp it again: [install.md](install.md).
 
-The local cockpit `asf up` started is left running on Docker, with its data:
-it is one per machine, shared by every factory on it. `docker compose -p
-asf-cockpit down` stops it; add `--volumes` to delete what it holds, for every
+The local cockpit is left running on Docker, with its data: it is one per
+machine, shared by every factory on it, and no `asf up` owns it. `docker
+compose -p asf-cockpit down` stops it (`asf cockpit down` before the
+uninstall, the same thing); add `--volumes` to delete what it holds, for every
 factory on this machine.

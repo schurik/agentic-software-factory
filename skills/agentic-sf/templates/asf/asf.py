@@ -37,6 +37,9 @@ Usage:
     uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--interval 120]
                                                  the station loop, the local cockpit, every watcher
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
+    uv run asf/asf.py cockpit status|logs|down [-f]
+                                                 the local cockpit, which keeps running after
+                                                 `up` stops; down stops it for every factory
     uv run asf/asf.py score [--since 2026-10-01] [--scorer corrections]
                                                  score every ended chapter a scorer has not
                                                  scored, and record how pull requests no
@@ -72,6 +75,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import (benchmarks, commands, describe, diagnose, factory,  # noqa: E402
                     git_helper, onboarding, operate, scorers, station, supervise, utils, watch,
                     workflow)
+from engine import cockpit as local_cockpit  # noqa: E402
 from engine.data_types import Invocation  # noqa: E402
 
 DEFAULT_CONFIG = factory.DEFAULT_CONFIG
@@ -288,6 +292,10 @@ def cmd_status(args) -> int:
     return supervise.status(factory.load(args.config))
 
 
+def cmd_cockpit(args) -> int:
+    return local_cockpit.manage(args.action, args.follow)
+
+
 def _bound(config: str) -> dict[str, list[str]]:
     """Each workflow that loads, and the agents it binds: what a scorer is
     checked against."""
@@ -472,6 +480,14 @@ def build_parser() -> argparse.ArgumentParser:
     up.set_defaults(func=cmd_up)
     _config_on(sub.add_parser("status", help="what is watching, running, waiting, left behind")
                ).set_defaults(func=cmd_status)
+    cockpit = _config_on(sub.add_parser(
+        "cockpit", help="the local cockpit, which keeps running after `asf up` stops"))
+    cockpit.add_argument("action", choices=["status", "logs", "down"],
+                         help="status: is it running, and which version (exit 1: not). logs: "
+                              "what it logged lately. down: stop it, for every factory on this "
+                              "machine — its data stays")
+    cockpit.add_argument("--follow", "-f", action="store_true", help="logs: keep following")
+    cockpit.set_defaults(func=cmd_cockpit)
     score = _config_on(sub.add_parser(
         "score", help="measure past sessions: score every ended chapter a scorer has not "
                       "scored yet, and record how each one's pull request closed, where no PR "
