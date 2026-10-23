@@ -11,12 +11,13 @@
 #
 # ONE PER MACHINE. The project name is fixed, so every factory on this machine
 # ships to the same cockpit and keeps its sessions in the same `data` volume.
-# A second `asf up` whose stamp needs an older cockpit than the one running
-# joins it rather than downgrading it; one that needs a newer one replaces it
-# (the cockpit upgrades first). The `asf up` that started it owns it: ctrl-c
-# there stops it for every factory, and theirs keep every event until it is
-# back. Every port is bound to 127.0.0.1: a local cockpit has no sign-in, and
-# nothing off this machine should reach it.
+# A second `asf up` whose stamp needs no newer cockpit than the one running
+# joins it as it is; one that needs a newer one replaces it (the cockpit
+# upgrades first). DETACHED (ADR 0009): no `asf up` owns it, so ctrl-c on one
+# leaves it running for the others, and Docker brings it back with the
+# machine. `asf cockpit down` stops it, for every factory; theirs keep every
+# event until it is back. Every port is bound to 127.0.0.1: a local cockpit
+# has no sign-in, and nothing off this machine should reach it.
 name: asf-cockpit
 
 services:
@@ -24,6 +25,7 @@ services:
     image: ${ASF_COCKPIT_REGISTRY:?}/asf-cockpit-backend:${ASF_COCKPIT_VERSION:?}
     stop_grace_period: 10s
     stop_signal: SIGINT
+    restart: unless-stopped
     ports:
       - "127.0.0.1:${ASF_COCKPIT_BACKEND_PORT:-3210}:3210"
       - "127.0.0.1:${ASF_COCKPIT_SITE_PORT:-3211}:3211"
@@ -42,6 +44,8 @@ services:
 
   # One shot: derives the admin key from the backend's own instance secret, so
   # the app can deploy its functions with nothing pasted (as the team compose).
+  # No restart policy: when Docker brings the cockpit back with the machine,
+  # the app finds the key this wrote in `keys` and needs no second run.
   keygen:
     image: ${ASF_COCKPIT_REGISTRY:?}/asf-cockpit-backend:${ASF_COCKPIT_VERSION:?}
     entrypoint: ["/bin/bash", "-c", "./generate_admin_key.sh | tail -n 1 > /keys/admin_key"]
@@ -54,6 +58,7 @@ services:
 
   app:
     image: ${ASF_COCKPIT_REGISTRY:?}/asf-cockpit:${ASF_COCKPIT_VERSION:?}
+    restart: unless-stopped
     ports:
       - "127.0.0.1:${ASF_COCKPIT_APP_PORT:-3000}:3000"
     volumes:

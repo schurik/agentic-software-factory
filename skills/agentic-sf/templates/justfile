@@ -124,7 +124,7 @@ abort ADW_ID *ARGS:
 # to do — so `just up` starts all of them in one process and `just status`
 # says what is actually running.
 
-# start everything: station loop, local cockpit (needs Docker), the watchers; ctrl-c stops it all
+# start everything: station loop, local cockpit (needs Docker), the watchers; ctrl-c stops all but the cockpit
 up *ARGS:
     {{asf}} up "$@"
 
@@ -212,6 +212,21 @@ station-sync:
 # connect this checkout to a shared cockpit: prints a code a person approves there
 station-register:
     {{asf}} station register
+
+# The local cockpit keeps running after ctrl-c on `just up`: it is one per
+# machine, and the other factories on it are shipping to it too.
+
+# is the local cockpit running, and which version
+cockpit-status:
+    {{asf}} cockpit status
+
+# what the local cockpit logged lately: just cockpit-logs [-f]
+cockpit-logs *ARGS:
+    {{asf}} cockpit logs "$@"
+
+# stop the local cockpit, for every factory on this machine (its data stays)
+cockpit-down:
+    {{asf}} cockpit down
 
 # ── watch it ────────────────────────────────────────────────────────────────
 # Read from each session's own directory; the cockpit `just up` starts shows
