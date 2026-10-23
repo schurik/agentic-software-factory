@@ -66,8 +66,10 @@ def tell(repo: Path) -> None:
                 "tool_calls": [
                     {"tool": "bash", "args": {"command": SECRET_ARGUMENT},
                      "result": SECRET_RESULT},
+                    # A subagent's read, then the Task that ran it returning.
                     {"tool": "read", "args": {"path": "app.py"}, "ok": False,
-                     "result": "no such file"}],
+                     "result": "no such file", "parent": "subagent-1"},
+                    {"tool": "Task", "id": "subagent-1", "args": {"prompt": "look"}}],
                 "envelope": envelope(findings=[{"file": "app.py", "note": "missing"}],
                                      artifacts=[handoff(repo, "scout_findings.md"),
                                                 handoff(repo, "core.dump")])}],
@@ -301,15 +303,20 @@ def test_a_replay_its_gates_refuse_is_announced_again_as_the_live_call_it_became
 
 # ── tool calls ───────────────────────────────────────────────────────────────
 
-def test_a_tool_call_travels_as_its_name_outcome_and_duration_and_nothing_else(told: Path):
+def test_a_tool_call_travels_as_its_name_outcome_duration_and_parent_and_nothing_else(
+        told: Path):
     scout = next(line.payload["phase_id"] for line in lines_of(told, "phase_started")
                  if line.payload["name"] == "scout")
 
     called = [line.payload for line in lines_of(told, "tool_called")]
 
-    assert [(each["tool"], each["ok"]) for each in called] == [("bash", True), ("read", False)]
+    assert [(each["tool"], each["ok"], each["call_id"], each["parent_call_id"])
+            for each in called] == [("bash", True, "call-1", ""),
+                                    ("read", False, "call-2", "subagent-1"),
+                                    ("Task", True, "subagent-1", "")]
     for each in called:
-        assert set(each) == {"phase_id", "agent", "tool", "ok", "duration_ms"}
+        assert set(each) == {"phase_id", "agent", "tool", "ok", "duration_ms", "call_id",
+                             "parent_call_id"}
         assert each["phase_id"] == scout and each["agent"] == "scout"
         assert isinstance(each["duration_ms"], int) and each["duration_ms"] >= 0
     # What a tool was asked and what it answered never leave the station.

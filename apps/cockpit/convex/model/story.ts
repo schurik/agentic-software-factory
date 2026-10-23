@@ -456,6 +456,11 @@ function withPhase(fold: (phase: PhaseState, p: Payload, at: At) => void): Telle
   };
 }
 
+const toolCalled = withPhase((phase, p) => {
+  phase.toolCalls += 1;
+  if (!p.bool("ok")) phase.toolFailures += 1;
+});
+
 function workflowStarted(state: StoryState, p: Payload, { ts }: At): ChapterState {
   const opened = chapter(state, p.num("chapter"), p.str("workflow"));
   Object.assign(opened, { workflow: p.str("workflow") || opened.workflow, input: p.str("input"),
@@ -582,12 +587,8 @@ const TELLERS: Record<string, Record<number, Teller>> = {
     }),
   },
   envelope_rejected: { 1: withPhase((phase) => { phase.corrections += 1; }) },
-  tool_called: {
-    1: withPhase((phase, p) => {
-      phase.toolCalls += 1;
-      if (!p.bool("ok")) phase.toolFailures += 1;
-    }),
-  },
+  // v2 adds the call's ids; a subagent's calls count as the phase's own here.
+  tool_called: { 1: toolCalled, 2: toolCalled },
   usage: {
     1: withPhase((phase, p) => {
       phase.cost += p.num("cost");

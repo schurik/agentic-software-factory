@@ -445,6 +445,13 @@ before — `None` when there are none, never omitted.
   spend — under it. Someone else's station of the same name is left alone, and so is one that is
   online: a loop polling now is a second checkout of that name, which `ASF_STATION_NAME` tells
   apart. `asf station sync` never created a station, and is unchanged.
+- **A subagent's tool calls say which call ran them.** `tool_called` v2 carries `call_id` and
+  `parent_call_id`: a call a subagent made — Claude Code's `Task`, a reviewer handing one
+  perspective to a subagent, say — names the call that spawned it, and the agent's own calls leave
+  it empty. They were in the stream before, flattened in as the agent's own. A 1.3.0 cockpit's
+  Tools tab draws a subagent's calls under the call that ran them, and counts the agent's time in
+  tools once. A subagent's turn no longer sets the agent's context occupancy, either: it is a
+  context of its own. No step of its own; step 1 covers the cockpit.
 
 - **Every question the analyst asks reaches the person, by its id.** A `refine` round put only
   its blocking questions on the work item, while the answers file recorded the nice-to-have ones as

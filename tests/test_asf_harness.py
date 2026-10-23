@@ -470,6 +470,59 @@ def test_a_denial_that_holds_nothing_is_said_once_the_server_has_started(tmp_pat
     assert "mcp__playwright__browser_evaluate" in kept and "still offered" in kept
 
 
+# A reviewer that hands one perspective to a subagent: the `Task` call, the
+# subagent's own Grep under it (its messages carry the Task's id), and the Task
+# returning last. The subagent's turn reports a far fuller window than the
+# reviewer's own — it is a context of its own.
+SUBAGENT_STREAM = [
+    {"type": "assistant", "parent_tool_use_id": None, "message": {
+        "usage": {"input_tokens": 1000, "output_tokens": 200},
+        "content": [{"type": "tool_use", "id": "toolu_task", "name": "Task",
+                     "input": {"description": "security pass", "prompt": "look"}}]}},
+    {"type": "assistant", "parent_tool_use_id": "toolu_task", "message": {
+        "usage": {"input_tokens": 50000, "output_tokens": 10},
+        "content": [{"type": "tool_use", "id": "toolu_grep", "name": "Grep",
+                     "input": {"pattern": "eval"}}]}},
+    {"type": "user", "parent_tool_use_id": "toolu_task", "message": {
+        "content": [{"type": "tool_result", "tool_use_id": "toolu_grep", "content": "none"}]}},
+    {"type": "user", "parent_tool_use_id": None, "message": {
+        "content": [{"type": "tool_result", "tool_use_id": "toolu_task", "content": "clean"}]}},
+    {"type": "result", "result": "done", "session_id": "s"},
+]
+
+STUB_STREAM = """#!{python}
+import json
+for event in {stream!r}:
+    print(json.dumps(event))
+"""
+
+
+def test_a_subagent_s_calls_name_the_call_they_ran_under_and_not_the_agent_s_window(
+        tmp_path, monkeypatch):
+    import sys
+
+    from engine.data_types import AgentRequest
+    from engine.harnesses import claude_code
+
+    stub = tmp_path / "claude"
+    stub.write_text(STUB_STREAM.format(python=sys.executable, stream=SUBAGENT_STREAM))
+    stub.chmod(0o755)
+    monkeypatch.setattr(claude_code, "CLAUDE_PATH", str(stub))
+    tracker, records = claude_code.ToolCallTracker(), []
+
+    result = claude_code.run(
+        AgentRequest(prompt="go", system_prompt="You review.", model="sonnet", session_id="s",
+                     session_dir=str(tmp_path / "s"), raw_output_path=str(tmp_path / "raw.jsonl"),
+                     cwd=str(tmp_path), agent="reviewer"),
+        on_event=lambda event: records.extend(tracker.observe(event)))
+
+    assert [(r["tool"], r["tool_call_id"], r["parent_call_id"]) for r in records] == [
+        ("Grep", "toolu_grep", "toolu_task"),        # the subagent's, returned first
+        ("Task", "toolu_task", ""),                  # the reviewer's own
+    ]
+    assert result.context_tokens == 1200             # the reviewer's turn, not the subagent's
+
+
 # Each takes several values, and swallows a prompt placed right after it as one more.
 MULTI_VALUE = {"--tools", "--disallowedTools", "--mcp-config", "--add-dir", "--plugin-dir"}
 

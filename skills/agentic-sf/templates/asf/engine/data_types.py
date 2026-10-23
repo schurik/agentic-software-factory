@@ -3253,15 +3253,25 @@ class ToolCalled(DomainEvent):
     """One completed tool call of an agent: which tool, whether it worked, how
     long it took. NEVER its arguments or its result — a command line and a file's
     contents are exactly what a repository does not send off the machine
-    unasked. They are in the transcript, for a factory that opted in to one."""
+    unasked. They are in the transcript, for a factory that opted in to one.
+
+    A call a SUBAGENT made (Claude Code's `Task`) names the call that spawned
+    it in `parent_call_id`; the agent's own calls leave it empty. The ids are
+    the harness's own, opaque, and say nothing a call was given — they only
+    let a cockpit draw a subagent's calls under the call they ran in. The
+    parent's own event comes AFTER its children's: a call is written when it
+    returns, and the spawning call returns last."""
 
     KIND: ClassVar[str] = "tool_called"
+    VERSION: ClassVar[int] = 2      # v2: call_id, parent_call_id
 
     phase_id: str
     agent: str
     tool: str
     ok: bool
     duration_ms: int = 0
+    call_id: str = ""
+    parent_call_id: str = ""
 
 
 class ProcessStarted(DomainEvent):

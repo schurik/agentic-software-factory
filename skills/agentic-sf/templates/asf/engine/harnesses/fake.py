@@ -93,7 +93,8 @@ class Reply(BaseModel):
     writes: dict[str, str] = Field(default_factory=dict)
     deletes: list[str] = Field(default_factory=list)
     # Each becomes one `tool_called` event, the same shape a real harness
-    # produces.
+    # produces: `tool`, `args`, `ok`, `result`, and optionally `id` and
+    # `parent` — the id of the call a subagent made it under.
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     tokens: int = 0
     cost: float = 0.0
@@ -194,13 +195,19 @@ class ToolCallTracker:
 
     def __init__(self) -> None:
         self._ledger = ToolCallLedger()
+        self._calls = 0
 
     def observe(self, event: dict) -> list[dict]:
         if event.get("type") != "tool_call":
             return []
-        call_id = str(event.get("id") or id(event))
+        # Counted rather than drawn from memory, so a recorded session reads
+        # the same however often it is told. `parent` names the call a
+        # scripted subagent ran under, the way a real harness's stream does.
+        self._calls += 1
+        call_id = str(event.get("id") or f"call-{self._calls}")
         args = event.get("args") or {}
-        self._ledger.announce(call_id, event.get("tool", "tool"), args)
+        self._ledger.announce(call_id, event.get("tool", "tool"), args,
+                              parent=str(event.get("parent") or ""))
         return [self._ledger.close(call_id, ok=bool(event.get("ok", True)),
                                    result_text=str(event.get("result", "")))]
 

@@ -132,10 +132,22 @@ describe("the Tools tab", () => {
     const { tools } = await phase(t, "a9f259f0_02_scout");
 
     expect(tools).toEqual([
-      { seq: 11, at: "2026-09-30T17:22:35.686+00:00", agent: "scout", tool: "grep", ok: true, durationMs: 0 },
-      { seq: 12, at: "2026-09-30T17:22:35.689+00:00", agent: "scout", tool: "read", ok: true, durationMs: 0 },
-      { seq: 13, at: "2026-09-30T17:22:35.692+00:00", agent: "scout", tool: "read", ok: false, durationMs: 0 },
+      { seq: 11, at: "2026-09-30T17:22:35.686+00:00", agent: "scout", tool: "grep", ok: true, durationMs: 0,
+        callId: "", parentCallId: "" },
+      { seq: 12, at: "2026-09-30T17:22:35.689+00:00", agent: "scout", tool: "read", ok: true, durationMs: 0,
+        callId: "", parentCallId: "" },
+      { seq: 13, at: "2026-09-30T17:22:35.692+00:00", agent: "scout", tool: "read", ok: false, durationMs: 0,
+        callId: "", parentCallId: "" },
     ]);
+  });
+
+  it("says which call's subagent made a call, from tool_called v2 on", async () => {
+    const t = await told([fixture("session_started", 1), fixture("phase_started", 2, 2), fixture("tool_called", 3, 2)]);
+
+    const { tools } = await phase(t, "5c0075aa_03_plan");
+
+    expect(tools).toMatchObject([{ tool: "Grep", callId: "toolu_01Hq7Vb2xY4kLmN8pR3sT6wZ",
+                                   parentCallId: "toolu_01AbC9dEfG2hJkL5mN7pQ8rS" }]);
   });
 });
 

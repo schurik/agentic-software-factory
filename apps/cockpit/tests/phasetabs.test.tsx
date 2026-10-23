@@ -170,6 +170,21 @@ describe("the other tabs", () => {
     expect(text).toContain("What a call was given and returned is transcript material");
   });
 
+  it("Tools: a subagent's calls under the call that ran it, and its time counted once", () => {
+    const called = (seq: number, tool: string, durationMs: number, callId: string, parentCallId = "") => {
+      const event = fixture("tool_called", seq, 2);
+      Object.assign(event.payload, { tool, duration_ms: durationMs, call_id: callId, parent_call_id: parentCallId });
+      return event;
+    };
+    // On the wire a subagent's calls come first: the Task that ran them returns last.
+    const events = [fixture("session_started", 1), fixture("phase_started", 2, 2),
+                    called(3, "Read", 1000, "own"), called(4, "Grep", 2000, "g", "task"),
+                    called(5, "Read", 2000, "r", "task"), called(6, "Task", 3000, "task")];
+    const text = shown(tabs("5c0075aa_03_plan", "tools", events));
+    expect(text).toContain("4 calls, 2 by subagents · 4s in tools");          // not 8s
+    expect(text).toMatch(/Read ✓ ok 1s .* Task · its subagent made 2 calls ✓ ok 3s .* ↳ Grep ✓ ok 2s .* ↳ Read ✓ ok 2s/);
+  });
+
   it("Transcript: the prompts and harness output when the factory opted in", () => {
     const text = tab("a9f259f0_05_plan_revise_1", "transcript");
     expect(text).toContain("Prompt 1");
