@@ -19,7 +19,7 @@ Every entry has the same shape: `## X.Y.Z — YYYY-MM-DD`, the date its tag was 
 `## Unreleased`), what changed, and an `### Upgrade` section naming the steps from the release
 before — `None` when there are none, never omitted.
 
-## Unreleased
+## 1.3.0 — 2026-11-03
 
 - **A workflow's chapters are scored.** A scorer is one `asf/scorers/<name>/scorer.md` —
   frontmatter naming the workflow it judges, optionally one of its agents, its kind and its
