@@ -871,7 +871,7 @@ cockpit's public functions.
 
 ## Licence of what it runs on
 
-The Convex backend and dashboard images (`ghcr.io/get-convex/convex-backend`,
+The Convex backend and dashboard images (`ghcr.io/convex/convex-backend`,
 `…/convex-dashboard`) are licensed **FSL-1.1-Apache-2.0**. That was confirmed from `LICENSE.md` in
 `get-convex/convex-backend` when this app was scaffolded. Its Permitted Purpose covers "your internal
 use and access", which is what a team's own cockpit is. It excludes offering the software to others

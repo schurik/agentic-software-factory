@@ -79,4 +79,4 @@ jobs:
           test -n "$PIN"
           docker buildx imagetools create \
             --tag "$IMAGES/asf-cockpit-backend:$VERSION" \
-            "ghcr.io/get-convex/convex-backend:$PIN"
+            "ghcr.io/convex/convex-backend:$PIN"
