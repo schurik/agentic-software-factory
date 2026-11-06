@@ -488,6 +488,16 @@ before — `None` when there are none, never omitted.
   question without a decision or decides one never asked. `questions_stay_in_the_envelope` is
   gone with the file it checked.
 
+- **The local cockpit runs detached: ctrl-c on one factory's `asf up` no longer takes it from
+  the others** (ADR 0009). It is one per machine, so no `up` owns it: `up` starts it with `compose
+  up --detach` and ships to it, and ctrl-c stops that factory's station loop and watchers only.
+  Docker brings it back with the machine (`restart: unless-stopped` in `asf/cockpit/compose.yaml`).
+  An `up` that finds one running at its stamp's version or newer joins it and never recreates it;
+  only an older one is replaced. `asf cockpit status | logs [-f] | down` (`just cockpit-status`,
+  `just cockpit-logs`, `just cockpit-down`) asks whether it runs, shows what it logged — `up`
+  prints only its start now — and stops it, for every factory, keeping its data. `asf status` and
+  `asf doctor` say whether it is running. A new `gh` login reaches it the next time it starts.
+
 ### Upgrade
 
 1. Upgrade the cockpit first: a team's deployment to 1.3.0 or later before any station runs the
@@ -624,6 +634,12 @@ before — `None` when there are none, never omitted.
     from the answers once resumed — what its earlier draft wrote by hand is not carried over — so
     answer or abort those first if that matters. A `refine/` task file of your own that still
     asks for `requirements.md` gets nothing recorded: take the new Report blocks.
+18. The detached cockpit comes with the re-stamp (`asf/cockpit/compose.yaml`, the engine and the
+    justfile's `cockpit-*` recipes; a kept justfile needs them copied, or run `uv run asf/asf.py
+    cockpit`). Stop every `asf up` on the machine first, in every repository — an older stamp's
+    `up` runs the cockpit attached, and its ctrl-c stops it for everyone — and the next `just up`
+    starts it detached. A factory on the machine not yet re-stamped still runs it attached
+    whenever its `up` is the one that starts it.
 
 ## 1.2.0 — 2026-10-02
 

@@ -562,14 +562,15 @@ def cockpit(cfg: FactoryConfig, data: Path | None = None) -> list[Finding]:
             fix="remove ASF_COCKPIT_VERSION from .env, or set it to a release at least "
                 "that new"))
     already = local_cockpit.running()
-    if already and local_cockpit.newer(already):
+    if already and local_cockpit.current(already):
+        instead = "" if already == running else f" rather than starting {running}"
         findings.append(Finding(
             check="cockpit",
-            detail=f"local {already} is running on this machine — `asf up` joins it "
-                   f"rather than starting {running}"))
+            detail=f"local {already} is running on this machine at {local_cockpit.app_url()} "
+                   f"— `asf up` joins it{instead}; `asf cockpit down` stops it"))
         return findings
     # The `up` that starts the local cockpit is the one whose token it asks
-    # the forge with; one that joins another's hands over nothing.
+    # the forge with; one that joins a running one hands over nothing.
     credential = local_cockpit.forge_credential(cfg)
     findings.append(Finding(
         check="cockpit forge", level="ok" if credential.token else "warn",

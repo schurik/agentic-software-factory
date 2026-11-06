@@ -4,7 +4,7 @@ The process behind `asf up` IS THE STATION LOOP (CONTEXT.md: a station is
 online while its long-lived loop runs). It holds the checkout's station id
 and ships every session on the station to a cockpit (`station.Loop`),
 whichever process wrote it, and it supervises the children that make the
-factory's long-running parts: `cockpit`, `issues`, `answers` and `prs`. Three
+factory's long-running parts: `issues`, `answers` and `prs`. Three
 commands in three terminals go wrong every week — you forget one, and a
 watcher that is not running looks exactly like a watcher with nothing to do —
 so this is one process that owns every child, prefixes their output, restarts
@@ -19,9 +19,13 @@ reads the station as online by.
 `cockpit` is the LOCAL cockpit (`engine/cockpit.py`): the team deployment's
 published images, started through the stamped compose file only when no
 shared cockpit is configured (ASF_COCKPIT_URL unset), and the station ships to
-it. Without Docker it is dropped with a WARNING and the watchers still run — a
-service that silently did not start looks exactly like a service with nothing
-to say, and the watchers are the part that must not be forgotten.
+it. It is the one child that is NOT this process's to stop (ADR 0009): one
+cockpit serves every factory on the machine, so the child only makes sure it
+runs — `compose up --detach`, a one-shot — and ctrl-c leaves it running for
+the others. Without Docker it is dropped with a WARNING and the watchers
+still run — a service that silently did not start looks exactly like a
+service with nothing to say, and the watchers are the part that must not be
+forgotten.
 
 `status` answers the other half: is anything running right now, and did it
 poll recently — from the watcher heartbeat FILES and a probe of each pid, so a
@@ -66,9 +70,14 @@ class Service:
     cwd: Path
     env: dict[str, str] = field(default_factory=dict)
     grace: float = 8.0              # SIGTERM to SIGKILL
+    # A one-shot: exit 0 is its job done — this is said, and the child is
+    # left retired — and any other exit is retried like a crash. The local
+    # cockpit's, which starts the cockpit detached and returns.
+    done: str = ""
     # Asked before a restart: a reason not to (said, and the child is left
-    # retired), or "". The local cockpit's, when another `up` put a newer one
-    # in its place — restarting at this stamp's version would downgrade it.
+    # retired), or "". The local cockpit's, when another `up` started one at
+    # least as new meanwhile — starting it again at this stamp's version
+    # could downgrade it.
     retire_if: Callable[[], str] | None = None
     # One more line for `up`'s summary of what it started, as (label, text):
     # the local cockpit's says whose forge token it was handed.
@@ -98,8 +107,9 @@ def _pump(service: Service, on_line) -> None:
 
 
 def _stop(service: Service) -> None:
-    """SIGTERM the group (the watchers turn it into a `stopped` beat, compose
-    stops its containers), then SIGKILL."""
+    """SIGTERM the group (the watchers turn it into a `stopped` beat; a
+    cockpit still being started stops being started, and one already up is
+    not this child's), then SIGKILL."""
     proc = service.proc
     if not proc or proc.poll() is not None:
         return
@@ -166,10 +176,11 @@ def check(cfg: FactoryConfig, want: set[str]) -> str | None:
     """What would stop THESE services: each finding drops its service from
     `want` and says so, and everything else still starts.
 
-    Returns what becomes of the local cockpit: "start" (this process runs
-    it), "join" (a newer one already runs on this machine, and this
-    process ships to it without owning it — so an older stamp never
-    downgrades it), or None (no local cockpit)."""
+    Returns what becomes of the local cockpit: "start" (this process starts
+    it, detached, and ships to it), "join" (one at least as new already runs
+    on this machine, and this process ships to it as it is — so an older
+    stamp never downgrades it and nobody's `up` recreates it under the
+    others), or None (no local cockpit)."""
     local = None
     if "cockpit" in want:
         problem = local_cockpit.docker_problem()
@@ -179,9 +190,9 @@ def check(cfg: FactoryConfig, want: set[str]) -> str | None:
                               f"it, and nothing is shipped. `asf doctor` says more; "
                               f"ASF_COCKPIT_URL names a shared cockpit instead"))
             want.discard("cockpit")
-        elif already and local_cockpit.newer(already):
+        elif already and local_cockpit.current(already):
             print(paint(DIM, f"  ~ the local cockpit {already} already runs on this machine — "
-                             f"shipping to it; the `asf up` that started it owns it"))
+                             f"shipping to it"))
             want.discard("cockpit")
             local = "join"
         else:
@@ -198,14 +209,15 @@ def services(want: set[str], config_path: str, interval: int,
              main_root: Path) -> list[Service]:
     found: list[Service] = []
     if "cockpit" in want:
-        # compose stops its containers on SIGTERM, and a Convex backend takes
-        # its own stop_grace_period to go — more than a watcher's 8s.
-        # …and it asks the forge as whoever started it: their own token
-        # goes to the app container in the child's environment, not its argv.
+        # It asks the forge as whoever started it: their own token goes to
+        # the app container in the child's environment, not its argv.
         forge = local_cockpit.forge_credential(factory.load(anchor(main_root, config_path)))
         found.append(Service("cockpit", local_cockpit.up_argv(), main_root,
                              {**local_cockpit.compose_env(), **forge.env()},
-                             grace=30.0, retire_if=_superseded, summary=("forge", forge.line)))
+                             done=f"up at {local_cockpit.app_url()} — it keeps running after "
+                                  f"ctrl-c, for every factory on this machine: `asf cockpit "
+                                  f"logs` to read it, `asf cockpit down` to stop it",
+                             retire_if=_superseded, summary=("forge", forge.line)))
     for name in WATCHERS:
         if name in want:
             found.append(Service(name, [sys.executable, RUNNER, "--config", config_path, name,
@@ -216,9 +228,9 @@ def services(want: set[str], config_path: str, interval: int,
 
 def _superseded() -> str:
     already = local_cockpit.running()
-    if already and local_cockpit.newer(already):
-        return (f"another `asf up` runs the local cockpit {already} now — shipping to it "
-                f"rather than restarting this one at {local_cockpit.version()}")
+    if already and local_cockpit.current(already):
+        return (f"the local cockpit {already} runs now — shipping to it rather than "
+                f"starting it again at {local_cockpit.version()}")
     return ""
 
 
@@ -241,7 +253,7 @@ def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Targe
     repository = issues.resolve_project(cfg.issues, main_root) or main_root.name
     cockpit = local_cockpit.Local(anchor(main_root, cfg.data_dir), repository,
                                   here=station.identify(main_root, cfg.data_dir))
-    started = ("joined, started by another `asf up`" if local == "join" else
+    started = ("joined, already running" if local == "join" else
                f"{local_cockpit.version()}; the first start pulls its images")
     return Target(Destination(cockpit.get, cockpit.refused,
                               f"{local_cockpit.app_url()}   (local, {started})"),
@@ -312,7 +324,8 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     for name in WATCHERS:
         if name in want:
             print(f"  {name:<9}  polling every {interval}s")
-    print(f"\n{paint(DIM, '  ctrl-c stops all of it')}\n")
+    left = " — the local cockpit keeps running" if target is not None and target.local else ""
+    print(f"\n{paint(DIM, f'  ctrl-c stops the station and its watchers{left}')}\n")
 
     stopping = threading.Event()
 
@@ -342,10 +355,11 @@ def _watching(started: list[Service]) -> list[str]:
 
 def _supervise(started: list[Service], stopping: threading.Event, on_line) -> bool:
     """Restart what dies; a crash loop (three restarts inside a minute) is
-    given up on and said, and the rest keeps running. True when nothing is
-    left — never with no children at all, which is `asf station` shipping to a
-    shared cockpit (the loop is the whole job), nor with a child retired in
-    favour of a cockpit the loop now ships to."""
+    given up on and said, and the rest keeps running. A one-shot that exits 0
+    is done, not dead: it is retired. True when nothing is left — never with
+    no children at all, which is `asf station` shipping to a shared cockpit
+    (the loop is the whole job), nor with a child retired, which is a
+    cockpit the loop now ships to."""
     while not stopping.is_set():
         time.sleep(0.4)
         alive = False
@@ -356,6 +370,10 @@ def _supervise(started: list[Service], stopping: threading.Event, on_line) -> bo
                 alive = True
                 continue
             code = service.proc.returncode if service.proc else -1
+            if service.done and code == 0:
+                on_line(service.name, service.done)
+                service.retired = True
+                continue
             why = service.retire_if() if service.retire_if else ""
             if why:
                 on_line(service.name, why)
@@ -410,7 +428,8 @@ def _pid_alive(pid: int) -> bool:
 
 def status(cfg: FactoryConfig) -> int:
     """One screen: what is watching, what is running, what is left behind —
-    all from files."""
+    all from files, but for whether the local cockpit runs, which only
+    Docker knows."""
     main_root = git_helper.main_root()
     sessions = artifacts.sessions_root(main_root, cfg.data_dir)
     rows = artifacts.watcher_states(artifacts.watchers_dir(main_root, cfg.data_dir))
@@ -427,8 +446,11 @@ def status(cfg: FactoryConfig) -> int:
             ships_to += f"; takes commands for {held.owner or 'its owner'}"
     elif ships_to:
         ships_to += " — not an http(s) URL, so nothing ships"
+    elif already := local_cockpit.running():
+        ships_to = (f"local {already} at {local_cockpit.app_url()} — running, for every "
+                    f"factory on this machine; `asf cockpit down` stops it")
     else:
-        ships_to = f"local — `asf up` starts it at {local_cockpit.app_url()}"
+        ships_to = f"local — not running; `asf up` starts it at {local_cockpit.app_url()}"
     print(f"cockpit:   {ships_to}\n")
     print("watchers")
     for kind, enabled in (("issues", cfg.issues.enabled), ("prs", cfg.pull_requests.enabled)):

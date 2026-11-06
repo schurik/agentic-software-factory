@@ -142,7 +142,7 @@ the conversation does too, answered in one comment of its own.
 ```bash
 just issue 42        # work a tracked issue
 just pr-review 17    # answer the review on a pull request
-just up              # the station loop, the local cockpit and both watchers; ctrl-c stops all
+just up              # the station loop, the local cockpit and the watchers; ctrl-c stops all but the cockpit
 just status          # is anything actually polling?
 ```
 

@@ -217,6 +217,9 @@ without.
    with the compose plugin, running. Without it `up` warns, drops the cockpit
    and runs the watchers anyway — nothing is refused — and `doctor`'s `cockpit`
    line says which of the three is missing and which version it would run.
+   It is one per machine and keeps running after ctrl-c on `just up`, because
+   every other factory on the machine ships to it too: `just cockpit-down`
+   stops it.
    The local cockpit asks the forge as the engineer, with their `gh auth
    token`, which `up` hands to it as it starts: `doctor`'s `cockpit forge`
    line says whether there is one. Without a `gh` login the cockpit still
