@@ -53,13 +53,12 @@ import random
 import signal
 import subprocess
 import sys
-import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import (artifacts, claims, forge, git_helper, hitl, inputs, issues, operate,
+from . import (artifacts, claims, forge, git_helper, hitl, inputs, issues, nudge, operate,
                pull_requests, session, station, worktree)
 from .data_types import (ClaimAsk, Decision, IssueRef, IssueUpdate, Launch, PullRequestContext,
                          PullRequestRef, PullRequestUpdate, FactoryConfig, Reply, WaitingFor)
@@ -209,10 +208,20 @@ def _exit_on_sigterm() -> None:
     signal.signal(signal.SIGTERM, leave)
 
 
-def _loop(kind: str, once, cfg: FactoryConfig, main_root, interval: int) -> int:
-    print(f"polling every {interval}s — ctrl-c to stop")
+def _paced(cfg: FactoryConfig, main_root, kind: str, interval: int) -> nudge.Pace:
+    return nudge.Pace(artifacts.watchers_dir(main_root, cfg.data_dir), kind, interval)
+
+
+def _loop(once, cfg: FactoryConfig, main_root, pace: nudge.Pace) -> int:
+    """A pass, then a wait, until ctrl-c. The first pass runs at once, so a
+    watcher that was away picks up everything that queued meanwhile from the
+    forge. The wait is the interval, cut short when the `asf up` above this
+    process is nudged about this watcher's work (`engine/nudge.py`)."""
+    kind = pace.kind
+    print(f"polling every {pace.interval}s — ctrl-c to stop")
     try:
         while True:
+            pace.begin()
             try:
                 code = once()
                 if code == 3:                       # a pinned pull request finished
@@ -222,7 +231,7 @@ def _loop(kind: str, once, cfg: FactoryConfig, main_root, interval: int) -> int:
             except Exception as error:              # noqa: BLE001 — an outage is not a crash
                 print(f"! poll failed: {error}")
                 beat(cfg, main_root, kind, "error", note=str(error)[:200])
-            time.sleep(interval)
+            pace.wait()
     finally:
         # Written from the config resolved at STARTUP: this runs while the
         # process is torn down, and a re-read could lose the race.
@@ -356,8 +365,9 @@ def warn_alone() -> None:
 def issues_loop(cfg: FactoryConfig, config_path: str, interval: int) -> int:
     _exit_on_sigterm()
     warn_alone()
-    return _loop("issues", lambda: issues_once(cfg, config_path, interval), cfg,
-                 git_helper.main_root(), interval)
+    main_root = git_helper.main_root()
+    return _loop(lambda: issues_once(cfg, config_path, interval), cfg, main_root,
+                 _paced(cfg, main_root, "issues", interval))
 
 
 def issues_status(cfg: FactoryConfig) -> int:
@@ -532,8 +542,9 @@ def answers_once(cfg: FactoryConfig, config_path: str, interval: int = 0) -> int
 
 def answers_loop(cfg: FactoryConfig, config_path: str, interval: int) -> int:
     _exit_on_sigterm()
-    return _loop("answers", lambda: answers_once(cfg, config_path, interval), cfg,
-                 git_helper.main_root(), interval)
+    main_root = git_helper.main_root()
+    return _loop(lambda: answers_once(cfg, config_path, interval), cfg, main_root,
+                 _paced(cfg, main_root, "answers", interval))
 
 
 def answers_status(cfg: FactoryConfig) -> int:
@@ -903,8 +914,9 @@ def prs_once(cfg: FactoryConfig, config_path: str, only: int = 0, interval: int 
 
 def prs_loop(cfg: FactoryConfig, config_path: str, interval: int, only: int = 0) -> int:
     _exit_on_sigterm()
-    return _loop("prs", lambda: prs_once(cfg, config_path, only, interval), cfg,
-                 git_helper.main_root(), interval)
+    main_root = git_helper.main_root()
+    return _loop(lambda: prs_once(cfg, config_path, only, interval), cfg, main_root,
+                 _paced(cfg, main_root, "prs", interval))
 
 
 def prs_status(cfg: FactoryConfig) -> int:

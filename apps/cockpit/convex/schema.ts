@@ -5,6 +5,7 @@ import { itemStateValidator, roleValidator } from "./forge/forge";
 import { claimKindValidator, releasedValidator, requeueValidator } from "./model/claim";
 import { commandStateValidator, reportValidator, verbValidator } from "./model/command";
 import { benchmarkValidator } from "./model/session";
+import { watchedValidator } from "./model/webhook";
 import { storedEventFields } from "./model/wire";
 
 export const expiringValidator = v.object({ token: v.string(), expiresAt: v.union(v.null(), v.number()) });
@@ -485,6 +486,28 @@ export default defineSchema({
     .index("by_factory_tokenless", ["factory", "tokenless", "expiresAt"])
     .index("by_tokenless", ["tokenless", "expiresAt"])
     .index("by_source", ["source", "expiresAt"]),
+
+  // A work item a webhook delivery said moved, for the watcher that reads it
+  // (ADR 0008, nudges.ts): one row per (repository, watcher, item), whose `at`
+  // only moves forward, so a burst of deliveries about one item is one row.
+  // A station's loop collects the rows newer than its own cursor with each
+  // command poll; nothing records who collected what. Deleted about ten
+  // minutes on (`NUDGE_FOR`), collected or not: by then the poll found it.
+  nudges: defineTable({
+    repo: v.string(),                 // a `repos.key`
+    kind: watchedValidator,           // the watcher it wakes
+    number: v.number(),
+    at: v.number(),
+  })
+    .index("by_item", ["repo", "kind", "number"])
+    .index("by_repo_at", ["repo", "at"])
+    .index("by_at", ["at"]),
+
+  // When the App's webhook last delivered anything, signed: one row, absent
+  // until a first delivery. What says nudges are live (`LIVE_FOR`).
+  deliveries: defineTable({
+    at: v.number(),
+  }),
 
   // When a run's own shipper last polled for its session's commands: a
   // session is attended while that is recent. Kept apart from `sessions`, so a

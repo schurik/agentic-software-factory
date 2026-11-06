@@ -18,6 +18,11 @@ crons.interval("forge catch-up", { minutes: 1 }, internal.discovery.catchUp, {})
 // whose station never polls again, so a page stops saying "queued".
 crons.interval("command expiry", { minutes: 1 }, internal.commands.expire, {});
 
+// Nudges nobody needs any more (nudges.ts, ADR 0008): a watcher's own poll
+// has found the item by now, so a row older than about ten minutes only
+// takes room. One row per item, so the table is as big as a burst is wide.
+crons.interval("nudge expiry", { minutes: 1 }, internal.nudges.expire, {});
+
 // Transcripts whose session has been finished for as long as the retention
 // allows, pruned (retention.ts). Hourly is plenty: retention is counted in
 // days, and a transcript kept an hour past its day is no promise broken.

@@ -19,6 +19,30 @@ Every entry has the same shape: `## X.Y.Z — YYYY-MM-DD`, the date its tag was 
 `## Unreleased`), what changed, and an `### Upgrade` section naming the steps from the release
 before — `None` when there are none, never omitted.
 
+## Unreleased
+
+- **A webhook wakes a watcher.** A team's cockpit that GitHub can reach now turns a label, a reply,
+  a review or a closed pull request on a factory's item into a **nudge**, handed to every station
+  loop running the watcher it concerns with its next command poll; `asf up` wakes that watcher,
+  which runs an ordinary pass within seconds instead of at its interval. A nudge is not a command:
+  it authorizes nothing and needs no `cockpit.commands` opt-in — the pass checks the route label and
+  `trusted_authors` and asks for a claim as always, so of two stations nudged only one starts the
+  item. GitHub never retries a delivery, so the poll stays: every 600 seconds while the cockpit
+  says nudges are live, at `--interval` otherwise. Passes start at least 10 seconds apart however
+  many nudges arrive. Local mode, CI, and a watcher started on its own keep today's polling
+  (ADR 0008).
+
+### Upgrade
+
+Either end first: a cockpit of the release before never says nudges are live, so a new station
+keeps its interval, and a station of the release before asks for no nudges and is sent none.
+
+1. Commit, then `install.py --harness <harness> --force` from the target repo root
+   (`cookbooks/upgrade.md`) to stamp `asf/engine/nudge.py` and the watchers that wait on it.
+2. A team's cockpit: deploy this release's images. An App registered before it lacks the
+   `pull_request_review_comment` event — add it under *Permissions & events* in the App's settings
+   on GitHub; a submitted review nudges without it.
+
 ## 1.3.0 — 2026-11-03
 
 - **A workflow's chapters are scored.** A scorer is one `asf/scorers/<name>/scorer.md` —

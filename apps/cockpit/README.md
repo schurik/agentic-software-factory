@@ -116,7 +116,13 @@ wrong account.
   (`X-Hub-Signature-256`), handed to a mutation and answered at once; the forge is asked nothing
   until after, because GitHub waits ten seconds and never retries. A push to a default branch has
   the cockpit look at that one repository again; a change to the installation or to a repository
-  has it list them all.
+  has it list them all. A label, a comment, a review or a closed pull request on a factory's item
+  becomes a **nudge** (`nudges.ts`, ADR 0008): one row per item, kept about ten minutes, handed to
+  every station loop that runs the watcher it concerns in the answer to its next `/commands` poll,
+  so the watcher looks at the forge now instead of at its interval. The poll answer also says
+  whether nudges are live — a webhook secret, and a delivery within the hour — and a station slows
+  its own poll only while they are. An App registered before nudges lacks the
+  `pull_request_review_comment` event: add it under *Permissions & events* in the App's settings.
 - **The catch-up poll.** `discovery:catchUp` runs once as the deployment starts and every minute
   after, and finds whatever a delivery that never arrived would have said. It lists the
   repositories with ETags — a `304` costs nothing against the rate limit — and asks a repository

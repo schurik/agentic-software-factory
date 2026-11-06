@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 import { api } from "../convex/_generated/api";
+import type { Nudged } from "../convex/nudges";
 import { fakeForge, type FakeForge, localMode, type Role } from "./forge";
 import { catchUp, cockpit, type Cockpit, factory, fixture, ingest, signIn, team, type WireEvent } from "./helpers";
 
@@ -107,3 +108,9 @@ export async function steerable(forge: FakeForge, events: WireEvent[], roles: Re
 }
 
 export { fakeForge };
+
+/** What the station loop's poll with cursor `after` is nudged about, reporting `report`: null when the answer carries no nudges. */
+export async function nudged(t: Cockpit, token: string, after = 0, report: Record<string, unknown> = REPORT) {
+  const answer = await json(await poll(t, token, { report, nudged_after: after }));
+  return (answer.nudges ?? null) as Nudged | null;
+}

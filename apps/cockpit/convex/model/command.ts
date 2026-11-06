@@ -150,11 +150,13 @@ export interface PollBody {
   report: Report;
   /** False when the poll could not know what watchers run: a run's own shipper. */
   watchersKnown: boolean;
+  /** The station loop's nudge cursor, epoch ms, or null when it asks for no nudges (nudges.ts). */
+  nudgedAfter: number | null;
   /** Results with no session of the station's to travel in — a run's, which starts its session. */
   results: Result[];
 }
 
-/** A command poll's body: `{station, session?, report: {verbs, head, config_hash, watchers}, results?}`. */
+/** A command poll's body: `{station, session?, report: {verbs, head, config_hash, watchers}, results?, nudged_after?}`. */
 export function parsePoll(body: unknown): PollBody | Refusal {
   if (!isRecord(body) || !text(body.station)) return { status: 400, error: "a poll names its station" };
   const report = isRecord(body.report) ? body.report : {};
@@ -169,6 +171,10 @@ export function parsePoll(body: unknown): PollBody | Refusal {
       watchers: strings(report.watchers),
     },
     watchersKnown: Array.isArray(report.watchers),
+    // The station loop's nudge cursor (nudges.ts); absent from a run's own
+    // poll and from a station older than nudges, neither of which is sent any.
+    nudgedAfter: typeof body.nudged_after === "number" && Number.isFinite(body.nudged_after) && body.nudged_after >= 0
+      ? body.nudged_after : null,
     results: (Array.isArray(body.results) ? body.results : []).flatMap((raw) => {
       if (!isRecord(raw) || !text(raw.command_id) || typeof raw.ok !== "boolean") return [];
       return [{

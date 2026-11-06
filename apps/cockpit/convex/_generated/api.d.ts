@@ -77,6 +77,7 @@ import type * as model_webhook from "../model/webhook.js";
 import type * as model_wire from "../model/wire.js";
 import type * as model_workflows from "../model/workflows.js";
 import type * as now from "../now.js";
+import type * as nudges from "../nudges.js";
 import type * as overview from "../overview.js";
 import type * as phases from "../phases.js";
 import type * as pulls from "../pulls.js";
@@ -166,6 +167,7 @@ declare const fullApi: ApiFromModules<{
   "model/wire": typeof model_wire;
   "model/workflows": typeof model_workflows;
   now: typeof now;
+  nudges: typeof nudges;
   overview: typeof overview;
   phases: typeof phases;
   pulls: typeof pulls;
