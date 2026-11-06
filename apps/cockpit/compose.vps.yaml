@@ -1,0 +1,65 @@
+# The cockpit on one public server: docker-compose.yml, with Caddy in front of
+# it for TLS and nothing else of the stack reachable from outside.
+#
+#   echo COCKPIT_HOST=cockpit.example.com > .env
+#   docker compose -f docker-compose.yml -f compose.vps.yaml up -d --build
+#
+# One name is enough, if two more under it resolve to the same server (a
+# wildcard record, or three A records): Caddy gets a Let's Encrypt certificate
+# for each and serves
+#
+#   https://$COCKPIT_HOST        the app                      (COCKPIT_APP_URL)
+#   https://api.$COCKPIT_HOST    the backend's API, :3210     (where browsers hold their live connection)
+#   https://site.$COCKPIT_HOST   the backend's site, :3211    (ASF_COCKPIT_URL; GitHub's webhook)
+#
+# Only Caddy publishes ports. docker-compose.yml publishes the backend and the
+# app on every interface, and Docker's own iptables rules bypass ufw, so they
+# are taken away here rather than firewalled. The dashboard stays on loopback:
+# reach it through `ssh -L 6791:127.0.0.1:6791 <server>`.
+#
+# Every long-lived service restarts with the server. The app deploys its
+# functions to the backend as it starts and exits when the backend is not up
+# yet, so after a reboot it is restarted until it is.
+services:
+  backend:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      - CONVEX_CLOUD_ORIGIN=https://api.${COCKPIT_HOST:?set COCKPIT_HOST in .env}
+      - CONVEX_SITE_ORIGIN=https://site.${COCKPIT_HOST}
+
+  dashboard:
+    ports: !override
+      - "127.0.0.1:${DASHBOARD_PORT:-6791}:6791"
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_DEPLOYMENT_URL=https://api.${COCKPIT_HOST}
+
+  app:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      - CONVEX_URL=https://api.${COCKPIT_HOST}
+      - COCKPIT_APP_URL=https://${COCKPIT_HOST}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - COCKPIT_HOST
+    depends_on:
+      - app
+
+volumes:
+  # The certificates and Caddy's ACME account: lose them and Let's Encrypt is
+  # asked again, which its rate limits allow only a few times a week.
+  caddy_data:
+  caddy_config:
