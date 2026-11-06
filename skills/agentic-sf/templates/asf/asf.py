@@ -34,8 +34,9 @@ Usage:
     uv run asf/asf.py issues  once|loop|status [--interval 120]   a run per labelled issue
     uv run asf/asf.py answers once|loop|status [--interval 120]   resume what was answered
     uv run asf/asf.py prs     once|loop|status [--interval 120] [--pr 17]   answer review threads
-    uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--interval 120]
-                                                 the station loop, the local cockpit, every watcher
+    uv run asf/asf.py up      [--only cockpit,issues,answers,prs] [--interval 120] [--pull]
+                                                 the station loop, the local cockpit, every watcher;
+                                                 --pull keeps the checkout at its remote
     uv run asf/asf.py status                     what is watching, running, waiting, left behind
     uv run asf/asf.py cockpit status|logs|down [-f]
                                                  the local cockpit, which keeps running after
@@ -284,8 +285,11 @@ def _watched_workflows(config: str, names, kind: str) -> None:
 
 
 def cmd_up(args) -> int:
-    return supervise.up(factory.load(args.config), args.config,
-                        supervise.Children(args.only, True, args.interval))
+    code = supervise.up(factory.load(args.config), args.config,
+                        supervise.Children(args.only, True, args.interval, args.pull))
+    if code == supervise.RESTART:
+        supervise.restart()
+    return code
 
 
 def cmd_status(args) -> int:
@@ -477,6 +481,10 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--only", default="",
                     help="comma-separated subset of cockpit,issues,answers,prs "
                          "(the station loop always runs)")
+    up.add_argument("--pull", action="store_true",
+                    help="keep this checkout at its remote: fast-forward it between runs, "
+                         "every --interval, and start again when the factory changed — for "
+                         "a station nobody sits at (cookbooks/run_on_a_server.md)")
     up.set_defaults(func=cmd_up)
     _config_on(sub.add_parser("status", help="what is watching, running, waiting, left behind")
                ).set_defaults(func=cmd_status)
