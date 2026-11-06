@@ -747,6 +747,36 @@ already running rather than downgrading it. A release refuses to publish when `m
 cockpit newer than itself. ghcr.io makes a new package private, so set both public after the first
 release.
 
+## On one server, with TLS
+
+A team's cockpit needs no Convex Cloud and no Vercel: the compose file is the whole deployment, and
+one server with Docker and a public name runs it. `compose.vps.yaml` is the overlay that makes it
+public — Caddy in front (`docker/Caddyfile`), a Let's Encrypt certificate for each of three names,
+and the backend and app published to nobody but Caddy. Docker's iptables rules bypass `ufw`, so
+the compose file's ports are taken away there, not firewalled. Every long-lived service restarts
+with the server.
+
+```bash
+git clone https://github.com/schurik/agentic-software-factory.git && cd agentic-software-factory/apps/cockpit
+echo COCKPIT_HOST=cockpit.example.com > .env
+docker compose -f docker-compose.yml -f compose.vps.yaml up -d --build
+```
+
+`COCKPIT_HOST` and two names under it must resolve to the server — three A records, or a wildcard
+(a hosting provider's own server name often has one already):
+
+| Address | Is | Set as |
+| --- | --- | --- |
+| `https://$COCKPIT_HOST` | the app | `COCKPIT_APP_URL` |
+| `https://api.$COCKPIT_HOST` | the backend's API (`:3210`) | `CONVEX_CLOUD_ORIGIN`, the app's `CONVEX_URL` |
+| `https://site.$COCKPIT_HOST` | the backend's site (`:3211`) | `CONVEX_SITE_ORIGIN`; a station's `ASF_COCKPIT_URL` |
+
+Ports 80 and 443 must be open to the internet — 80 for the certificate's challenge. The dashboard
+stays on the server's loopback (`ssh -L 6791:127.0.0.1:6791 <server>`, then
+`http://localhost:6791`), and every command above that runs `docker compose exec` runs on the
+server, with both `-f` files. Then [set up a team cockpit](#set-up-a-team-cockpit): with public
+addresses, the App is registered with its webhook. An upgrade is `git pull` and the same `up`.
+
 ## On Vercel, with Convex Cloud
 
 The pages can also be served by Vercel, with the backend on Convex Cloud instead of the compose

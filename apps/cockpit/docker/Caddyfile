@@ -1,0 +1,14 @@
+# compose.vps.yaml's front door: one certificate per name, and each name
+# proxied to the service behind it on the compose network. WebSockets (the
+# browser's live connection to the API) pass through reverse_proxy as is.
+{$COCKPIT_HOST} {
+	reverse_proxy app:3000
+}
+
+api.{$COCKPIT_HOST} {
+	reverse_proxy backend:3210
+}
+
+site.{$COCKPIT_HOST} {
+	reverse_proxy backend:3211
+}
