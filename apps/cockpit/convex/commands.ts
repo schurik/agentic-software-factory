@@ -26,6 +26,7 @@ import {
   ATTENDED_FOR, commandRefusal, type CommandView, pending, REDELIVER_AFTER, reportValidator, type Result,
   resultValidator, type StationFacts, type SteeringView, TTL, type Verb, writes,
 } from "./model/command";
+import { nudgesFor } from "./nudges";
 import { Payload } from "./model/payload";
 import { readSummary, type Summary } from "./model/session";
 import type { StoredEvent } from "./model/wire";
@@ -136,6 +137,9 @@ async function enqueue(ctx: MutationCtx, asking: Asking): Promise<Id<"commands">
  * polled and what it reported, settle the results it carried, and hand it
  * the commands that are its to take. Null when no station holds that token —
  * never issued, or revoked.
+ *
+ * The station loop's poll, when it asks with a nudge cursor, is also handed
+ * the nudges since (nudges.ts) — beside the commands, never among them.
  */
 export const poll = internalMutation({
   args: {
@@ -144,9 +148,10 @@ export const poll = internalMutation({
     session: v.string(),
     report: reportValidator,
     watchersKnown: v.boolean(),
+    nudgedAfter: v.union(v.null(), v.number()),
     results: v.array(resultValidator),
   },
-  handler: async (ctx, { token, station, session, report, watchersKnown, results }) => {
+  handler: async (ctx, { token, station, session, report, watchersKnown, nudgedAfter, results }) => {
     const row = await ctx.db.query("stations").withIndex("by_token", (q) => q.eq("token", token)).unique();
     if (row === null || row.station !== station) return null;
     const now = Date.now();
@@ -187,7 +192,8 @@ export const poll = internalMutation({
         });
       }
     }
-    return { commands: handed };
+    if (session || nudgedAfter === null) return { commands: handed };
+    return { commands: handed, nudges: await nudgesFor(ctx, factory, reported.watchers, nudgedAfter) };
   },
 });
 

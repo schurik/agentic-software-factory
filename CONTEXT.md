@@ -162,6 +162,14 @@ One steering action, from a closed set, that a cockpit asks a station to carry o
 when the forge cannot carry it: kill, resume, answering a terminal-channel gate, or a prompt run.
 _Avoid_: instruction, order, job, RPC
 
+**Nudge**:
+A shared cockpit's hint to a station that one of its watchers would find work on a work item sooner
+than its next poll, because a webhook delivery said the item moved. It names the item and the
+watcher, never a session or a person: it authorizes nothing, needs no opt-in, and the watcher it
+wakes reads the forge and asks for a claim as any poll does. The poll stays the record; a nudge only
+moves a read forward.
+_Avoid_: command, trigger, event, notification
+
 **Self-description**:
 A factory's own machine-readable account of its workflows, stages, agents and gates, and of its
 settings with every default resolved, produced by the factory's code at one commit (`asf check

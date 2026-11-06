@@ -1,6 +1,6 @@
 # A webhook wakes a watcher through the cockpit; the poll stays the record
 
-_Status: proposed, in [#245](https://github.com/schurik/agentic-software-factory/issues/245)._
+_Status: accepted, in [#245](https://github.com/schurik/agentic-software-factory/issues/245)._
 
 A station's watchers poll the forge on a fixed interval: `issues`, `answers` and `prs` each list
 their queue every 120 seconds (`asf up --interval`). So a label, a reply or a review waits up to two
@@ -113,3 +113,26 @@ that station is back.
   starts or resumes is recorded as it is today.
 - **"Nudge" enters `CONTEXT.md`** once this is accepted, next to Command, with "command" and
   "trigger" as the words to avoid for it.
+
+## As built
+
+- **The two numbers are constants** in `engine/nudge.py`, not settings: the interval while nudges
+  are live is `NUDGED_INTERVAL` (600 seconds, or the watcher's own `--interval` when that is
+  longer), and passes start at least `MIN_GAP` (10 seconds) apart. A setting is added when a team
+  needs another value, not before.
+- **"Live"** is the App holding a webhook secret and any signed delivery having arrived within the
+  last hour (`LIVE_FOR`, `model/webhook.ts`), for any repository the App is installed on: one App,
+  one webhook, so a delivery anywhere says GitHub reaches the cockpit. A quiet hour puts the
+  stations back on their own interval, which costs nothing but today's polling. The price is the
+  other direction: a webhook that stops arriving (disabled, or its URL changed) leaves the stations
+  on the slower poll for up to that hour, an item waiting at most `NUDGED_INTERVAL` meanwhile.
+- **Which deliveries nudge**: `issues.labeled`, `issue_comment.created`,
+  `pull_request_review.submitted`, `pull_request_review_comment.created` and
+  `pull_request.closed`. An edited or dismissed review puts nothing in a queue, so it wakes nobody.
+- **The parent wakes a child with a file**, not a signal: `<kind>.wake` and `nudges.live` in the
+  watchers directory, each naming the pid of the `asf up` that wrote it. A signal's default action
+  is to end a process that has not installed its handler yet, and a watcher is restarted at any
+  moment; a file waits. A watcher acts only on files its own parent wrote, so one started on its
+  own keeps its interval even beside an `asf up`.
+- The App also subscribes to `pull_request_review_comment`. An App registered before this release
+  lacks it, and a review submitted still arrives as `pull_request_review`.

@@ -54,7 +54,8 @@ export interface Registration {
  * gate and apply a route label (issues, pull requests), and open a config
  * change as a pull request (contents, pull requests). A user access token
  * can do only what both the person and the App may, so the App has to be
- * allowed all of it. The events are the ones a cockpit is kept current by;
+ * allowed all of it. The events are the ones a cockpit is kept current by,
+ * and the ones it nudges a station's watchers with (model/webhook.ts);
  * `installation` and `installation_repositories` are sent to every App and
  * cannot be asked for.
  *
@@ -80,7 +81,9 @@ export function manifest({ appUrl, siteUrl, organization }: Registration): Recor
     default_permissions: { metadata: "read", contents: "write", issues: "write", pull_requests: "write", members: "read" },
     ...(deliverable(webhook) ? {
       hook_attributes: { url: webhook, active: true },
-      default_events: ["push", "repository", "issues", "issue_comment", "pull_request", "pull_request_review"],
+      default_events: [
+        "push", "repository", "issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment",
+      ],
     } : {}),
   };
 }

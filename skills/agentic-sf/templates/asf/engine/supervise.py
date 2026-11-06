@@ -14,7 +14,9 @@ it runs in is the handle. `asf station` is the same loop without watchers.
 The loop also POLLS FOR COMMANDS (`engine/commands.py`) as the station a
 person registered — or, with a local cockpit, as its one person's station —
 and reports the watchers it runs with every poll. That poll is what a cockpit
-reads the station as online by.
+reads the station as online by, and its answer carries the NUDGES a shared
+cockpit's webhook heard (`engine/nudge.py`, ADR 0008): the loop wakes the
+watcher each concerns, which looks at the forge then instead of at its interval.
 
 `cockpit` is the LOCAL cockpit (`engine/cockpit.py`): the team deployment's
 published images, started through the stamped compose file only when no
@@ -45,7 +47,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import artifacts, commands, factory, git_helper, issues, preflight, station, worktree
+from . import artifacts, commands, factory, git_helper, issues, nudge, preflight, station, worktree
 from . import cockpit as local_cockpit
 from .data_types import FactoryConfig, Station, StationCredential
 from .station import Destination
@@ -260,6 +262,13 @@ def destination(cfg: FactoryConfig, main_root: Path, local: str | None) -> Targe
                   cockpit.credential, local=True)
 
 
+def _nudged(here: Station, target: Target | None) -> bool:
+    """Whether a cockpit can wake this station's watchers (ADR 0008): a shared
+    one, which may hold an App GitHub delivers webhooks to, polled by a station
+    that takes commands. A local cockpit never hears a webhook."""
+    return target is not None and not target.local and here.kind != "ci"
+
+
 def _commands_line(cfg: FactoryConfig, main_root: Path, here: Station,
                    target: Target | None) -> str:
     """What `up` says about commands: which it would obey, and as whose station."""
@@ -299,14 +308,24 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
                   flush=True)
 
     loop = None
+    waker = None
     started: list[Service] = []
     if target is not None:
         sessions = artifacts.sessions_root(main_root, cfg.data_dir)
         steering = None
         if here.kind != "ci":
+            def running() -> list[str]:
+                return _watching(started)
+
+            def said(text: str) -> None:
+                on_line("station", text)
+
             steering = commands.Steering(commands.Here(cfg, main_root, config_path),
-                                         target.credential, watchers=lambda: _watching(started))
-            steering.say = lambda text: on_line("station", text)
+                                         target.credential, watchers=running)
+            steering.say = said
+            if _nudged(here, target):
+                waker = nudge.Waker(artifacts.watchers_dir(main_root, cfg.data_dir), running, said)
+                steering.nudged = waker
         loop = station.Loop(lambda: station.every_session(sessions), target.destination,
                             steering=steering)
         loop.say = lambda text: on_line("station", text)
@@ -323,7 +342,8 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
             print(f"  {service.summary[0]:<9}  {service.summary[1]}")
     for name in WATCHERS:
         if name in want:
-            print(f"  {name:<9}  polling every {interval}s")
+            print(f"  {name:<9}  polling every {interval}s"
+                  + (" — sooner when the cockpit nudges it" if _nudged(here, target) else ""))
     left = " — the local cockpit keeps running" if target is not None and target.local else ""
     print(f"\n{paint(DIM, f'  ctrl-c stops the station and its watchers{left}')}\n")
 
@@ -343,6 +363,8 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
             loop.stop()          # its last round, while the cockpit is still up
         for service in started:
             _stop(service)
+        if waker is not None:
+            waker.close()
         print(paint(DIM, "stopped"))
     return 1 if collapsed else 0
 

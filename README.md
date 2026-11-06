@@ -149,6 +149,16 @@ just status          # is anything actually polling?
 Issue- and review-triggered runs can never merge: `integrate` downgrades a configured merge to a
 pull request on those inputs, in code.
 
+The watchers poll the forge every two minutes (`--interval`). With a team's cockpit that GitHub can
+reach, they also hear about a label, a reply or a review within seconds: the cockpit's App receives
+the webhook, and the station loop, which already asks the cockpit for commands every few seconds,
+is handed a **nudge** for the item and wakes the watcher that reads it. The watcher then does what
+its poll would have done — reads the forge, checks the route label and `trusted_authors`, asks for
+a claim — so a nudge decides nothing, and with two stations nudged only the one granted the claim
+starts the item. GitHub never retries a delivery, so the poll stays, every ten minutes while
+deliveries arrive. Local mode, CI, and a watcher started on its own keep the plain poll
+([ADR 0008](docs/adr/0008-a-webhook-wakes-a-watcher-the-poll-stays-the-record.md)).
+
 ## Observability
 
 Every session writes typed domain events to its own `events.jsonl` while the run is in flight —

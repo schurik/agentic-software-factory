@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { catchUp, cockpit, type Cockpit, signIn, team } from "./helpers";
+import { catchUp, cockpit, type Cockpit, factory, signIn, team } from "./helpers";
 import { type Delivery, FACTORY_FILE, type FakeForge, fakeForge } from "./forge";
+import { approved, nudged, teamOf } from "./station";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -128,5 +129,58 @@ describe("a webhook delivery from the team's App", () => {
     await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     expect(await shown(t, alex)).toEqual([]);
+  });
+});
+
+/** The body of a delivery about item `number` of acme/widgets. */
+function about(action: string, number: number, item: Record<string, unknown> = {}, key = "issue"): Record<string, unknown> {
+  return { action, [key]: { number, ...item }, repository: { full_name: "acme/widgets", default_branch: "main" } };
+}
+
+describe("a webhook delivery about a work item", () => {
+  /** A team on acme/widgets with alex's station approved and polling for every watcher. */
+  async function watched(forge: FakeForge) {
+    const t = await teamOf(forge, { alex: "write" });
+    const token = await approved(t, await factory(t, "acme/widgets"), await signIn(t, forge, "alex"));
+    return { t, token };
+  }
+
+  it.each([
+    ["an issue labelled", "issues", about("labeled", 42), [["issues", 42]]],
+    ["a comment on an issue", "issue_comment", about("created", 42), [["answers", 42]]],
+    ["a comment on a pull request", "issue_comment", about("created", 7, { pull_request: { url: "x" } }),
+      [["answers", 7], ["prs", 7]]],
+    ["a review submitted", "pull_request_review", about("submitted", 7, {}, "pull_request"), [["prs", 7]]],
+    ["a review comment", "pull_request_review_comment", about("created", 7, {}, "pull_request"), [["prs", 7]]],
+    ["a pull request closed", "pull_request", about("closed", 7, {}, "pull_request"), [["prs", 7]]],
+  ])("nudges the watcher that reads it: %s", async (_name, event, payload, expected) => {
+    const forge = fakeForge();
+    const { t, token } = await watched(forge);
+    const mark = forge.requests.length;
+
+    const response = await deliver(t, await forge.delivery(event, payload));
+
+    expect(response.status).toBe(202);
+    const items = (await nudged(t, token, 0, { verbs: [], head: "", config_hash: "", watchers: ["issues", "answers", "prs"] }))!.items;
+    expect(items.map(({ kind, number }) => [kind, number]).sort()).toEqual(expected);
+    // A nudge is answered from what the delivery said: the forge is asked nothing.
+    expect(forge.since(mark)).toEqual([]);
+  });
+
+  it.each([
+    ["an issue opened", "issues", about("opened", 42)],
+    ["a label removed", "issues", about("unlabeled", 42)],
+    ["a comment edited", "issue_comment", about("edited", 42)],
+    ["a pull request opened", "pull_request", about("opened", 7, {}, "pull_request")],
+    ["a repository the cockpit holds no factory in", "issues",
+      { ...about("labeled", 42), repository: { full_name: "acme/docs" } }],
+  ])("nudges nobody for %s", async (_name, event, payload) => {
+    const forge = fakeForge();
+    const { t, token } = await watched(forge);
+
+    await deliver(t, await forge.delivery(event, payload));
+
+    expect((await nudged(t, token, 0, { verbs: [], head: "", config_hash: "", watchers: ["issues", "answers", "prs"] }))!.items)
+      .toEqual([]);
   });
 });

@@ -8,7 +8,7 @@ import {
 } from "./model/command";
 import { isRefusal as isDescribingRefusal, parseDescribing } from "./model/description";
 import { digest, secret } from "./model/digest";
-import { asks } from "./model/webhook";
+import { asks, nudges } from "./model/webhook";
 import { isRefusal, parseBatch } from "./model/wire";
 
 const http = httpRouter();
@@ -174,7 +174,9 @@ http.route({
 // repository the App is installed on. GitHub waits ten seconds for the answer
 // and never retries, so the delivery is checked, handed to a mutation that
 // schedules whatever it calls for, and answered — the forge is asked nothing
-// until after. What a delivery means is in model/webhook.ts.
+// until after. What a delivery means is in model/webhook.ts: a look the
+// cockpit takes itself, and a nudge for the stations' watchers (nudges.ts),
+// kept from what the delivery said without asking the forge at all.
 http.route({
   path: "/forge/webhook",
   method: "POST",
@@ -195,6 +197,8 @@ http.route({
     if (asked !== null) {
       await ctx.runMutation(internal.discovery.delivered, asked === "list" ? {} : { look: asked.look });
     }
+    const nudge = nudges(request.headers.get("X-GitHub-Event") ?? "", payload);
+    await ctx.runMutation(internal.nudges.heard, nudge === null ? {} : { nudge });
     return reply(202, {});
   }),
 });

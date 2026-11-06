@@ -579,6 +579,13 @@ class Steering:
     A cockpit that refuses the token (revoked, or issued by another cockpit's
     database) is not asked again by this process — commands stop, shipping
     goes on, and it is said once.
+
+    `nudged`, set by the station loop of `asf up`, asks for NUDGES too
+    (`engine/nudge.py`, ADR 0008): each poll sends the cursor the last answer
+    gave, and `nudged(items, live)` hears every answer's — or `([], False)`
+    from a poll that got none, so a cockpit that went away, or one from before
+    nudges, leaves the watchers on their own interval. A nudge is not a
+    command: it is never carried out, recorded or answered here.
     """
 
     def __init__(self, here: Here, credential: Callable[[], StationCredential | None],
@@ -596,6 +603,8 @@ class Steering:
         self._reported_at = 0.0
         self._said: set[str] = set()
         self._results: dict[str, dict] = {}      # command id -> its result, until a poll took it
+        self.nudged: Callable[[list[dict], bool], None] | None = None
+        self._nudged_after = 0                   # the cockpit's cursor: epoch ms of the newest nudge seen
 
     def poll(self, cockpit: Cockpit, transport: station.Transport) -> None:
         now = time.monotonic()
@@ -604,17 +613,22 @@ class Steering:
         self._due = now + self.interval
         held = self.credential()
         if held is None or held.cockpit != cockpit.url:
+            self._nudge(None)
             return                     # not registered with this cockpit: nothing to ask
         body = {"station": held.station, "report": self.report().model_dump(mode="json")}
         if self.session:
             body["session"] = self.session
+        elif self.nudged is not None:
+            body["nudged_after"] = self._nudged_after
         sending = dict(self._results)
         if sending:
             body["results"] = list(sending.values())
         try:
             status, answer = transport(f"{cockpit.url}/commands", held.token, body)
         except (OSError, ValueError):
+            self._nudge(None)
             return                     # the shipping half already said the cockpit is down
+        self._nudge(answer.get("nudges") if status == 200 else None)
         if status == 401:
             self.revoked = True
             self._say("revoked", "the cockpit refused this station's command token — it takes "
@@ -630,6 +644,21 @@ class Steering:
         here = dataclasses.replace(self.here, owner=held.owner)
         for raw in answer.get("commands") or []:
             self._carry(here, raw)
+
+    def _nudge(self, said: object) -> None:
+        """Pass a poll's nudges on, and keep its cursor; None, or anything
+        unreadable, is no nudges and not live."""
+        if self.nudged is None or self.session:
+            return
+        if not isinstance(said, dict):
+            self.nudged([], False)
+            return
+        after = said.get("after")
+        if isinstance(after, (int, float)) and after > self._nudged_after:
+            self._nudged_after = after
+        items = [item for item in said.get("items") or []
+                 if isinstance(item, dict) and isinstance(item.get("kind"), str)]
+        self.nudged(items, said.get("live") is True)
 
     def _carry(self, here: Here, raw: object) -> None:
         try:

@@ -11,7 +11,10 @@ station's own over with the command token (#175) — approved by a person
 secret. COMMANDS (`commands.ts`): a poll with the command
 token or 401 (`revoke`), recording the station's report and who polled, and
 answering with the queued commands for it — a run's own poll gets the ones
-naming its session, the station loop's the rest. A command is done when a
+naming its session, the station loop's the rest — and the station loop's,
+when it sends a cursor (`nudged_after`), the NUDGES since (`nudges.ts`): every
+item `nudge` named after that cursor, for a watcher the poll reports running,
+with whether webhooks are `live`. A command is done when a
 `command_result` naming it is ingested, never when it was sent — or, for one
 that names no session the station holds (a `run`), when a poll carries it.
 CLAIMS (`claims.ts`): asked with the ingest token, keyed on (repo, kind,
@@ -106,6 +109,9 @@ class FakeCockpit:
         self.says_described = True                   # False: a hand-over that never says
         self.default_branch = ""                     # what the forge says it is, when it does
         self.asked = 0                               # registrations ever asked: no code reused
+        self.nudges: dict[tuple[str, int], int] = {}  # (watcher, number) -> when, as a cursor
+        self.webhooks_live = True                    # what a poll that asks for nudges is told
+        self._nudged = 0
 
     def __call__(self, url: str, token: str, body: dict) -> tuple[int, dict]:
         if self.hold is not None:
@@ -248,9 +254,23 @@ class FakeCockpit:
                and (command.session == session if session else command.session not in attended)]
         for command in due:
             command.delivered += 1
-        return 200, {"commands": [{"id": c.id, "verb": c.verb, "session": c.session,
-                                   "notes": c.notes, "by": c.by, "expires_at": c.expires_at,
-                                   **c.fields} for c in due]}
+        answer: dict = {"commands": [{"id": c.id, "verb": c.verb, "session": c.session,
+                                      "notes": c.notes, "by": c.by, "expires_at": c.expires_at,
+                                      **c.fields} for c in due]}
+        if not session and "nudged_after" in body:
+            after = body["nudged_after"]
+            running = set(body.get("report", {}).get("watchers") or [])
+            newer = {item: at for item, at in self.nudges.items() if at > after}
+            answer["nudges"] = {
+                "live": self.webhooks_live, "after": max([after, *newer.values()]),
+                "items": [{"kind": kind, "number": number} for (kind, number) in newer
+                          if kind in running]}
+        return 200, answer
+
+    def nudge(self, kind: str, number: int) -> None:
+        """A webhook delivery about item `number`, for the `kind` watcher: one entry per item."""
+        self._nudged += 1
+        self.nudges[(kind, number)] = self._nudged
 
     # ── claims ───────────────────────────────────────────────────────────────
 
