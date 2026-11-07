@@ -31,6 +31,11 @@ before — `None` when there are none, never omitted.
   says nudges are live, at `--interval` otherwise. Passes start at least 10 seconds apart however
   many nudges arrive. Local mode, CI, and a watcher started on its own keep today's polling
   (ADR 0008).
+- **The cockpit names its build.** Bottom right under every page, the footer says which build is
+  serving: ref, commit, run and when it was deployed. Opened, it lists the builds deployed before
+  it. A team's cockpit can also deploy itself on every merge: CI builds the image and runs
+  `apps/cockpit/scripts/deploy.sh` on the server over one forced-command SSH key (the cockpit's
+  README, "Deployed on every merge"). The cockpit is no longer built on Vercel.
 
 ### Upgrade
 
@@ -42,6 +47,10 @@ keeps its interval, and a station of the release before asks for no nudges and i
 2. A team's cockpit: deploy this release's images. An App registered before it lacks the
    `pull_request_review_comment` event — add it under *Permissions & events* in the App's settings
    on GitHub; a submitted review nudges without it.
+3. A team's cockpit that was served from Vercel: run it from the compose file instead (the cockpit's
+   README, "On one server, with TLS"), and disconnect the Vercel project's Git integration. Its
+   `vercel.json` is gone, so the next build there would be a plain `next build` that leaves the
+   functions behind.
 
 ## 1.3.0 — 2026-11-03
 
