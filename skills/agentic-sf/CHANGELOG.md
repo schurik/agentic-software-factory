@@ -31,6 +31,15 @@ before — `None` when there are none, never omitted.
   says nudges are live, at `--interval` otherwise. Passes start at least 10 seconds apart however
   many nudges arrive. Local mode, CI, and a watcher started on its own keep today's polling
   (ADR 0008).
+- **A station on a server.** `asf up --pull` keeps a checkout nobody sits at current: every
+  `--interval`, between runs, it fast-forwards the checked-out branch to its remote, and when the
+  pull changed `asf/` it stops everything as ctrl-c would and starts again on the new code. Every
+  run now holds the checkout (a shared lock on `<data_dir>/checkout.lock`) for its whole life, so a
+  pull never moves the workflows, tasks or base under one. Only a fast-forward: a dirty, ahead,
+  diverged or detached checkout is said once and left alone. `install.py --station` stamps
+  `asf/station/` — a Dockerfile and a compose file that run it in a container, as a non-root user,
+  with the checkout mounted and the logins in a volume — and the repository owns them from then on:
+  no re-stamp overwrites them, `--force` or not. `cookbooks/run_on_a_server.md` walks it.
 
 ### Upgrade
 
@@ -38,10 +47,13 @@ Either end first: a cockpit of the release before never says nudges are live, so
 keeps its interval, and a station of the release before asks for no nudges and is sent none.
 
 1. Commit, then `install.py --harness <harness> --force` from the target repo root
-   (`cookbooks/upgrade.md`) to stamp `asf/engine/nudge.py` and the watchers that wait on it.
+   (`cookbooks/upgrade.md`) to stamp `asf/engine/nudge.py` and the watchers that wait on it, and
+   `asf/engine/pull.py`, the lock every run now holds on its checkout.
 2. A team's cockpit: deploy this release's images. An App registered before it lacks the
    `pull_request_review_comment` event — add it under *Permissions & events* in the App's settings
    on GitHub; a submitted review nudges without it.
+3. Nothing for the station on a server: it is opt-in — `install.py --station`, then
+   `cookbooks/run_on_a_server.md`. Without `--pull`, `asf up` is as before.
 
 ## 1.3.0 — 2026-11-03
 

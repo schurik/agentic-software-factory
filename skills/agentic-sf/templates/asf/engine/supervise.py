@@ -29,6 +29,11 @@ still run — a service that silently did not start looks exactly like a
 service with nothing to say, and the watchers are the part that must not be
 forgotten.
 
+`up --pull` is for a station nobody sits at (`engine/pull.py`): between runs
+it fast-forwards the checkout to its remote, every `--interval`, and when a
+pull changed the factory itself it stops everything as ctrl-c would and runs
+`up` again on the new code — the watchers and this loop are the old code's.
+
 `status` answers the other half: is anything running right now, and did it
 poll recently — from the watcher heartbeat FILES and a probe of each pid, so a
 watcher killed with SIGKILL reads as gone rather than as its last row.
@@ -47,7 +52,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import artifacts, commands, factory, git_helper, issues, nudge, preflight, station, worktree
+from . import (artifacts, commands, factory, git_helper, issues, nudge, preflight, pull, station,
+               worktree)
 from . import cockpit as local_cockpit
 from .data_types import FactoryConfig, Station, StationCredential
 from .station import Destination
@@ -57,8 +63,12 @@ RUNNER = "asf/asf.py"
 WATCHERS = ("issues", "answers", "prs")
 SERVICES = ("cockpit", *WATCHERS)
 COLORS = {"station": "\033[1m", "cockpit": "\033[36m",
-          "issues": "\033[33m", "answers": "\033[34m", "prs": "\033[32m"}
+          "issues": "\033[33m", "answers": "\033[34m", "prs": "\033[32m",
+          "pull": "\033[35m"}
 DIM, WARN, RESET = "\033[2m", "\033[33m", "\033[0m"
+# What `up --pull` returns when a pull changed the factory it runs: `asf.py`
+# runs it again, in this process, on the new code (`restart`).
+RESTART = 3
 
 
 def paint(color: str, text: str) -> str:
@@ -143,10 +153,11 @@ def _names(raw: str, flag: str) -> set[str]:
 class Children:
     """What `up` was asked to start. `only` replaces the default set;
     `watchers=False` is `asf station`, the loop alone; `interval` is the
-    watchers' poll."""
+    watchers' poll, and `pull`'s (`engine/pull.py`)."""
     only: str = ""
     watchers: bool = True
     interval: int = 120
+    pull: bool = False
 
 
 def wanted(cfg: FactoryConfig, children: Children) -> set[str]:
@@ -291,6 +302,9 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     here = station.identify(main_root, cfg.data_dir)
     interval = children.interval
     print(f"asf {'up' if children.watchers else 'station'} — {main_root}")
+    first = _first_pull(cfg, config_path, main_root) if children.pull else None
+    if first is not None and first.factory_changed:
+        return RESTART
     want = wanted(cfg, children)
     target = destination(cfg, main_root, check(cfg, want))
     ships_to = target.destination if target else None
@@ -309,7 +323,10 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
 
     loop = None
     waker = None
+    puller = None
     started: list[Service] = []
+    stopping = threading.Event()
+    restarting = threading.Event()
     if target is not None:
         sessions = artifacts.sessions_root(main_root, cfg.data_dir)
         steering = None
@@ -344,10 +361,18 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
         if name in want:
             print(f"  {name:<9}  polling every {interval}s"
                   + (" — sooner when the cockpit nudges it" if _nudged(here, target) else ""))
+    if first is not None:
+        print(f"  pull       every {interval}s, between runs — {first.detail}")
+
+        def changed() -> None:
+            restarting.set()
+            stopping.set()
+
+        puller = pull.Puller(lambda: pull.once(cfg, main_root, _factory_root(config_path)),
+                             interval, lambda text: on_line("pull", text), changed,
+                             last=first.outcome).start()
     left = " — the local cockpit keeps running" if target is not None and target.local else ""
     print(f"\n{paint(DIM, f'  ctrl-c stops the station and its watchers{left}')}\n")
-
-    stopping = threading.Event()
 
     def shutdown(signum, _frame) -> None:
         if not stopping.is_set():
@@ -359,6 +384,8 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
     try:
         collapsed = _supervise(started, stopping, on_line)
     finally:
+        if puller is not None:
+            puller.stop()
         if loop is not None:
             loop.stop()          # its last round, while the cockpit is still up
         for service in started:
@@ -366,7 +393,37 @@ def up(cfg: FactoryConfig, config_path: str, children: Children) -> int:
         if waker is not None:
             waker.close()
         print(paint(DIM, "stopped"))
+    if restarting.is_set():
+        return RESTART
     return 1 if collapsed else 0
+
+
+def _factory_root(config_path: str) -> Path:
+    return factory.root_of(config_path)
+
+
+def _first_pull(cfg: FactoryConfig, config_path: str, main_root: Path) -> pull.Pulled:
+    """`up --pull`'s first pass, before anything is started: a station that was
+    down while the factory changed starts again on the new code before a
+    watcher has run a line of the old."""
+    first = pull.once(cfg, main_root, _factory_root(config_path))
+    if first.outcome == "pulled":
+        print(f"  pulled {first.detail}"
+              + (" — the factory changed: starting again on it" if first.factory_changed
+                 else ""))
+    elif first.outcome not in pull.QUIET:
+        print(paint(WARN, f"  ! not pulled: {first.detail}"))
+    return first
+
+
+def restart() -> None:
+    """Run `asf up` again, in this process, on the code a pull brought. The
+    interpreter is the one already running, with the dependencies it resolved
+    at start: a change to the scripts' own dependencies is met by the next
+    start under `uv run`, which a container's restart policy gives it."""
+    print(paint(DIM, "starting again on the pulled factory…"), flush=True)
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
 def _watching(started: list[Service]) -> list[str]:

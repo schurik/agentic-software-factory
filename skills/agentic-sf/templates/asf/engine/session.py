@@ -33,8 +33,8 @@ import signal
 import sys
 from pathlib import Path
 
-from . import (artifacts, benchmark_session, commands, git_helper, preflight, publish, station,
-               worktree)
+from . import (artifacts, benchmark_session, commands, git_helper, preflight, publish, pull,
+               station, worktree)
 from .data_types import (BenchmarkSession, FactoryConfig, RunSpec, SessionSpec, SessionStarted,
                          WorktreeRequest)
 from .hitl import HitlPolicy
@@ -82,6 +82,11 @@ def ensure(cfg: FactoryConfig, spec: SessionSpec) -> Run:
                          "the session that recorded it. `asf sessions` lists them.")
     adw_id = adw_id or new_id(8)
     main_root = git_helper.main_root()          # the engineer's checkout, always
+    # This process reads the checkout's workflows, tasks and agents for as long
+    # as it lives, so it holds it: a station pulling (`asf up --pull`) waits
+    # until no run does (`engine/pull.py`). Held at the first moment the run
+    # knows which checkout it is; what it loaded before this, it loaded at once.
+    pull.hold(main_root, cfg.data_dir)
     # BEFORE the worktree, this session's run.json and its process record exist.
     # A run that cannot write its own directory, or whose base_ref does not
     # resolve, dies a few seconds later having already cut a branch and claimed

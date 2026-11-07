@@ -162,6 +162,11 @@ def is_ancestor(cwd: Pathish, commit: str, ref: str) -> bool:
     return _ask_git(cwd, "merge-base", "--is-ancestor", commit, ref).returncode == 0
 
 
+def count_commits(cwd: Pathish, base: str, ref: str = "HEAD") -> int:
+    """How many commits `ref` has that `base` does not."""
+    return int(_git(cwd, "rev-list", "--count", f"{base}..{ref}") or 0)
+
+
 def first_subject(cwd: Pathish, base: str, ref: str = "HEAD") -> str:
     """Subject of the first commit unique to `ref` since it diverged from `base`.
 
