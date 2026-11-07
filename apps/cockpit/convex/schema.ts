@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { appValidator } from "./forge/app";
+import { buildValidator } from "./model/build";
 import { itemStateValidator, roleValidator } from "./forge/forge";
 import { claimKindValidator, releasedValidator, requeueValidator } from "./model/claim";
 import { commandStateValidator, reportValidator, verbValidator } from "./model/command";
@@ -596,6 +597,15 @@ export default defineSchema({
   })
     .index("by_ref", ["factory", "ref"])
     .index("by_factory_at", ["factory", "at"]),
+
+  // Every build of the cockpit that started on this deployment (deploys.ts):
+  // one row the first time an image starts, written by `docker/start.sh`;
+  // the same image started again — a restart, a reboot — adds none. Never
+  // deleted, so the footer can say what ran here before.
+  deploys: defineTable({
+    build: buildValidator,
+    at: v.number(),
+  }).index("by_at", ["at"]),
 
   // How the catch-up poll is doing: one document, read as a `Progress`
   // (model/progress.ts), which says what each field is.

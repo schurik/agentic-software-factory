@@ -18,5 +18,12 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/convex ./convex
 COPY --from=build /app/docker/start.sh /app/docker/convex.sh ./
+# Which build this is, as CI passes it (deploy-cockpit.yml, release.yml): the
+# footer shows it, and start.sh records each new one as a deploy. Last, so a
+# new commit rebuilds nothing above it. A build without them is a local one.
+ARG BUILD_REF="" BUILD_VERSION="" BUILD_COMMIT="" BUILD_TIME="" BUILD_NUMBER="" BUILD_RUN_URL="" BUILD_SOURCE=""
+ENV COCKPIT_BUILD_REF=$BUILD_REF COCKPIT_BUILD_VERSION=$BUILD_VERSION COCKPIT_BUILD_COMMIT=$BUILD_COMMIT \
+    COCKPIT_BUILD_TIME=$BUILD_TIME COCKPIT_BUILD_NUMBER=$BUILD_NUMBER COCKPIT_BUILD_RUN_URL=$BUILD_RUN_URL \
+    COCKPIT_BUILD_SOURCE=$BUILD_SOURCE
 EXPOSE 3000
 CMD ["./start.sh"]

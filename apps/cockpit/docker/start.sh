@@ -33,6 +33,12 @@ done
 
 ./convex.sh deploy --yes --typecheck disable --codegen disable
 
+# This image's build, as CI baked it in (Dockerfile, "Which build this is"):
+# a deploy the footer lists, the first time this image starts here. The same
+# image started again adds nothing, and a local build is not recorded.
+build="$(bun -e 'import { buildFromEnv } from "./convex/model/build.ts"; console.log(JSON.stringify({ build: buildFromEnv(process.env) }))')"
+./convex.sh run deploys:record "$build" > /dev/null 2>&1 || echo "start: this deploy was not recorded; the footer will not list it"
+
 # Sessions an older cockpit stored carry no `waiting` mark, which is what the
 # inbox finds a waiting session by; this marks them, and then has nothing to do.
 ./convex.sh run inbox:backfill > /dev/null 2>&1 || echo "start: the inbox's backfill did not run; older waiting sessions are missing from it"

@@ -440,8 +440,7 @@ v3 carries, none for the work item, the report or a factory before stages — it
 time its live runs worked (a replay works none), what its agent calls cost, and, for a round a person
 was asked at a gate, their verdict and how long it waited for it. A gate the policy passed asked
 nobody, and is no row. Sessions an older cockpit stored are written from their first event by
-`phases:backfill`, which `docker/start.sh` (and a Vercel production build) runs after each deploy, or by their next batch if it comes
-first.
+`phases:backfill`, which `docker/start.sh` runs after each deploy, or by their next batch if it comes first.
 
 ## Cost: who spent, and who asked
 
@@ -648,8 +647,7 @@ its scores folded in as they come after it ended, so the tab reads no event and 
 its evidence by seq, and only the first cited event of a failing counted session is read. A pull
 request's row an older cockpit wrote is folded again from the session's first event on its next
 batch; its chapters and its scores are written by `chapters:backfill` and `scores:backfill`, which
-`docker/start.sh` (and a Vercel production build) runs after each deploy, or by its next batch if
-it comes first. With nothing measured in the period it says so, and why.
+`docker/start.sh` runs after each deploy, or by its next batch if it comes first. With nothing measured in the period it says so, and why.
 
 **Stations** has the stations asking to join on top (`stations:registrations`), each approved by
 typing the code its `asf station register` printed — never shown here, because typing it is what
@@ -749,7 +747,7 @@ release.
 
 ## On one server, with TLS
 
-A team's cockpit needs no Convex Cloud and no Vercel: the compose file is the whole deployment, and
+A team's cockpit needs nothing hosted elsewhere: the compose file is the whole deployment, and
 one server with Docker and a public name runs it. `compose.vps.yaml` is the overlay that makes it
 public — Caddy in front (`docker/Caddyfile`), a Let's Encrypt certificate for each of three names,
 and the backend and app published to nobody but Caddy. Docker's iptables rules bypass `ufw`, so
@@ -775,47 +773,76 @@ Ports 80 and 443 must be open to the internet — 80 for the certificate's chall
 stays on the server's loopback (`ssh -L 6791:127.0.0.1:6791 <server>`, then
 `http://localhost:6791`), and every command above that runs `docker compose exec` runs on the
 server, with both `-f` files. Then [set up a team cockpit](#set-up-a-team-cockpit): with public
-addresses, the App is registered with its webhook. An upgrade is `git pull` and the same `up`.
+addresses, the App is registered with its webhook. An upgrade by hand is `git pull` and the same
+`up`; the next section does it on every merge.
 
-## On Vercel, with Convex Cloud
+### Deployed on every merge
 
-The pages can also be served by Vercel, with the backend on Convex Cloud instead of the compose
-file's. Only the pages move: ADR 0002 kept the cockpit off Vercel for what needs a disk and
-long-lived connections, and all of that is the backend's. What has to hold is what `docker/start.sh`
-holds — the functions and the pages are one version — and with two hosts nothing holds it unless
-one command ships both. `vercel.json` makes that Vercel's build: `scripts/vercel-build.sh` runs
-`convex deploy`, which pushes `convex/` to the deployment the build's deploy key names and then
-runs `bun run build` against it. A merge that reached the pages without its functions is what
-"This page couldn't load" is.
+`.github/workflows/deploy-cockpit.yml` builds the app's image on every push to `main` that touches
+`apps/cockpit`, pushes it to `ghcr.io/<owner>/asf-cockpit` as `sha-<commit>` (and `main`), and makes
+one SSH call to the server. That call can run one thing, `scripts/deploy.sh`: it fast-forwards
+the checkout to the commit — so a merge that moves the backend's pin, `compose.vps.yaml` or the
+Caddyfile arrives with the image — writes the image to `.env` as `COCKPIT_IMAGE`, runs `pull` and
+`up -d --no-build` with both `-f` files, and waits up to three minutes for the app to answer
+through Caddy, printing the app's last log lines if it does not. The server builds nothing: `next
+build` wants more memory than a small server has. The app's restart is a few seconds of 502 while
+`docker/start.sh` pushes the functions; a single server has no second copy to switch to.
 
-Set up once:
+On the server, once:
 
-1. **Vercel → the project → Settings → General:** Root Directory `apps/cockpit`.
-2. **A deploy key for every environment.** Every build pushes, so Vercel's **Production** and
-   **Preview** each need `CONVEX_DEPLOY_KEY` — `bun x convex deployment token create <name>
-   --deployment <deployment>` prints one. A build without it fails rather than ship pages ahead of
-   their functions. Previews are one of two things:
-   - **Sharing production's backend** (one deployment behind every environment, a dev deployment
-     say): give Preview a key for that same deployment, and leave `CONVEX_URL` set to its address
-     in both environments. The last build's functions are then what every environment runs: a
-     preview of a branch that changed `convex/` runs its functions under production's pages too,
-     until `main` builds again.
-   - **A backend per branch:** generate a *preview* deploy key in the Convex dashboard, set it as
-     Preview's `CONVEX_DEPLOY_KEY`, and remove Preview's `CONVEX_URL`. Each branch gets a Convex
-     preview deployment of its own, and its build bakes that address in as
-     `NEXT_PUBLIC_CONVEX_URL`.
-3. **The cockpit's own variables are the deployment's** (`COCKPIT_MODE`, `COCKPIT_APP_URL`,
-   `COCKPIT_TRANSCRIPT_DAYS`): a Convex function reads them from the backend, and nothing copies
-   them there on Vercel. Set them in the Convex dashboard, and for per-branch previews as the
-   project's default environment variables for preview deployments.
+```bash
+sudo adduser --disabled-password deploy && sudo usermod -aG docker deploy
+sudo -iu deploy git clone https://github.com/schurik/agentic-software-factory.git
+# then the .env above, in ~deploy/agentic-software-factory/apps/cockpit
+ssh-keygen -t ed25519 -N '' -C deploy-cockpit -f deploy_key   # anywhere; the private half goes to GitHub
+```
 
-Stations ship to the deployment's site, its `https://<name>.convex.site` address
-(`ASF_COCKPIT_URL`) — not the `.convex.cloud` address, and not the pages' — and a production build
-runs the same backfills `docker/start.sh` does. There is no container to print a setup code in:
-`/setup` links the deployment's **Functions** page in the Convex dashboard, where `setup:code` is
-run, and the CLI (`npx convex run setup:code`) does the same. A setup code the pages refuse as
-"not a setup code this deployment printed" was printed on another deployment than the one the
-pages use.
+and `deploy_key.pub` into `~deploy/.ssh/authorized_keys` behind a forced command, so the key does
+nothing else:
+
+```text
+command="/home/deploy/agentic-software-factory/apps/cockpit/scripts/deploy.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… deploy-cockpit
+```
+
+The script reads one thing from the caller, a commit sha, and refuses one that is not on
+`origin/main`; the image repository is the server's own choice (`COCKPIT_IMAGE_REPO` in `.env`, or
+the ghcr.io package of the owner the checkout was cloned from), so a leaked key can redeploy an
+older commit of `main` and nothing else. The package must be public — the release's note above — or
+the `deploy` account logged in with `docker login ghcr.io` and a token that can only
+`read:packages`. SSH must be reachable from GitHub's runners, whose addresses are not fixed, so
+the server should take keys only.
+
+In the repository, Settings → Secrets and variables → Actions:
+
+| Name | Kind | Is |
+| --- | --- | --- |
+| `COCKPIT_DEPLOY_HOST` | repository variable | the server; unset, the workflow does nothing |
+| `COCKPIT_DEPLOY_KNOWN_HOSTS` | variable | `ssh-keyscan -p <port> <host>`: the host key, checked rather than trusted on first use |
+| `COCKPIT_DEPLOY_SSH_KEY` | secret | the private half of `deploy_key` |
+| `COCKPIT_DEPLOY_USER` | variable | the account, `deploy` unless set |
+| `COCKPIT_DEPLOY_PORT` | variable | `22` unless set |
+| `COCKPIT_DEPLOY_PLATFORM` | variable | `linux/amd64` unless set; `linux/arm64` for an ARM server |
+| `COCKPIT_URL` | variable | optional: `https://$COCKPIT_HOST`, the `cockpit` environment's link |
+
+`COCKPIT_DEPLOY_HOST` is a repository variable because the job's `if` is decided before an
+environment's variables are read; the rest may sit in the `cockpit` environment the job runs in,
+which is also where a required reviewer goes if a merge should wait for one. The first deploy is
+**Actions → Deploy cockpit → Run workflow** on `main`. A rollback is the same script with an older
+commit of `main`, `ssh deploy@<server> <sha>`: the checkout stays where it is and that commit's
+image runs, with its own functions.
+
+### Which build is serving
+
+Bottom right under every page, the footer names the build: `main · a1b2c3d · #42 · deployed 3h
+ago`. Opened, it shows the release main follows, the commit and the workflow run (both linked),
+when the image was built and deployed, and the deploys before it. CI passes those values to the
+image as build arguments (`BUILD_REF`, `BUILD_VERSION`, `BUILD_COMMIT`, `BUILD_TIME`, `BUILD_NUMBER`,
+`BUILD_RUN_URL`, `BUILD_SOURCE`; the Dockerfile's last lines), both here and in a release, and the
+image carries them as `COCKPIT_BUILD_*`. The page reads them when it is served (`convex/model/build.ts`),
+and `docker/start.sh` records each new image as it starts, after pushing its functions
+(`deploys:record`). Starting the same image again, after a restart or a reboot, records nothing.
+A rollback is a deploy of its own. A build CI did not make, `docker compose up --build` or
+`next dev`, says `local build` and records nothing.
 
 ## How the pieces connect
 

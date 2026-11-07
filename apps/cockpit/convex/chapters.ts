@@ -3,7 +3,7 @@
  *
  *   chapter   what ingest calls with each batch it folds in: a row for each
  *             chapter those events started that has none yet.
- *   backfill  run by `docker/start.sh` and a Vercel production build:
+ *   backfill  run by `docker/start.sh` after each deploy:
  *             writes the rows of every session an older cockpit stored,
  *             from its first event. A session whose next batch comes first
  *             is written from its first event then.
@@ -30,9 +30,9 @@ export async function chapter(ctx: MutationCtx, { factory, session }: Where, eve
 
 /**
  * Write the rows of the sessions an older cockpit stored, from their first
- * event. `docker/start.sh` and a Vercel production build run it once after
- * each deploy; a turn that wrote a full batch schedules the next, and a
- * deployment with none left does nothing.
+ * event. `docker/start.sh` runs it once after each deploy; a turn that wrote
+ * a full batch schedules the next, and a deployment with none left does
+ * nothing.
  */
 export const backfill = internalMutation({
   args: {},
