@@ -56,10 +56,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Where the image goes
+      - name: Where the image goes, and which build it is
         run: |
           OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           echo "IMAGE=ghcr.io/$OWNER/asf-cockpit" >> "$GITHUB_ENV"
+          # The release main was last cut at, and when this build began: the
+          # footer shows both (Dockerfile, "Which build this is").
+          echo "VERSION=$(jq -r .version .claude-plugin/plugin.json)" >> "$GITHUB_ENV"
+          echo "BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - uses: docker/setup-qemu-action@v3
         if: vars.COCKPIT_DEPLOY_PLATFORM != '' && vars.COCKPIT_DEPLOY_PLATFORM != 'linux/amd64'
@@ -82,6 +86,14 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            BUILD_REF=${{ github.ref_name }}
+            BUILD_VERSION=${{ env.VERSION }}
+            BUILD_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ env.BUILT }}
+            BUILD_NUMBER=${{ github.run_number }}
+            BUILD_RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            BUILD_SOURCE=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=cockpit
           cache-to: type=gha,scope=cockpit,mode=max
 

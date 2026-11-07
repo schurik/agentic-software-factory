@@ -67,6 +67,13 @@ jobs:
           docker buildx build apps/cockpit --platform linux/amd64,linux/arm64 --push \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --label "org.opencontainers.image.version=$VERSION" \
+            --build-arg "BUILD_REF=$GITHUB_REF_NAME" \
+            --build-arg "BUILD_VERSION=$VERSION" \
+            --build-arg "BUILD_COMMIT=$GITHUB_SHA" \
+            --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg "BUILD_NUMBER=$GITHUB_RUN_NUMBER" \
+            --build-arg "BUILD_RUN_URL=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --build-arg "BUILD_SOURCE=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --tag "$IMAGES/asf-cockpit:$VERSION"
 
       # The pin lives in one place, apps/cockpit/docker-compose.yml, so a

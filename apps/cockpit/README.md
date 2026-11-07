@@ -831,6 +831,19 @@ which is also where a required reviewer goes if a merge should wait for one. The
 commit of `main`, `ssh deploy@<server> <sha>`: the checkout stays where it is and that commit's
 image runs, with its own functions.
 
+### Which build is serving
+
+Bottom right under every page, the footer names the build: `main · a1b2c3d · #42 · deployed 3h
+ago`. Opened, it shows the release main follows, the commit and the workflow run (both linked),
+when the image was built and deployed, and the deploys before it. CI passes those values to the
+image as build arguments (`BUILD_REF`, `BUILD_VERSION`, `BUILD_COMMIT`, `BUILD_TIME`, `BUILD_NUMBER`,
+`BUILD_RUN_URL`, `BUILD_SOURCE`; the Dockerfile's last lines), both here and in a release, and the
+image carries them as `COCKPIT_BUILD_*`. The page reads them when it is served (`convex/model/build.ts`),
+and `docker/start.sh` records each new image as it starts, after pushing its functions
+(`deploys:record`). Starting the same image again, after a restart or a reboot, records nothing.
+A rollback is a deploy of its own. A build CI did not make, `docker compose up --build` or
+`next dev`, says `local build` and records nothing.
+
 ## How the pieces connect
 
 ![A stamped repo as a station, the Docker project asf-cockpit with the Next.js app and the Convex backend, and the browser](../../docs/diagrams/local-cockpit-components.svg)

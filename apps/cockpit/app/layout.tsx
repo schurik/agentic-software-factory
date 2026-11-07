@@ -3,6 +3,7 @@ import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
 import { BEFORE_PAINT } from "@/components/theme";
 import { Notice } from "@/components/ui";
+import { buildFromEnv } from "@/convex/model/build";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -12,7 +13,8 @@ export const metadata: Metadata = {
 };
 
 // The backend's address is read when a page is served, not when the image is
-// built: one published image serves every deployment (ADR 0004).
+// built: one published image serves every deployment (ADR 0004). So is which
+// build this is, which the image carries in its environment (the footer).
 export const dynamic = "force-dynamic";
 
 // Geist comes with the `geist` package and is served from the app itself, so
@@ -28,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-dvh [overflow-wrap:anywhere]">
         {url ? (
-          <Providers url={url}>{children}</Providers>
+          <Providers url={url} build={buildFromEnv(process.env)}>{children}</Providers>
         ) : (
           <main className="mx-auto max-w-[1280px] px-4 pt-8 md:px-6">
             <Notice>

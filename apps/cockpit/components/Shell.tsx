@@ -4,6 +4,8 @@ import { usePathname } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { type ComponentProps, createContext, useContext, useEffect } from "react";
 import { api } from "@/convex/_generated/api";
+import type { Build } from "@/convex/model/build";
+import { Footer } from "./Footer";
 import { Header, knows, type Me } from "./Header";
 import { RunPrompt, useRunPrompt } from "./run/RunDialog";
 import { holdSignIn, useSignIn } from "./signIn";
@@ -32,7 +34,7 @@ const REFRESH_EVERY = 5 * 60_000;
  * nothing until its App is registered and the viewer has signed in with it;
  * a local one is its owner's and asks nothing.
  */
-export function Shell({ children }: { children: React.ReactNode }) {
+export function Shell({ build, children }: { build: Build; children: React.ReactNode }) {
   const signIn = useSignIn();
   const me = useQuery(api.viewer.me, { signIn });
   const pathname = usePathname();
@@ -71,6 +73,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 </Cockpit.Provider>
               )}
         </main>
+        {/* Which build serves the page, once the viewer is someone here. */}
+        {knows(me) ? <Footer build={build} signIn={signIn} /> : null}
       </TriggerWorkflow>
     </RunPrompt>
   );
