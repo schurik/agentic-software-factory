@@ -1,0 +1,56 @@
+# The station: this checkout's `asf up --pull`, in a container that restarts
+# with the server (the skill's cookbooks/run_on_a_server.md). Stamped by the
+# agentic-sf installer (`install.py --station`), and from then on this
+# repository's, like the Dockerfile beside it.
+#
+#   docker compose -f asf/station/compose.yaml build
+#   docker compose -f asf/station/compose.yaml run --rm station gh auth login
+#   docker compose -f asf/station/compose.yaml run --rm station gh auth setup-git
+#   docker compose -f asf/station/compose.yaml run --rm station claude      # or a key in .env
+#   docker compose -f asf/station/compose.yaml run --rm station uv run asf/asf.py station register
+#   docker compose -f asf/station/compose.yaml up -d
+#   docker compose -f asf/station/compose.yaml logs -f
+#
+# It ships to the cockpit ASF_COCKPIT_URL names in the checkout's `.env` — a
+# shared one: this container has no Docker, so `up` starts no local cockpit,
+# and a local cockpit has no sign-in to put on a server anyway. On the
+# cockpit's own server that is still its public `https://site.<host>` origin.
+#
+# THE CHECKOUT IS THE STATE. It is mounted, not copied into the image: the
+# sessions under asf/data/, their worktrees under .asf-worktrees/, .env and the
+# station's id all live in it, so a rebuilt or restarted container is the same
+# station with the same waiting sessions. $HOME is a volume for the rest of
+# what a laptop keeps there: the `gh` and Claude logins, git's identity and
+# uv's cache.
+#
+# NEVER MOUNT THE DOCKER SOCKET HERE (/var/run/docker.sock). An agent runs
+# shell commands with this container's environment and its logins; with the
+# socket it can start a privileged container and own the server — and every
+# other container on it, a cockpit's data and its GitHub App key included.
+#
+# One per repository: a second repository's station on the same server is a
+# second checkout with its own copy of this file, under another `name:`.
+name: asf-station
+
+services:
+  station:
+    build:
+      context: .
+      args:
+        ASF_UID: ${ASF_UID:-1000}       # `id -u` of the checkout's owner
+    image: asf-station:local
+    init: true                          # reaps what agents leave behind; forwards SIGTERM
+    restart: unless-stopped             # with the server, and whenever `up` exits
+    stop_grace_period: 30s              # `up` stops its watchers and a run's agents first
+    working_dir: /work
+    volumes:
+      - ../..:/work
+      - home:/home/asf
+    # Agents, builds and test suites compete for this server with whatever
+    # else runs on it. Beside a cockpit, start with `max_concurrent: 1` under
+    # `issues:` and `pull_requests:` in asf/factory.yaml, and cap the container:
+    # mem_limit: 4g
+    # cpus: 2
+
+volumes:
+  home:

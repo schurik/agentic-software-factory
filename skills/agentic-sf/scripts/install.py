@@ -6,7 +6,7 @@
 
 Usage:
     uv run <skill>/scripts/install.py [--harness claude_code|pi] [--force]
-                                     [--no-detect-quality] [--ci | --no-ci]
+                                     [--no-detect-quality] [--ci | --no-ci] [--station]
 
 Stamps `asf/` — the engine, the stage vocabulary, the starter agents and
 workflows, the runner, and `.skill-version`, the release they came from — and
@@ -15,10 +15,12 @@ workflows, the runner, and `.skill-version`, the release they came from — and
 harness, and `factory.yaml`, the overlay on it that says only what this
 repository chose; that harness's `.env.sample`, the justfile, and the
 .gitignore entries — and, when taken (`--ci`, or yes when asked),
-`.github/workflows/asf-check.yml`. Existing files are skipped unless --force.
-TWO THINGS ARE NEVER OVERWRITTEN even then: factory.yaml is the operator's,
-and under --force a changed render lands beside it as `.new`; and every scorer
-under `asf/scorers/` is the team's own criteria, kept as it is. TWO ARE
+`.github/workflows/asf-check.yml`; and with `--station`, `asf/station/`, the
+container a station on a server runs in. Existing files are skipped unless
+--force. THREE THINGS ARE NEVER OVERWRITTEN even then: factory.yaml is the
+operator's, and under --force a changed render lands beside it as `.new`;
+every scorer under `asf/scorers/` is the team's own criteria, kept as it is;
+and `asf/station/` holds the team's toolchain once stamped. TWO ARE
 REWRITTEN on every run whenever they differ, --force or not: the defaults file
 and `.skill-files` say what the skill ships, not what the operator chose.
 
@@ -59,6 +61,14 @@ VERSION_FILE = Path("asf") / ".skill-version"
 CI_TEMPLATE = TEMPLATES / "ci" / "asf-check.yml"
 CI_WORKFLOW = Path(".github") / "workflows" / "asf-check.yml"
 
+# The container a station nobody sits at runs in — `asf up --pull`, on a
+# server (cookbooks/run_on_a_server.md). Only with `--station`, never asked:
+# most factories run on the laptops of the people they work for. Once stamped
+# it is the team's (USER_OWNED): its Dockerfile is where the repository's own
+# toolchain goes, and a re-stamp must not take that away.
+STATION_TEMPLATE = TEMPLATES / "station"
+STATION = Path("asf") / "station"
+
 # What an operator's factory.yaml may still say that a later release drops,
 # and what to tell them. A re-stamp never rewrites that file, so this is how a
 # stamp from an older release hears about it: NAMED, never refused — refusing
@@ -84,10 +94,12 @@ OBSOLETE = (
 )
 
 # What a re-stamp never rewrites under `asf/`, --force or not: the team's
-# scorers (ADR 0006). A scorer is written for this repository as factory.yaml
-# is, and is not the skill's to refresh: one the skill ships is stamped where
-# there is none, and the operator's copy is kept where there is.
-USER_OWNED = (Path("asf") / "scorers",)
+# scorers (ADR 0006), and its station's container. A scorer is written for this
+# repository as factory.yaml is, and is not the skill's to refresh: one the
+# skill ships is stamped where there is none, and the operator's copy is kept
+# where there is. The same goes for the station's Dockerfile, which holds the
+# repository's toolchain.
+USER_OWNED = (Path("asf") / "scorers", STATION)
 
 # What the skill owns in this stamp: every file under `asf/` that `--force`
 # overwrites, one path per line. Self-improvement reads it (`engine/
@@ -488,6 +500,9 @@ def main() -> int:
                          f"default-branch pushes, shipped to a cockpit as a CI station")
     ci.add_argument("--no-ci", dest="ci", action="store_false",
                     help="do not stamp it, and do not ask")
+    parser.add_argument("--station", action="store_true",
+                        help=f"stamp {STATION}/: the container `asf up --pull` runs in on a "
+                             f"server — yours once stamped, never overwritten")
     args = parser.parse_args()
     harness = choose(args.harness)
     root = Path.cwd()
@@ -508,6 +523,8 @@ def main() -> int:
     ci_taken = wants_ci(root, args.ci)
     if ci_taken:
         stamp(CI_TEMPLATE, root / CI_WORKFLOW, args.force, stamped, skipped)
+    if args.station:
+        stamp(STATION_TEMPLATE, root / STATION, args.force, stamped, skipped)
     ensure_gitignore(root, stamped)
     skill_in_env = ensure_env(root, root / ".env.sample", stamped, notes)
 
@@ -555,6 +572,10 @@ def main() -> int:
     else:
         print(f"  no CI workflow: re-run with --ci to stamp {CI_WORKFLOW}, which runs "
               f"`asf check --json` on pull requests and ships it to a cockpit")
+    if args.station:
+        print(f"  {STATION}/: add this repository's toolchain to its Dockerfile, commit both, "
+              f"and run it on the server as {SKILL_ROOT / 'cookbooks' / 'run_on_a_server.md'} "
+              f"says")
     _, steps = about(harness)
     if steps:
         print(f"\nbefore the first run ({harness}):\n\n{steps}")
