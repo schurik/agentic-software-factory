@@ -130,6 +130,9 @@ DIGEST_LINE = ("# sha256 {} — of everything above, as the installer wrote it; 
 # and never arrives through an upgrade of the defaults (ADR 0007).
 OVERLAY_ALWAYS = {"cockpit": {"commands": ["answer", "abort", "kill", "resume"]}}
 
+# `.env` is unanchored on purpose: it matches at every depth, so it covers
+# asf/station/.env too — the station's tokens (templates/station/compose.yaml) —
+# whatever the repository's own rule says, `/.env` included.
 GITIGNORE_ENTRIES = [
     "asf/data/",
     ".env",

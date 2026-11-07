@@ -326,3 +326,30 @@ def test_the_stamped_station_runs_up_pull_as_a_non_root_user_and_never_gets_the_
     mounts = [line for line in compose.splitlines()
               if line.strip().startswith("- ") and "docker.sock" in line]
     assert mounts == []
+
+
+def test_the_station_passes_its_tokens_through_by_name_and_never_names_a_value():
+    """A name with no `=`: Compose takes its value from asf/station/.env or the
+    shell, and leaves out one set in neither, so a login in the volume holds."""
+    compose = (Path(__file__).resolve().parent.parent
+               / "skills/agentic-sf/templates/station/compose.yaml").read_text().splitlines()
+    block = compose[compose.index("    environment:") + 1:]
+    names = [line.strip()[2:] for line in block[:3]]
+
+    assert names == ["GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]
+    assert not block[3].startswith("      - ")
+
+
+@pytest.mark.parametrize("theirs", ["", "/.env\n"])
+def test_the_station_s_env_file_is_gitignored_by_the_stamp_s_own_rule(repo: Path, theirs: str):
+    """asf/station/.env holds the tokens; a commit stage runs `git add -A`. The
+    stamp's `.env` is unanchored, so it reaches the file however the
+    repository's own rule is written."""
+    (repo / ".gitignore").write_text(theirs)
+    done = install(repo, "--harness", "claude_code", "--station")
+    assert done.returncode == 0, done.stdout + done.stderr
+    (repo / "asf" / "station" / ".env").write_text("GH_TOKEN=github_pat_x\n")
+
+    git(repo, "check-ignore", "-q", "asf/station/.env")             # raises when not ignored
+    git(repo, "add", "-A")
+    assert "asf/station/.env" not in git(repo, "diff", "--cached", "--name-only").splitlines()

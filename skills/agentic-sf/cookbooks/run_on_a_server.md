@@ -7,9 +7,9 @@ it, and answer review threads; the cockpit's webhooks wake them (ADR 0008), and
 a session waiting at a gate waits on the server's disk until it is answered.
 
 Two things here are a person's and never yours: **logging in** — `gh` and the
-harness, in the container, as themselves — and **approving the station's code**
-in the cockpit. You run the commands, say what each will show; they type and
-click.
+harness, in the container, as themselves, or the tokens that stand in for those
+logins — and **approving the station's code** in the cockpit. You run the
+commands, say what each will show; they type and click.
 
 ## Before
 
@@ -70,15 +70,60 @@ station logs -f
 - **Clone over HTTPS.** The container holds no SSH key; it pushes with the `gh`
   login, through `gh auth setup-git`.
 - **The harness's login.** `claude` in the container is the interactive login,
-  kept in the `home` volume. Instead, a key in the checkout's `.env`:
-  `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
-  A factory on pi: its provider's key there. The person types it into `.env`
-  themselves — never in the chat.
+  kept in the `home` volume — or a token instead, below. A factory on pi: its
+  provider's key in the checkout's `.env`, which the person types in themselves.
 - **`station register`** prints a code and a link; a person with write approves
   it in the cockpit, signed in — never approve it for them
   ([connect_cockpit.md](connect_cockpit.md#once-per-repository-checkout)).
 - **`doctor` first**: it names a missing tool from the toolchain before a run
   meets it.
+
+## Tokens instead of logins
+
+The two logins above can be tokens instead, so nobody types a device code on
+the server. The compose file passes three names through to the container —
+`GH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` — with their values
+from **`asf/station/.env`**, beside it. The person writes that file themselves,
+on the server, never in the chat:
+
+```bash
+nano asf/station/.env    # GH_TOKEN=github_pat_…  and  CLAUDE_CODE_OAUTH_TOKEN=…
+chmod 600 asf/station/.env
+station run --rm station gh auth setup-git           # still once: git pushes with GH_TOKEN
+station run --rm station gh auth status              # names the token's account
+```
+
+Then the git identity, `doctor`, `register` and `up -d` as above; `gh auth
+login` and `claude` are skipped. A name that file does not set is not in the
+container at all, so the login in the `home` volume holds for it — one token
+and one login is fine.
+
+- **`GH_TOKEN`** — a **fine-grained** personal access token for this one
+  repository: *Contents*, *Issues* and *Pull requests* read and write,
+  *Metadata* read; *Workflows* read and write only when agents edit
+  `.github/workflows/`. It acts as the account that made it, as a login would.
+  A repository that belongs neither to that account nor to an organization
+  cannot be chosen for a fine-grained token: a **classic** token with `repo`
+  then, which reaches every repository the account can.
+- **It expires.** Both kinds carry an expiry date, and from that day every run
+  fails at its first push or label while the factory looks otherwise healthy.
+  Put the date in a calendar; a new token is a new line in `asf/station/.env`,
+  then `station up -d`.
+- **`CLAUDE_CODE_OAUTH_TOKEN`** comes from `claude setup-token`, run on the
+  person's laptop — the subscription, without a login on the server.
+  `ANTHROPIC_API_KEY` instead bills the API; set one of the two, not both.
+- **Why that file, not the checkout's `.env`**: `worktree.copy` puts the root
+  `.env` on disk in every session's worktree, and `asf/station/.env` is copied
+  nowhere. It hides nothing from an agent — the tokens are in the container's
+  environment, which every agent's shell inherits. And a `.env` beside a
+  compose file only fills in `${…}` in it; a name reaches the container because
+  `environment:` lists it.
+- **It is gitignored** by the stamp's own `.env` rule, which matches at any
+  depth: `git check-ignore -v asf/station/.env` names the rule.
+- **A station stamped before this** has no `environment:` block, and no re-stamp
+  adds it: `asf/station/` is the repository's, `--force` or not. Copy the block
+  from the skill's `templates/station/compose.yaml` into the repository's, push
+  it, and once the station has pulled it, `station up -d` on the server.
 
 ## What it does
 
@@ -124,6 +169,7 @@ cockpit beside it included. The compose file says so; keep it that way.
 | `Permission denied` under `/work`, or git's "dubious ownership" | The container's user is not the checkout's owner | `ASF_UID=$(stat -c %u .) station build`, then `station up -d` |
 | `useradd: UID 0 is not unique` at build | `ASF_UID` is root's | Clone and run it as a non-root user: Claude Code refuses `bypassPermissions` as root |
 | A push asks for a username, or `Permission denied (publickey)` | An SSH remote, or no `gh auth setup-git` | `git remote set-url origin https://…`; `station run --rm station gh auth setup-git` |
-| An agent phase fails at once, the harness not logged in | Its login is not in the `home` volume, and no key is in `.env` | `station run --rm station claude`, or a key in `.env` |
+| An agent phase fails at once, the harness not logged in | No login in the `home` volume and no token in the container — `asf/station/.env` does not set one, or the compose file has no `environment:` | `station run --rm station claude`, or a token in `asf/station/.env` ([above](#tokens-instead-of-logins)), then `station up -d` |
+| Runs fail at their first push, label or comment: `Bad credentials`, a 401 or a 403 | `GH_TOKEN` expired, was revoked, or lacks a permission | `station run --rm station gh auth status`; a new token in `asf/station/.env`, then `station up -d` |
 | The station is not on the cockpit's Stations tab | Not registered, or the wrong URL | [connect_cockpit.md](connect_cockpit.md#when-it-doesnt-work) |
 | Runs start, but a quality phase cannot find a tool | The toolchain is not in the image | Add it to the Dockerfile, push, `station up -d --build` |

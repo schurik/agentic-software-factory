@@ -4,12 +4,17 @@
 # repository's, like the Dockerfile beside it.
 #
 #   docker compose -f asf/station/compose.yaml build
-#   docker compose -f asf/station/compose.yaml run --rm station gh auth login
+#   docker compose -f asf/station/compose.yaml run --rm station gh auth login   # or GH_TOKEN
 #   docker compose -f asf/station/compose.yaml run --rm station gh auth setup-git
-#   docker compose -f asf/station/compose.yaml run --rm station claude      # or a key in .env
+#   docker compose -f asf/station/compose.yaml run --rm station claude          # or a token
 #   docker compose -f asf/station/compose.yaml run --rm station uv run asf/asf.py station register
 #   docker compose -f asf/station/compose.yaml up -d
 #   docker compose -f asf/station/compose.yaml logs -f
+#
+# Tokens instead of the two logins: GH_TOKEN, and CLAUDE_CODE_OAUTH_TOKEN (from
+# `claude setup-token`) or ANTHROPIC_API_KEY, in asf/station/.env beside this
+# file, `chmod 600` — `environment:` below says why there. `gh auth setup-git`
+# still runs once: it is what makes git push with GH_TOKEN.
 #
 # It ships to the cockpit ASF_COCKPIT_URL names in the checkout's `.env` — a
 # shared one: this container has no Docker, so `up` starts no local cockpit,
@@ -46,6 +51,19 @@ services:
     volumes:
       - ../..:/work
       - home:/home/asf
+    # THE TOKENS, passed through by name. Compose reads asf/station/.env — beside
+    # this file, the project directory — to fill in ${…} in this file, and that
+    # alone puts nothing in the container: a name has to be listed here to reach
+    # it, with its value from that .env or from the shell running compose. One
+    # that is set in neither is left out, and the login in the `home` volume
+    # holds. They go here rather than in the checkout's `.env`, which
+    # `worktree.copy` puts on disk in every session's worktree; asf/station/.env
+    # is copied nowhere. That hides them from no agent: an agent's environment
+    # is the container's, and it sees them there.
+    environment:
+      - GH_TOKEN
+      - CLAUDE_CODE_OAUTH_TOKEN
+      - ANTHROPIC_API_KEY
     # Agents, builds and test suites compete for this server with whatever
     # else runs on it. Beside a cockpit, start with `max_concurrent: 1` under
     # `issues:` and `pull_requests:` in asf/factory.yaml, and cap the container:
