@@ -1,0 +1,108 @@
+name: Deploy cockpit
+
+# Every merge that touches the cockpit reaches the team's server
+# (apps/cockpit/README.md, "Deployed on every merge"). The image is built here,
+# not on the server — `next build` wants more memory than a small one has — and
+# pushed to the same ghcr.io package a release publishes, under tags no release
+# uses: `sha-<commit>` for the deploy, `main` for whoever wants the newest.
+# Then one SSH call runs apps/cockpit/scripts/deploy.sh on the server, the
+# forced command of the key below, which checks the checkout out at the same
+# commit, runs that image and waits for it to answer.
+#
+# Nothing here runs the cockpit's tests: the pull request ran them (ci.yml)
+# before it could merge, and a commit that does not build fails the first step.
+#
+# Off until the repository says where to deploy. Settings → Secrets and
+# variables → Actions; COCKPIT_DEPLOY_HOST on the repository, since the job's
+# `if` is decided before an environment's variables are read, and the rest
+# there or in the `cockpit` environment:
+#
+#   variable COCKPIT_DEPLOY_HOST         the server's name or address; unset, nothing runs
+#   variable COCKPIT_DEPLOY_USER         the account the key logs in as (default: deploy)
+#   variable COCKPIT_DEPLOY_PORT         SSH port (default: 22)
+#   variable COCKPIT_DEPLOY_KNOWN_HOSTS  `ssh-keyscan -p <port> <host>`, so the host key is checked, never trusted on first use
+#   variable COCKPIT_DEPLOY_PLATFORM     the server's architecture (default: linux/amd64; linux/arm64 for an ARM server)
+#   variable COCKPIT_URL                 optional: the environment's link, https://$COCKPIT_HOST
+#   secret   COCKPIT_DEPLOY_SSH_KEY      the private half of the deploy key
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/cockpit/**"
+      - ".github/workflows/deploy-cockpit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# One deploy at a time, in merge order; a merge waiting behind a running deploy
+# is replaced by the next one, since only the newest commit matters.
+concurrency:
+  group: deploy-cockpit
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: build and deploy the cockpit
+    # main only: the server refuses a commit that is not on it, and `:main`
+    # must not name a branch's build.
+    if: github.ref == 'refs/heads/main' && vars.COCKPIT_DEPLOY_HOST != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: cockpit
+      url: ${{ vars.COCKPIT_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Where the image goes
+        run: |
+          OWNER="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=ghcr.io/$OWNER/asf-cockpit" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+        if: vars.COCKPIT_DEPLOY_PLATFORM != '' && vars.COCKPIT_DEPLOY_PLATFORM != 'linux/amd64'
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The app, at this commit
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/cockpit
+          platforms: ${{ vars.COCKPIT_DEPLOY_PLATFORM || 'linux/amd64' }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=cockpit
+          cache-to: type=gha,scope=cockpit,mode=max
+
+      - name: The server runs it
+        env:
+          HOST: ${{ vars.COCKPIT_DEPLOY_HOST }}
+          USER_NAME: ${{ vars.COCKPIT_DEPLOY_USER || 'deploy' }}
+          PORT: ${{ vars.COCKPIT_DEPLOY_PORT || '22' }}
+          KNOWN_HOSTS: ${{ vars.COCKPIT_DEPLOY_KNOWN_HOSTS }}
+          SSH_KEY: ${{ secrets.COCKPIT_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KNOWN_HOSTS" ] || [ -z "$SSH_KEY" ]; then
+            echo "::error::COCKPIT_DEPLOY_KNOWN_HOSTS and the COCKPIT_DEPLOY_SSH_KEY secret are both needed"
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # The key's forced command is scripts/deploy.sh; this sha is all it reads.
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o BatchMode=yes -o ServerAliveInterval=30 \
+            "$USER_NAME@$HOST" "$GITHUB_SHA"

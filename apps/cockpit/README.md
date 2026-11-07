@@ -775,7 +775,63 @@ Ports 80 and 443 must be open to the internet — 80 for the certificate's chall
 stays on the server's loopback (`ssh -L 6791:127.0.0.1:6791 <server>`, then
 `http://localhost:6791`), and every command above that runs `docker compose exec` runs on the
 server, with both `-f` files. Then [set up a team cockpit](#set-up-a-team-cockpit): with public
-addresses, the App is registered with its webhook. An upgrade is `git pull` and the same `up`.
+addresses, the App is registered with its webhook. An upgrade by hand is `git pull` and the same
+`up`; the next section does it on every merge.
+
+### Deployed on every merge
+
+`.github/workflows/deploy-cockpit.yml` builds the app's image on every push to `main` that touches
+`apps/cockpit`, pushes it to `ghcr.io/<owner>/asf-cockpit` as `sha-<commit>` (and `main`), and makes
+one SSH call to the server. That call can run one thing, `scripts/deploy.sh`: it fast-forwards
+the checkout to the commit — so a merge that moves the backend's pin, `compose.vps.yaml` or the
+Caddyfile arrives with the image — writes the image to `.env` as `COCKPIT_IMAGE`, runs `pull` and
+`up -d --no-build` with both `-f` files, and waits up to three minutes for the app to answer
+through Caddy, printing the app's last log lines if it does not. The server builds nothing: `next
+build` wants more memory than a small server has. The app's restart is a few seconds of 502 while
+`docker/start.sh` pushes the functions; a single server has no second copy to switch to.
+
+On the server, once:
+
+```bash
+sudo adduser --disabled-password deploy && sudo usermod -aG docker deploy
+sudo -iu deploy git clone https://github.com/schurik/agentic-software-factory.git
+# then the .env above, in ~deploy/agentic-software-factory/apps/cockpit
+ssh-keygen -t ed25519 -N '' -C deploy-cockpit -f deploy_key   # anywhere; the private half goes to GitHub
+```
+
+and `deploy_key.pub` into `~deploy/.ssh/authorized_keys` behind a forced command, so the key does
+nothing else:
+
+```text
+command="/home/deploy/agentic-software-factory/apps/cockpit/scripts/deploy.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… deploy-cockpit
+```
+
+The script reads one thing from the caller, a commit sha, and refuses one that is not on
+`origin/main`; the image repository is the server's own choice (`COCKPIT_IMAGE_REPO` in `.env`, or
+the ghcr.io package of the owner the checkout was cloned from), so a leaked key can redeploy an
+older commit of `main` and nothing else. The package must be public — the release's note above — or
+the `deploy` account logged in with `docker login ghcr.io` and a token that can only
+`read:packages`. SSH must be reachable from GitHub's runners, whose addresses are not fixed, so
+the server should take keys only.
+
+In the repository, Settings → Secrets and variables → Actions:
+
+| Name | Kind | Is |
+| --- | --- | --- |
+| `COCKPIT_DEPLOY_HOST` | repository variable | the server; unset, the workflow does nothing |
+| `COCKPIT_DEPLOY_KNOWN_HOSTS` | variable | `ssh-keyscan -p <port> <host>`: the host key, checked rather than trusted on first use |
+| `COCKPIT_DEPLOY_SSH_KEY` | secret | the private half of `deploy_key` |
+| `COCKPIT_DEPLOY_USER` | variable | the account, `deploy` unless set |
+| `COCKPIT_DEPLOY_PORT` | variable | `22` unless set |
+| `COCKPIT_DEPLOY_PLATFORM` | variable | `linux/amd64` unless set; `linux/arm64` for an ARM server |
+| `COCKPIT_URL` | variable | optional: `https://$COCKPIT_HOST`, the `cockpit` environment's link |
+
+`COCKPIT_DEPLOY_HOST` is a repository variable because the job's `if` is decided before an
+environment's variables are read; the rest may sit in the `cockpit` environment the job runs in,
+which is also where a required reviewer goes if a merge should wait for one. The first deploy is
+**Actions → Deploy cockpit → Run workflow** on `main`. A rollback is the same script with an older
+commit of `main`, `ssh deploy@<server> <sha>`: the checkout stays where it is and that commit's
+image runs, with its own functions.
 
 ## On Vercel, with Convex Cloud
 

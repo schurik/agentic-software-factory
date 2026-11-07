@@ -4,6 +4,9 @@
 #   echo COCKPIT_HOST=cockpit.example.com > .env
 #   docker compose -f docker-compose.yml -f compose.vps.yaml up -d --build
 #
+# After that, scripts/deploy.sh runs the image CI built for each merge instead
+# (.github/workflows/deploy-cockpit.yml; README.md, "Deployed on every merge").
+#
 # One name is enough, if two more under it resolve to the same server (a
 # wildcard record, or three A records): Caddy gets a Let's Encrypt certificate
 # for each and serves
