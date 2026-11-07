@@ -35,17 +35,16 @@ cockpit off — with the question tool
 Done once by whoever runs the deployment, not per repository. If the cockpit
 already has people signing in to it, skip to the next section.
 
-1. **Deploy it.** Either the compose file the cockpit ships (`docker compose up`
-   with `CONVEX_CLOUD_ORIGIN` and `CONVEX_SITE_ORIGIN` set to its public
-   addresses), or the pages on Vercel with the backend on **Convex Cloud**.
+1. **Deploy it.** The compose file the cockpit ships, on one server with a
+   public name: `apps/cockpit/compose.vps.yaml` puts Caddy in front for TLS and
+   sets `CONVEX_CLOUD_ORIGIN` and `CONVEX_SITE_ORIGIN` to its public addresses
+   (the cockpit's README, "On one server, with TLS", which also sets up a
+   deploy on every merge).
 2. **Print a setup code.** It proves the person runs the deployment — before a
    GitHub App exists nobody can sign in, so running a function with the
    deployment's admin key is the only check there is. It works once, for an
-   hour. The cockpit's `/setup` page shows the route that fits:
-   - compose: `docker compose exec app ./convex.sh run setup:code`
-   - Convex Cloud: the Convex dashboard → the deployment → **Functions** →
-     `setup:code` → **Run**; or `npx convex run setup:code` with the Convex
-     CLI pointed at that deployment. There is no container to `exec` into.
+   hour. On the server, with both compose files:
+   `docker compose exec app ./convex.sh run setup:code`.
 3. **Register the GitHub App** at `/setup`: the code, the GitHub host, the
    organization that will own it. GitHub shows the App it is about to create.
 4. **Install the App** on the repositories that hold factories (the link is on
@@ -53,8 +52,9 @@ already has people signing in to it, skip to the next section.
    the owner a request from there.
 5. **Set the deployment's own variables**: `COCKPIT_MODE=team` and
    `COCKPIT_APP_URL` (where the pages are — the approval link a station prints
-   is built from it). On Convex Cloud they go in the Convex dashboard's
-   environment variables: nothing copies them from Vercel into the backend.
+   is built from it; `compose.vps.yaml` sets it from `COCKPIT_HOST`), in the
+   compose file's environment: `docker/start.sh` copies them into the
+   deployment's as the app starts.
 
 ## Once per repository checkout
 
@@ -64,10 +64,9 @@ holds `asf/factory.yaml`, so a code printed before that has no Stations tab to
 be approved on. `just onboard` says whether it is (`published`); if not, that
 is [onboard.md § 3](onboard.md#3-commit-and-publish-the-factory) first.
 
-1. **`ASF_COCKPIT_URL` in `.env`** — the deployment's **site** origin:
-   `https://<name>.convex.site` on Convex Cloud (not the `.convex.cloud`
-   address, and not the pages' URL), the compose file's `CONVEX_SITE_ORIGIN`
-   (`:3211`) otherwise. Leave `ASF_COCKPIT_TOKEN` unset.
+1. **`ASF_COCKPIT_URL` in `.env`** — the deployment's **site** origin, the
+   compose file's `CONVEX_SITE_ORIGIN` (`:3211`, or `https://site.<host>` on
+   one server), not the pages' URL. Leave `ASF_COCKPIT_TOKEN` unset.
 2. **`just station-register`.** It names the factory by the checkout's
    `origin` remote (`owner/name`), prints a code and a link to
    `/stations/approve?code=…`, and waits ten minutes.
@@ -138,11 +137,11 @@ whatever ships with it from then on. The operator's route still works too:
 |---|---|---|
 | `register`: "the code expired before anyone approved it", or the page says no station waits on that code | A code lives ten minutes and is spent once the station has its token — and registering again withdraws the station's earlier code, so only the newest is listed and can be approved | `just station-register` again for a fresh code |
 | The approval link opens, but the factory has no page, or its Stations tab shows nothing to approve | The factory is **not on the default branch** yet: the cockpit lists only factories whose default branch holds `asf/factory.yaml` | Commit and push it, or merge its pull request (`just onboard` says when `published` is done), then `just station-register` again |
-| `/setup`: "not a setup code this deployment printed" | The pages and the backend are on **different deployments**: the code was printed on one, the pages talk to another (on Vercel, `CONVEX_URL` or the deploy key names another deployment) | Print the code on the deployment the pages use — the dashboard link `/setup` shows is that one |
+| `/setup`: "not a setup code this deployment printed" | The pages and the backend are on **different deployments**: the code was printed on one, the pages talk to another (the app's `CONVEX_URL` names another backend) | Print the code on the deployment the pages use |
 | The approval page: "…needs write on owner/name; the forge says you have read" (or the repository is not one the forge lets them read) | The approver lacks **write** on the repository, or the App is not installed on it | Someone with write approves; or install the App on the repository |
 | `register`: "…is alex's station: they register it again, or revoke it first" | The station holds a live token another person approved | Its owner registers it, or revokes it on the Stations tab first |
 | `sync`, `up` or a run: "the cockpit refused the ingest token" | The token was **revoked** (the station's Revoke takes its ingest token too), or it was issued by another cockpit | `just station-register` again; in CI, a fresh token from the Stations tab |
-| `register`: "the cockpit answered without a code — is ASF_COCKPIT_URL its site origin?", a 404, or nothing answers | **The wrong URL**: the `.convex.cloud` address or the pages' URL instead of the site | `ASF_COCKPIT_URL=https://<name>.convex.site` (compose: `CONVEX_SITE_ORIGIN`) |
+| `register`: "the cockpit answered without a code — is ASF_COCKPIT_URL its site origin?", a 404, or nothing answers | **The wrong URL**: the backend's API address (`:3210`, `api.<host>`) or the pages' URL instead of the site | `ASF_COCKPIT_URL` = the compose file's `CONVEX_SITE_ORIGIN` (`:3211`, `https://site.<host>` on one server) |
 | `register`: "no ASF_COCKPIT_TOKEN, and no origin remote to name the factory by" | The checkout has no `origin` the factory can read as `owner/name` | Add the repository's origin, or set `ASF_COCKPIT_TOKEN` |
 | `register`: "the cockpit refused to register without an ingest token" | The cockpit is older than registering without one | Upgrade the cockpit, or set `ASF_COCKPIT_TOKEN` to a token its operator issues (`tokens:issue`) |
 | `register`: "too many …" (HTTP 429) | Registrations without a token are capped per factory and per source while they wait | Approve or let the waiting codes run out (ten minutes), then register again |
