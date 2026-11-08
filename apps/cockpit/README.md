@@ -123,7 +123,8 @@ takes on the one there is instead, with no manifest and no trip to GitHub's form
 2. On the App's settings page on GitHub (*Settings → Developer settings → GitHub Apps → Edit*), add
    this cockpit's `/auth/callback` — `/setup` shows it — under *Callback URL* (an App takes up to
    ten), and generate a new client secret and a private key. The ones another cockpit holds keep
-   working.
+   working. Moving the cockpit rather than adding one, point its *Homepage URL* and *Setup URL* (where
+   GitHub sends someone after an install) here too.
 3. Enter the code, the host, the App ID from the top of that page, the secret and the `.pem` file.
    The cockpit asks GitHub as the App whether the ID and the key are one App's — a mistake costs
    the setup code nothing, which is spent only once they are — and reads the rest (its name, its

@@ -79,7 +79,7 @@ export const deployment = query({
 });
 
 /**
- * A setup code, printed once and good for one `begin` within the hour. Run
+ * A setup code, printed once and good for one `begin` or `adopt` within the hour. Run
  * with the deployment's admin key, which is what proves the person runs it:
  *
  *   docker compose exec app ./convex.sh run setup:code     # the compose file's
@@ -150,8 +150,9 @@ export const complete = action({
  * which the admin adds to the App's callback URLs (no API can). Where GitHub
  * could deliver here, its webhook is pointed here, with a secret of its own.
  *
- * The setup code is checked first and spent last: a mistyped ID or a key from
- * the wrong App costs the admin nothing but typing it again.
+ * The setup code is checked first and spent only once GitHub took the ID and
+ * the key: a mistyped ID or a key from the wrong App costs the admin nothing
+ * but typing it again.
  */
 export const adopt = action({
   args: {

@@ -33,7 +33,8 @@ export type Adopted = FunctionReturnType<typeof api.setup.adopt>;
 /** Registering a new App through the manifest flow, or taking on one the account has. */
 type Way = "new" | "existing";
 
-const still = () => () => {};
+/** A subscription to something that never changes, such as where the page is served. */
+const unchanging = () => () => {};
 
 /**
  * Registering the team's GitHub App through the manifest flow (convex/setup.ts):
@@ -47,7 +48,7 @@ export function SetupPage() {
   const webhook = useQuery(api.setup.webhook, {});
   const deployment = useQuery(api.setup.deployment, {});
   // Where these pages are served, which the App's callback URLs must list: none until there is a window.
-  const appUrl = useSyncExternalStore(still, () => window.location.origin, () => "");
+  const appUrl = useSyncExternalStore(unchanging, () => window.location.origin, () => "");
   const [adopted, setAdopted] = useState<Adopted | null>(null);
 
   const leave = async (fields: Begin) => {
@@ -65,7 +66,7 @@ export function SetupPage() {
     document.body.append(form);
     form.submit();
   };
-  const takeOn = async (fields: Adopt) => setAdopted(await adopt({ ...fields, appUrl: window.location.origin }));
+  const takeOn = async (fields: Adopt) => setAdopted(await adopt({ ...fields, appUrl }));
 
   if (adopted) return <AdoptedView adopted={adopted} />;
   return (
@@ -182,8 +183,8 @@ export function SetupView({ mode, forge, webhook, deployment, appUrl, onBegin, o
       ) : null}
       {way === "existing" && webhook?.deliverable ? (
         <Notice>
-          Its webhook is pointed at this cockpit, with a new secret. An App has one webhook: a cockpit it
-          delivered to before finds changes by asking GitHub once a minute from then on.
+          Where the App has a webhook, it is pointed at this cockpit, with a new secret. An App has one
+          webhook: a cockpit it delivered to before finds changes by asking GitHub once a minute from then on.
         </Notice>
       ) : null}
       {way === "new" ? (
@@ -195,8 +196,9 @@ export function SetupView({ mode, forge, webhook, deployment, appUrl, onBegin, o
           <li>
             Fill this in and continue to GitHub, which shows the App it is about to create: private to your
             account, with its sign-in{webhook?.deliverable ? " and its webhook" : ""} pointed at this cockpit.
-            GitHub keeps an App&apos;s name unique on its host: if it says the name is taken by an App you
-            already have, <LinkButton onClick={() => choose("existing")}>use that one</LinkButton> instead.
+            GitHub keeps an App&apos;s name unique on its host: if it says the name is taken, pick another
+            there — or, when the App that holds it is yours,{" "}
+            <LinkButton onClick={() => choose("existing")}>use that one</LinkButton> instead.
           </li>
           <li>Back here, install the App on the repositories that hold your factories.</li>
         </ol>
@@ -211,6 +213,8 @@ export function SetupView({ mode, forge, webhook, deployment, appUrl, onBegin, o
             <em>Edit</em>) and add this cockpit&apos;s callback URL under <em>Callback URL</em> — an App takes up to ten:
             <Pre className="mt-1.5">{`${appUrl}/auth/callback`}</Pre>
             Then generate a new client secret and a private key there. The ones another cockpit holds keep working.
+            Moving the cockpit rather than adding one? Point the App&apos;s <em>Homepage URL</em> and{" "}
+            <em>Setup URL</em> here too, where GitHub sends someone after an install.
           </li>
           <li>
             Fill this in with the App ID from the top of that page, the secret and the key. The App stays
@@ -343,7 +347,7 @@ export function AdoptedView({ adopted }: { adopted: Adopted }) {
       </p>
       <p>
         {adopted.webhook
-          ? "Its webhook now delivers here, signed with a secret only this cockpit holds."
+          ? "Its webhook now points here, signed with a secret only this cockpit holds."
           : "Its webhook was left as it was: this cockpit learns of the forge by asking GitHub once a minute."}
       </p>
       <p><Link href="/" className={buttonClass("primary")}>Sign in</Link></p>

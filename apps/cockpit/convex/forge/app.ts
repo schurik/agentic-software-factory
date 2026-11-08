@@ -3,11 +3,13 @@
  *
  * Each team registers its own App, through the manifest flow, on its own
  * GitHub host — github.com or an Enterprise Server — so there is no App of
- * ours for anyone to trust, and nothing here names a host.
+ * ours for anyone to trust, and nothing here names a host. Or it takes on an
+ * App its account registered before, for another cockpit (`readApp`).
  *
  * An App has three ways to ask, and each has its use (spec #40):
  *   - as itself, with a JWT signed by its key: to list where it is installed
- *     and to mint installation tokens, and nothing else;
+ *     and to mint installation tokens — and, while it is taken on, to read
+ *     what it says of itself and point its webhook here — and nothing else;
  *   - as an installation: what the cockpit reads for itself — the
  *     repositories, and whether each holds a factory. Its budget grows with
  *     the repositories it is installed on;
@@ -133,9 +135,13 @@ export function registrationUrl(host: string, organization: string, state: strin
  * secrets, and its logo — which only this page takes. Neither a manifest nor
  * the API can give an App one, so the cockpit's icon is uploaded here by hand.
  */
-export function settingsUrl(host: string, slug: string, owner: unknown): string {
-  const organization = isRecord(owner) && owner.type === "Organization" && typeof owner.login === "string" ? owner.login : "";
+export function settingsUrl(host: string, slug: string, organization: string): string {
   return `https://${host}${account(organization)}/settings/apps/${encodeURIComponent(slug)}`;
+}
+
+/** The organization an App's `owner` (as GitHub describes an App) is, or "" for a person's own account. */
+function ownedBy(owner: unknown): string {
+  return isRecord(owner) && owner.type === "Organization" && typeof owner.login === "string" ? owner.login : "";
 }
 
 /** The path an account's settings sit under: an organization's, or "" for the admin's own. */
@@ -182,7 +188,7 @@ export async function convert(github: GitHub, code: string): Promise<Converted> 
     webhookSecret: typeof body.webhook_secret === "string" && body.webhook_secret !== "" ? body.webhook_secret : null,
     privateKey: handed("pem"),
   };
-  return { app, settingsUrl: settingsUrl(github.host, app.slug, body.owner) };
+  return { app, settingsUrl: settingsUrl(github.host, app.slug, ownedBy(body.owner)) };
 }
 
 // ── taking on an App registered before ───────────────────────────────────────
@@ -222,7 +228,7 @@ export async function readApp(github: GitHub, appId: number, jwt: string): Promi
   const events = isRecord(body) && Array.isArray(body.events) ? body.events.filter((event) => typeof event === "string") : [];
   return {
     slug, htmlUrl: said("html_url"), clientId: said("client_id"),
-    settingsUrl: settingsUrl(github.host, slug, isRecord(body) ? body.owner : null), events,
+    settingsUrl: settingsUrl(github.host, slug, ownedBy(isRecord(body) ? body.owner : null)), events,
   };
 }
 

@@ -53,7 +53,7 @@ describe("setting up the GitHub App", () => {
 
   it("says where GitHub refuses the name an App the account has already took, and offers to use that one", () => {
     const page = setup();
-    expect(text(page)).toContain("GitHub keeps an App's name unique on its host: if it says the name is taken by an App you already have, use that one instead.");
+    expect(text(page)).toContain("GitHub keeps an App's name unique on its host: if it says the name is taken, pick another there — or, when the App that holds it is yours, use that one instead.");
     expect(page).toMatch(/<button type="button" aria-pressed="false"[^>]*>Use an App you already have<\/button>/);
   });
 
@@ -145,7 +145,7 @@ describe("an App taken on from before", () => {
   });
 
   it("says where its webhook now delivers, or that this cockpit learns by the poll", () => {
-    expect(text(done())).toContain("Its webhook now delivers here");
+    expect(text(done())).toContain("Its webhook now points here");
     expect(text(done({ webhook: false }))).toContain("Its webhook was left as it was: this cockpit learns of the forge by asking GitHub once a minute.");
   });
 

@@ -51,6 +51,12 @@ before — `None` when there are none, never omitted.
   it. A team's cockpit can also deploy itself on every merge: CI builds the image and runs
   `apps/cockpit/scripts/deploy.sh` on the server over one forced-command SSH key (the cockpit's
   README, "Deployed on every merge"). The cockpit is no longer built on Vercel.
+- **A second cockpit takes on the account's App.** `/setup` offers *Use an App you already have*:
+  the App ID, a client secret and a private key generated on its settings page, and the App stays
+  installed where it was — no second App for GitHub to refuse by name, nothing to install again.
+  Its webhook is pointed at the new cockpit where GitHub can deliver there. GitHub takes an App's
+  logo only on its settings page, so the pages an admin lands on hand over the cockpit's icon to
+  upload there (the cockpit's README, "An App your account already has").
 
 ### Upgrade
 
