@@ -33,6 +33,10 @@ export const appValidator = v.object({
   clientSecret: v.string(),
   webhookSecret: v.union(v.null(), v.string()),   // null: registered without a webhook (`deliverable`)
   privateKey: v.string(),       // PEM, as GitHub sends it
+  // Where a sign-in comes back to, for an App taken on from another cockpit
+  // (`readApp`): one of its callback URLs, and not its first, which GitHub uses
+  // when none is named. Absent for an App registered here, whose one it is.
+  callbackUrl: v.optional(v.string()),
 });
 
 export type App = Infer<typeof appValidator>;
@@ -121,8 +125,22 @@ export function deliverable(url: string): boolean {
 
 /** Where a browser posts the manifest: the page on which the admin names the App and confirms. */
 export function registrationUrl(host: string, organization: string, state: string): string {
-  const account = organization ? `/organizations/${encodeURIComponent(organization)}` : "";
-  return `https://${host}${account}/settings/apps/new?state=${encodeURIComponent(state)}`;
+  return `https://${host}${account(organization)}/settings/apps/new?state=${encodeURIComponent(state)}`;
+}
+
+/**
+ * Where the App's owner edits it on GitHub: its callback URLs, its keys and
+ * secrets, and its logo — which only this page takes. Neither a manifest nor
+ * the API can give an App one, so the cockpit's icon is uploaded here by hand.
+ */
+export function settingsUrl(host: string, slug: string, owner: unknown): string {
+  const organization = isRecord(owner) && owner.type === "Organization" && typeof owner.login === "string" ? owner.login : "";
+  return `https://${host}${account(organization)}/settings/apps/${encodeURIComponent(slug)}`;
+}
+
+/** The path an account's settings sit under: an organization's, or "" for the admin's own. */
+function account(organization: string): string {
+  return organization ? `/organizations/${encodeURIComponent(organization)}` : "";
 }
 
 /** Where an owner installs the App on their organization's repositories. */
@@ -130,8 +148,14 @@ export function installUrl(app: Pick<App, "htmlUrl">): string {
   return `${app.htmlUrl}/installations/new`;
 }
 
+/** An App the cockpit now holds, and where its owner edits it (`settingsUrl`). */
+export interface Converted {
+  app: App;
+  settingsUrl: string;
+}
+
 /** Trade the code GitHub sent the admin back with for the App it made. It works once, within an hour. */
-export async function convert(github: GitHub, code: string): Promise<App> {
+export async function convert(github: GitHub, code: string): Promise<Converted> {
   const path = `/app-manifests/${encodeURIComponent(code)}/conversions`;
   const response = await github.send(null, "POST", github.api + path);
   const body: unknown = response.ok ? await response.json() : null;
@@ -146,7 +170,7 @@ export async function convert(github: GitHub, code: string): Promise<App> {
     throw new ForgeError(response.status, `${github.host} handed back an App with no \`${field}\`: none of it was kept`);
   };
   if (typeof body.id !== "number") throw new ForgeError(response.status, `${github.host} handed back an App with no \`id\`: none of it was kept`);
-  return {
+  const app: App = {
     host: github.host,
     appId: body.id,
     slug: handed("slug"),
@@ -158,6 +182,60 @@ export async function convert(github: GitHub, code: string): Promise<App> {
     webhookSecret: typeof body.webhook_secret === "string" && body.webhook_secret !== "" ? body.webhook_secret : null,
     privateKey: handed("pem"),
   };
+  return { app, settingsUrl: settingsUrl(github.host, app.slug, body.owner) };
+}
+
+// ── taking on an App registered before ───────────────────────────────────────
+
+/**
+ * What an App says of itself, asked as itself: what a cockpit takes on an App
+ * the account registered before by (setup.ts `adopt`), with no manifest — so
+ * no second App, and nothing to install again.
+ */
+export interface Itself {
+  slug: string;
+  htmlUrl: string;
+  clientId: string;
+  settingsUrl: string;
+  /** What its webhook is subscribed to: nothing, for an App registered without one. */
+  events: string[];
+}
+
+/**
+ * The App whose key signed `jwt`, as GitHub describes it. A refusal means the
+ * ID and the key are not one App's — the only check there is that the admin
+ * typed the right ID and generated the key on the right App's page.
+ */
+export async function readApp(github: GitHub, appId: number, jwt: string): Promise<Itself> {
+  const response = await github.send({ token: jwt, scope: null }, "GET", `${github.api}/app`);
+  if (!response.ok) {
+    throw new ForgeError(response.status, `${github.host} did not take App ${appId}'s ID and private key (${response.status}): ` +
+      "both must be one App's, the key generated on that App's settings page");
+  }
+  const body: unknown = await response.json();
+  const said = (field: string): string => {
+    const value = isRecord(body) ? body[field] : undefined;
+    if (typeof value === "string" && value !== "") return value;
+    throw new ForgeError(response.status, `${github.host} described App ${appId} with no \`${field}\`: none of it was kept`);
+  };
+  const slug = said("slug");
+  const events = isRecord(body) && Array.isArray(body.events) ? body.events.filter((event) => typeof event === "string") : [];
+  return {
+    slug, htmlUrl: said("html_url"), clientId: said("client_id"),
+    settingsUrl: settingsUrl(github.host, slug, isRecord(body) ? body.owner : null), events,
+  };
+}
+
+/**
+ * Point the App's webhook at `url`, signed with `secret` from now on. An App
+ * has one webhook, so this takes it from the cockpit it delivered to before,
+ * which learns by its poll from then on (ADR 0008: the poll is the record).
+ * False when GitHub would not.
+ */
+export async function pointWebhook(github: GitHub, jwt: string, url: string, secret: string): Promise<boolean> {
+  const response = await github.send({ token: jwt, scope: null }, "PATCH", `${github.api}/app/hook/config`, {},
+    JSON.stringify({ url, content_type: "json", secret, insecure_ssl: "0" }));
+  return response.ok;
 }
 
 // ── signing in: the App's OAuth web flow ─────────────────────────────────────
@@ -174,9 +252,13 @@ export interface Expiring {
   expiresAt: number | null;
 }
 
-/** Where a browser goes to sign in. GitHub sends it back to the App's callback URL with a code and this `state`. */
+/**
+ * Where a browser goes to sign in. GitHub sends it back to the App's callback
+ * URL — this cockpit's, named, where the App has others — with a code and this `state`.
+ */
 export function authorizeUrl(app: App, state: string): string {
-  return `https://${app.host}/login/oauth/authorize?client_id=${encodeURIComponent(app.clientId)}&state=${encodeURIComponent(state)}`;
+  const back = app.callbackUrl ? `&redirect_uri=${encodeURIComponent(app.callbackUrl)}` : "";
+  return `https://${app.host}/login/oauth/authorize?client_id=${encodeURIComponent(app.clientId)}&state=${encodeURIComponent(state)}${back}`;
 }
 
 /** Trade a sign-in code, or a refresh token, for a fresh pair of tokens. Either works once. */
@@ -231,7 +313,7 @@ const JWT_SECONDS = 540;          // GitHub takes at most ten minutes
 const CLOCK_DRIFT_SECONDS = 60;   // and recommends issuing it a minute in the past
 
 /** The JWT an App authenticates as itself with: RS256 by its private key. */
-export async function appJwt(app: App, now = Date.now()): Promise<string> {
+export async function appJwt(app: Pick<App, "appId" | "privateKey">, now = Date.now()): Promise<string> {
   const seconds = Math.floor(now / 1000);
   const claims = { iat: seconds - CLOCK_DRIFT_SECONDS, exp: seconds + JWT_SECONDS, iss: String(app.appId) };
   const signing = `${base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${base64url(JSON.stringify(claims))}`;

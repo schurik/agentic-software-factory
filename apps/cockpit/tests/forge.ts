@@ -125,8 +125,14 @@ interface Installation {
 interface App {
   id: number;
   slug: string;
+  /** The account it was registered under: an organization, or the admin's own. */
+  owner: { login: string; type: "Organization" | "User" };
   clientId: string;
   clientSecret: string;
+  /** The client secrets generated on its settings page since: each works beside the first. */
+  otherSecrets: string[];
+  /** Where its webhook delivers, or null for an App registered without one. */
+  hook: string | null;
   webhookSecret: string | null;
   pem: string;
   manifest: Record<string, unknown>;
@@ -205,14 +211,25 @@ export class FakeForge {
     this.manifestCodes.set(code, {
       id,
       slug: String(manifest.name).toLowerCase(),
+      owner: account[1] ? { login: account[1], type: "Organization" } : { login: "octocat", type: "User" },
       clientId: `Iv23.${id}`,
       clientSecret: `secret-${id}`,
+      otherSecrets: [],
+      hook: hook ?? null,
       // An App registered without a webhook has no secret to sign deliveries with.
       webhookSecret: handed.webhookSecret !== undefined ? handed.webhookSecret : hook === undefined ? null : `hook-${id}`,
       pem: (await appKeys()).pem,
       manifest,
     });
     return code;
+  }
+
+  /** "Generate a new client secret" on the App's settings page: one more that works, beside the ones before it. */
+  clientSecret(): string {
+    if (!this.app) throw new Error("the fake forge has no App to generate a client secret for");
+    const made = `secret-${this.app.id}-${++this.minted}`;
+    this.app.otherSecrets.push(made);
+    return made;
   }
 
   /** `login` made an owner of the organization `org`. */
@@ -456,7 +473,7 @@ export class FakeForge {
       return this.reply(request, token, 201, {
         id: app.id, slug: app.slug, name: app.manifest.name, client_id: app.clientId,
         client_secret: app.clientSecret, webhook_secret: app.webhookSecret, pem: app.pem,
-        html_url: `https://${this.host}/apps/${app.slug}`, owner: { login: "acme" },
+        html_url: `https://${this.host}/apps/${app.slug}`, owner: app.owner,
       });
     }
 
@@ -487,6 +504,24 @@ export class FakeForge {
       const reachable = this.sorted().filter((repo) => repo.roles[bearer.login] !== undefined)
         .map((repo) => this.wire(repo, repo.roles[bearer.login]));
       return this.page(request, token, url, reachable, (items) => items);
+    }
+    if (method === "GET" && path === "/app" && as("app") && this.app) {
+      // The App as it describes itself: never its secrets, which only a manifest's conversion hands over.
+      const app = this.app;
+      return this.reply(request, token, 200, {
+        id: app.id, slug: app.slug, name: app.manifest.name, client_id: app.clientId, owner: app.owner,
+        html_url: `https://${this.host}/apps/${app.slug}`, permissions: app.manifest.default_permissions ?? {},
+        events: app.manifest.default_events ?? [],
+      });
+    }
+    if (method === "PATCH" && path === "/app/hook/config" && as("app") && this.app) {
+      const { url: hook, secret } = (await request.json()) as { url?: unknown; secret?: unknown };
+      if (typeof hook !== "string" || /^https?:\/\/(localhost|127\.|10\.|192\.168\.|\[::1\])/.test(hook)) {
+        return this.reply(request, token, 422, { message: "Validation Failed" });
+      }
+      this.app.hook = hook;
+      if (typeof secret === "string") this.app.webhookSecret = secret;
+      return this.reply(request, token, 200, { content_type: "json", insecure_ssl: "0", url: hook });
     }
     if (method === "GET" && path === "/app/installations" && as("app")) {
       return this.page(request, token, url, this.installations.map(wireInstallation), (items) => items);
@@ -754,7 +789,8 @@ export class FakeForge {
   /** The OAuth token endpoint: a code or a refresh token for a fresh pair. Refusals are 200s, as GitHub's are. */
   private exchange(body: unknown): Record<string, unknown> {
     const asked = body as Record<string, string>;
-    if (!this.app || asked.client_id !== this.app.clientId || asked.client_secret !== this.app.clientSecret) {
+    const secrets = this.app ? [this.app.clientSecret, ...this.app.otherSecrets] : [];
+    if (!this.app || asked.client_id !== this.app.clientId || !secrets.includes(asked.client_secret)) {
       return { error: "incorrect_client_credentials", error_description: "The client_id and/or client_secret passed are incorrect." };
     }
     const grant = asked.grant_type === "refresh_token" ? asked.refresh_token : asked.code;

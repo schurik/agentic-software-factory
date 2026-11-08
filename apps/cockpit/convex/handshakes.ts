@@ -4,7 +4,7 @@
  * digest is kept, and taking one is what spends it.
  */
 import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { purposeValidator } from "./schema";
 
 /** How many lapsed rows one write clears away while it is there. */
@@ -35,5 +35,19 @@ export const take = internalMutation({
     if (offered === null || offered.purpose !== purpose) return null;
     await ctx.db.delete(offered._id);
     return Date.now() < offered.expiresAt ? { host: offered.host } : null;
+  },
+});
+
+/**
+ * Whether the handshake with this digest is on offer for `purpose` and has
+ * not run out — without spending it. For a check that should not cost the
+ * person their code when something else they typed is what was wrong.
+ */
+export const held = internalQuery({
+  args: { digest: v.string(), purpose: purposeValidator },
+  returns: v.boolean(),
+  handler: async (ctx, { digest, purpose }) => {
+    const offered = await ctx.db.query("handshakes").withIndex("by_digest", (q) => q.eq("digest", digest)).unique();
+    return offered !== null && offered.purpose === purpose && Date.now() < offered.expiresAt;
   },
 });

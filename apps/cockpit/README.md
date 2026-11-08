@@ -86,6 +86,9 @@ browser to reach the cockpit, so `http://localhost:3000` is fine for that.
    function returns them.
 4. Install the App on the repositories that hold your factories (the link is on the page you land
    on). An organization owner can; anyone else sends the owner a request from the same page.
+5. Give it the cockpit's icon, if you like: neither a manifest nor GitHub's API can set an App's
+   logo, so the page you land on links the icon (`public/icon-512.png`) and the App's settings page,
+   where *Display information* takes it.
 
 People then **sign in** with the App (`/` sends them to GitHub and back). The cockpit holds each
 person's user access token (8 hours) and refresh token (6 months) in the backend and hands the
@@ -105,9 +108,33 @@ The App asks for what the cockpit does as the signed-in person (spec #40): `cont
 person owns the organization a factory is in, which purging a whole factory takes. An App registered
 before that was asked for has no `members` permission: add *Organization permissions → Members: read*
 in the App's settings on GitHub, or purge a factory from the deployment's CLI (below). A user access token can do only what both the person
-and the App may, so the App's permissions are a ceiling, never a grant. Registering again with a
-fresh setup code replaces the App and signs everyone out — the way out of a registration under the
-wrong account.
+and the App may, so the App's permissions are a ceiling, never a grant. Registering again, or taking
+on another App, with a fresh setup code replaces the App and signs everyone out — the way out of a
+registration under the wrong account.
+
+### An App your account already has
+
+GitHub keeps an App's name unique on its host, so a second cockpit for the same account — or this
+one moved to another machine — cannot register `asf-cockpit` again, and a new App by another name
+would have to be installed again on every repository. **Use an App you already have** on `/setup`
+takes on the one there is instead, with no manifest and no trip to GitHub's form:
+
+1. Print a setup code, as above.
+2. On the App's settings page on GitHub (*Settings → Developer settings → GitHub Apps → Edit*), add
+   this cockpit's `/auth/callback` — `/setup` shows it — under *Callback URL* (an App takes up to
+   ten), and generate a new client secret and a private key. The ones another cockpit holds keep
+   working.
+3. Enter the code, the host, the App ID from the top of that page, the secret and the `.pem` file.
+   The cockpit asks GitHub as the App whether the ID and the key are one App's — a mistake costs
+   the setup code nothing, which is spent only once they are — and reads the rest (its name, its
+   client ID) from GitHub's answer.
+
+It stays installed where it was. A sign-in names this cockpit's callback URL, so it comes back here
+rather than to the App's first. Where GitHub can deliver to this cockpit and the App has a webhook,
+the webhook is pointed here with a secret of its own (`PATCH /app/hook/config`); an App has one
+webhook, so a cockpit it delivered to before learns by its poll from then on. Otherwise the webhook
+is left as it was, and this cockpit learns by the poll. A client secret mistyped shows at the first
+sign-in, as GitHub refusing it: take the App on again with a fresh setup code.
 
 ### How the cockpit learns of the forge
 
