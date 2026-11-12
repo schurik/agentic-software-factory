@@ -451,3 +451,21 @@ def test_doctor_compares_the_stamp_with_the_skill_and_points_an_old_one_at_the_c
     record.write_text(f"{version}\n")
     line, _ = doctor_line(stamped, ASF_SKILL="")              # no skill to compare with
     assert f"stamped at {version}" in line and "ASF_SKILL" in line
+
+
+def test_every_uv_run_script_declares_the_python_ci_proves():
+    """A PEP 723 header without `requires-python` lets uv take whatever python3 it
+    meets first — on a stock Mac that is 3.9, where pydantic cannot evaluate
+    `int | None` and every command, `doctor` included, dies before it can say why.
+    The floor is CI's lowest matrix entry: the oldest Python the suite proves."""
+    ci = yaml.safe_load((SKILL_ROOT.parents[1] / ".github" / "workflows" / "ci.yml").read_text())
+    floor = min(ci["jobs"]["test"]["strategy"]["matrix"]["python"],
+                key=lambda v: tuple(map(int, v.split("."))))
+    scripts = [p for p in SKILL_ROOT.rglob("*.py")
+               if p.read_text().startswith("#!/usr/bin/env -S uv run")]
+    assert scripts
+    for script in scripts:
+        header = re.search(r"^# /// script\n(.*?)^# ///$", script.read_text(), re.M | re.S)
+        assert header, f"{script} runs under uv with no PEP 723 header"
+        assert f'# requires-python = ">={floor}"' in header.group(1), \
+            f"{script} must declare requires-python = \">={floor}\""

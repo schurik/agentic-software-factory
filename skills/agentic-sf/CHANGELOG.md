@@ -21,6 +21,12 @@ before — `None` when there are none, never omitted.
 
 ## Unreleased
 
+- **The scripts say which Python they need.** `asf/asf.py`, `install.py` and `uninstall.py` declare
+  `requires-python = ">=3.11"`, the oldest Python CI proves, so `uv run` no longer takes a stock
+  3.9 and dies in pydantic before `doctor` can say why (#266).
+- **doctor calls a branch a session's only when it is one.** A checkout on `asf/<something>`
+  is reported as holding a session's branch only when `<something>` is a session under
+  `data_dir`; a branch cut by hand under the prefix is left alone (#269).
 - **A webhook wakes a watcher.** A team's cockpit that GitHub can reach now turns a label, a reply,
   a review or a closed pull request on a factory's item into a **nudge**, handed to every station
   loop running the watcher it concerns with its next command poll; `asf up` wakes that watcher,
@@ -69,7 +75,8 @@ same holds for a token's expiry: a cockpit of the release before ignores the rep
 this cockpit shows nothing for a station that never sent it.
 
 1. Commit, then `install.py --harness <harness> --force` from the target repo root
-   (`cookbooks/upgrade.md`) to stamp `asf/engine/nudge.py` and the watchers that wait on it,
+   (`cookbooks/upgrade.md`) to stamp `asf/asf.py`'s Python floor, doctor's branch check,
+   `asf/engine/nudge.py` and the watchers that wait on it,
    `asf/engine/pull.py`, the lock every run now holds on its checkout, and the forge, doctor and
    station loop that read and report the forge token's expiry.
 2. A team's cockpit: deploy this release's images. An App registered before it lacks the

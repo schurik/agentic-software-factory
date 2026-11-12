@@ -1,5 +1,6 @@
 #!/usr/bin/env -S uv run
 # /// script
+# requires-python = ">=3.11"
 # dependencies = ["pydantic", "python-dotenv", "pyyaml", "rich"]
 # ///
 """asf — the one entry point. A workflow is a directory; this runs it.

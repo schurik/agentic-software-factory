@@ -42,6 +42,14 @@ def test_kill_on_a_finished_run_signals_nothing(stamped: Path):
     assert nobody.returncode == 0 and "never started" in nobody.stdout
 
 
+def test_a_hand_made_branch_under_the_session_prefix_is_not_called_a_session(stamped: Path):
+    # The prefix alone is not a session: an operator who cuts `asf/upgrade-factory`
+    # to upgrade the factory by hand holds no run's branch, and doctor said it did.
+    git(stamped, "checkout", "-q", "-b", "asf/upgrade-factory")
+    doctor = asf(stamped, "doctor")
+    assert "the main checkout is on" not in doctor.stdout, doctor.stdout
+
+
 def test_a_rerun_whose_branch_the_main_checkout_holds_is_refused_and_says_where(stamped: Path):
     # An engineer fixing review feedback by hand checks the session's branch out
     # in their own checkout. git will not hand one branch to two worktrees, so

@@ -96,8 +96,13 @@ def repo(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
     # worktree from it (`worktree.ensure` refuses), and a new run with no
     # base_ref would be cut from another session's work. A warning, not a
     # fatal: it is a perfectly good place to be, until a run needs the branch.
+    # Only a branch whose suffix names a session here is one: the prefix alone
+    # also matches a branch someone cut by hand (`asf/upgrade-factory`), and no
+    # run will ever ask for that one.
     current = git_helper.current_branch(main_root)
-    if cfg.worktree.enabled and current.startswith(cfg.worktree.branch_prefix):
+    prefix = cfg.worktree.branch_prefix
+    if cfg.worktree.enabled and current.startswith(prefix) and current != prefix \
+            and (anchor(main_root, cfg.data_dir) / "sessions" / current[len(prefix):]).is_dir():
         findings.append(Finding(
             check="git", level="warn",
             detail=f"the main checkout is on {current} — a session's branch, so that "

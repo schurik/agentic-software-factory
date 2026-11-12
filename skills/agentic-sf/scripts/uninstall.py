@@ -1,5 +1,6 @@
 #!/usr/bin/env -S uv run
 # /// script
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """uninstall — delete the stamped factory out of a repo. The skill is untouched.

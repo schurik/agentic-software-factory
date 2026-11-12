@@ -115,7 +115,9 @@ def test_a_path_no_rule_knows_runs_everything(suite, path):
 
 def test_repository_prose_runs_only_what_reads_it_by_name(suite):
     assert chosen(suite, "CLAUDE.md") == frozenset()
-    assert chosen(suite, ".github/workflows/ci.yml") == frozenset()
+    # CI's matrix is the Python floor every `uv run` script declares, so the test that holds
+    # them to it is what a change there reaches.
+    assert chosen(suite, ".github/workflows/ci.yml") == frozenset({"test_asf_install.py"})
     assert "test_asf_supervise.py" in chosen(suite, ".github/workflows/release.yml")
     assert "test_asf_install.py" in chosen(suite, ".claude-plugin/plugin.json")
 
