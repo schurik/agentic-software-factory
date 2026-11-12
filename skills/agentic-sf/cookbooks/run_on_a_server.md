@@ -107,8 +107,13 @@ and one login is fine.
   then, which reaches every repository the account can.
 - **It expires.** Both kinds carry an expiry date, and from that day every run
   fails at its first push or label while the factory looks otherwise healthy.
-  Put the date in a calendar; a new token is a new line in `asf/station/.env`,
-  then `station up -d`.
+  The factory watches the date for you: GitHub names it on every answer, and
+  `asf doctor` says it — a warning from two weeks before, fatal from three days
+  before and once past. The station loop reports it with its command poll, so
+  the cockpit's Stations tab shows it on the station's card and lists the
+  station under Needs attention two weeks ahead. A new token is a new line in
+  `asf/station/.env`, then `station up -d`; the cockpit has the new date within
+  the hour, and at once after the container restarts.
 - **`CLAUDE_CODE_OAUTH_TOKEN`** comes from `claude setup-token`, run on the
   person's laptop — the subscription, without a login on the server.
   `ANTHROPIC_API_KEY` instead bills the API; set one of the two, not both.
@@ -170,6 +175,7 @@ cockpit beside it included. The compose file says so; keep it that way.
 | `useradd: UID 0 is not unique` at build | `ASF_UID` is root's | Clone and run it as a non-root user: Claude Code refuses `bypassPermissions` as root |
 | A push asks for a username, or `Permission denied (publickey)` | An SSH remote, or no `gh auth setup-git` | `git remote set-url origin https://…`; `station run --rm station gh auth setup-git` |
 | An agent phase fails at once, the harness not logged in | No login in the `home` volume and no token in the container — `asf/station/.env` does not set one, or the compose file has no `environment:` | `station run --rm station claude`, or a token in `asf/station/.env` ([above](#tokens-instead-of-logins)), then `station up -d` |
+| `doctor` says `forge token … expires …` or `refused`, or the cockpit lists the station under Needs attention | `GH_TOKEN` runs out soon, or already has | A new token in `asf/station/.env`, then `station up -d` ([above](#tokens-instead-of-logins)) |
 | Runs fail at their first push, label or comment: `Bad credentials`, a 401 or a 403 | `GH_TOKEN` expired, was revoked, or lacks a permission | `station run --rm station gh auth status`; a new token in `asf/station/.env`, then `station up -d` |
 | The station is not on the cockpit's Stations tab | Not registered, or the wrong URL | [connect_cockpit.md](connect_cockpit.md#when-it-doesnt-work) |
 | Runs start, but a quality phase cannot find a tool | The toolchain is not in the image | Add it to the Dockerfile, push, `station up -d --build` |

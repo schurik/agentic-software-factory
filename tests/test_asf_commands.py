@@ -18,8 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from engine import commands, describe, events, factory, station, supervise
+from engine import commands, describe, events, factory, forge, station, supervise
 from engine.data_types import EVENT_KINDS, Cockpit, Command, StationCredential
+from engine.forge import fake
 
 from .asf_helpers import (PY_CHECK, adw_id_of, asf, commit_all, envelope, fake_roster, git,
                           run_state, session_dir, set_config, wire, write_workflow)
@@ -341,6 +342,40 @@ def test_every_poll_reports_the_verbs_it_obeys_its_commit_its_config_and_its_wat
     assert report["head"] == git(stamped, "rev-parse", "HEAD")
     assert len(report["config_hash"]) == 64 and report["watchers"] == ["issues"]
     assert session_poll.session == "5e55i0n1" and session_poll.report["watchers"] is None
+
+
+def test_the_station_loop_reports_when_the_forge_token_expires_asking_once_an_hour(
+        stamped: Path, monkeypatch):
+    faked = fake.Fake()
+    faked.expiry = "2026-11-26T09:30:00+00:00"
+    monkeypatch.setattr(fake, "FAKE", faked)
+    set_config(stamped, forge="fake")
+    cfg = loaded(stamped, monkeypatch)
+    cockpit = FakeCockpit()
+    held = registered(stamped, cockpit)
+    loop_side = commands.Steering(commands.Here(cfg, stamped), lambda: held, watchers=lambda: [])
+    run_side = commands.Steering(commands.Here(cfg, stamped), lambda: held, session="5e55i0n1")
+    loop_side.interval = run_side.interval = 0
+
+    loop_side.poll(COCKPIT, cockpit)
+    faked.expiry = forge.ForgeError("the network is down")
+    loop_side.poll(COCKPIT, cockpit)                     # within the hour: not asked again
+    run_side.poll(COCKPIT, cockpit)
+
+    first, second, from_a_run = (poll.report["token_expires"] for poll in cockpit.polls)
+    assert first == second == "2026-11-26T09:30:00+00:00"
+    assert from_a_run is None                            # the loop's word stands
+    assert [call for call in faked.calls if call[0] == "token_expires"] == [("token_expires",)]
+
+    clock = time.monotonic() + commands.TOKEN_EVERY + 1
+    monkeypatch.setattr(commands.time, "monotonic", lambda: clock)
+    loop_side.poll(COCKPIT, cockpit)                     # an hour on, asked; unanswered, kept
+    faked.expiry = ""
+    clock += commands.TOKEN_EVERY + 1
+    loop_side.poll(COCKPIT, cockpit)                     # a token without one, now
+
+    assert [poll.report["token_expires"] for poll in cockpit.polls[3:]] == [
+        "2026-11-26T09:30:00+00:00", ""]
 
 
 def test_the_config_hash_moves_with_a_local_edit_under_asf_and_not_with_runtime(

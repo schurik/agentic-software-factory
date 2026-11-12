@@ -2425,16 +2425,20 @@ class StationCredential(BaseModel):
 
 class StationReport(BaseModel):
     """What every command poll tells the cockpit about the station, so it can
-    grey out what the station would refuse and say how far its config is from
-    the default branch. Never the config itself.
+    grey out what the station would refuse, say how far its config is from
+    the default branch, and warn before its forge token runs out. Never the
+    config itself, nor the token.
 
-    `watchers` is None from a run's own shipper, which cannot know what else
-    runs on the checkout: the cockpit keeps what the station loop last said."""
+    `watchers` and `token_expires` are None from a run's own shipper, which
+    cannot know what else runs on the checkout and leaves asking the forge to
+    the station loop: the cockpit keeps what the loop last said. The loop says
+    None too while the forge could not be asked."""
 
     verbs: list[CommandVerb] = Field(default_factory=list)
     head: str = ""                  # the commit the checkout has out
     config_hash: str = ""           # sha256 over the files under asf/, data/ aside
     watchers: Optional[list[str]] = None
+    token_expires: Optional[str] = None     # ISO 8601, UTC; "" when the forge names no date
 
 
 class Command(BaseModel):

@@ -115,12 +115,15 @@ def no_one_s_gh(tmp_path_factory, monkeypatch):
     machine — and put their login into a recorded golden session. A test that
     wants a login puts a `gh` of its own on PATH. Nor is the job's branch: the
     description names `GITHUB_HEAD_REF`/`GITHUB_REF_NAME` over the checkout's
-    own, and a push to main would have every test describe `main`."""
+    own, and a push to main would have every test describe `main`. Nor any
+    token: a `gh` holding one asks the network, which a doctor or a station
+    loop now does when it reads when the forge's token expires."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path_factory.mktemp("gh-config")))
     # Recorded so it is restored: a test puts the stand-in `gh` first on PATH
     # (`asf_helpers.stand_in_gh`) for as long as it runs, and no longer.
     monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
-    for name in ("GITHUB_ACTOR", "GITHUB_HEAD_REF", "GITHUB_REF_NAME"):   # ...nor CI's
+    for name in ("GITHUB_ACTOR", "GITHUB_HEAD_REF", "GITHUB_REF_NAME",   # ...nor CI's
+                 "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
         monkeypatch.delenv(name, raising=False)
 
 

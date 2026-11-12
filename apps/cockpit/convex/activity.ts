@@ -19,7 +19,7 @@ import { defaultCheck, repoOf, reporting } from "./factory";
 import { periodValidator } from "./model/period";
 import { spellingsOf } from "./spelling";
 import { mayRevoke } from "./stations";
-import type { Drifted, Facts, Failed } from "./model/attention";
+import type { Drifted, Expiring, Facts, Failed } from "./model/attention";
 import { drift } from "./model/drift";
 import { permitted } from "./model/inbox";
 import { endedAt, isBenchmark, readSummary, type Summary } from "./model/session";
@@ -153,7 +153,19 @@ export async function attentionOf(ctx: QueryCtx, who: Viewing, factory: string, 
     .filter((row) => row.report?.watchers.includes("issues"))
     .map((row) => ({ station: row.station, name: row.name, seenAt: row.seenAt }));
   return { gates: await gatesOf(ctx, who, factory), failed: failures(known), claims: await heldOn(ctx, who, factory),
-           ...(await checkOf(ctx, factory, repo, stations)), queued: repo?.queued ?? null, watchers };
+           ...(await checkOf(ctx, factory, repo, stations)), queued: repo?.queued ?? null, watchers, tokens: tokensOf(stations) };
+}
+
+/**
+ * When each station's forge token expires, as its loop last said — of the
+ * stations that still hold a command token: one revoked is one let go, and
+ * its old token is nobody's to renew.
+ */
+function tokensOf(stations: Doc<"stations">[]): Expiring[] {
+  return stations.flatMap((row) => {
+    const expiresAt = Date.parse(row.report?.tokenExpires ?? "");
+    return row.token !== null && !Number.isNaN(expiresAt) ? [{ station: row.station, name: row.name, expiresAt }] : [];
+  });
 }
 
 /** A command waiting for a station: queued, or delivered and not yet answered. The page's clock says whether it expired. */

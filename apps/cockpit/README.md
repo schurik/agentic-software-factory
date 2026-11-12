@@ -165,7 +165,8 @@ permission mirror lets them read, in four sections. The **Inbox**, which never f
 waiting on them (below). **Needs attention** is the attention rule (`model/attention.ts`)
 gathered across factories, less the gates the Inbox already holds: each row names its next step and
 goes there — Open a failed session, Release a claim, Compare a drifted station, See config for a
-failing check, Stations when nobody watches; the steps that belong on a factory's tab go to that tab
+failing check, Stations when nobody watches or a station's forge token runs out within two weeks
+(red within three days, or once past; a revoked station's is nobody's to renew); the steps that belong on a factory's tab go to that tab
 (`?tab=stations`, `?tab=config`). **Running** lists every session running now with the stage it
 is in, a mini stage graph, and what it spent and for how long — that graph is the session's events
 folded, a query of its own per row (`sessions.progress`), so one long record weighs on its row
@@ -346,8 +347,9 @@ compose file passes to the backend; without it the station names the Stations pa
 cockpit issues its station that token itself (`stations:local`, through `docker compose exec`).
 
 The station loop and every run's own shipper then `POST /commands` every few seconds with it
-(`convex/commands.ts`). Each poll says what the station would obey and where its checkout stands,
-and is all the liveness there is: a session is attended while its run polls, a station online while
+(`convex/commands.ts`). Each poll says what the station would obey and where its checkout stands
+— and, from the loop, when the token it reaches the forge with expires, asked of the forge once an
+hour; a run's poll leaves that to the loop, whose word stands — and is all the liveness there is: a session is attended while its run polls, a station online while
 its loop does. A command goes to the run while it is attended and to the loop otherwise, waits for an
 offline station as long as its verb's TTL (`TTL` in `convex/model/command.ts`; a cron expires what
 nobody took), and is done only when the station's `command_result` arrives — through `/ingest` in
@@ -418,7 +420,7 @@ then the most recently active, then the rest by name (`convex/model/factories.ts
 page, the ranking is read against the page's clock, so a failure stops ranking its factory first a
 day after it ended. Each row says what needs the viewer — the **gates waiting on them**, a **failing
 check**, and how many other things need attention (a failure in the last day, a claim whose station
-has been offline over a day, drift, nobody watching), which its page and Now name — then what is
+has been offline over a day, drift, nobody watching, a forge token running out), which its page and Now name — then what is
 moving: sessions **running** (not suspended), its **stations online** of all that registered, and
 the **workflows** its default branch's self-description loads. On the right are its **spend** this
 month, a calendar month in the viewer's own timezone (`convex/model/period.ts`), list-price
@@ -657,7 +659,9 @@ registered or holds a session or a claim — a station that never registered sti
 card says whether it is online, away (and for how long) or never polled, and whose machine it is;
 what its loop watches and which commands it takes; the release it runs, as the session it started
 last said, in amber when it is behind the release the default branch's check ran; the commit
-it has out, and its config the same as the default branch's or drifted (below); the sessions it
+it has out, and its config the same as the default branch's or drifted (below); when its forge
+token expires, as its loop last said — amber within two weeks, red within three days — or that the
+forge named no date for it, and nothing from a station that never said; the sessions it
 holds (live, suspended, or failed and so its to resume) and the claims it holds, each with Release
 claim; its last 30 days by the viewer's midnights — sessions and failures among the factory's 500 most
 recently active, and what its key paid; the

@@ -27,8 +27,9 @@ reaches the run with no daemon running and the run stops itself, gracefully,
 through its own SIGTERM handler. The station loop (`asf up`, `asf station`)
 polls for everything else. Each poll carries the station's REPORT — the verbs
 it would obey, the commit it has out, a hash of its config, the watchers it
-runs — so the cockpit greys out what it would refuse, and each poll is how the
-cockpit knows the session is attended or the station online.
+runs, when the token it reaches the forge with expires — so the cockpit greys
+out what it would refuse and warns before the token runs out, and each poll is
+how the cockpit knows the session is attended or the station online.
 
 REGISTERING. Commands need a person behind them, so a station takes none until
 one approves it: `asf station register` asks the cockpit for a code, prints
@@ -54,7 +55,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, get_args
 
-from . import artifacts, events, git_helper, hitl, issues, operate, station
+from . import artifacts, events, forge, git_helper, hitl, issues, operate, station
 from .data_types import (Cockpit, Command, CommandRecord, CommandResult, CommandVerb,
                          FactoryConfig, Reply, StationCredential, StationReport)
 from .factory import DEFAULT_CONFIG
@@ -69,6 +70,7 @@ ANSWER_VERDICTS = ("approve", "reject", "answer")
 COMMANDS_DIR = "commands"
 POLL_INTERVAL = 2.5             # seconds between command polls, per poller
 REPORT_EVERY = 30.0             # how long the commit and config hash are trusted
+TOKEN_EVERY = 3600.0            # how long the forge token's expiry is trusted: a call an hour
 DETAIL_CHARS = 500
 
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -601,6 +603,8 @@ class Steering:
         self._due = 0.0
         self._report: StationReport | None = None
         self._reported_at = 0.0
+        self._expires: str | None = None
+        self._expiry_asked: float | None = None
         self._said: set[str] = set()
         self._results: dict[str, dict] = {}      # command id -> its result, until a poll took it
         self.nudged: Callable[[list[dict], bool], None] | None = None
@@ -682,7 +686,25 @@ class Steering:
                                          config_hash=config_hash(main_root, cfg.data_dir))
             self._reported_at = now
         watchers = self.watchers() if self.watchers is not None else None
-        return self._report.model_copy(update={"watchers": watchers})
+        return self._report.model_copy(update={"watchers": watchers,
+                                               "token_expires": self._token_expires(now)})
+
+    def _token_expires(self, now: float) -> str | None:
+        """The station loop's word on when the forge token expires, asked
+        once an hour — a person signing in again changes it with no restart — and
+        None until the forge first answered. A run's own shipper leaves it to
+        the loop: one question per station, not one per run. A forge that could
+        not be asked this time, or that refused the token, changes nothing said
+        before: an expired token's date already says so."""
+        if self.session:
+            return None
+        if self._expiry_asked is None or now - self._expiry_asked >= TOKEN_EVERY:
+            self._expiry_asked = now
+            try:
+                self._expires = forge.forge_of(self.here.cfg).token_expires()
+            except forge.ForgeError:
+                pass
+        return self._expires
 
     def _say(self, key: str, text: str) -> None:
         if key not in self._said:

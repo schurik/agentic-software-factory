@@ -36,6 +36,9 @@ class Fake:
         self.knows_labellers = True
         self.refuse: set[str] = set()                 # method names that fail
         self.login = ""
+        # What `token_expires` answers: a date, "" for none, or the error it
+        # raises. None by default: the fake holds no token to ask about.
+        self.expiry: str | ForgeError | None = None
         self.calls: list[tuple] = []
 
     def _call(self, name: str, *args) -> None:
@@ -167,6 +170,14 @@ class Fake:
 
     def token(self) -> str:
         return ""
+
+    def token_expires(self) -> str:
+        self._call("token_expires")
+        if self.expiry is None:
+            raise ForgeError("the fake forge holds no token")
+        if isinstance(self.expiry, ForgeError):
+            raise self.expiry
+        return self.expiry
 
     def ci_ref(self) -> str:
         return ""

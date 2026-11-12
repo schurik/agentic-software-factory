@@ -15,7 +15,7 @@ const NOW = Date.parse("2026-10-14T12:00:00.000Z");
 const HOUR = 3600_000;
 
 const QUIET: Facts = {
-  gates: { mine: 0, total: 0 }, failed: [], claims: [], check: "unchecked", drifted: [], queued: null, watchers: [],
+  gates: { mine: 0, total: 0 }, failed: [], claims: [], check: "unchecked", drifted: [], queued: null, watchers: [], tokens: [],
 };
 
 const CLAIM: ClaimView = {

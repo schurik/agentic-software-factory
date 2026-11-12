@@ -36,6 +36,11 @@ export const reportValidator = v.object({
   head: v.string(),                   // the commit its checkout has out
   configHash: v.string(),             // sha256 over its asf/ files
   watchers: v.array(v.string()),      // what its station loop runs
+  // When the token it reaches the forge with stops working, ISO 8601, as its
+  // station loop last asked the forge; "" when the forge named no date. Absent
+  // until a loop said — from a station older than it, or one whose forge
+  // could not be asked — and never the token itself.
+  tokenExpires: v.optional(v.string()),
 });
 export type Report = Infer<typeof reportValidator>;
 
@@ -156,11 +161,17 @@ export interface PollBody {
   results: Result[];
 }
 
-/** A command poll's body: `{station, session?, report: {verbs, head, config_hash, watchers}, results?, nudged_after?}`. */
+/**
+ * A command poll's body: `{station, session?, report: {verbs, head, config_hash, watchers, token_expires},
+ * results?, nudged_after?}`. A `token_expires` that is no date — null from a run's own poll, which
+ * leaves the forge to its loop — is not said, and the cockpit keeps what the loop said before.
+ */
 export function parsePoll(body: unknown): PollBody | Refusal {
   if (!isRecord(body) || !text(body.station)) return { status: 400, error: "a poll names its station" };
   const report = isRecord(body.report) ? body.report : {};
   const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  const expires = report.token_expires;
+  const dated = typeof expires === "string" && (expires === "" || (expires.length <= 64 && !Number.isNaN(Date.parse(expires))));
   return {
     station: body.station as string,
     session: typeof body.session === "string" ? body.session : "",
@@ -169,6 +180,7 @@ export function parsePoll(body: unknown): PollBody | Refusal {
       head: typeof report.head === "string" ? report.head : "",
       configHash: typeof report.config_hash === "string" ? report.config_hash : "",
       watchers: strings(report.watchers),
+      ...(dated ? { tokenExpires: expires } : {}),
     },
     watchersKnown: Array.isArray(report.watchers),
     // The station loop's nudge cursor (nudges.ts); absent from a run's own

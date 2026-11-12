@@ -61,6 +61,26 @@ describe("the Stations tab", () => {
     expect(said).toMatch(/Release claim/);
   });
 
+  it("says when a station's forge token expires: amber within two weeks, red within three days, and nothing a station never said", () => {
+    const expiring = (tokenExpires: string | undefined) => text(renderToStaticMarkup(
+      <StationsTab stations={[{ ...stations[0], report: { ...stations[0].report!, tokenExpires } }]} ci={{ jobs: [], checks: [] }}
+                   registrations={[]} drifts={drifts} now={NOW} factory="acme/widgets" forge="https://github.com" defaultBranch="main"
+                   release="1.2.0" onApprove={() => {}} onRevoke={() => {}} />));
+    const at = (days: number) => new Date(NOW + days * 24 * HOUR).toISOString();
+
+    expect(expiring(at(40))).toMatch(/Forge token expires Nov 10, 2026 · in 40d/);
+    expect(expiring(at(10))).toMatch(/Forge token expires Oct 11, 2026 in 10d/);
+    expect(expiring(at(-2))).toMatch(/Forge token expired Sep 29, 2026 2d ago/);
+    expect(expiring("")).toMatch(/Forge token no expiry date/);
+    expect(expiring(undefined)).not.toContain("Forge token");
+    const tone = (tokenExpires: string) => renderToStaticMarkup(
+      <StationsTab stations={[{ ...stations[0], report: { ...stations[0].report!, tokenExpires } }]} ci={{ jobs: [], checks: [] }}
+                   registrations={[]} drifts={new Map()} now={NOW} factory="acme/widgets" forge="https://github.com" defaultBranch="main"
+                   release="1.2.0" onApprove={() => {}} onRevoke={() => {}} />);
+    expect(tone(at(10))).toMatch(/text-wait[^>]*>in 10d</);
+    expect(tone(at(2))).toMatch(/text-bad[^>]*>in 2d</);
+  });
+
   it("draws every CI job as one card, with its recent jobs and check pushes", () => {
     const said = text(render());
 

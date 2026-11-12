@@ -156,8 +156,12 @@ export const poll = internalMutation({
     if (row === null || row.station !== station) return null;
     const now = Date.now();
     const { factory } = row;
-    // A run cannot know what else runs on its checkout: the loop's word stands.
-    const reported = { ...report, watchers: watchersKnown ? report.watchers : row.report?.watchers ?? [] };
+    // A run cannot know what else runs on its checkout, and leaves asking the forge to the loop: the loop's word stands.
+    const tokenExpires = report.tokenExpires ?? row.report?.tokenExpires;
+    const reported = {
+      ...report, watchers: watchersKnown ? report.watchers : row.report?.watchers ?? [],
+      ...(tokenExpires === undefined ? {} : { tokenExpires }),
+    };
     if (session) {
       const seen = await attendanceOf(ctx, factory, session);
       if (seen === null) await ctx.db.insert("attendance", { factory, session, station, at: now });

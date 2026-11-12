@@ -28,6 +28,10 @@ that did not hear about a finished run is not a failed run. Three questions a
 service may have no answer to are answered with None or "", never invented:
 which labels a tracker defines (`Tracker.labels`), who applied a label
 (`Tracker.labeller`), and who the person at this machine is (`Forge.person`).
+When the token the forge is reached with stops working (`Forge.token_expires`)
+is "" when the forge's answer names no date, and otherwise a READ like any
+other: an error when the forge could not be asked, and `TokenRefused` when it
+answered by refusing the token.
 
 Method names follow the cockpit's `apps/cockpit/convex/forge/forge.ts` where
 they mean the same thing: `issue`, `comment`, `labels`, `labelled`, `pulls`,
@@ -53,6 +57,12 @@ class ForgeError(RuntimeError):
 
     A RuntimeError, so a caller that already guarded a read against one keeps
     guarding it."""
+
+
+class TokenRefused(ForgeError):
+    """The forge answered, and refused the token it was asked with: expired,
+    revoked, or never valid. Not a forge that could not be reached — the one
+    failure that will not mend itself on the next attempt."""
 
 
 class Tracker(Protocol):
@@ -137,6 +147,12 @@ class Forge(Protocol):
     def token(self) -> str:
         """That person's own token for `host()`, or "" — what a local cockpit
         asks the forge with."""
+
+    def token_expires(self) -> str:
+        """When the token this forge is reached with stops working, as the
+        forge itself says it, in ISO 8601 and UTC — "" when its answer names
+        no expiry. Asks the forge. Raises `TokenRefused` when it refuses the
+        token, and `ForgeError` when it could not be asked."""
 
     def ci_ref(self) -> str:
         """The branch a CI job of this forge says it is building, or "" outside one."""
