@@ -16,6 +16,9 @@ else — so settle that one (below) in the same change. A
 missing `asf/.skill-version` means "stamped before 1.1" — older than any
 release that records one.
 
+Every step below runs `uv` and `just`. A machine without them gets them first
+(`brew install uv just` on a Mac), because nothing else here works without them.
+
 Stamp **newer** than the skill? Stop. The skill checkout is the one left
 behind: [update it](#update-the-skill-first), never stamp from it — `--force`
 from an older skill stamps older code over newer.

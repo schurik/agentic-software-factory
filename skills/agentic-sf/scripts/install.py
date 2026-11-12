@@ -1,5 +1,6 @@
 #!/usr/bin/env -S uv run
 # /// script
+# requires-python = ">=3.11"
 # dependencies = []
 # ///
 """install — stamp the agentic-sf factory from the skill into the cwd. Idempotent.
