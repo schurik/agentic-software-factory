@@ -3,11 +3,12 @@ import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { SessionRow, StationDetail, Waiting } from "@/convex/activity";
 import type { ClaimView } from "@/convex/model/claim";
+import { tokenUrgency } from "@/convex/model/attention";
 import { liveness, pending } from "@/convex/model/command";
 import type { Drift } from "@/convex/model/drift";
 import { ClaimRow } from "../ClaimRow";
 import { useState } from "react";
-import { formatAgoAt, formatCost, formatDollars, formatSpan, plural, sessionHref } from "../format";
+import { formatAgoAt, formatCost, formatDay, formatDollars, formatLeft, formatSpan, plural, sessionHref } from "../format";
 import { Button, Card, control, cx, Facts, num, Pre, StatusDot, StatusPill, Table, Tag } from "../ui";
 import { useWho } from "../viewer";
 import { behind, short } from "./view";
@@ -273,6 +274,12 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
             </span>
           ) : null}
         </dd>
+        {report?.tokenExpires !== undefined ? (
+          <>
+            <dt>Forge token</dt>
+            <dd><TokenExpiry expires={report.tokenExpires} now={now} /></dd>
+          </>
+        ) : null}
         <dt>Now</dt>
         <dd className="tabular-nums">
           {running.length} running · {station.claims.length ? `${plural(station.claims.length, "claim")} held` : "no claims"}
@@ -300,6 +307,25 @@ function StationCard({ station, drift, factory, forge, defaultBranch, release, n
         </div>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * When a station's forge token stops working, as its loop last asked the
+ * forge: amber within two weeks, red within three days or once past — from
+ * then on every run there fails at its first push, label or comment. "" is
+ * the forge naming no date for it, which is all the page knows.
+ */
+function TokenExpiry({ expires, now }: { expires: string; now: number }) {
+  const at = Date.parse(expires);
+  if (!expires || Number.isNaN(at)) return <span className="text-muted">no expiry date</span>;
+  const urgency = tokenUrgency(at, now);
+  const left = formatLeft(at, now);
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span>{at > now ? "expires" : "expired"} {formatDay(expires)}</span>
+      {urgency ? <Tag tone={urgency === "now" ? "bad" : "wait"}>{left}</Tag> : <span className="text-muted">· {left}</span>}
+    </span>
   );
 }
 

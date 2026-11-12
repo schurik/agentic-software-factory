@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from typing import Optional
 
 from .. import benchmark_session, git_helper
@@ -34,7 +35,7 @@ from ..data_types import (FactoryConfig, Finding, IssueComment, IssueUpdate, Lab
                           OpenIssue, OpenPull, Proposal, Pull, PullRequestClosed,
                           PullRequestContext, PullRequestUpdate, ReviewComment, ReviewThread)
 from ..utils import operator_env
-from . import ForgeError
+from . import ForgeError, TokenRefused
 
 HOST = "github.com"
 SIGN_IN = "`gh auth login` (with GH_HOST set for an Enterprise Server)"
@@ -52,17 +53,29 @@ LABEL_LIMIT = "500"
 # same failing run again. cli/cli#13282, released in gh 2.98.0.
 LABELS_FIXED = (2, 98)
 
+# GitHub's word on when a token stops working, on every answer to one that
+# does: a fine-grained token always, a classic one given an expiry. GitHub
+# documents no format for its value; it reads `2026-11-26 09:30:00 UTC`, or
+# with an offset (`… -0800`), and every spelling of the zone a date may carry is
+# read — a header nobody can read is a doctor that cannot warn — and said back
+# in UTC. Asked of `rate_limit`, which costs no rate limit and answers every
+# kind of token, an app's included; within the 10 seconds a cockpit is given,
+# because the station loop asks between two of its polls.
+EXPIRY_HEADER = "github-authentication-token-expiration"
+_EXPIRY = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*(UTC|GMT|Z|[+-]\d{2}:?\d{2})?")
 
-def _run(argv: list[str], tree) -> subprocess.CompletedProcess:
+
+def _run(argv: list[str], tree, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
     """Run one `gh` command. Never raises: a CLI that is not installed is an
-    answer too — `doctor` on a bare machine is exactly when it is asked."""
+    answer too — `doctor` on a bare machine is exactly when it is asked — and
+    so is one that did not answer within `timeout`."""
     refused = benchmark_session.refused(argv)
     if refused is not None:
         return refused
     try:
         return subprocess.run(argv, cwd=str(tree), env=operator_env(),
-                              capture_output=True, text=True)
-    except OSError as error:
+                              capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as error:
         return subprocess.CompletedProcess(argv, 127, "", str(error))
 
 
@@ -492,6 +505,29 @@ class GitHubForge:
         token = (done.stdout or "").strip() if done.returncode == 0 else ""
         return token if len(token.split()) == 1 else ""
 
+    def token_expires(self) -> str:
+        """Off the header GitHub sends with every answer to a token that
+        expires (`EXPIRY_HEADER`), read from `gh api --include`, which prints
+        the status line and the headers before the body — on a 4xx too. No
+        header on an answer is the forge naming no expiry: a classic token
+        without a date, or the OAuth token a `gh auth login` holds."""
+        host = self.host()
+        completed = _run(["gh", "api", "--include", "--hostname", host, "rate_limit"], ".",
+                         timeout=10)
+        lines = (completed.stdout or "").splitlines()
+        status = re.match(r"HTTP/\S+\s+(\d{3})", lines[0]) if lines else None
+        if status is None:
+            raise ForgeError(f"could not ask {host} when its token expires: {_said(completed)}")
+        if status.group(1) == "401":
+            raise TokenRefused(f"{host} refused the token: {_said(completed)}")
+        for line in lines[1:]:
+            if not line.strip():
+                break                  # the headers end at the first blank line
+            name, _, value = line.partition(":")
+            if name.strip().lower() == EXPIRY_HEADER:
+                return _instant(value, host)
+        return ""
+
     def ci_ref(self) -> str:
         """In a GitHub Actions job the checkout is detached — a pull request's
         merge commit, or the pushed commit — so the job's own word for it: the
@@ -504,6 +540,17 @@ class GitHubForge:
 
     def doctor(self, cfg: FactoryConfig) -> list[Finding]:
         return _doctor(cfg)
+
+
+def _instant(value: str, host: str) -> str:
+    """The expiry header's value, in ISO 8601 and UTC."""
+    found = _EXPIRY.fullmatch(value.strip())
+    if found is None:
+        raise ForgeError(f"{host} said its token expires {value.strip()!r}, which is not a date")
+    day, clock, zone = found.groups()
+    offset = "+0000" if zone in (None, "UTC", "GMT", "Z") else zone.replace(":", "")
+    at = datetime.strptime(f"{day} {clock} {offset}", "%Y-%m-%d %H:%M:%S %z")
+    return at.astimezone(timezone.utc).isoformat()
 
 
 # ── doctor ───────────────────────────────────────────────────────────────────

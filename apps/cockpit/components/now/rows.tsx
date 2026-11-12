@@ -5,12 +5,12 @@ import type { ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { ItemState } from "@/convex/forge/forge";
-import { type Attention, expensive, type Facts, needsAttention, stuck, waitedLong } from "@/convex/model/attention";
+import { type Attention, expensive, type Facts, needsAttention, stuck, tokenUrgency, waitedLong } from "@/convex/model/attention";
 import { stationWords, type Row as Wait } from "@/convex/model/inbox";
 import type { Other } from "@/convex/inbox";
 import type { Running } from "@/convex/now";
 import { tabHref } from "../factory/view";
-import { formatAgoAt, formatDollars, formatDuration, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref, type WorkItemKind } from "../format";
+import { formatAgoAt, formatDollars, formatDuration, formatExpiry, formatSpan, issueNumber, plural, prNumber, secondsBetween, sessionHref, type WorkItemKind } from "../format";
 import { asks, verbsOf } from "../gate/answer";
 import { MiniGraph } from "../graph/StageGraph";
 import { ForgeRef, KindIcon, StageIcon, StatusIcon } from "../icons";
@@ -277,6 +277,13 @@ export function neededAt(attention: { factory: string; facts: Facts }[], now: nu
           key: `${factory}/unwatched`, failed: false, factory,
           title: <>{plural(item.issues.length, "queued issue")}, no online station watching</>,
           line: <span className="inline-flex items-center gap-2">{item.issues.map((number) => <WorkItem key={number} kind="issue" number={number} state="open" />)}</span>,
+          step: "Stations", href: tabHref(factory, "stations"),
+        }];
+      case "token":
+        return [{
+          key: `${factory}/token`, factory, failed: item.stations.some((each) => tokenUrgency(each.expiresAt, now) === "now"),
+          title: <>Forge token running out on {item.stations.length === 1 ? item.stations[0].name : plural(item.stations.length, "station")}</>,
+          line: item.stations.map((each) => `${each.name} ${formatExpiry(each.expiresAt, now)}`).join(" · "),
           step: "Stations", href: tabHref(factory, "stations"),
         }];
     }

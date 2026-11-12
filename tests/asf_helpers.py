@@ -251,7 +251,10 @@ def phase_names(repo: Path, adw_id: str) -> list[str]:
 # first one said. `refuse.json` names verbs it refuses with exit 1, the way a
 # real one does when it cannot do an edit. `login` and `tokens.json` are who it
 # is signed in as, and the token it prints for each host; without them it is
-# signed in as nobody (`signed_in`).
+# signed in as nobody (`signed_in`). `gh api --include rate_limit` — how the
+# forge reads when its token expires — answers with the status and headers in
+# rate_limit.json (`token_answers`), unlogged; without it, as a `gh` signed in
+# to nothing does, with exit 4 and nothing on stdout.
 # The verbs logged are spelt as before (`edit`, `comment`, …) for an issue and a
 # pull request alike: what tells them apart is the noun, `issue` or `pr`, which
 # `calls.json` does not keep.
@@ -283,6 +286,21 @@ if args[:2] == ["auth", "token"]:
         print(f"no oauth token found for {host}", file=sys.stderr)
         sys.exit(1)
     print(tokens[host])
+    sys.exit(0)
+if args[:1] == ["api"] and "rate_limit" in args:
+    answer = home / "rate_limit.json"
+    if not answer.exists():
+        print("To get started with GitHub CLI, please run:  gh auth login", file=sys.stderr)
+        sys.exit(4)
+    said = json.loads(answer.read_text())
+    print(f"HTTP/2.0 {said['status']} {said['reason']}")
+    for name, value in said["headers"].items():
+        print(f"{name}: {value}")
+    print()
+    print("{}")
+    if said["status"] >= 400:
+        print(f"gh: {said['reason']} (HTTP {said['status']})", file=sys.stderr)
+        sys.exit(1)
     sys.exit(0)
 verb = VERBS.get(tuple(args[:2]))
 argv = args[2:] if verb else args[1:]
@@ -378,6 +396,18 @@ def signed_in(repo: Path, login: str = "", token: str = "", host: str = "github.
         tokens = home / "tokens.json"
         held = json.loads(tokens.read_text()) if tokens.exists() else {}
         tokens.write_text(json.dumps({**held, host: token}))
+
+
+def token_answers(repo: Path, expires: str = "", status: int = 200,
+                  reason: str = "OK") -> None:
+    """What the stand-in `gh` answers `gh api --include rate_limit` with: a
+    status, and GitHub's expiry header when `expires` is its value."""
+    headers = {"Content-Type": "application/json; charset=utf-8",
+               "X-Github-Request-Id": "F00D:1:2:3:4"}
+    if expires:
+        headers["Github-Authentication-Token-Expiration"] = expires
+    forge_data(repo, "rate_limit.json", {"status": status, "reason": reason,
+                                         "headers": headers})
 
 
 def set_config(repo: Path, **sections) -> None:

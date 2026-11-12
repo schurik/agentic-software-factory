@@ -2,8 +2,9 @@
  * What needs a person's attention on a factory (spec #40): a gate waiting on
  * them, a session that failed in the last day, a claim whose station has been
  * away for over a day, a station whose config drifted from the default
- * branch, a failing `asf check`, and nobody watching — issues queued for a
- * route while no station online runs an issues watcher.
+ * branch, a failing `asf check`, nobody watching — issues queued for a
+ * route while no station online runs an issues watcher — and a station whose
+ * forge token runs out within two weeks (#260).
  *
  * Split in two, like liveness (`command.ts`): the FACTS are what the cockpit
  * was told, read in one place (`activity.attentionOf`) for Now
@@ -38,6 +39,15 @@ export const EXPENSIVE = 0.8;
 export const STUCK_AFTER = 10 * 60_000;
 /** A gate has waited longer than this: its wait reads amber, so the oldest is answered first (#104). */
 export const LONG_WAIT = 30 * 60_000;
+/**
+ * A station's forge token runs out within this: it needs attention, and its
+ * card says so in amber — from then on every run there fails at its first
+ * push, label or comment while the station still reads online. The same two
+ * marks as `asf doctor` (`engine/preflight.py`).
+ */
+export const TOKEN_SOON = 14 * 24 * 3600_000;
+/** ...and within this, or past it, in red: a weekend away from a station that stops. */
+export const TOKEN_NOW = 3 * 24 * 3600_000;
 
 /** Whether a phase that began at `since` has, by `now`, run long enough to call its session stuck. */
 export function stuck(since: string, now: number): boolean {
@@ -47,6 +57,12 @@ export function stuck(since: string, now: number): boolean {
 /** Whether a gate asked at `since` has, by `now`, waited long. */
 export function waitedLong(since: string, now: number): boolean {
   return now - Date.parse(since) > LONG_WAIT;
+}
+
+/** How close a token that expires at `expiresAt` (epoch ms) is at `now`: soon, now — within days, or past — or neither. */
+export function tokenUrgency(expiresAt: number, now: number): "now" | "soon" | null {
+  const left = expiresAt - now;
+  return left <= TOKEN_NOW ? "now" : left <= TOKEN_SOON ? "soon" : null;
 }
 
 /** Whether `spent` is close to `ceiling`; never, without one. */
@@ -79,6 +95,15 @@ export interface Facts {
   queued: number[] | null;
   /** The stations whose loop runs an issues watcher, and when each loop last polled. */
   watchers: { station: string; name: string; seenAt: number }[];
+  /** Every registered station whose loop said when its forge token expires, however far off: the clock decides which are near. */
+  tokens: Expiring[];
+}
+
+export interface Expiring {
+  station: string;
+  name: string;
+  /** When its forge token stops working, epoch ms. */
+  expiresAt: number;
 }
 
 export interface Drifted {
@@ -95,7 +120,9 @@ export type Attention =
   | { kind: "drift"; stations: Drifted[] }
   | { kind: "check" }
   /** Issues queued for a route, and no station online running an issues watcher to start them. */
-  | { kind: "unwatched"; issues: number[] };
+  | { kind: "unwatched"; issues: number[] }
+  /** The stations whose forge token runs out within `TOKEN_SOON`, or already has. */
+  | { kind: "token"; stations: Expiring[] };
 
 /**
  * What of `facts` needs attention at `now`. Drift is measured against the
@@ -115,5 +142,7 @@ export function needsAttention(facts: Facts, now: number): Attention[] {
   if (facts.queued?.length && !facts.watchers.some((each) => liveness(each.seenAt, null, now).online)) {
     items.push({ kind: "unwatched", issues: facts.queued });
   }
+  const expiring = facts.tokens.filter((each) => tokenUrgency(each.expiresAt, now) !== null);
+  if (expiring.length) items.push({ kind: "token", stations: expiring });
   return items;
 }

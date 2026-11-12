@@ -18,6 +18,7 @@ import { classesOf, rootClasses, verticalMargins } from "./rhythm";
 
 const NOW = Date.parse("2026-10-01T12:00:00.000Z");
 const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
 const ROW: Row = {
@@ -28,7 +29,7 @@ const ROW: Row = {
   via: "comment", refused: null, queued: null, stationSeenAt: 0, attendedAt: null, note: "",
 };
 
-const QUIET: Facts = { gates: { mine: 0, total: 0 }, failed: [], claims: [], check: "passing", drifted: [], queued: null, watchers: [] };
+const QUIET: Facts = { gates: { mine: 0, total: 0 }, failed: [], claims: [], check: "passing", drifted: [], queued: null, watchers: [], tokens: [] };
 
 const RUNNING: Running = {
   factory: "acme/gadgets", session: "7d2f90aa", title: "#7 Add a health check", workflow: "issue",
@@ -148,6 +149,19 @@ describe("Needs attention", () => {
       "See config /factories/acme/widgets?tab=config",
       "Stations /factories/acme/widgets?tab=stations",
     ]);
+    // A station's forge token running out is one row, to the Stations tab — red once three days or fewer are left.
+    const tokens = (expiresAt: number[]) => section(html({ ...PAGE, attention: [{ factory: "acme/widgets", facts: {
+      ...QUIET, tokens: expiresAt.map((at, index) => ({ station: `st_${index}`, name: `box${index}:widgets`, expiresAt: at })),
+    } }] }), "Needs attention");
+    const soon = tokens([NOW + 10 * DAY, NOW - DAY]);
+    expect(read(soon)).toContain("Forge token running out on 2 stations");
+    expect(read(soon)).toContain("box0:widgets expires in 10d · box1:widgets expired 1d ago");
+    expect(soon).toMatch(/href="\/factories\/acme\/widgets\?tab=stations"/);
+    expect(soon).toContain('aria-label="failed"');
+    const later = tokens([NOW + 10 * DAY]);
+    expect(read(later)).toContain("Forge token running out on box0:widgets");
+    expect(later).not.toContain('aria-label="failed"');
+    expect(read(tokens([NOW + 30 * DAY]))).toContain("Nothing needs attention.");
     // The gates waiting on the viewer are the Inbox's; they are not said twice.
     expect(read(section(html({ ...PAGE, attention: [{ factory: "acme/widgets", facts: { ...QUIET, gates: { mine: 2, total: 2 } } }] }),
                         "Needs attention"))).toContain("Nothing needs attention.");

@@ -441,6 +441,23 @@ describe("a station's command poll", () => {
     // A run cannot say what watchers its checkout runs; the loop's word stands.
     expect((await t.query(api.stations.mine, {}))[0].report?.watchers).toEqual(["issues", "answers"]);
   });
+
+  it("keeps when the station's forge token expires as its loop last said it, whatever a run's poll says", async () => {
+    const forge = fakeForge();
+    const { t } = await localOf(forge);
+    const { token } = await t.action(internal.stations.local, { factory: "acme/widgets", station: STATION });
+    const expiry = async () => (await t.query(api.stations.mine, {}))[0].report?.tokenExpires;
+    const EXPIRES = "2026-11-26T09:30:00+00:00";
+
+    await poll(t, token);                                                           // a station from before the date was said
+    expect(await expiry()).toBeUndefined();
+    await poll(t, token, { report: { ...REPORT, token_expires: EXPIRES } });
+    expect(await expiry()).toBe(EXPIRES);
+    await poll(t, token, { session: SESSION, report: { ...REPORT, watchers: null, token_expires: null } });
+    expect(await expiry()).toBe(EXPIRES);                                           // a run leaves it to the loop
+    await poll(t, token, { report: { ...REPORT, token_expires: "" } });
+    expect(await expiry()).toBe("");                                                // a token the forge names no date for
+  });
 });
 
 // ── kill ─────────────────────────────────────────────────────────────────────

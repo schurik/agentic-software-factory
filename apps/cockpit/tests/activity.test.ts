@@ -15,6 +15,7 @@ import { approved, poll, post, REPORT, STATION, teamOf } from "./station";
 
 const NOW = Date.parse("2026-10-01T12:00:00.000Z");
 const HOUR = 3600_000;
+const DAY = 24 * HOUR;
 
 interface Shipped {
   session: string;
@@ -266,6 +267,27 @@ describe("needs attention", () => {
     expect(await attention(t, alex)).toEqual([
       { kind: "drift", stations: [{ station: ALEX.id, name: ALEX.name, badges: [`on ${REPORT.head.slice(0, 7)}`] }] },
     ]);
+  });
+
+  it("names the stations whose forge token runs out within two weeks, from then on, and no revoked one", async () => {
+    const t = await teamOf(forge, { alex: "write" });
+    const token = await factory(t, "acme/widgets");
+    const alex = await signIn(t, forge, "alex");
+    const command = await approved(t, token, alex);
+    const expiresAt = NOW + 20 * DAY;
+
+    await poll(t, command, { report: { ...REPORT, token_expires: new Date(expiresAt).toISOString() } });
+    expect(await attention(t, alex)).toEqual([]);
+    const soon = [{ kind: "token", stations: [{ station: ALEX.id, name: ALEX.name, expiresAt }] }];
+    expect(await attention(t, alex, expiresAt - 14 * DAY + HOUR)).toEqual(soon);
+    expect(await attention(t, alex, expiresAt + DAY)).toEqual(soon);               // expired is no better
+
+    await poll(t, command, { report: { ...REPORT, token_expires: "" } });            // a new one, with no date
+    expect(await attention(t, alex, expiresAt + DAY)).toEqual([]);
+
+    await poll(t, command, { report: { ...REPORT, token_expires: new Date(expiresAt).toISOString() } });
+    expect(await t.mutation(api.stations.revoke, { factory: "acme/widgets", station: ALEX.id, signIn: alex })).toEqual({ ok: true });
+    expect(await attention(t, alex, expiresAt + DAY)).toEqual([]);                  // a station let go asks for nothing
   });
 
   it("says nobody is watching when issues are queued for a route and no station runs an issues watcher", async () => {

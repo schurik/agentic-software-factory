@@ -38,6 +38,7 @@ import os
 import re
 import shutil
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -46,7 +47,7 @@ from . import cockpit as local_cockpit
 from . import factory, git_helper, harnesses, publish, station
 from . import labels as labels_module
 from .data_types import AgentConfig, Finding, FactoryConfig
-from .forge import forge_of, tracker_of
+from .forge import ForgeError, TokenRefused, forge_of, tracker_of
 from .utils import anchor, write_atomic
 
 # ── git: the tree a run cuts from ────────────────────────────────────────────
@@ -364,6 +365,63 @@ def forge(cfg: FactoryConfig) -> list[Finding]:
     return found + (tracker_of(cfg).doctor(cfg) if cfg.tracker != cfg.forge else [])
 
 
+# ── the forge's token: how long it still works ───────────────────────────────
+
+# Two weeks is time to make a new token without a rush; three days is a
+# weekend away from a station that stops. The cockpit's Needs attention says
+# the same of a station's token at the same two marks (`model/attention.ts`).
+TOKEN_WARN_WITHIN = timedelta(days=14)
+TOKEN_FATAL_WITHIN = timedelta(days=3)
+STOPPED = "every run fails at its first push, label or comment"
+
+
+def token(cfg: FactoryConfig, now: datetime | None = None) -> list[Finding]:
+    """How long the token the forge is reached with still works.
+
+    A token that expires — a server station's fine-grained one, in
+    `asf/station/.env` — stops every run at its first push, label or comment
+    from that day on, while everything else here still reads healthy. So it is
+    a warning two weeks ahead, fatal three days ahead, and fatal once expired or
+    refused: being past the date is no less wrong than being near it.
+
+    A network question, so doctor-only. Nothing in a CI job, whose token is
+    minted for the job and gone with it; nothing when the forge could not be
+    asked, which says nothing about the token — `forge` above says whether its
+    CLI is here at all.
+    """
+    if station.kind() == "ci":
+        return []
+    the_forge = forge_of(cfg)
+    fix = (f"make a new token and put it where this one is set — on a server station "
+           f"asf/station/.env, then recreate the container (cookbooks/run_on_a_server.md); "
+           f"anywhere else, {the_forge.sign_in}")
+    try:
+        expires = the_forge.token_expires()
+    except TokenRefused as refused:
+        return [Finding(check="forge token", level="fatal",
+                        detail=f"refused — {refused}; {STOPPED}", fix=fix)]
+    except ForgeError:
+        return []
+    if not expires:
+        return [Finding(check="forge token", detail="the forge names no expiry date for it")]
+    at = datetime.fromisoformat(expires)
+    left = at - (now or datetime.now(timezone.utc))
+    day = at.strftime("%Y-%m-%d %H:%M UTC")
+    if left <= timedelta(0):
+        return [Finding(check="forge token", level="fatal",
+                        detail=f"expired {day} — {STOPPED}", fix=fix)]
+    within = (f"{left.days} day(s)" if left >= timedelta(days=1)
+              else f"{max(1, left.seconds // 3600)} hour(s)")
+    if left <= TOKEN_FATAL_WITHIN:
+        level = "fatal"
+    elif left <= TOKEN_WARN_WITHIN:
+        level = "warn"
+    else:
+        return [Finding(check="forge token", detail=f"expires {day}, in {within}")]
+    return [Finding(check="forge token", level=level,
+                    detail=f"expires {day}, in {within} — from then on {STOPPED}", fix=fix)]
+
+
 # ── the labels the config names, and whether the forge defines them ──────────
 
 def labels(cfg: FactoryConfig, main_root: Path) -> list[Finding]:
@@ -634,7 +692,7 @@ def everything(cfg: FactoryConfig, main_root: Path | None = None) -> list[Findin
     """Every check there is, ordered the way an engineer would read them."""
     root = Path(main_root) if main_root else git_helper.main_root()
     return (repo(cfg, root) + runtime(cfg, root) + roster(cfg, root) + quality(root)
-            + browser(root) + forge(cfg) + labels(cfg, root) + stamped_version(root)
-            + defaults_file(root)
+            + browser(root) + forge(cfg) + token(cfg) + labels(cfg, root)
+            + stamped_version(root) + defaults_file(root)
             + cockpit(cfg, anchor(root, cfg.data_dir))
             + publishing(cfg, root) + skill())

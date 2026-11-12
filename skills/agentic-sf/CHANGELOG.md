@@ -46,6 +46,15 @@ before — `None` when there are none, never omitted.
   server needs no `gh auth login` and no `claude` login; `gh auth setup-git` still runs once. A
   name that file leaves unset stays out of the container, and the login in the `home` volume holds.
   `cookbooks/run_on_a_server.md` names the fine-grained token's permissions and its expiry.
+- **A token's expiry is said before it bites.** GitHub names the date a token stops working on
+  every answer, and the forge now reads it (`Forge.token_expires`, one `gh api --include
+  rate_limit` that costs no rate limit). `asf doctor` says it as `forge token`: a warning from 14
+  days before, fatal from 3 days before, once past and when GitHub refuses the token — nothing in a
+  CI job, whose token lives for the job. The station loop asks once an hour and reports the date
+  with its command poll (`token_expires` in the report, beside `watchers`; a run's own poll leaves
+  it to the loop), and the cockpit shows it on the station's card on the Stations tab — amber
+  within two weeks, red within three days — and lists the station under Needs attention from two
+  weeks before, unless it was revoked.
 - **The cockpit names its build.** Bottom right under every page, the footer says which build is
   serving: ref, commit, run and when it was deployed. Opened, it lists the builds deployed before
   it. A team's cockpit can also deploy itself on every merge: CI builds the image and runs
@@ -55,11 +64,14 @@ before — `None` when there are none, never omitted.
 ### Upgrade
 
 Either end first: a cockpit of the release before never says nudges are live, so a new station
-keeps its interval, and a station of the release before asks for no nudges and is sent none.
+keeps its interval, and a station of the release before asks for no nudges and is sent none. The
+same holds for a token's expiry: a cockpit of the release before ignores the report's new key, and
+this cockpit shows nothing for a station that never sent it.
 
 1. Commit, then `install.py --harness <harness> --force` from the target repo root
-   (`cookbooks/upgrade.md`) to stamp `asf/engine/nudge.py` and the watchers that wait on it, and
-   `asf/engine/pull.py`, the lock every run now holds on its checkout.
+   (`cookbooks/upgrade.md`) to stamp `asf/engine/nudge.py` and the watchers that wait on it,
+   `asf/engine/pull.py`, the lock every run now holds on its checkout, and the forge, doctor and
+   station loop that read and report the forge token's expiry.
 2. A team's cockpit: deploy this release's images. An App registered before it lacks the
    `pull_request_review_comment` event — add it under *Permissions & events* in the App's settings
    on GitHub; a submitted review nudges without it.

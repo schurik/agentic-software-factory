@@ -84,6 +84,16 @@ export function formatAgo(ts: string, now: number): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+/** How far off `at` (epoch ms) is as of `now`: "in 10d", or "2d ago" once it is past. */
+export function formatLeft(at: number, now: number): string {
+  return at > now ? `in ${formatSpan(at - now)}` : formatAgoAt(at, now);
+}
+
+/** When something that runs out at `at` (epoch ms) does, as of `now`: "expires in 10d", or "expired 2d ago" once it has. */
+export function formatExpiry(at: number, now: number): string {
+  return `${at > now ? "expires" : "expired"} ${formatLeft(at, now)}`;
+}
+
 /** A span of time in its largest whole unit: "2d", "5h", "12m", "40s". */
 export function formatSpan(ms: number): string {
   const seconds = Math.max(0, ms / 1000);
