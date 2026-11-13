@@ -31,6 +31,12 @@ services:
     volumes:
       - data:/convex/data
     environment:
+      # A query's user time, in seconds (upstream's default is 1). A session's
+      # page (sessions:get) still reads every event the session stored and folds
+      # them in one query, so a long session with transcripts outgrew 1s and its
+      # page answered "Function execution timed out". Headroom until that query
+      # stops reading what it does not use (#275); not a reason to stop.
+      - DATABASE_UDF_USER_TIMEOUT_SECONDS=${DATABASE_UDF_USER_TIMEOUT_SECONDS:-5}
       - CONVEX_CLOUD_ORIGIN=${CONVEX_CLOUD_ORIGIN:-http://127.0.0.1:${PORT:-3210}}
       - CONVEX_SITE_ORIGIN=${CONVEX_SITE_ORIGIN:-http://127.0.0.1:${SITE_PROXY_PORT:-3211}}
       - DISABLE_BEACON
