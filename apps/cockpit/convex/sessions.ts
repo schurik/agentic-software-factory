@@ -12,7 +12,7 @@ import { statesOf } from "./items";
 import { readDescription } from "./model/description";
 import { miniOf } from "./model/graph";
 import { outputOf, promptsOf } from "./model/phase";
-import { phaseTools as toolsOf, phaseView, readSummary, type Recorded, rowsOf, view } from "./model/session";
+import { phaseView, readSummary, type Recorded, rowsOf, toolsOf, view } from "./model/session";
 import { phaseType } from "./model/story";
 import { canRead, readable, viewing } from "./viewer";
 
@@ -180,7 +180,7 @@ export const progress = query({
   handler: async (ctx, { factory, session, signIn }) => {
     const stored = await storedSession(ctx, factory, session, signIn);
     if (stored === null) return null;
-    const { story } = view(stored.events, stored.acked);
+    const { story } = view(stored.events, stored.acked, stored.recorded);
     const here = story.chapters.find((chapter) => chapter.graph.current !== null) ?? story.chapters.at(-1);
     const graph = here?.graph ?? null;
     const phase = story.now.phase;

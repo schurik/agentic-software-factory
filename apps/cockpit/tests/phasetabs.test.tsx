@@ -61,6 +61,18 @@ describe("every tab of every phase of the recorded session", () => {
     expect(tabs("a9f259f0_05_plan_revise_1", "transcript")).toMatch(/<button[^>]*aria-selected="true"[^>]*>Agent prompt/);
   });
 
+  it("says a tab's query answered that the session is not one the viewer can see", () => {
+    const html = renderToStaticMarkup(<PhaseTabs item={item("a9f259f0_02_scout")} detail={detail("a9f259f0_02_scout")}
+                                                 where={WHERE} tab="events" loaded={{ events: null }} />);
+    expect(shown(html)).toContain("This phase is not in a session you can see.");
+  });
+
+  it("says a transcript event of a version this cockpit cannot read came, rather than hide it", () => {
+    const events = RECORDED.map((event) => event.kind === "prompt_rendered" ? { ...event, v: 2 } : event);
+    const text = tab("a9f259f0_05_plan_revise_1", "prompt", events);
+    expect(text).toMatch(/\d+ events of it came from a newer factory than this cockpit reads/);
+  });
+
   it("says a tab that reads on its own is loading until its query answers", () => {
     const html = renderToStaticMarkup(<PhaseTabs item={item("a9f259f0_02_scout")} detail={detail("a9f259f0_02_scout")}
                                                  where={WHERE} tab="tools" />);

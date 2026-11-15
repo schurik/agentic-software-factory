@@ -5,7 +5,7 @@ import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Phase } from "@/convex/model/graph";
 import { useSignIn } from "../signIn";
-import { askedTab, PhaseTabs, type Where } from "./PhaseTabs";
+import { PhaseTabs, shownTab, type Where } from "./PhaseTabs";
 
 /**
  * A phase's tabs, asked for as its drawer opens: its detail is a query of
@@ -22,11 +22,12 @@ export function PhaseDetails({ item, where, tab, onTab }: {
   const signIn = useSignIn();
   const args = { factory: where.factory, session: where.session, phaseId: item.phaseId, signIn };
   const detail = useQuery(api.sessions.phase, args);
-  const asked = askedTab(tab);
-  const tools = useQuery(api.sessions.phaseTools, asked === "tools" ? args : "skip");
-  const events = useQuery(api.sessions.events, asked === "events" ? args : "skip");
-  const prompt = useQuery(api.sessions.prompts, asked === "prompt" ? args : "skip");
-  const output = useQuery(api.sessions.output, asked === "output" ? args : "skip");
+  // Asked for once the detail says the tab is there to show: a tab the phase does not have opens on Overview.
+  const shown = detail ? shownTab(detail, tab) : null;
+  const tools = useQuery(api.sessions.phaseTools, shown === "tools" ? args : "skip");
+  const events = useQuery(api.sessions.events, shown === "events" ? args : "skip");
+  const prompt = useQuery(api.sessions.prompts, shown === "prompt" && detail?.transcripts ? args : "skip");
+  const output = useQuery(api.sessions.output, shown === "output" && detail?.transcripts ? args : "skip");
   const readArtifact = useAction(api.artifacts.read);
   const read = useCallback(
     (seq: number) => readArtifact({ factory: where.factory, session: where.session, seq, signIn }),
@@ -37,8 +38,6 @@ export function PhaseDetails({ item, where, tab, onTab }: {
     [readCommit, where.factory, where.session, signIn]);
   if (detail === undefined) return <p className="text-sm text-muted">Loading…</p>;
   if (detail === null) return <p className="text-sm text-muted">This phase is not in a session you can see.</p>;
-  // Null from a tab's own query is the same answer as the detail's: not a session the viewer can see.
-  const loaded = { tools: tools ?? undefined, events: events ?? undefined, prompt: prompt ?? undefined,
-                   output: output ?? undefined };
-  return <PhaseTabs item={item} detail={detail} loaded={loaded} where={where} tab={tab} onTab={onTab} read={read} readDiff={readDiff} />;
+  return <PhaseTabs item={item} detail={detail} loaded={{ tools, events, prompt, output }} where={where} tab={tab}
+                    onTab={onTab} read={read} readDiff={readDiff} />;
 }

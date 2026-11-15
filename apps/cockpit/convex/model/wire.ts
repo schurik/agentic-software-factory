@@ -23,6 +23,8 @@ export const MAX_EVENTS = 500;
 export const MAX_BATCH_BYTES = 4_000_000;
 // Under Convex's 1 MiB document limit, with room for the fields around it.
 export const MAX_PAYLOAD_BYTES = 900_000;
+// What a turn that reads whole bodies a page at a time may read: well under the 16 MiB a transaction may.
+export const MAX_READ_BYTES = 8_000_000;
 
 export interface WireEvent {
   seq: number;

@@ -242,7 +242,7 @@ describe("the Agent prompt and Harness output tabs", () => {
       .map((event, index) => ({ ...event, seq: index + 1 })));
 
     expect((await phase(t, "a9f259f0_05_plan_revise_1")).transcripts).toBe(false);
-    expect(await prompts(t, "a9f259f0_05_plan_revise_1")).toEqual({ pruned: null, items: [] });
+    expect(await prompts(t, "a9f259f0_05_plan_revise_1")).toEqual({ pruned: null, items: [], newer: 0 });
   });
 });
 

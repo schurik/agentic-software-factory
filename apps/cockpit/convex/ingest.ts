@@ -6,8 +6,7 @@ import { improve } from "./improvements";
 import { settleClaims } from "./claims";
 import { settle } from "./commands";
 import { measured } from "./measured";
-import { Payload } from "./model/payload";
-import { isTranscript, retained } from "./model/retention";
+import { isTranscript, phaseOf, retained } from "./model/retention";
 import { advance, isBenchmark, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
@@ -33,21 +32,16 @@ export const append = internalMutation({
     const { factory } = token;
 
     // A transcript event is stored apart from the rest (schema.ts), so a seq is in one table or the other.
-    const stored = async (seq: number) =>
-      (await ctx.db
-        .query("events")
-        .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).eq("seq", seq))
-        .unique()) ??
-      (await ctx.db
-        .query("transcripts")
-        .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).eq("seq", seq))
-        .unique());
+    const storedIn = (table: "events" | "transcripts", seq: number) => ctx.db
+      .query(table)
+      .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).eq("seq", seq))
+      .unique();
+    const stored = async (seq: number) => (await storedIn("events", seq)) ?? (await storedIn("transcripts", seq));
 
     for (const event of events) {
       if ((await stored(event.seq)) !== null) continue;
       if (isTranscript(event.kind)) {
-        const phase = Payload.parse(event.payload).str("phase_id");
-        await ctx.db.insert("transcripts", { factory, session, phase, ...event });
+        await ctx.db.insert("transcripts", { factory, session, phase: phaseOf(event.payload), ...event });
       } else {
         await ctx.db.insert("events", { factory, session, ...event });
       }
@@ -120,7 +114,9 @@ export const append = internalMutation({
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);
     // ...and whether it ever shipped one, which pruning never takes back: what the page says of transcripts.
-    const transcribed = record?.transcribed === true || fresh.some((event) => isTranscript(event.kind));
+    // Left unset on a session an older cockpit stored: the move (transcripts.ts) has yet to look at its events.
+    const shipped = fresh.some((event) => isTranscript(event.kind));
+    const transcribed = record === null ? shipped : record.transcribed === undefined ? undefined : record.transcribed || shipped;
     const fields = { acked, summary, activity, waiting, transcribed, phased: true, chaptered: true, scored: true,
                      ...transcript };
     const id = record === null ? await ctx.db.insert("sessions", { factory, session, ...fields }) : record._id;

@@ -104,7 +104,8 @@ export default defineSchema({
     // (`cockpit: {transcripts: true}`). Unlike `transcripts`, pruning never
     // clears it — their bodies age out, that they came does not. What the page
     // says of transcripts without reading one. Unset on a session stored before
-    // it existed until the move (transcripts.ts) finds one; unset reads as none.
+    // it existed, until the move (transcripts.ts) has looked at its events and
+    // moved its transcript out of them; unset reads as none.
     transcribed: v.optional(v.boolean()),
     // Whether its phases' rows (`phases`) were written from its first event.
     // Unset on a session stored before they existed: the backfill, or its next
@@ -122,6 +123,7 @@ export default defineSchema({
     .index("by_chaptered", ["chaptered"])
     .index("by_scored", ["scored"])
     .index("by_transcripts", ["transcripts"])
+    .index("by_transcribed", ["transcribed"])
     .index("by_transcripts_due", ["transcriptsDue"])
     .index("by_activity", ["activity"])
     .index("by_factory_activity", ["factory", "activity"])

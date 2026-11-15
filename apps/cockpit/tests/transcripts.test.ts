@@ -145,6 +145,37 @@ describe("the move", () => {
     expect(prompts.items.length).toBeGreaterThan(0);
   });
 
+  it("moves a session whose next batch came before the move did", async () => {
+    const t = await older();
+    const finished = { seq: RECORDED.length + 1, ts: "2026-10-01T00:00:00.000+00:00", kind: "session_finished", v: 1,
+                       payload: { status: "success", ended_at: "2026-10-01T00:00:00.000+00:00" } };
+    const response = await ingest(t, await factory(t), { session: SESSION, events: [finished] });
+    expect(response.status).toBe(200);
+    // Not yet looked at: its transcript is still among its events, so it is not marked either way.
+    expect((await t.run(async (ctx) => (await ctx.db.query("sessions").first())!)).transcribed).toBeUndefined();
+
+    await t.mutation(internal.transcripts.move, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await t.query(api.sessions.phase, PHASE))!.transcripts).toBe(true);
+    expect((await t.run(async (ctx) => await ctx.db.query("events").collect())).filter((event) => isTranscript(event.kind)))
+      .toEqual([]);
+  });
+
+  it("marks a session an older cockpit stored without a transcript as having none, so it is looked at once", async () => {
+    const t = cockpit();
+    await ship(t, RECORDED.filter((event) => !isTranscript(event.kind)).map((event, index) => ({ ...event, seq: index + 1 })));
+    await t.run(async (ctx) => {
+      const record = (await ctx.db.query("sessions").first())!;
+      await ctx.db.patch(record._id, { transcribed: undefined });
+    });
+
+    await t.mutation(internal.transcripts.move, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await t.run(async (ctx) => (await ctx.db.query("sessions").first())!)).transcribed).toBe(false);
+  });
+
   it("has nothing to do the second time", async () => {
     const t = await older();
     await t.mutation(internal.transcripts.move, {});

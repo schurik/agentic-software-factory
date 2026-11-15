@@ -33,6 +33,9 @@ export const TABS = {
 
 export type Tab = keyof typeof TABS;
 
+/** The tabs a phase's transcript is shown on: each off and said why when its factory keeps none. */
+const TRANSCRIPT_TABS: Tab[] = ["prompt", "output"];
+
 /**
  * The tabs a phase opens into, each only where it has something to show
  * (#110): an agent's tool calls, the prompts it was sent and its harness's
@@ -47,14 +50,18 @@ export function tabsFor(detail: PhaseDetail): Tab[] {
     if (tab === "artifacts") return detail.artifacts.length > 0;
     if (tab === "checks") return detail.checks.length + detail.rejections.length + detail.commands.length > 0;
     if (tab === "tools") return detail.kind === "agent" && detail.toolCalls > 0;
-    if (tab === "prompt" || tab === "output") return detail.kind === "agent";
+    if (TRANSCRIPT_TABS.includes(tab)) return detail.kind === "agent";
     return true;
   });
 }
 
-/** The tab an address asks for: a link from before the transcript had two tabs opens on its prompts. */
-export function askedTab(tab: string | null): string | null {
-  return tab === "transcript" ? "prompt" : tab;
+/**
+ * The tab shown for the one an address asks for: Overview when the phase has
+ * no such tab, and the prompts for a link from before the transcript had two.
+ */
+export function shownTab(detail: PhaseDetail, tab: string | null): Tab {
+  const asked = tab === "transcript" ? "prompt" : tab;
+  return tabsFor(detail).includes(asked as Tab) ? asked as Tab : "overview";
 }
 
 /**
@@ -63,10 +70,10 @@ export function askedTab(tab: string | null): string | null {
  * until it answers.
  */
 export interface Loaded {
-  tools?: ToolCall[];
-  events?: Row[];
-  prompt?: Prompts;
-  output?: Output;
+  tools?: ToolCall[] | null;
+  events?: Row[] | null;
+  prompt?: Prompts | null;
+  output?: Output | null;
 }
 
 /**
@@ -88,12 +95,11 @@ export function PhaseTabs({ item, detail, loaded = {}, where, tab, onTab, read, 
   readDiff?: ReadDiff;
 }) {
   const tabs = tabsFor(detail);
-  const asked = askedTab(tab);
-  const shown = tabs.includes(asked as Tab) ? asked as Tab : "overview";
+  const shown = shownTab(detail, tab);
   return (
     <Tabs label="Phase" selected={shown} onSelect={(next) => onTab?.(next)} tabs={tabs.map((each) => ({
       id: each,
-      label: <>{TABS[each]}{(each === "prompt" || each === "output") && !detail.transcripts
+      label: <>{TABS[each]}{TRANSCRIPT_TABS.includes(each) && !detail.transcripts
         ? <span className="font-normal text-muted"> · off</span> : null}</>,
     }))}>
       <TabPanel key={shown} value={shown} className="grid gap-2 pt-4 text-sm">
@@ -102,23 +108,31 @@ export function PhaseTabs({ item, detail, loaded = {}, where, tab, onTab, read, 
         {shown === "artifacts" ? <Artifacts detail={detail} where={where} read={read} /> : null}
         {shown === "checks" ? <Checks detail={detail} /> : null}
         {shown === "tools" ? <Loading of={loaded.tools}>{(tools) => <Tools tools={tools} detail={detail} />}</Loading> : null}
-        {shown === "prompt" ? (
-          !detail.transcripts ? <TranscriptOff detail={detail} />
-            : <Loading of={loaded.prompt}>{(prompts) => <AgentPrompt detail={detail} prompts={prompts} />}</Loading>
-        ) : null}
-        {shown === "output" ? (
-          !detail.transcripts ? <TranscriptOff detail={detail} />
-            : <Loading of={loaded.output}>{(output) => <HarnessOutput detail={detail} output={output} />}</Loading>
-        ) : null}
+        {TRANSCRIPT_TABS.includes(shown) && !detail.transcripts ? <TranscriptOff detail={detail} />
+          : shown === "prompt" ? <Loading of={loaded.prompt}>{(prompts) => <AgentPrompt detail={detail} prompts={prompts} />}</Loading>
+          : shown === "output" ? <Loading of={loaded.output}>{(output) => <HarnessOutput detail={detail} output={output} />}</Loading>
+          : null}
         {shown === "events" ? <Loading of={loaded.events}>{(rows) => <Events rows={rows} />}</Loading> : null}
       </TabPanel>
     </Tabs>
   );
 }
 
-/** A tab whose query has not answered yet says so; once it has, it shows what came. */
-function Loading<T>({ of, children }: { of: T | undefined; children: (got: T) => ReactNode }) {
-  return of === undefined ? <p className="text-muted">Loading…</p> : <>{children(of)}</>;
+/**
+ * A tab whose query has not answered yet says so; once it has, it shows what
+ * came. Null is the query's answer for a session the viewer may not see.
+ */
+function Loading<T>({ of, children }: { of: T | null | undefined; children: (got: T) => ReactNode }) {
+  if (of === undefined) return <p className="text-muted">Loading…</p>;
+  if (of === null) return <p className="text-muted">This phase is not in a session you can see.</p>;
+  return <>{children(of)}</>;
+}
+
+/** What a transcript tab says of the events of it this cockpit cannot read: nothing is hidden. */
+function Newer({ count }: { count: number }) {
+  if (!count) return null;
+  return <p className={off}>{plural(count, "event")} of it came from a newer factory than this cockpit reads: upgrade the
+    cockpit to read them.</p>;
 }
 
 // ── Diff ─────────────────────────────────────────────────────────────────────
@@ -510,10 +524,12 @@ function AgentPrompt({ detail, prompts }: { detail: PhaseDetail; prompts: Prompt
   if (prompts.pruned) return <TranscriptPruned detail={detail} pruned={prompts.pruned} />;
   const runs = runsOf(detail.walks, prompts.items);
   if (!runs.length) {
-    return <p className="text-muted">Nothing was sent to this agent: a phase answered from the record sends no prompt.</p>;
+    return <><Newer count={prompts.newer} />
+      <p className="text-muted">Nothing was sent to this agent: a phase answered from the record sends no prompt.</p></>;
   }
   return (
     <>
+      <Newer count={prompts.newer} />
       {runs.map((run, index) => (
         <div key={index} className="grid gap-2">
           {runs.length > 1 ? <h4 className="mt-2">Run {index + 1} · {formatTime(run.at)}</h4> : null}
@@ -536,11 +552,12 @@ function HarnessOutput({ detail, output }: { detail: PhaseDetail; output: Output
   if (output.pruned) return <TranscriptPruned detail={detail} pruned={output.pruned} />;
   const runs = runsOf(detail.walks, output.items);
   if (!runs.length) {
-    return <p className="text-muted">{detail.status === "running" ? "None yet."
-      : "No harness output: a phase answered from the record runs no harness."}</p>;
+    return <><Newer count={output.newer} /><p className="text-muted">{detail.status === "running" ? "None yet."
+      : "No harness output: a phase answered from the record runs no harness."}</p></>;
   }
   return (
     <>
+      <Newer count={output.newer} />
       {runs.map((run, index) => (
         <div key={index} className="grid gap-2">
           {runs.length > 1 ? <h4 className="mt-2">Run {index + 1} · {formatTime(run.at)}</h4> : null}

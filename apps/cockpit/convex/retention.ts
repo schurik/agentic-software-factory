@@ -1,6 +1,6 @@
 /**
  * Retention (#63): transcripts age out, bodies can be purged, and every view
- * but the transcript tabs rebuilds from what is left (model/retention.ts says
+ * but the transcript tabs rebuild from what is left (model/retention.ts says
  * what each weight of event is, and what pruning one does).
  *
  *   ageOut       the cron: every session whose transcript is due, pruned.
@@ -35,13 +35,12 @@ import { ForgeError } from "./forge/github";
 import { forgeSaid, open, UNREADABLE } from "./forge/open";
 import { agesOutAt, prune, retained, type Pruned } from "./model/retention";
 import { readSummary } from "./model/session";
+import { MAX_READ_BYTES } from "./model/wire";
 import { spellingsOf, storedAs } from "./spelling";
 import { actAs, readable, viewing, type Viewing } from "./viewer";
 
 /** How many events one turn of a sweep reads: a body is at most 900 KB, and a turn reads them whole. */
 const SWEPT_PER_TURN = 64;
-/** ...and the most bytes, under the 16 MiB a transaction may read, so a page of whole bodies fits. */
-const SWEPT_BYTES_PER_TURN = 8_000_000;
 
 const tableValidator = v.union(v.literal("events"), v.literal("transcripts"));
 /** How many due sessions one run of the cron starts sweeping. */
@@ -93,26 +92,36 @@ export const ageOut = internalMutation({
  * transcripts only, and stops if the session stopped being due meanwhile (a
  * resume re-opened it); a purge sweeps both tables, pruning every body.
  * Pruning is idempotent: an event pruned before is left as it is.
+ *
+ * A sweep an older cockpit scheduled names no table, and swept the one table
+ * every event was in: a purge sweeps `events` as it was, then the transcripts
+ * that moved out of it (transcripts.ts), so one in flight across an upgrade is
+ * not lost; an age-out sweeps the transcripts.
  */
 export const sweep = internalMutation({
-  args: { factory: v.string(), session: v.optional(v.string()), table: tableValidator, pruned: prunedValidator,
-          cursor: v.union(v.null(), v.string()) },
+  args: { factory: v.string(), session: v.optional(v.string()), table: v.optional(tableValidator),
+          pruned: prunedValidator, cursor: v.union(v.null(), v.string()) },
   returns: v.null(),
-  handler: async (ctx, { factory, session, table, pruned, cursor }) => {
+  handler: async (ctx, { factory, session, table: named, pruned, cursor }) => {
     const ageing = pruned.reason === "aged_out";
+    // An age-out only ever pruned transcripts, so an older cockpit's goes straight to where they are now.
+    const table = named ?? (ageing ? "transcripts" : "events");
     const record = session === undefined ? null : await sessionRecord(ctx, factory, session);
     if (ageing && (record === null || record.transcriptsDue === undefined || record.transcriptsDue > Date.now())) return null;
     const events = session === undefined
       ? ctx.db.query(table).withIndex("by_session_seq", (q) => q.eq("factory", factory))
       : ctx.db.query(table).withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session));
-    const page = await events.paginate({ numItems: SWEPT_PER_TURN, cursor, maximumBytesRead: SWEPT_BYTES_PER_TURN });
+    const page = await events.paginate({ numItems: SWEPT_PER_TURN, cursor, maximumBytesRead: MAX_READ_BYTES });
     for (const event of page.page) {
       const payload = prune(event.kind, event.payload, pruned);
       if (payload !== null) await ctx.db.patch(event._id, { payload });
     }
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.retention.sweep,
-                                  { factory, session, table, pruned, cursor: page.continueCursor });
+                                  { factory, session, table: named, pruned, cursor: page.continueCursor });
+    } else if (named === undefined && !ageing) {
+      await ctx.scheduler.runAfter(0, internal.retention.sweep,
+                                  { factory, session, table: "transcripts", pruned, cursor: null });
     } else if (record !== null && table === "transcripts") {
       // Its transcript is gone, so there is nothing left to age out.
       await ctx.db.patch(record._id, { transcripts: false, transcriptsDue: undefined });

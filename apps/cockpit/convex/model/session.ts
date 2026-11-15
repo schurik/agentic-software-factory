@@ -170,7 +170,7 @@ export function phaseView(events: StoredEvent[], acked: number, phaseId: string)
 }
 
 /** That phase's Tools tab: every tool call it made, in the order they came. */
-export function phaseTools(events: StoredEvent[], acked: number, phaseId: string): ToolCall[] {
+export function toolsOf(events: StoredEvent[], acked: number, phaseId: string): ToolCall[] {
   return phaseState(events, acked, phaseId).tools;
 }
 

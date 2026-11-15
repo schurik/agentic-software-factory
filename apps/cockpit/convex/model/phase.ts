@@ -150,10 +150,13 @@ export interface Walked {
  * One part of a phase's transcript, as its tab reads it: the prompts it sent,
  * or its harness's output. `pruned` says when it aged out or was purged
  * (retention.ts): its events are still here, and their bodies are not.
+ * `newer` counts its events of a version this cockpit cannot read, which the
+ * tab says rather than hide.
  */
 export interface TranscriptPart<T> {
   pruned: Pruned | null;
   items: T[];
+  newer: number;
 }
 
 export type Prompts = TranscriptPart<Send>;
@@ -407,8 +410,8 @@ export function finishDetail(state: DetailState): PhaseDetail | null {
 /**
  * The Agent prompt tab: what one phase sent its agent, read off its
  * `prompt_rendered` events alone (the `transcripts` table's `by_phase` range).
- * Only the version this cockpit reads is taken: a newer one is a newer
- * cockpit's to show.
+ * Only the version this cockpit reads is taken; a newer one is counted, for
+ * the tab to say an upgrade would show it.
  */
 export function promptsOf(events: StoredEvent[]): Prompts {
   return part(events, "prompt_rendered", (p, { seq, ts }) => ({
@@ -424,14 +427,19 @@ export function outputOf(events: StoredEvent[]): Output {
 
 function part<T>(events: StoredEvent[], kind: string, read: (p: Payload, at: At) => T): TranscriptPart<T> {
   let pruned: Pruned | null = null;
+  let newer = 0;
   const items: T[] = [];
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
-    if (event.kind !== kind || event.v !== 1) continue;
+    if (event.kind !== kind) continue;
+    if (event.v !== 1) {
+      newer += 1;
+      continue;
+    }
     const p = Payload.parse(event.payload);
     pruned ??= prunedOf(p);
     items.push(read(p, { seq: event.seq, ts: event.ts }));
   }
-  return { pruned, items };
+  return { pruned, items, newer };
 }
 
 /**

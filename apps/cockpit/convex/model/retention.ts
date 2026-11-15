@@ -14,8 +14,9 @@
  * Aging out and purging both PRUNE: the event's body is replaced by a
  * `pruned: {on, reason, by?}` marker, and the event, its seq and every field
  * that is not body stay. So nothing a view is built from goes, a station's
- * replay finds every seq already stored, and the Events tab still lists the
- * line and says what became of it.
+ * replay finds every seq already stored, and the event's own tab still lists
+ * it and says what became of its body: a handoff's on the Events and
+ * Artifacts tabs, a transcript's on the Agent prompt or Harness output tab.
  *
  * The invariant this rests on: no view but a phase's Agent prompt and Harness
  * output tabs derives from a transcript body (`tests/pruned.test.ts` rebuilds
@@ -43,6 +44,11 @@ export function weightOf(kind: string): Weight {
 /** Whether an event of `kind` is a transcript's, stored in `transcripts` rather than `events` (schema.ts). */
 export function isTranscript(kind: string): boolean {
   return weightOf(kind) === "transcript";
+}
+
+/** The phase a transcript event is of, off its stored payload: what its tabs read it by (schema.ts, `by_phase`). */
+export function phaseOf(payload: string): string {
+  return Payload.parse(payload).str("phase_id");
 }
 
 export type PruneReason = "aged_out" | "purged";

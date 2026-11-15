@@ -8,7 +8,7 @@ import type { Loaded } from "../components/session/PhaseTabs";
 import { outputOf, promptsOf } from "../convex/model/phase";
 import { Payload } from "../convex/model/payload";
 import { isTranscript } from "../convex/model/retention";
-import { phaseTools, rowsOf } from "../convex/model/session";
+import { rowsOf, toolsOf } from "../convex/model/session";
 
 export type { WireEvent };
 
@@ -104,6 +104,6 @@ export function loadedOf(events: StoredEvent[], acked: number, phaseId: string):
   const core = events.filter((event) => !isTranscript(event.kind));
   const transcript = events.filter((event) => isTranscript(event.kind) && event.seq <= acked &&
     Payload.parse(event.payload).str("phase_id") === phaseId);
-  return { tools: phaseTools(core, acked, phaseId), events: rowsOf(core, phaseId),
+  return { tools: toolsOf(core, acked, phaseId), events: rowsOf(core, phaseId),
            prompt: promptsOf(transcript), output: outputOf(transcript) };
 }

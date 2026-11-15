@@ -293,6 +293,36 @@ describe("purging a session's bodies", () => {
   });
 });
 
+describe("a sweep an older cockpit scheduled, which names no table", () => {
+  const pruned = (reason: "purged" | "aged_out") => ({ on: new Date(ENDED).toISOString(), reason, by: "" });
+
+  it("purges every body still, in both tables, so a purge in flight across the upgrade is not lost", async () => {
+    const t = cockpit();
+    await ship(t, await factory(t), finished());
+
+    await t.mutation(internal.retention.sweep, { ...WHERE, pruned: pruned("purged"), cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const after = await payloads(t);
+    for (const seq of Object.keys(BODIES)) expect(after[Number(seq)].pruned).toMatchObject({ reason: "purged" });
+  });
+
+  it("ages out the transcript only, and never a handoff body", async () => {
+    const t = cockpit();
+    await ship(t, await factory(t), finished());
+    vi.setSystemTime(ENDED + 31 * DAY);
+
+    await t.mutation(internal.retention.sweep, { ...WHERE, pruned: pruned("aged_out"), cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const after = await payloads(t);
+    expect(after[3].pruned).toMatchObject({ reason: "aged_out" });
+    expect(after[4].pruned).toMatchObject({ reason: "aged_out" });
+    expect(after[5].pruned).toBeUndefined();
+    expect(after[6].pruned).toBeUndefined();
+  });
+});
+
 describe("purging a factory", () => {
   it("is for an owner of the organization the repository belongs to, and purges every session's bodies", async () => {
     const forge = forgeOfAcme();

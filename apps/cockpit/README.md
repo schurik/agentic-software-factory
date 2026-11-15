@@ -917,7 +917,8 @@ renders the drawer each address opens. A phase's view leads with what it cost, a
 something in (Overview · Diff · Artifacts · Checks · Tools · Agent prompt · Harness output · Events)
 through a query of its own, `sessions:phase`, asked only when someone opens it — and its Tools,
 Events, Agent prompt and Harness output tabs each through another (`sessions:phaseTools`,
-`sessions:events`, `sessions:prompts`, `sessions:output`), asked only while that tab is shown: `tests/phase.test.ts` says what each tab
+`sessions:events`, `sessions:prompts`, `sessions:output`), asked only while that tab is shown:
+`tests/phase.test.ts` says what each tab
 holds for the recorded session, `tests/phasetabs.test.tsx` renders every tab of every phase of it, and
 `tests/artifacts.test.ts` reads repo artifacts from the fake forge. No diff travels in an event:
 a commit phase's Diff tab is the forge's diff of the commit its `committed` names, and the session's
