@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { Read } from "@/convex/artifacts";
-import { type Artifact, type PhaseDetail, READ_BYTES, type ToolCall } from "@/convex/model/phase";
-import { type Pruned, prunedWord } from "@/convex/model/retention";
+import {
+  type Artifact, joined, type Output, type PhaseDetail, type Prompts, READ_BYTES, runsOf, type ToolCall,
+} from "@/convex/model/phase";
+import type { Pruned } from "@/convex/model/retention";
 import type { Phase } from "@/convex/model/graph";
+import type { Row } from "@/convex/model/session";
 import type { GateItem } from "@/convex/model/story";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { isMarkdown, Markdown } from "../Markdown";
@@ -23,17 +26,19 @@ export interface Where {
 /** Read a repo artifact from the forge, by the seq of its `artifact_written` (`artifacts.read`). */
 export type ReadArtifact = (seq: number) => Promise<Read>;
 
-const TABS = {
-  overview: "Overview", diff: "Diff", artifacts: "Artifacts", checks: "Checks", tools: "Tools", transcript: "Transcript", events: "Events",
+export const TABS = {
+  overview: "Overview", diff: "Diff", artifacts: "Artifacts", checks: "Checks", tools: "Tools",
+  prompt: "Agent prompt", output: "Harness output", events: "Events",
 } as const;
 
-type Tab = keyof typeof TABS;
+export type Tab = keyof typeof TABS;
 
 /**
  * The tabs a phase opens into, each only where it has something to show
- * (#110): an agent's tool calls and transcript, what was checked, what it
- * wrote, what it committed (#112). The Transcript tab stays on an agent whose factory keeps none, to
- * say so and why. What it cost is the drawer's header line, not a tab.
+ * (#110): an agent's tool calls, the prompts it was sent and its harness's
+ * output, what was checked, what it wrote, what it committed (#112). An
+ * agent's transcript tabs stay on when its factory keeps none, to say so and
+ * why. What it cost is the drawer's header line, not a tab.
  */
 export function tabsFor(detail: PhaseDetail): Tab[] {
   const tabs = Object.keys(TABS) as Tab[];
@@ -41,22 +46,41 @@ export function tabsFor(detail: PhaseDetail): Tab[] {
     if (tab === "diff") return detail.commits.length > 0;
     if (tab === "artifacts") return detail.artifacts.length > 0;
     if (tab === "checks") return detail.checks.length + detail.rejections.length + detail.commands.length > 0;
-    if (tab === "tools") return detail.kind === "agent" && detail.tools.length > 0;
-    if (tab === "transcript") return detail.kind === "agent";
+    if (tab === "tools") return detail.kind === "agent" && detail.toolCalls > 0;
+    if (tab === "prompt" || tab === "output") return detail.kind === "agent";
     return true;
   });
+}
+
+/** The tab an address asks for: a link from before the transcript had two tabs opens on its prompts. */
+export function askedTab(tab: string | null): string | null {
+  return tab === "transcript" ? "prompt" : tab;
+}
+
+/**
+ * What the tabs that read on their own were given (#275): each is its own
+ * query, asked for only while its tab is shown (`PhaseDetails`), and undefined
+ * until it answers.
+ */
+export interface Loaded {
+  tools?: ToolCall[];
+  events?: Row[];
+  prompt?: Prompts;
+  output?: Output;
 }
 
 /**
  * A phase opened into its tabs, on Overview unless the address says another.
  * Pure: everything comes from `item` (the phase as the session's story tells
- * it), `detail` (the `sessions.phase` query) and `tab`; a repo file is read
- * through `read` (the `artifacts.read` action), and a commit's diff through
- * `readDiff` (`diffs.commit`), when its tab is shown.
+ * it), `detail` (the `sessions.phase` query), `loaded` (the shown tab's own
+ * query, for the tabs that have one) and `tab`; a repo file is read through
+ * `read` (the `artifacts.read` action), and a commit's diff through `readDiff`
+ * (`diffs.commit`), when its tab is shown.
  */
-export function PhaseTabs({ item, detail, where, tab, onTab, read, readDiff }: {
+export function PhaseTabs({ item, detail, loaded = {}, where, tab, onTab, read, readDiff }: {
   item: Phase;
   detail: PhaseDetail;
+  loaded?: Loaded;
   where: Where;
   tab: string | null;
   onTab?: (tab: string) => void;
@@ -64,24 +88,37 @@ export function PhaseTabs({ item, detail, where, tab, onTab, read, readDiff }: {
   readDiff?: ReadDiff;
 }) {
   const tabs = tabsFor(detail);
-  const shown = tabs.includes(tab as Tab) ? tab as Tab : "overview";
+  const asked = askedTab(tab);
+  const shown = tabs.includes(asked as Tab) ? asked as Tab : "overview";
   return (
     <Tabs label="Phase" selected={shown} onSelect={(next) => onTab?.(next)} tabs={tabs.map((each) => ({
       id: each,
-      label: <>{TABS[each]}{each === "transcript" && !detail.transcript.on ? <span className="font-normal text-muted"> · off</span>
-        : each === "transcript" && detail.transcript.pruned ? <span className="font-normal text-muted"> · {prunedWord(detail.transcript.pruned.reason)}</span> : null}</>,
+      label: <>{TABS[each]}{(each === "prompt" || each === "output") && !detail.transcripts
+        ? <span className="font-normal text-muted"> · off</span> : null}</>,
     }))}>
       <TabPanel key={shown} value={shown} className="grid gap-2 pt-4 text-sm">
         {shown === "overview" ? <Overview item={item} detail={detail} where={where} /> : null}
         {shown === "diff" ? <CommitDiffs detail={detail} readDiff={readDiff} /> : null}
         {shown === "artifacts" ? <Artifacts detail={detail} where={where} read={read} /> : null}
         {shown === "checks" ? <Checks detail={detail} /> : null}
-        {shown === "tools" ? <Tools detail={detail} /> : null}
-        {shown === "transcript" ? <Transcript detail={detail} /> : null}
-        {shown === "events" ? <Events detail={detail} /> : null}
+        {shown === "tools" ? <Loading of={loaded.tools}>{(tools) => <Tools tools={tools} detail={detail} />}</Loading> : null}
+        {shown === "prompt" ? (
+          !detail.transcripts ? <TranscriptOff detail={detail} />
+            : <Loading of={loaded.prompt}>{(prompts) => <AgentPrompt detail={detail} prompts={prompts} />}</Loading>
+        ) : null}
+        {shown === "output" ? (
+          !detail.transcripts ? <TranscriptOff detail={detail} />
+            : <Loading of={loaded.output}>{(output) => <HarnessOutput detail={detail} output={output} />}</Loading>
+        ) : null}
+        {shown === "events" ? <Loading of={loaded.events}>{(rows) => <Events rows={rows} />}</Loading> : null}
       </TabPanel>
     </Tabs>
   );
+}
+
+/** A tab whose query has not answered yet says so; once it has, it shows what came. */
+function Loading<T>({ of, children }: { of: T | undefined; children: (got: T) => ReactNode }) {
+  return of === undefined ? <p className="text-muted">Loading…</p> : <>{children(of)}</>;
 }
 
 // ── Diff ─────────────────────────────────────────────────────────────────────
@@ -366,8 +403,7 @@ function Checks({ detail }: { detail: PhaseDetail }) {
 
 // ── Tools ────────────────────────────────────────────────────────────────────
 
-function Tools({ detail }: { detail: PhaseDetail }) {
-  const { tools } = detail;
+function Tools({ tools, detail }: { tools: ToolCall[]; detail: PhaseDetail }) {
   const rows = toolRows(tools);
   const failed = tools.filter((call) => !call.ok).length;
   const bySubagents = tools.filter((call) => call.parentCallId).length;
@@ -401,7 +437,7 @@ function Tools({ detail }: { detail: PhaseDetail }) {
       ) : <p className="text-muted">No tool calls.</p>}
       <p className={off}>
         A tool call travels as its name, whether it worked and how long it took. What a call was given and returned is
-        transcript material{detail.transcript.on ? ", on the Transcript tab" : ", and this factory has not opted in"}.
+        transcript material{detail.transcripts ? ", on the Harness output tab" : ", and this factory has not opted in"}.
       </p>
     </>
   );
@@ -439,43 +475,49 @@ const formatMs = (ms: number) => (ms < 1000 ? `${ms}ms` : formatDuration(ms / 10
 // What a tab says of what it does not show, and why.
 const off = "rounded-lg border border-dashed border-line-strong px-3 py-2 text-muted";
 
-// ── Transcript ───────────────────────────────────────────────────────────────
+// ── Agent prompt · Harness output ───────────────────────────────────────────
 
-function Transcript({ detail }: { detail: PhaseDetail }) {
-  const { transcript } = detail;
-  if (!transcript.on) {
-    return (
-      <>
-        {detail.task ? (
-          <p>The instructions were <code>{detail.task}</code> and the journal as of this phase
-            {detail.promptDigest ? <>; the prompt&apos;s digest is <code>{detail.promptDigest.slice(0, 16)}</code></> : null}.</p>
-        ) : null}
-        <p className={off}>
-          Transcripts are off for this factory: the session shipped no prompt and no harness output.{" "}
-          <code>cockpit: {"{transcripts: true}"}</code> in <code>asf/factory.yaml</code> turns them on.
-        </p>
-      </>
-    );
-  }
-  if (transcript.pruned) {
-    return (
-      <>
-        <p className={off}>This <PrunedWords what={"transcript"} pruned={transcript.pruned} />: the prompts this phase sent and its
-          harness&apos;s output are no longer kept.{transcript.pruned.reason === "aged_out"
-            ? " A finished session's transcript is kept for as long as the cockpit's retention allows." : ""}</p>
-        {detail.promptDigest ? <p className="text-muted">The prompt&apos;s digest was <code>{detail.promptDigest.slice(0, 16)}</code>.</p> : null}
-      </>
-    );
-  }
-  if (!transcript.runs.length) {
+/** Either transcript tab, for a factory that keeps none: what is known of the prompt without one, and how to turn them on. */
+function TranscriptOff({ detail }: { detail: PhaseDetail }) {
+  return (
+    <>
+      {detail.task ? (
+        <p>The instructions were <code>{detail.task}</code> and the journal as of this phase
+          {detail.promptDigest ? <>; the prompt&apos;s digest is <code>{detail.promptDigest.slice(0, 16)}</code></> : null}.</p>
+      ) : null}
+      <p className={off}>
+        Transcripts are off for this factory: the session shipped no prompt and no harness output.{" "}
+        <code>cockpit: {"{transcripts: true}"}</code> in <code>asf/factory.yaml</code> turns them on.
+      </p>
+    </>
+  );
+}
+
+/** Either transcript tab, once its part was pruned: the events are still here, and their bodies are not. */
+function TranscriptPruned({ detail, pruned }: { detail: PhaseDetail; pruned: Pruned }) {
+  return (
+    <>
+      <p className={off}>This <PrunedWords what={"transcript"} pruned={pruned} />: the prompts this phase sent and its
+        harness&apos;s output are no longer kept.{pruned.reason === "aged_out"
+          ? " A finished session's transcript is kept for as long as the cockpit's retention allows." : ""}</p>
+      {detail.promptDigest ? <p className="text-muted">The prompt&apos;s digest was <code>{detail.promptDigest.slice(0, 16)}</code>.</p> : null}
+    </>
+  );
+}
+
+/** What the phase sent its agent, walk by walk: the task first, then each correction, with the agent's identity on the first. */
+function AgentPrompt({ detail, prompts }: { detail: PhaseDetail; prompts: Prompts }) {
+  if (prompts.pruned) return <TranscriptPruned detail={detail} pruned={prompts.pruned} />;
+  const runs = runsOf(detail.walks, prompts.items);
+  if (!runs.length) {
     return <p className="text-muted">Nothing was sent to this agent: a phase answered from the record sends no prompt.</p>;
   }
   return (
     <>
-      {transcript.runs.map((run, index) => (
+      {runs.map((run, index) => (
         <div key={index} className="grid gap-2">
-          {transcript.runs.length > 1 ? <h4 className="mt-2">Run {index + 1} · {formatTime(run.at)}</h4> : null}
-          {run.sends.map((send) => (
+          {runs.length > 1 ? <h4 className="mt-2">Run {index + 1} · {formatTime(run.at)}</h4> : null}
+          {run.items.map((send) => (
             <div key={send.seq} className="grid gap-1">
               <h4 className="mt-2">Prompt {send.send}{send.send > 1 ? " · a correction" : ""}
                 {send.truncated ? <span className="normal-case"> · cut at the cap</span> : null}</h4>
@@ -483,8 +525,26 @@ function Transcript({ detail }: { detail: PhaseDetail }) {
               <Pre>{send.prompt}</Pre>
             </div>
           ))}
-          <h4 className="mt-2">Harness output</h4>
-          {run.output ? <Pre>{run.output}</Pre> : <p className="text-muted">None yet.</p>}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** The harness's raw stream, walk by walk, as the factory cut it into chunks and the cockpit joins them again. */
+function HarnessOutput({ detail, output }: { detail: PhaseDetail; output: Output }) {
+  if (output.pruned) return <TranscriptPruned detail={detail} pruned={output.pruned} />;
+  const runs = runsOf(detail.walks, output.items);
+  if (!runs.length) {
+    return <p className="text-muted">{detail.status === "running" ? "None yet."
+      : "No harness output: a phase answered from the record runs no harness."}</p>;
+  }
+  return (
+    <>
+      {runs.map((run, index) => (
+        <div key={index} className="grid gap-2">
+          {runs.length > 1 ? <h4 className="mt-2">Run {index + 1} · {formatTime(run.at)}</h4> : null}
+          <Pre>{joined(run.items)}</Pre>
         </div>
       ))}
     </>
@@ -493,12 +553,13 @@ function Transcript({ detail }: { detail: PhaseDetail }) {
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
-function Events({ detail }: { detail: PhaseDetail }) {
+/** This phase's share of the session's events, read and unread alike. Its transcript is on the two tabs before. */
+function Events({ rows }: { rows: Row[] }) {
   return (
     <Table>
       <thead><tr><th className={num}>seq</th><th>kind</th><th>what happened</th><th>at</th></tr></thead>
       <tbody>
-        {detail.events.map((row) => (
+        {rows.map((row) => (
           <tr key={row.seq} className={row.unreadBecause ? "text-muted" : undefined}>
             <td className={num}>{row.seq}</td>
             <td><code>{row.kind}</code>{row.v > 1 || row.unreadBecause ? <span className="text-muted"> v{row.v}</span> : null}</td>

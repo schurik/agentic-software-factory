@@ -22,7 +22,8 @@
  * never shown twice, with one row saying the resume happened.
  *
  * Nothing here reads a transcript event (`prompt_rendered`, `harness_output`):
- * their bodies age out, and no view but the Transcript tab may depend on them.
+ * their bodies age out, and no view but the Agent prompt and Harness output
+ * tabs may depend on them. The session page is not even handed one.
  * Handlers are keyed by kind and version like session.ts's readers, and are
  * only ever called for an event a reader there could read.
  */

@@ -17,9 +17,10 @@
  * replay finds every seq already stored, and the Events tab still lists the
  * line and says what became of it.
  *
- * The invariant this rests on: no view but the Transcript tab derives from a
- * transcript body (`tests/pruned.test.ts` rebuilds every other one from a
- * pruned corpus and finds them unchanged).
+ * The invariant this rests on: no view but a phase's Agent prompt and Harness
+ * output tabs derives from a transcript body (`tests/pruned.test.ts` rebuilds
+ * every other one from a pruned corpus and finds them unchanged) — which is
+ * also why a transcript is stored apart from the other events (schema.ts).
  */
 import { Payload } from "./payload";
 import { at, type Summary } from "./session";
@@ -37,6 +38,11 @@ const BODIES: Record<string, { weight: Weight; fields: string[] }> = {
 
 export function weightOf(kind: string): Weight {
   return BODIES[kind]?.weight ?? "core";
+}
+
+/** Whether an event of `kind` is a transcript's, stored in `transcripts` rather than `events` (schema.ts). */
+export function isTranscript(kind: string): boolean {
+  return weightOf(kind) === "transcript";
 }
 
 export type PruneReason = "aged_out" | "purged";
@@ -121,6 +127,6 @@ export function agesOutAt(summary: Summary): number | null {
  */
 export function retained(held: boolean | undefined, fresh: { kind: string }[], summary: Summary):
     { transcripts: boolean | undefined; transcriptsDue: number | undefined } {
-  const transcripts = fresh.some((event) => weightOf(event.kind) === "transcript") ? true : held;
+  const transcripts = fresh.some((event) => isTranscript(event.kind)) ? true : held;
   return { transcripts, transcriptsDue: transcripts ? agesOutAt(summary) ?? undefined : undefined };
 }

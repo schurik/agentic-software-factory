@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { type ObjectType, v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { find, type Limits, STATUSES } from "./model/filter";
@@ -11,7 +11,8 @@ import { forgeWeb } from "./forge/memory";
 import { statesOf } from "./items";
 import { readDescription } from "./model/description";
 import { miniOf } from "./model/graph";
-import { phaseView, readSummary, view } from "./model/session";
+import { outputOf, promptsOf } from "./model/phase";
+import { phaseTools as toolsOf, phaseView, readSummary, type Recorded, rowsOf, view } from "./model/session";
 import { phaseType } from "./model/story";
 import { canRead, readable, viewing } from "./viewer";
 
@@ -72,17 +73,18 @@ async function* withSummaries(records: AsyncIterable<Doc<"sessions">>) {
 }
 
 /**
- * One session's page: its summary, its phases in order and every stored
- * event, and the per-session budget its spend is shown against — the one the
+ * One session's page: its summary, its phases in order, the events it cannot
+ * read, and the per-session budget its spend is shown against — the one the
  * factory's own `asf check` on its default branch last said factory.yaml
- * sets, null when none reached the cockpit.
+ * sets, null when none reached the cockpit. It reads no transcript (#275):
+ * those are a phase's tabs' own queries, below.
  */
 export const get = query({
   args: { factory: v.string(), session: v.string(), signIn: v.optional(v.string()) },
   handler: async (ctx, { factory, session, signIn }) => {
     const stored = await storedSession(ctx, factory, session, signIn);
     if (stored === null) return null;
-    const page = view(stored.events, stored.acked);
+    const page = view(stored.events, stored.acked, stored.recorded);
     const check = await defaultCheck(ctx, stored.factory, (await repoOf(ctx, stored.factory))?.defaultBranch || null);
     const budget = check && readDescription(check.description).budget;
     // Whether the viewer may purge its bodies (retention.ts): an admin of its repository.
@@ -92,18 +94,79 @@ export const get = query({
   },
 });
 
+const phaseArgs = { factory: v.string(), session: v.string(), phaseId: v.string(), signIn: v.optional(v.string()) };
+
 /**
  * One phase of that page, opened into its tabs. Asked for when a person opens
- * the phase, not with the page: it carries the phase's artifacts and its
- * transcript, which the page as a whole has no use for.
+ * the phase, not with the page: it carries the phase's artifacts, which the
+ * page as a whole has no use for. What its Tools, Events, Agent prompt and
+ * Harness output tabs show is each a query of its own, asked for when that tab
+ * is: a phase is opened to look at one thing, not all of them.
  */
 export const phase = query({
-  args: { factory: v.string(), session: v.string(), phaseId: v.string(), signIn: v.optional(v.string()) },
+  args: phaseArgs,
   handler: async (ctx, { factory, session, phaseId, signIn }) => {
     const stored = await storedSession(ctx, factory, session, signIn);
-    return stored && phaseView(stored.events, stored.acked, phaseId);
+    const detail = stored && phaseView(stored.events, stored.acked, phaseId);
+    return detail && { ...detail, transcripts: stored!.recorded.transcribed };
   },
 });
+
+/** A phase's Tools tab: the tool calls it made. Null for a session the viewer may not see. */
+export const phaseTools = query({
+  args: phaseArgs,
+  handler: async (ctx, { factory, session, phaseId, signIn }) => {
+    const stored = await storedSession(ctx, factory, session, signIn);
+    return stored && toolsOf(stored.events, stored.acked, phaseId);
+  },
+});
+
+/**
+ * A session's events as rows, in seq order — or, with a phase, that phase's
+ * Events tab. Its transcript is not among them: that is the transcript tabs'.
+ * Null for a session the viewer may not see.
+ */
+export const events = query({
+  args: { factory: v.string(), session: v.string(), phaseId: v.optional(v.string()), signIn: v.optional(v.string()) },
+  handler: async (ctx, { factory, session, phaseId, signIn }) => {
+    const stored = await storedSession(ctx, factory, session, signIn);
+    return stored && rowsOf(stored.events, phaseId);
+  },
+});
+
+/**
+ * A phase's Agent prompt tab: the prompts it sent, read off that phase's own
+ * `prompt_rendered` events — one index range of `transcripts`, and nothing else
+ * of the session. Null for a session the viewer may not see.
+ */
+export const prompts = query({
+  args: phaseArgs,
+  handler: async (ctx, args) => {
+    const events = await transcriptOf(ctx, args, "prompt_rendered");
+    return events && promptsOf(events);
+  },
+});
+
+/** A phase's Harness output tab, the same way: off its own `harness_output` events alone. */
+export const output = query({
+  args: phaseArgs,
+  handler: async (ctx, args) => {
+    const events = await transcriptOf(ctx, args, "harness_output");
+    return events && outputOf(events);
+  },
+});
+
+/** One phase's transcript events of `kind` up to what was acknowledged, or null when the viewer may not see the session. */
+async function transcriptOf(ctx: QueryCtx, { factory: named, session, phaseId, signIn }: ObjectType<typeof phaseArgs>,
+                            kind: string): Promise<StoredEvent[] | null> {
+  const found = await sessionRecord(ctx, named, session, signIn);
+  if (found === null) return null;
+  return await ctx.db
+    .query("transcripts")
+    .withIndex("by_phase", (q) => q.eq("factory", found.factory).eq("session", session).eq("phase", phaseId)
+      .eq("kind", kind).lte("seq", found.record.acked))
+    .collect();
+}
 
 /**
  * Where a session is now, for a list's row (Now's Running): the chapter it is
@@ -130,11 +193,27 @@ export const progress = query({
 });
 
 /**
- * A session's events and how far they were acknowledged, and the factory as
- * they are stored under it — or null when the viewer may not see it.
+ * A session's events and how far they were acknowledged, what its record says
+ * of them (`Recorded`), and the factory as they are stored under it — or null
+ * when the viewer may not see it. Its transcript is not among the events: those
+ * are stored apart (schema.ts), so no query that starts here reads one.
  */
 export async function storedSession(ctx: QueryCtx, named: string, session: string, signIn?: string):
-    Promise<{ factory: string; acked: number; events: StoredEvent[] } | null> {
+    Promise<{ factory: string; acked: number; events: StoredEvent[]; recorded: Recorded } | null> {
+  const found = await sessionRecord(ctx, named, session, signIn);
+  if (found === null) return null;
+  const { factory, record } = found;
+  const events = await ctx.db
+    .query("events")
+    .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session))
+    .collect();
+  return { factory, acked: record.acked, events,
+           recorded: { summary: readSummary(record.summary), transcribed: record.transcribed === true } };
+}
+
+/** A session's record and the factory it is stored under, or null when the viewer may not see it. */
+async function sessionRecord(ctx: QueryCtx, named: string, session: string, signIn?: string):
+    Promise<{ factory: string; record: Doc<"sessions"> } | null> {
   // A session the viewer may not see and one that does not exist answer alike.
   const factory = await readable(ctx, await viewing(ctx, signIn), named);
   if (factory === null) return null;
@@ -142,10 +221,5 @@ export async function storedSession(ctx: QueryCtx, named: string, session: strin
     .query("sessions")
     .withIndex("by_session", (q) => q.eq("factory", factory).eq("session", session))
     .unique();
-  if (record === null) return null;
-  const events = await ctx.db
-    .query("events")
-    .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session))
-    .collect();
-  return { factory, acked: record.acked, events };
+  return record && { factory, record };
 }

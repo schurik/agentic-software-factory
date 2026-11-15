@@ -43,9 +43,13 @@ build="$(bun -e 'import { buildFromEnv } from "./convex/model/build.ts"; console
 # inbox finds a waiting session by; this marks them, and then has nothing to do.
 ./convex.sh run inbox:backfill > /dev/null 2>&1 || echo "start: the inbox's backfill did not run; older waiting sessions are missing from it"
 
-# Transcripts of sessions an older cockpit stored are found, and every one
-# still held is dated again under COCKPIT_TRANSCRIPT_DAYS as it is now.
-./convex.sh run retention:backfill > /dev/null 2>&1 || echo "start: the retention backfill did not run; transcripts stored before it may not age out"
+# Transcripts an older cockpit stored among the other events are moved to their
+# own table (convex/transcripts.ts), which the session page never reads. Then,
+# from there, the transcripts of sessions an older cockpit stored are found, and
+# every one still held is dated again under COCKPIT_TRANSCRIPT_DAYS as it is
+# now: the move runs the retention backfill when it is done, so it never looks
+# before the move has.
+./convex.sh run transcripts:move > /dev/null 2>&1 || echo "start: the transcripts' move did not run; older sessions' transcripts are not shown, and may not age out"
 
 # Sessions an older cockpit stored have no rows for their phases, which a
 # factory's Overview counts gates by; this writes them from each one's events.

@@ -67,8 +67,8 @@ describe("ingest", () => {
     });
     expect(await again.json()).toEqual({ acked: 2 });
 
-    const view = await t.query(api.sessions.get, { factory: "acme/widgets", session: "5c0075aa" });
-    expect(view?.events.map((row) => [row.seq, JSON.parse(row.raw)])).toEqual([[1, { n: 1 }], [2, { n: 2 }]]);
+    const rows = await t.query(api.sessions.events, { factory: "acme/widgets", session: "5c0075aa" });
+    expect(rows?.map((row) => [row.seq, JSON.parse(row.raw)])).toEqual([[1, { n: 1 }], [2, { n: 2 }]]);
   });
 
   it("stores a payload exactly as sent, whatever its keys", async () => {
@@ -77,8 +77,8 @@ describe("ingest", () => {
     const payload = { $schema: "x", "größe": 1, _private: { $ref: "#/a" } };
     await ingest(t, token, { session: "5c0075aa", events: [{ ...line(1, "artifact_written"), payload }] });
 
-    const view = await t.query(api.sessions.get, { factory: "acme/widgets", session: "5c0075aa" });
-    expect(JSON.parse(view!.events[0].raw)).toEqual(payload);
+    const rows = await t.query(api.sessions.events, { factory: "acme/widgets", session: "5c0075aa" });
+    expect(JSON.parse(rows![0].raw)).toEqual(payload);
   });
 
   it("refuses a batch too big to store in one go, so the station sends it in smaller ones", async () => {

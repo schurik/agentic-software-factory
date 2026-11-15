@@ -90,6 +90,7 @@ import type * as setup from "../setup.js";
 import type * as spelling from "../spelling.js";
 import type * as stations from "../stations.js";
 import type * as tokens from "../tokens.js";
+import type * as transcripts from "../transcripts.js";
 import type * as trigger from "../trigger.js";
 import type * as viewer from "../viewer.js";
 
@@ -182,6 +183,7 @@ declare const fullApi: ApiFromModules<{
   spelling: typeof spelling;
   stations: typeof stations;
   tokens: typeof tokens;
+  transcripts: typeof transcripts;
   trigger: typeof trigger;
   viewer: typeof viewer;
 }>;

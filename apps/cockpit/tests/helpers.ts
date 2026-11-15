@@ -3,7 +3,12 @@ import { vi } from "vitest";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
 import { APP_URL, type FakeForge, teamMode } from "./forge";
-import type { WireEvent } from "../convex/model/wire";
+import type { WireEvent, StoredEvent } from "../convex/model/wire";
+import type { Loaded } from "../components/session/PhaseTabs";
+import { outputOf, promptsOf } from "../convex/model/phase";
+import { Payload } from "../convex/model/payload";
+import { isTranscript } from "../convex/model/retention";
+import { phaseTools, rowsOf } from "../convex/model/session";
 
 export type { WireEvent };
 
@@ -87,4 +92,18 @@ export async function team(t: Cockpit, forge: FakeForge, organization = "acme"):
 export async function signIn(t: Cockpit, forge: FakeForge, login: string): Promise<string> {
   const { state } = await t.action(api.auth.start, {});
   return await t.action(api.auth.finish, { code: forge.authorize(login), state });
+}
+
+/**
+ * What a phase's tabs that read on their own are given, answered off a
+ * session's `events` the way their queries answer (`sessions.ts`): the tools
+ * and rows off every event but the transcript, the transcript tabs off that
+ * phase's transcript alone. For rendering the tabs without a cockpit.
+ */
+export function loadedOf(events: StoredEvent[], acked: number, phaseId: string): Loaded {
+  const core = events.filter((event) => !isTranscript(event.kind));
+  const transcript = events.filter((event) => isTranscript(event.kind) && event.seq <= acked &&
+    Payload.parse(event.payload).str("phase_id") === phaseId);
+  return { tools: phaseTools(core, acked, phaseId), events: rowsOf(core, phaseId),
+           prompt: promptsOf(transcript), output: outputOf(transcript) };
 }

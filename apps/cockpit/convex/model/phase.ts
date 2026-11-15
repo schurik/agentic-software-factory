@@ -1,16 +1,20 @@
 /**
- * One phase opened into its tabs: Artifacts · Overview · Checks · Tools ·
- * Transcript · Cost · Events — the detail a phase card keeps one click away.
+ * One phase opened into its tabs: Overview · Diff · Artifacts · Checks · Tools ·
+ * Agent prompt · Harness output · Events — the detail a phase card keeps one
+ * click away.
  *
  * Folded from the session's events like the story (story.ts), keyed by kind and
  * version the same way, but for one phase and on demand: a phase's detail holds
- * its artifacts' bodies and its transcript, which the session page as a whole
- * has no reason to carry.
+ * its artifacts' bodies, which the session page as a whole has no reason to
+ * carry. Its tool calls, its event rows and its transcript are each a query of
+ * their own, asked for when their tab is shown (#275) — the transcript read
+ * from its own table (`promptsOf`, `outputOf`), never folded with the rest.
  */
 import { Payload } from "./payload";
 import { prunedOf, type Pruned } from "./retention";
 import type { Row } from "./session";
 import type { At } from "./story";
+import type { StoredEvent } from "./wire";
 
 // ── what the tabs get ────────────────────────────────────────────────────────
 
@@ -129,25 +133,31 @@ export interface Send {
   truncated: boolean;
 }
 
-/** One walk of the phase that sent the agent anything: what it was sent, and its harness's raw stream. */
-export interface TranscriptRun {
+/** A piece of the harness's raw stream, cut where a chunk filled (`engine/agents.py`'s `_HarnessOutput`). */
+export interface Chunk {
+  seq: number;
+  chunk: number;
+  text: string;
+}
+
+/** Where one walk of the phase began: its `phase_started`. What a transcript's events are told apart by (`runsOf`). */
+export interface Walked {
+  seq: number;
   at: string;
-  sends: Send[];
-  output: string;
 }
 
 /**
- * `on` is whether the session shipped any transcript at all. A factory writes
- * one for every prompt it sends once `cockpit.transcripts` is on, so a session
- * with none has it off — not a transcript that went missing. `pruned` says
- * when this phase's transcript aged out or was purged (retention.ts): its
- * events are still here, and their bodies are not.
+ * One part of a phase's transcript, as its tab reads it: the prompts it sent,
+ * or its harness's output. `pruned` says when it aged out or was purged
+ * (retention.ts): its events are still here, and their bodies are not.
  */
-export interface Transcript {
-  on: boolean;
-  runs: TranscriptRun[];
+export interface TranscriptPart<T> {
   pruned: Pruned | null;
+  items: T[];
 }
+
+export type Prompts = TranscriptPart<Send>;
+export type Output = TranscriptPart<Chunk>;
 
 export interface PhaseDetail {
   phaseId: string;
@@ -161,13 +171,17 @@ export interface PhaseDetail {
   error: string;
   envelope: Envelope | null;
   commits: CommitMade[];
-  transcript: Transcript;
-  events: Row[];
+  // Whether the session shipped any transcript at all. A factory writes one
+  // for every prompt it sends once `cockpit.transcripts` is on, so a session
+  // with none has it off — not a transcript that went missing.
+  transcripts: boolean;
+  walks: Walked[];
   artifacts: Artifact[];
   checks: GateCheck[];
   rejections: Rejection[];
   commands: Command[];
-  tools: ToolCall[];
+  // How many tool calls it made: whether it has a Tools tab. The calls are that tab's own query.
+  toolCalls: number;
   usage: Turn[];
 }
 
@@ -186,12 +200,6 @@ interface Commit {
   phaseId: string;
 }
 
-interface Walk {
-  at: string;
-  sends: Send[];
-  chunks: { chunk: number; text: string }[];
-}
-
 export interface DetailState {
   phaseId: string;
   name: string;
@@ -204,9 +212,8 @@ export interface DetailState {
   error: string;
   envelope: Envelope | null;
   commits: CommitMade[];               // this phase's own
-  walks: Walk[];
+  walks: Walked[];
   transcripts: boolean;             // whether the session shipped any transcript event
-  pruned: Pruned | null;            // whether this phase's transcript has been pruned, and how
   artifacts: Artifact[];
   checks: GateCheck[];
   rejections: Rejection[];
@@ -222,7 +229,7 @@ export interface DetailState {
 
 export function beginDetail(phaseId: string): DetailState {
   return { phaseId, name: "", kind: "", owner: "", description: "", task: "", promptDigest: "", status: "",
-           error: "", envelope: null, commits: [], walks: [], transcripts: false, pruned: null,
+           error: "", envelope: null, commits: [], walks: [], transcripts: false,
            artifacts: [], checks: [], rejections: [], commands: [], tools: [], usage: [],
            phaseNames: new Map(), repoWrites: [], sessionCommits: [] };
 }
@@ -258,7 +265,7 @@ const toolCalled = own((state, p, { seq, ts }) => {
                      parentCallId: p.str("parent_call_id") });
 });
 
-function phaseStarted(state: DetailState, p: Payload, { ts }: At): void {
+function phaseStarted(state: DetailState, p: Payload, { seq, ts }: At): void {
   if (p.str("name")) state.phaseNames.set(p.str("phase_id"), p.str("name"));
   if (!mine(state, p)) return;
   // A replay announces the phase without a digest: it sent nothing, so it keeps the one the live run had.
@@ -267,13 +274,7 @@ function phaseStarted(state: DetailState, p: Payload, { ts }: At): void {
     description: p.str("description") || state.description, task: p.str("task") || state.task,
     promptDigest: p.str("prompt_digest") || state.promptDigest, status: "running", error: "",
   });
-  state.walks.push({ at: ts, sends: [], chunks: [] });
-}
-
-/** What the phase is doing now: the walk its latest `phase_started` began. */
-function walk(state: DetailState): Walk {
-  if (state.walks.length === 0) state.walks.push({ at: "", sends: [], chunks: [] });
-  return state.walks.at(-1)!;
+  state.walks.push({ seq, at: ts });
 }
 
 const DETAILERS: Record<string, Record<number, Detailer>> = {
@@ -304,24 +305,10 @@ const DETAILERS: Record<string, Record<number, Detailer>> = {
                          json: JSON.stringify(envelope?.value() ?? {}, null, 2) };
     }),
   },
-  // Transcript events: their bodies age out, and nothing but the Transcript tab reads them.
-  prompt_rendered: {
-    1: (state, p, { seq, ts }) => {
-      state.transcripts = true;
-      if (!mine(state, p)) return;
-      state.pruned ??= prunedOf(p);
-      walk(state).sends.push({ seq, at: ts, send: p.num("send"), digest: p.str("digest"), system: p.str("system"),
-                               prompt: p.str("prompt"), truncated: p.bool("truncated") });
-    },
-  },
-  harness_output: {
-    1: (state, p) => {
-      state.transcripts = true;
-      if (!mine(state, p)) return;
-      state.pruned ??= prunedOf(p);
-      walk(state).chunks.push({ chunk: p.num("chunk"), text: p.str("text") });
-    },
-  },
+  // Transcript events: stored apart (schema.ts), and read by their own tabs (`promptsOf`, `outputOf`), so
+  // a session's are not folded here at all. Handed one all the same, the tabs take only that it came.
+  prompt_rendered: { 1: (state) => { state.transcripts = true; } },
+  harness_output: { 1: (state) => { state.transcripts = true; } },
   gate_result: {
     1: own((state, p, { seq, ts }) => {
       const checks = p.list("checks").map((check) => ({ item: check.str("item"), ok: check.bool("ok"), note: check.str("note") }));
@@ -391,33 +378,81 @@ function locate(state: DetailState, artifact: Artifact): Artifact {
   };
 }
 
-/** Whether a row is about this phase: an event naming it, or the wait it asked. */
-function isAbout(row: Row, phaseId: string): boolean {
+/**
+ * Whether a row is about this phase: an event naming it, or the wait it asked.
+ * The Events tab is this phase's share of the session's rows, unread ones
+ * included — nothing is hidden here either.
+ */
+export function isAbout(row: Row, phaseId: string): boolean {
   const p = Payload.parse(row.raw);
   return p.str("phase_id") === phaseId || p.obj("waiting_for")?.str("phase_id") === phaseId;
 }
 
-/**
- * The tabs, or null for a phase the session never started. `rows` is every
- * row of the session, as the page lists them: the Events tab is this phase's
- * share of them, unread ones included — nothing is hidden here either.
- */
-export function finishDetail(state: DetailState, rows: Row[]): PhaseDetail | null {
+/** The tabs, or null for a phase the session never started. */
+export function finishDetail(state: DetailState): PhaseDetail | null {
   if (!state.name) return null;
-  const runs = state.walks
-    .filter((each) => each.sends.length > 0 || each.chunks.length > 0)
-    .map((each) => ({
-      at: each.at, sends: each.sends,
-      output: [...each.chunks].sort((a, b) => a.chunk - b.chunk).map((chunk) => chunk.text).join(""),
-    }));
   return {
     phaseId: state.phaseId, name: state.name, kind: state.kind, owner: state.owner,
     description: state.description, task: state.task, promptDigest: state.promptDigest,
     status: state.status, error: state.error, envelope: state.envelope, commits: state.commits,
-    transcript: { on: state.transcripts, runs, pruned: state.pruned },
-    events: rows.filter((row) => isAbout(row, state.phaseId)),
+    transcripts: state.transcripts, walks: state.walks,
     artifacts: state.artifacts.map((artifact) => locate(state, artifact)),
     checks: state.checks, rejections: state.rejections, commands: state.commands,
-    tools: state.tools, usage: state.usage,
+    toolCalls: state.tools.length, usage: state.usage,
   };
+}
+
+// ── the transcript: each of its tabs, read from its own table ────────────────
+
+/**
+ * The Agent prompt tab: what one phase sent its agent, read off its
+ * `prompt_rendered` events alone (the `transcripts` table's `by_phase` range).
+ * Only the version this cockpit reads is taken: a newer one is a newer
+ * cockpit's to show.
+ */
+export function promptsOf(events: StoredEvent[]): Prompts {
+  return part(events, "prompt_rendered", (p, { seq, ts }) => ({
+    seq, at: ts, send: p.num("send"), digest: p.str("digest"), system: p.str("system"), prompt: p.str("prompt"),
+    truncated: p.bool("truncated"),
+  }));
+}
+
+/** The Harness output tab: one phase's raw stream, read off its `harness_output` events alone. */
+export function outputOf(events: StoredEvent[]): Output {
+  return part(events, "harness_output", (p, { seq }) => ({ seq, chunk: p.num("chunk"), text: p.str("text") }));
+}
+
+function part<T>(events: StoredEvent[], kind: string, read: (p: Payload, at: At) => T): TranscriptPart<T> {
+  let pruned: Pruned | null = null;
+  const items: T[] = [];
+  for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
+    if (event.kind !== kind || event.v !== 1) continue;
+    const p = Payload.parse(event.payload);
+    pruned ??= prunedOf(p);
+    items.push(read(p, { seq: event.seq, ts: event.ts }));
+  }
+  return { pruned, items };
+}
+
+/**
+ * A transcript's items told apart by the walk of the phase each came in — the
+ * last `phase_started` of it before them — leaving out a walk that sent
+ * nothing. One that came before any walk (a stream cut short) is a walk of its
+ * own, of no known time.
+ */
+export function runsOf<T extends { seq: number }>(walks: Walked[], items: T[]): { at: string; items: T[] }[] {
+  const runs = [{ seq: -Infinity, at: "" }, ...[...walks].sort((a, b) => a.seq - b.seq)]
+    .map((walk) => ({ ...walk, items: [] as T[] }));
+  for (const item of items) {
+    let run = runs[0];
+    for (const each of runs) if (each.seq < item.seq) run = each;
+    run.items.push(item);
+  }
+  for (const run of runs) run.items.sort((a, b) => a.seq - b.seq);
+  return runs.filter((run) => run.items.length > 0).map(({ at, items: each }) => ({ at, items: each }));
+}
+
+/** A run's harness output as one text: its chunks in the order they were cut. */
+export function joined(chunks: Chunk[]): string {
+  return [...chunks].sort((a, b) => a.chunk - b.chunk).map((chunk) => chunk.text).join("");
 }

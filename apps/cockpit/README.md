@@ -475,9 +475,17 @@ gates, decisions, spend, commits — kept forever; **handoff** bodies — an art
 command's output tail — kept until someone purges them; and the **transcript** — `prompt_rendered`
 and `harness_output`, which a factory sends only when it opted in — which **ages out**. Aging out and
 purging both replace an event's body with `pruned: {on, reason: aged_out | purged, by?}`; the event
-and its seq stay, so every view but the Transcript tab rebuilds exactly as before
-(`tests/pruned.test.ts` holds the cockpit to that), and the Transcript tab says "transcript aged out
+and its seq stay, so every view but a phase's Agent prompt and Harness output tabs rebuilds exactly as
+before (`tests/pruned.test.ts` holds the cockpit to that), and those tabs say "transcript aged out
 on 3 Oct 2026".
+
+A transcript is stored apart from the other events, in a table of its own (`transcripts`, keyed by
+session, phase, kind and seq), because it is the heaviest thing a session holds and only those two
+tabs read it. The session page (`sessions:get`), its row on Now (`sessions:progress`) and a phase's
+other tabs read `events` alone, so a long session with transcripts on loads as fast as one without
+(`tests/transcripts.test.ts`); that a session shipped any is `transcribed` on its record, which
+pruning never clears. A cockpit upgraded from one that kept them among the events moves them on
+start (`convex/transcripts.ts`, run by `docker/start.sh`), then runs the retention backfill.
 
 A transcript ages out once its session has been finished for `COCKPIT_TRANSCRIPT_DAYS` days (30
 when unset; `docker compose` passes it through). A factory's `cockpit.transcript_retention_days` can
@@ -906,8 +914,10 @@ journal's own numbers, with markdown rendered inside; `tests/sessionview.test.ts
 itself from the same session to static markup, with no backend and no browser. A stage or a phase
 opens in the drawer over the page, and which one is the address's: `tests/drawerview.test.tsx`
 renders the drawer each address opens. A phase's view leads with what it cost, and opens into the tabs it has
-something in (Overview · Diff · Artifacts · Checks · Tools · Transcript · Events) through a query of its
-own, `sessions:phase`, asked only when someone opens it: `tests/phase.test.ts` says what each tab
+something in (Overview · Diff · Artifacts · Checks · Tools · Agent prompt · Harness output · Events)
+through a query of its own, `sessions:phase`, asked only when someone opens it — and its Tools,
+Events, Agent prompt and Harness output tabs each through another (`sessions:phaseTools`,
+`sessions:events`, `sessions:prompts`, `sessions:output`), asked only while that tab is shown: `tests/phase.test.ts` says what each tab
 holds for the recorded session, `tests/phasetabs.test.tsx` renders every tab of every phase of it, and
 `tests/artifacts.test.ts` reads repo artifacts from the fake forge. No diff travels in an event:
 a commit phase's Diff tab is the forge's diff of the commit its `committed` names, and the session's

@@ -1,17 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import { prune, weightOf } from "../convex/model/retention";
-import type { Row } from "../convex/model/session";
 import { cockpit, corpus, factory, ingest, recorded, type Cockpit, type WireEvent } from "./helpers";
 
-// The invariant retention rests on (#63): no view but the Transcript tab is
-// built from a transcript's bodies. So a cockpit fed the golden corpus with
-// every transcript aged out shows every other view exactly as one fed the
-// corpus whole — the sessions list, the session page and its story, the
-// journal, each phase's tabs, the inbox, the factories list, the factory's
-// page, its activity, its claims and its cost. The Events tab lists a
-// transcript event as it is stored, so its raw text is the one thing on it
-// that may differ: that is the Transcript tab's material, shown as it is.
+// The invariant retention rests on (#63): no view but the Agent prompt and
+// Harness output tabs is built from a transcript's bodies. So a cockpit fed
+// the golden corpus with every transcript aged out shows every other view
+// exactly as one fed the corpus whole — the sessions list, the session page
+// and its story, the journal, each phase's other tabs, the inbox, the
+// factories list, the factory's page, its activity, its claims and its cost.
 
 const FACTORY = "acme/widgets";
 
@@ -40,12 +37,7 @@ async function fed(events: (session: string) => WireEvent[]): Promise<Cockpit> {
   return t;
 }
 
-/** A row as every view but the Transcript tab may depend on it: a transcript event's raw body is its own. */
-function shown(row: Row) {
-  return weightOf(row.kind) === "transcript" ? { ...row, raw: "" } : row;
-}
-
-/** Every view of the cockpit, but the Transcript tab. */
+/** Every view of the cockpit, but the transcript tabs. */
 async function views(t: Cockpit) {
   const sessions = {} as Record<string, unknown>;
   for (const [session, events] of Object.entries(SESSIONS)) {
@@ -54,12 +46,14 @@ async function views(t: Cockpit) {
       .map((event) => String(event.payload.phase_id)))];
     const phases = [];
     for (const phaseId of phaseIds) {
-      const detail = await t.query(api.sessions.phase, { factory: FACTORY, session, phaseId });
+      const at = { factory: FACTORY, session, phaseId };
+      const detail = await t.query(api.sessions.phase, at);
       if (detail === null) continue;
-      phases.push({ ...detail, transcript: null, events: detail.events.map(shown) });
+      phases.push({ ...detail, tools: await t.query(api.sessions.phaseTools, at),
+                    events: await t.query(api.sessions.events, at) });
     }
     const claims = await t.query(api.claims.ofSession, { factory: FACTORY, session });
-    sessions[session] = { ...page, events: page.events.map(shown), phases, claims };
+    sessions[session] = { ...page, phases, claims, progress: await t.query(api.sessions.progress, { factory: FACTORY, session }) };
   }
   return {
     list: await t.query(api.sessions.list, {}),
@@ -94,7 +88,7 @@ describe("a corpus whose transcripts aged out", () => {
     }
   });
 
-  it("rebuilds every view but the Transcript tab exactly as the whole corpus does", async () => {
+  it("rebuilds every view but the transcript tabs exactly as the whole corpus does", async () => {
     const whole = await fed((session) => SESSIONS[session]);
     const pruned = await fed((session) => agedOut(SESSIONS[session]));
 
@@ -117,8 +111,7 @@ describe("a corpus whose transcripts aged out", () => {
     await whole.finishAllScheduledFunctions(vi.runAllTimers);
     vi.setSystemTime(NOW);
 
-    const stored = await whole.run(async (ctx) => await ctx.db.query("events").collect());
-    const transcripts = stored.filter((event) => weightOf(event.kind) === "transcript");
+    const transcripts = await whole.run(async (ctx) => await ctx.db.query("transcripts").collect());
     expect(transcripts.length).toBeGreaterThan(0);
     for (const event of transcripts) expect(JSON.parse(event.payload).pruned).toMatchObject({ reason: "aged_out" });
     expect(await views(whole)).toEqual(before);
