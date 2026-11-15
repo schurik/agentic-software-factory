@@ -6,15 +6,12 @@ disable-model-invocation: true
 
 Implement the work described by the user in the spec or tickets.
 
-Use /tdd where possible, at pre-agreed seams.
+If the user passes a ticket reference, fetch it from the issue tracker and state its title before starting. If the reference is ambiguous, ask.
 
-Run typechecking regularly, single test files regularly, and the affected tests once at the end
-(`pytest --affected`): what the change since main can reach, with the rule behind each path
-printed. Leave the full suite to CI, which runs it on every pull request — unless `--affected`
-itself says it is running everything (a change to `conftest.py`, `asf_helpers.py`,
-`pyproject.toml`, the templates outside `engine/`, the installers, or a path no rule knows); then
-that full run is the one to wait for.
+Call the Skill tool with "tdd" where possible, at pre-agreed seams.
 
-Once done, use /matt-code-review to review the work.
+Run typechecking regularly, single test files regularly, and the full test suite once at the end.
+
+Once done, call the Skill tool with "code-review" to review the work.
 
 Commit your work to the current branch.
