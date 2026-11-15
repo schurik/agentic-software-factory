@@ -47,10 +47,18 @@ services:
       - POSTGRES_URL
       - REDACT_LOGS_TO_CLIENT
       - RUST_LOG=${RUST_LOG:-info}
+    # Everything else waits on this (service_healthy), and `up` gives up on a
+    # dependency that turns unhealthy. A backend that has data to load can take
+    # well over half a minute on a small server, and three failed checks after
+    # a short start period read as unhealthy: the deploy failed and the app was
+    # left recreated but not started. So the start period is long — a failed
+    # check inside it does not count — and checked every 2s while it lasts, so
+    # a fast start is still seen at once.
     healthcheck:
       test: curl -f http://localhost:3210/version
       interval: 5s
-      start_period: 10s
+      start_period: 120s
+      start_interval: 2s
 
   dashboard:
     image: ghcr.io/convex/convex-dashboard:${CONVEX_DASHBOARD_VERSION:-5c7cb5bc7db457290f1769f95f1d1340912f7fd7}
