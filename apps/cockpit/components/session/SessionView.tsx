@@ -19,7 +19,7 @@ import { factoryHref } from "../factory/view";
 import { MiniGraph, type OpenPhase, StageGraph } from "../graph/StageGraph";
 import { ExternalLink, ForgeRef, StatusIcon } from "../icons";
 import { PurgeForm } from "../Purge";
-import { Button, buttonClass, Card, Crumbs, cx, followInPlace, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, TabPanel, Tabs } from "../ui";
+import { Button, buttonClass, Card, Crumbs, cx, Disclosure, followInPlace, menuItem, menuPopup, Notice, num, Pre, StatusPill, Table, TabPanel, Tabs } from "../ui";
 import { useWho, ViewerLogin } from "../viewer";
 import { type Action, actionFor, type Command } from "./action";
 import { Details } from "./Details";
@@ -343,9 +343,8 @@ function Unread({ page }: { page: Page }) {
   const { unread } = page;
   return (
     <Notice>
-      <details open>
-        <summary>{plural(unread.length, "event")} of this session came from a newer factory than
-          this cockpit reads: upgrade the cockpit to read them.</summary>
+      <Disclosure defaultOpen summary={<>{plural(unread.length, "event")} of this session came from a newer factory than
+        this cockpit reads: upgrade the cockpit to read them.</>}>
         <Table className="mt-3 text-sm">
           <thead><tr><th className={num}>seq</th><th>kind</th><th>why it is shown as sent</th></tr></thead>
           <tbody>
@@ -358,7 +357,7 @@ function Unread({ page }: { page: Page }) {
             ))}
           </tbody>
         </Table>
-      </details>
+      </Disclosure>
     </Notice>
   );
 }

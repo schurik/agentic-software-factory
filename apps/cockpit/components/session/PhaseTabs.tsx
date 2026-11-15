@@ -12,7 +12,7 @@ import type { GateItem } from "@/convex/model/story";
 import { ForgeDiff, type ReadDiff } from "../diff/DiffView";
 import { isMarkdown, Markdown } from "../Markdown";
 import { formatBytes, formatClock, formatDuration, formatPruned, formatTime, formatTokenCount, formatTokens, plural, pretty } from "../format";
-import { cx, Facts, num, Pre, Table, TabPanel, Tabs } from "../ui";
+import { cx, Disclosure, Facts, num, Pre, Table, TabPanel, Tabs } from "../ui";
 import { useWho } from "../viewer";
 import { channelWords, earlierWords, stoppedMark, stoppedWords } from "./words";
 
@@ -275,10 +275,10 @@ function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; w
           <div className="mb-1 font-mono text-xs text-faint">{item.outputType || envelope?.outputType}</div>
           {item.summary ? <p className="text-lg">{item.summary}</p> : null}
           {envelope ? (
-            <details className="mt-1">
-              <summary className="text-muted">the envelope as reported{envelope.attempt === 0 ? ", answered from the record on a resume" : ""}</summary>
+            <Disclosure className="mt-1" quiet
+                        summary={`the envelope as reported${envelope.attempt === 0 ? ", answered from the record on a resume" : ""}`}>
               <Pre className="mt-1">{envelope.json}</Pre>
-            </details>
+            </Disclosure>
           ) : null}
         </div>
       ) : detail.status === "running" ? <p className="text-lg text-muted">Still running.</p> : null}
@@ -286,10 +286,9 @@ function Overview({ item, detail, where }: { item: Phase; detail: PhaseDetail; w
         <div className="rounded-lg border border-bad/40 bg-bad-soft px-3 py-2 text-bad">
           {stoppedMark(item)} {stopped}
           {error ? (
-            <details className="mt-1 text-sm">
-              <summary>the phase&apos;s error</summary>
+            <Disclosure className="mt-1 text-sm" summary="the phase's error">
               <Pre className="mt-1">{error}</Pre>
-            </details>
+            </Disclosure>
           ) : null}
         </div>
       ) : error ? <div className="rounded-lg border border-bad/40 bg-bad-soft px-3 py-2 text-bad">{error}</div> : null}
@@ -401,7 +400,9 @@ function Checks({ detail }: { detail: PhaseDetail }) {
       <div key={`r${rejection.seq}`}>
         <span className="text-bad">✕</span> <b className="font-semibold">{rejection.outputType}</b> refused, attempt {rejection.attempt}: {rejection.error}
         <span className="text-muted"> → re-prompted in the same session</span>
-        {rejection.raw ? <details><summary className="text-muted">what the agent answered</summary><Pre className="mt-1">{rejection.raw}</Pre></details> : null}
+        {rejection.raw ? (
+          <Disclosure quiet summary="what the agent answered"><Pre className="mt-1">{rejection.raw}</Pre></Disclosure>
+        ) : null}
       </div>
     ) })),
     ...commands.map((command) => ({ seq: command.seq, node: (
@@ -537,7 +538,9 @@ function AgentPrompt({ detail, prompts }: { detail: PhaseDetail; prompts: Prompt
             <div key={send.seq} className="grid gap-1">
               <h4 className="mt-2">Prompt {send.send}{send.send > 1 ? " · a correction" : ""}
                 {send.truncated ? <span className="normal-case"> · cut at the cap</span> : null}</h4>
-              {send.system ? <details><summary className="text-muted">the agent&apos;s identity</summary><Pre className="mt-1">{send.system}</Pre></details> : null}
+              {send.system ? (
+                <Disclosure quiet summary="the agent's identity"><Pre className="mt-1">{send.system}</Pre></Disclosure>
+              ) : null}
               <Pre>{send.prompt}</Pre>
             </div>
           ))}
@@ -581,10 +584,9 @@ function Events({ rows }: { rows: Row[] }) {
             <td className={num}>{row.seq}</td>
             <td><code>{row.kind}</code>{row.v > 1 || row.unreadBecause ? <span className="text-muted"> v{row.v}</span> : null}</td>
             <td>
-              <details>
-                <summary>{row.unreadBecause ? `${row.unreadBecause} — shown as sent` : row.detail}</summary>
+              <Disclosure summary={row.unreadBecause ? `${row.unreadBecause} — shown as sent` : row.detail}>
                 <Pre className="mt-1">{pretty(row.raw)}</Pre>
-              </details>
+              </Disclosure>
             </td>
             <td>{formatClock(row.ts)}</td>
           </tr>
