@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Purged } from "@/convex/retention";
-import { Button, Control, cx, Field } from "./ui";
+import { Button, Control, cx, Disclosure, Field } from "./ui";
 
 /**
  * A purge, asked for in two steps: open it, say why, confirm. What it removes
@@ -11,10 +11,9 @@ import { Button, Control, cx, Field } from "./ui";
  */
 export function Purge({ label, explains, onPurge }: PurgeProps) {
   return (
-    <details className="mt-4 text-sm">
-      <summary className="text-muted">{label}…</summary>
+    <Disclosure className="mt-4 text-sm" quiet summary={`${label}…`}>
       <PurgeForm label={label} explains={explains} onPurge={onPurge} className="mt-2" />
-    </details>
+    </Disclosure>
   );
 }
 

@@ -1,8 +1,9 @@
+import { Collapsible } from "@base-ui/react/collapsible";
 import { Dialog } from "@base-ui/react/dialog";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Tabs as BaseTabs } from "@base-ui/react/tabs";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { Check, ChevronRight, ChevronsUpDown, X } from "lucide-react";
 import Link from "next/link";
 import { type ComponentProps, Fragment, type MouseEvent, type ReactNode } from "react";
 import { type Tone, toneOf } from "./session/words";
@@ -432,6 +433,41 @@ export function Pre({ className, children }: { className?: string; children: Rea
     <pre className={cx("max-h-[32rem] overflow-auto rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs leading-relaxed", className)}>
       {children}
     </pre>
+  );
+}
+
+/**
+ * A line of text that opens onto more — a payload, an error's prose, a form —
+ * and closes again (#286): base-ui's Collapsible, as a `<details>` reads. The
+ * line is a button, its arrow turned down while open. What it holds stays in
+ * the page while closed, hidden until found, as a `<details>` keeps it: the
+ * browser's find searches it and opens it, and a form in it keeps what was
+ * typed.
+ *
+ * Never a native `<details>`: in the drawer one opened nothing. Base UI's
+ * drawer takes a mouse press on anything but a button, a link, a label or a
+ * form control as the start of a swipe to close it, and captures the pointer
+ * on its popup — so the click is dispatched to the popup, and a `<summary>`
+ * never hears it. A button it leaves alone.
+ */
+export function Disclosure({ summary, quiet = false, defaultOpen = false, className, children }: {
+  summary: ReactNode;
+  /** A line about what is beside it rather than a thing of its own: muted until pointed at. */
+  quiet?: boolean;
+  defaultOpen?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Collapsible.Root defaultOpen={defaultOpen} className={className}>
+      <Collapsible.Trigger className={cx("group inline-flex max-w-full items-start gap-1 text-left", quiet && "text-muted hover:text-fg")}>
+        <span aria-hidden="true" className="flex h-lh shrink-0 items-center">
+          <ChevronRight size={14} className="transition-transform duration-200 group-data-panel-open:rotate-90 motion-reduce:transition-none" />
+        </span>
+        <span className="min-w-0">{summary}</span>
+      </Collapsible.Trigger>
+      <Collapsible.Panel hiddenUntilFound>{children}</Collapsible.Panel>
+    </Collapsible.Root>
   );
 }
 

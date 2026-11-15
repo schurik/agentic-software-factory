@@ -569,7 +569,7 @@ describe("a session from a newer factory", () => {
   it("still tells what it can, and lists what it cannot read, open", () => {
     const unknown = { seq: 2, ts: "2026-09-29T12:00:00.000+00:00", kind: "phase_paused", v: 1, payload: {} };
     const markup = html({ events: [fixture("session_started", 1), unknown, fixture("phase_started", 3, 2)] });
-    expect(markup).toMatch(/<details[^>]* open=""><summary[^>]*>1 event of this session came from a newer factory/);
+    expect(markup).toMatch(/<button[^>]*aria-expanded="true"[^>]*>.*?1 event of this session came from a newer factory/);
     expect(markup).toContain("phase_paused");
     expect(markup).toContain("upgrade the cockpit to read them");
   });
