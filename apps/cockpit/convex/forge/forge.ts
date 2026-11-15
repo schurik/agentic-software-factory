@@ -6,7 +6,10 @@
  * what is asked or done for a person goes on that person's user access token.
  * In local mode they come through the person's own `gh auth token`
  * (`token.ts`), which is both at once. Whoever asks, asks through `Forge`, and
- * `open.ts` is the one place that picks the credential behind it.
+ * `open.ts` is the one place that picks the credential behind it. Setting up
+ * the App is the exception, and team mode's alone: before the cockpit holds an
+ * App there is no `Forge` to ask through, so `setup.ts` asks with what it is
+ * handed (`convert`, `readApp`, `pointWebhook` in `app.ts`).
  *
  * The forge is the authority on who may do what; the cockpit only mirrors it
  * (spec #40). So `reach()` is asked of the forge as the person, never worked

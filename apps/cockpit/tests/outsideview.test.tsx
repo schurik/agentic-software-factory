@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Me } from "../components/Header";
-import { SetupCallbackView, SetupView } from "../components/Setup";
+import { AdoptedView, SetupCallbackView, SetupView } from "../components/Setup";
 import { SignInCallbackView, SignInView } from "../components/SignInPage";
 import { type Approval, ApprovalView, type Asked } from "../components/Stations";
 
@@ -26,11 +26,13 @@ const onConvexCloud = {
   site: "https://happy-otter-123.convex.site",
   cloud: { name: "happy-otter-123", functions: "https://dashboard.convex.dev/d/happy-otter-123/functions" },
 };
+const settingsUrl = "https://github.com/organizations/acme/settings/apps/acme-cockpit";
 const begin = async () => {};
 
 describe("setting up the GitHub App", () => {
   const setup = (props: Partial<Parameters<typeof SetupView>[0]> = {}) =>
-    renderToStaticMarkup(<SetupView mode="team" forge={forge} webhook={reachable} deployment={selfHosted} onBegin={begin} {...props} />);
+    renderToStaticMarkup(<SetupView mode="team" forge={forge} webhook={reachable} deployment={selfHosted}
+                                    appUrl="https://cockpit.acme.dev" onBegin={begin} onAdopt={begin} {...props} />);
 
   it("is not needed by a local cockpit, which says why", () => {
     const local = setup({ mode: "local" });
@@ -49,6 +51,12 @@ describe("setting up the GitHub App", () => {
     expect(page).toMatch(/<button type="submit"[^>]*>Continue to GitHub<\/button>/);
   });
 
+  it("says where GitHub refuses the name an App the account has already took, and offers to use that one", () => {
+    const page = setup();
+    expect(text(page)).toContain("GitHub keeps an App's name unique on its host: if it says the name is taken, pick another there — or, when the App that holds it is yours, use that one instead.");
+    expect(page).toMatch(/<button type="button" aria-pressed="false"[^>]*>Use an App you already have<\/button>/);
+  });
+
   it("on Convex Cloud, prints the setup code from the deployment's dashboard or its CLI, never a container that is not there", () => {
     const page = setup({ deployment: onConvexCloud });
     expect(page).not.toContain("docker compose");
@@ -65,7 +73,7 @@ describe("setting up the GitHub App", () => {
 
   it("warns that registering again replaces the App, and offers to install it instead", () => {
     const page = setup({ forge: { ...forge, ready: true, app } });
-    expect(text(page)).toContain("acme-cockpit is registered on github.com. Registering again replaces it and signs everyone out.");
+    expect(text(page)).toContain("acme-cockpit is registered on github.com. Registering again, or taking on another App, replaces it and signs everyone out.");
     expect(page).toContain(`href="${app.installUrl}"`);
   });
 
@@ -91,10 +99,17 @@ describe("coming back from GitHub with the App", () => {
   });
 
   it("names the App it registered, and the one step left: installing it", () => {
-    const page = back({ app, problem: "" });
+    const page = back({ app: { ...app, settingsUrl }, problem: "" });
     expect(page).toMatch(/<h1[^>]*>acme-cockpit is registered<\/h1>/);
     expect(page).toMatch(new RegExp(`<a[^>]*href="${app.installUrl}"[^>]*><span[^>]*>Install acme-cockpit</span></a>`));
     expect(page).toMatch(/<a[^>]*href="\/"[^>]*>sign in<\/a>/);
+  });
+
+  it("hands over the cockpit's icon for the App's logo, which GitHub takes on its settings page alone", () => {
+    const page = back({ app: { ...app, settingsUrl }, problem: "" });
+    expect(page).toMatch(/<a href="\/icon-512\.png" download="cockpit-icon\.png">download it<\/a>/);
+    expect(page).toContain(`<a href="${settingsUrl}">its settings page</a>`);
+    expect(text(page)).toContain("upload it under Display information");
   });
 
   it("says why the App was not registered, and leads back to setup", () => {
@@ -105,9 +120,39 @@ describe("coming back from GitHub with the App", () => {
   });
 
   it("draws in the shared primitives", () => {
-    for (const page of [back({ app, problem: "" }), back({ app: null, problem: "no" }), back({ app: null, problem: "" })]) {
+    for (const page of [back({ app: { ...app, settingsUrl }, problem: "" }), back({ app: null, problem: "no" }), back({ app: null, problem: "" })]) {
       expect(oldClasses(page)).toEqual([]);
     }
+  });
+});
+
+describe("an App taken on from before", () => {
+  const adopted = { ...app, settingsUrl, callbackUrl: "https://cockpit.acme.dev/auth/callback", webhook: true };
+  const done = (given: Partial<typeof adopted> = {}) => renderToStaticMarkup(<AdoptedView adopted={{ ...adopted, ...given }} />);
+
+  it("is set up here, installed where it was: nothing to install, only to sign in", () => {
+    const page = done();
+    expect(page).toMatch(/<h1[^>]*>acme-cockpit is set up here<\/h1>/);
+    expect(text(page)).toContain("It stays installed where it was, so there is nothing to install again.");
+    expect(page).toMatch(/<a[^>]*href="\/"[^>]*>Sign in<\/a>/);
+    expect(page).toContain(`href="${app.installUrl}"`);
+  });
+
+  it("names the callback URL a sign-in comes back to, which the App's settings page must list", () => {
+    const page = done();
+    expect(page).toContain("<code>https://cockpit.acme.dev/auth/callback</code>");
+    expect(page).toContain(`href="${settingsUrl}"`);
+  });
+
+  it("says where its webhook now delivers, or that this cockpit learns by the poll", () => {
+    expect(text(done())).toContain("Its webhook now points here");
+    expect(text(done({ webhook: false }))).toContain("Its webhook was left as it was: this cockpit learns of the forge by asking GitHub once a minute.");
+  });
+
+  it("hands over the cockpit's icon for the App's logo, and draws in the shared primitives", () => {
+    const page = done();
+    expect(page).toContain('href="/icon-512.png"');
+    expect(oldClasses(page)).toEqual([]);
   });
 });
 
