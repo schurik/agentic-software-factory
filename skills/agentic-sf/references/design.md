@@ -709,7 +709,7 @@ deployment allows (30 days by default); `cockpit.transcript_retention_days`
 can only shorten that, and travels on every `session_started`, so the limit
 holds wherever the session's events go. Aging out replaces an event's body
 with a `pruned` marker and keeps the event — which is why no view but the
-cockpit's Transcript tab may be built from a transcript body.
+cockpit's Agent prompt and Harness output tabs may be built from a transcript body.
 
 Three failures are facts, not only prose, so a cockpit — and a scorer — can count them.
 `permission_rolled_back` is said by `permissions.enforce` when it undoes an agent's writes outside

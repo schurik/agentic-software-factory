@@ -1,6 +1,6 @@
 /**
  * Retention (#63): transcripts age out, bodies can be purged, and every view
- * but the Transcript tab rebuilds from what is left (model/retention.ts says
+ * but the transcript tabs rebuild from what is left (model/retention.ts says
  * what each weight of event is, and what pruning one does).
  *
  *   ageOut       the cron: every session whose transcript is due, pruned.
@@ -23,7 +23,8 @@
  *
  * Pruning happens in `sweep`, a page of events at a time, each page its own
  * transaction scheduled by the one before: a factory's whole history does not
- * fit in one.
+ * fit in one. A transcript is stored apart from the other events (schema.ts),
+ * so an age-out sweeps `transcripts` alone, and a purge sweeps both tables.
  */
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -32,13 +33,16 @@ import { action, internalMutation, internalQuery, mutation, type MutationCtx, qu
 import { roleOf } from "./commands";
 import { ForgeError } from "./forge/github";
 import { forgeSaid, open, UNREADABLE } from "./forge/open";
-import { agesOutAt, prune, retained, weightOf, type Pruned } from "./model/retention";
+import { agesOutAt, prune, retained, type Pruned } from "./model/retention";
 import { readSummary } from "./model/session";
+import { MAX_READ_BYTES } from "./model/wire";
 import { spellingsOf, storedAs } from "./spelling";
 import { actAs, readable, viewing, type Viewing } from "./viewer";
 
 /** How many events one turn of a sweep reads: a body is at most 900 KB, and a turn reads them whole. */
 const SWEPT_PER_TURN = 64;
+
+const tableValidator = v.union(v.literal("events"), v.literal("transcripts"));
 /** How many due sessions one run of the cron starts sweeping. */
 const DUE_PER_RUN = 50;
 /** How many sessions one turn of the backfill looks through the events of. */
@@ -75,40 +79,50 @@ export const ageOut = internalMutation({
         continue;
       }
       const pruned: Pruned = { on: new Date(now).toISOString(), reason: "aged_out", by: "" };
-      await ctx.scheduler.runAfter(0, internal.retention.sweep,
-                                  { factory: record.factory, session: record.session, pruned, cursor: null });
+      await ctx.scheduler.runAfter(0, internal.retention.sweep, { factory: record.factory, session: record.session,
+                                                                  table: "transcripts", pruned, cursor: null });
     }
     return null;
   },
 });
 
 /**
- * Prune one page of events — of one session, or of a whole factory when no
- * session is named — and schedule the next. An age-out prunes transcript
- * bodies only, and stops if the session stopped being due meanwhile (a resume
- * re-opened it); a purge prunes every body. Pruning is idempotent: an event
- * pruned before is left as it is.
+ * Prune one page of a table's events — of one session, or of a whole factory
+ * when no session is named — and schedule the next. An age-out sweeps the
+ * transcripts only, and stops if the session stopped being due meanwhile (a
+ * resume re-opened it); a purge sweeps both tables, pruning every body.
+ * Pruning is idempotent: an event pruned before is left as it is.
+ *
+ * A sweep an older cockpit scheduled names no table, and swept the one table
+ * every event was in: a purge sweeps `events` as it was, then the transcripts
+ * that moved out of it (transcripts.ts), so one in flight across an upgrade is
+ * not lost; an age-out sweeps the transcripts.
  */
 export const sweep = internalMutation({
-  args: { factory: v.string(), session: v.optional(v.string()), pruned: prunedValidator,
-          cursor: v.union(v.null(), v.string()) },
+  args: { factory: v.string(), session: v.optional(v.string()), table: v.optional(tableValidator),
+          pruned: prunedValidator, cursor: v.union(v.null(), v.string()) },
   returns: v.null(),
-  handler: async (ctx, { factory, session, pruned, cursor }) => {
+  handler: async (ctx, { factory, session, table: named, pruned, cursor }) => {
     const ageing = pruned.reason === "aged_out";
+    // An age-out only ever pruned transcripts, so an older cockpit's goes straight to where they are now.
+    const table = named ?? (ageing ? "transcripts" : "events");
     const record = session === undefined ? null : await sessionRecord(ctx, factory, session);
     if (ageing && (record === null || record.transcriptsDue === undefined || record.transcriptsDue > Date.now())) return null;
     const events = session === undefined
-      ? ctx.db.query("events").withIndex("by_session_seq", (q) => q.eq("factory", factory))
-      : ctx.db.query("events").withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session));
-    const page = await events.paginate({ numItems: SWEPT_PER_TURN, cursor });
+      ? ctx.db.query(table).withIndex("by_session_seq", (q) => q.eq("factory", factory))
+      : ctx.db.query(table).withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session));
+    const page = await events.paginate({ numItems: SWEPT_PER_TURN, cursor, maximumBytesRead: MAX_READ_BYTES });
     for (const event of page.page) {
-      if (ageing && weightOf(event.kind) !== "transcript") continue;
       const payload = prune(event.kind, event.payload, pruned);
       if (payload !== null) await ctx.db.patch(event._id, { payload });
     }
     if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.retention.sweep, { factory, session, pruned, cursor: page.continueCursor });
-    } else if (record !== null) {
+      await ctx.scheduler.runAfter(0, internal.retention.sweep,
+                                  { factory, session, table: named, pruned, cursor: page.continueCursor });
+    } else if (named === undefined && !ageing) {
+      await ctx.scheduler.runAfter(0, internal.retention.sweep,
+                                  { factory, session, table: "transcripts", pruned, cursor: null });
+    } else if (record !== null && table === "transcripts") {
       // Its transcript is gone, so there is nothing left to age out.
       await ctx.db.patch(record._id, { transcripts: false, transcriptsDue: undefined });
     }
@@ -130,11 +144,12 @@ export const backfill = internalMutation({
       .withIndex("by_transcripts", (q) => q.eq("transcripts", undefined))
       .take(FOUND_PER_TURN);
     for (const record of unknown) {
-      const events = await ctx.db
-        .query("events")
+      // One is enough to say it holds a transcript (transcripts.ts moved an older cockpit's here first).
+      const one = await ctx.db
+        .query("transcripts")
         .withIndex("by_session_seq", (q) => q.eq("factory", record.factory).eq("session", record.session))
-        .collect();
-      await ctx.db.patch(record._id, retained(false, events, readSummary(record.summary)));
+        .first();
+      await ctx.db.patch(record._id, retained(false, one ? [one] : [], readSummary(record.summary)));
     }
     if (unknown.length === FOUND_PER_TURN) await ctx.scheduler.runAfter(0, internal.retention.backfill, {});
     else await ctx.scheduler.runAfter(0, internal.retention.redate, { cursor: null });
@@ -197,12 +212,12 @@ async function purge(ctx: MutationCtx, { factory, session, by, via, reason }: Pu
   const at = Date.now();
   await ctx.db.insert("purges", { factory, session, by, via, reason: reason.trim(), at });
   const pruned: Pruned = { on: new Date(at).toISOString(), reason: "purged", by };
-  if (session) {
-    await ctx.scheduler.runAfter(0, internal.retention.sweep, { factory, session, pruned, cursor: null });
-    return;
-  }
-  for (const spelling of await spellingsOf(ctx, factory)) {
-    await ctx.scheduler.runAfter(0, internal.retention.sweep, { factory: spelling, pruned, cursor: null });
+  const sweeps = session ? [factory] : await spellingsOf(ctx, factory);
+  for (const spelling of sweeps) {
+    for (const table of ["events", "transcripts"] as const) {
+      await ctx.scheduler.runAfter(0, internal.retention.sweep,
+                                  { factory: spelling, ...(session ? { session } : {}), table, pruned, cursor: null });
+    }
   }
 }
 

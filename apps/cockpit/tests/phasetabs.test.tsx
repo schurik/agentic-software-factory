@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { ViewerLogin } from "../components/viewer";
 import { describe, expect, it } from "vitest";
-import { PhaseTabs, RepoFile, tabsFor, type Where } from "../components/session/PhaseTabs";
+import { PhaseTabs, RepoFile, TABS, tabsFor, type Where } from "../components/session/PhaseTabs";
 import type { Phase } from "../convex/model/graph";
 import type { Artifact, PhaseDetail } from "../convex/model/phase";
 import { phaseView, view } from "../convex/model/session";
-import { fixture, recorded, type WireEvent } from "./helpers";
+import { fixture, loadedOf, recorded, type WireEvent } from "./helpers";
 
 // A phase opened into its tabs in the drawer, rendered from the golden corpus
 // the way a browser first paints it: the same folds the queries run, straight
@@ -28,9 +28,10 @@ function item(phaseId: string, events: WireEvent[] = RECORDED): Phase {
     .find((each): each is Phase => "phaseId" in each && each.phaseId === phaseId)!;
 }
 
-/** The tabs as the drawer renders them, `name` showing — the tab its address names. */
+/** The tabs as the drawer renders them, `name` showing — the tab its address names — once its own query answered. */
 const tabs = (phaseId: string, name: string, events: WireEvent[] = RECORDED) =>
-  renderToStaticMarkup(<PhaseTabs item={item(phaseId, events)} detail={detail(phaseId, events)} where={WHERE} tab={name} />);
+  renderToStaticMarkup(<PhaseTabs item={item(phaseId, events)} detail={detail(phaseId, events)} where={WHERE} tab={name}
+                                  loaded={loadedOf(stored(events), events.at(-1)!.seq, phaseId)} />);
 
 function shown(markup: string): string {
   return markup.replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"')
@@ -45,21 +46,43 @@ describe("every tab of every phase of the recorded session", () => {
     .filter((item) => item.type === "agent" || item.type === "code");
 
   it("offers only the tabs with something in them, Overview first", () => {
-    expect(tabsFor(detail("a9f259f0_02_scout"))).toEqual(["overview", "artifacts", "checks", "tools", "transcript", "events"]);
-    expect(tabsFor(detail("a9f259f0_08_implement"))).toEqual(["overview", "checks", "tools", "transcript", "events"]);
+    expect(tabsFor(detail("a9f259f0_02_scout"))).toEqual(["overview", "artifacts", "checks", "tools", "prompt", "output", "events"]);
+    expect(tabsFor(detail("a9f259f0_08_implement"))).toEqual(["overview", "checks", "tools", "prompt", "output", "events"]);
     expect(tabsFor(detail("a9f259f0_09_verify_1"))).toEqual(["overview", "checks", "events"]);
     expect(tabsFor(detail("a9f259f0_04_approve_plan"))).toEqual(["overview", "events"]);
   });
 
   it("opens on Overview when the address names no tab, or one the phase does not have", () => {
     expect(tabs("a9f259f0_09_verify_1", "")).toMatch(/<button[^>]*aria-selected="true"[^>]*>Overview/);
-    expect(tabs("a9f259f0_09_verify_1", "transcript")).toMatch(/<button[^>]*aria-selected="true"[^>]*>Overview/);
+    expect(tabs("a9f259f0_09_verify_1", "prompt")).toMatch(/<button[^>]*aria-selected="true"[^>]*>Overview/);
+  });
+
+  it("opens an address from before the transcript had two tabs on the agent's prompt", () => {
+    expect(tabs("a9f259f0_05_plan_revise_1", "transcript")).toMatch(/<button[^>]*aria-selected="true"[^>]*>Agent prompt/);
+  });
+
+  it("says a tab's query answered that the session is not one the viewer can see", () => {
+    const html = renderToStaticMarkup(<PhaseTabs item={item("a9f259f0_02_scout")} detail={detail("a9f259f0_02_scout")}
+                                                 where={WHERE} tab="events" loaded={{ events: null }} />);
+    expect(shown(html)).toContain("This phase is not in a session you can see.");
+  });
+
+  it("says a transcript event of a version this cockpit cannot read came, rather than hide it", () => {
+    const events = RECORDED.map((event) => event.kind === "prompt_rendered" ? { ...event, v: 2 } : event);
+    const text = tab("a9f259f0_05_plan_revise_1", "prompt", events);
+    expect(text).toMatch(/\d+ events of it came from a newer factory than this cockpit reads/);
+  });
+
+  it("says a tab that reads on its own is loading until its query answers", () => {
+    const html = renderToStaticMarkup(<PhaseTabs item={item("a9f259f0_02_scout")} detail={detail("a9f259f0_02_scout")}
+                                                 where={WHERE} tab="tools" />);
+    expect(shown(html)).toContain("Loading…");
   });
 
   it.each(phases.map((item) => [item.name, item.phaseId]))("renders for %s (%s)", (_, phaseId) => {
     for (const name of tabsFor(detail(phaseId))) {
       const html = tabs(phaseId, name);
-      expect(html).toMatch(new RegExp(`<button[^>]*aria-selected="true"[^>]*>${name}`, "i"));
+      expect(html).toMatch(new RegExp(`<button[^>]*aria-selected="true"[^>]*>${TABS[name]}`));
       expect(shown(html).length).toBeGreaterThan(0);
     }
   });
@@ -185,21 +208,27 @@ describe("the other tabs", () => {
     expect(text).toMatch(/Read ✓ ok 1s .* Task · its subagent made 2 calls ✓ ok 3s .* ↳ Grep ✓ ok 2s .* ↳ Read ✓ ok 2s/);
   });
 
-  it("Transcript: the prompts and harness output when the factory opted in", () => {
-    const text = tab("a9f259f0_05_plan_revise_1", "transcript");
+  it("Agent prompt: the prompts sent, the agent's identity with the first, when the factory opted in", () => {
+    const text = tab("a9f259f0_05_plan_revise_1", "prompt");
     expect(text).toContain("Prompt 1");
     expect(text).toContain("# Planner");
     expect(text).toContain("Prompt 2 · a correction");
-    expect(text).toContain("Harness output");
+    expect(text).not.toContain("I revised the plan.");
   });
 
-  it("Transcript: says transcripts are off, and how to turn them on, when the session shipped none", () => {
+  it("Harness output: the harness's raw stream, and no prompt", () => {
+    const text = tab("a9f259f0_05_plan_revise_1", "output");
+    expect(text).toContain("I revised the plan.");
+    expect(text).not.toContain("Prompt 1");
+  });
+
+  it.each(["prompt", "output"])("%s: says transcripts are off, and how to turn them on, when the session shipped none", (name) => {
     const events = RECORDED.filter((event) => !["prompt_rendered", "harness_output"].includes(event.kind))
       .map((event, index) => ({ ...event, seq: index + 1 }));
-    const html = tabs("a9f259f0_03_plan", "transcript", events);
+    const html = tabs("a9f259f0_03_plan", name, events);
     expect(shown(html)).toContain("Transcripts are off for this factory");
     expect(shown(html)).toContain("cockpit: {transcripts: true}");
-    expect(shown(html)).toMatch(/Transcript · off/);
+    expect(shown(html)).toMatch(/Agent prompt · off Harness output · off/);
   });
 
   it("Events: the phase's own events, each in a line that opens to the raw event", () => {
@@ -213,23 +242,24 @@ describe("a pruned body", () => {
   const pruned = (kinds: string[], marker: Record<string, string>) => RECORDED.map((event) =>
     kinds.includes(event.kind) ? { ...event, payload: { phase_id: event.payload.phase_id, pruned: marker } } : event);
 
-  it("Transcript: says when the transcript aged out", () => {
+  it.each(["prompt", "output"])("%s: says when the transcript aged out", (name) => {
     const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "aged_out" });
-    const text = tab("a9f259f0_05_plan_revise_1", "transcript", events);
+    const text = tab("a9f259f0_05_plan_revise_1", name, events);
     expect(text).toContain("transcript aged out on Nov 1, 2026");
     expect(text).not.toContain("Transcripts are off");
   });
 
   it("Transcript: says who purged it, and when", () => {
     const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" });
-    expect(tab("a9f259f0_05_plan_revise_1", "transcript", events)).toContain("transcript purged on Nov 1, 2026 by alex");
+    expect(tab("a9f259f0_05_plan_revise_1", "prompt", events)).toContain("transcript purged on Nov 1, 2026 by alex");
   });
 
   it("Transcript: says the viewer purged it as you", () => {
     const events = pruned(["prompt_rendered", "harness_output"], { on: "2026-11-01T09:30:00.000Z", reason: "purged", by: "alex" });
     const html = renderToStaticMarkup(
       <ViewerLogin.Provider value="alex">
-        <PhaseTabs item={item("a9f259f0_05_plan_revise_1", events)} detail={detail("a9f259f0_05_plan_revise_1", events)} where={WHERE} tab="transcript" />
+        <PhaseTabs item={item("a9f259f0_05_plan_revise_1", events)} detail={detail("a9f259f0_05_plan_revise_1", events)} where={WHERE} tab="prompt"
+                   loaded={loadedOf(stored(events), events.at(-1)!.seq, "a9f259f0_05_plan_revise_1")} />
       </ViewerLogin.Provider>);
     expect(shown(html)).toContain("transcript purged on Nov 1, 2026 by you");
   });

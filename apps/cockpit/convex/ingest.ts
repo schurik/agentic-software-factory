@@ -6,7 +6,7 @@ import { improve } from "./improvements";
 import { settleClaims } from "./claims";
 import { settle } from "./commands";
 import { measured } from "./measured";
-import { retained } from "./model/retention";
+import { isTranscript, phaseOf, retained } from "./model/retention";
 import { advance, isBenchmark, readSummary } from "./model/session";
 import { spentIn } from "./model/spend";
 import { storedEventFields } from "./model/wire";
@@ -31,15 +31,18 @@ export const append = internalMutation({
     if (token === null) return null;
     const { factory } = token;
 
-    const stored = (seq: number) =>
-      ctx.db
-        .query("events")
-        .withIndex("by_session_seq", (q) =>
-          q.eq("factory", factory).eq("session", session).eq("seq", seq))
-        .unique();
+    // A transcript event is stored apart from the rest (schema.ts), so a seq is in one table or the other.
+    const storedIn = (table: "events" | "transcripts", seq: number) => ctx.db
+      .query(table)
+      .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).eq("seq", seq))
+      .unique();
+    const stored = async (seq: number) => (await storedIn("events", seq)) ?? (await storedIn("transcripts", seq));
 
     for (const event of events) {
-      if ((await stored(event.seq)) === null) {
+      if ((await stored(event.seq)) !== null) continue;
+      if (isTranscript(event.kind)) {
+        await ctx.db.insert("transcripts", { factory, session, phase: phaseOf(event.payload), ...event });
+      } else {
         await ctx.db.insert("events", { factory, session, ...event });
       }
     }
@@ -55,11 +58,14 @@ export const append = internalMutation({
 
     // Fold in only what just became contiguous, so the list never shows a
     // session past a gap a replay is about to fill.
-    const fresh = await ctx.db
-      .query("events")
+    // Transcript events included: the summary's `lastEventAt` and `unread` count every event, and
+    // retention needs to know one came. Only what just became contiguous, so this is one batch's worth.
+    const between = (table: "events" | "transcripts") => ctx.db
+      .query(table)
       .withIndex("by_session_seq", (q) =>
         q.eq("factory", factory).eq("session", session).gt("seq", before).lte("seq", acked))
       .collect();
+    const fresh = [...await between("events"), ...await between("transcripts")].sort((a, b) => a.seq - b.seq);
     const folded = readSummary(record?.summary);
     const summary = advance(folded, fresh);
     // A station's `command_result` is what settles a command, never its sending.
@@ -81,7 +87,8 @@ export const append = internalMutation({
       if (bucket === null) await ctx.db.insert("spend", { factory, session, ...spent });
       else await ctx.db.patch(bucket._id, { cost: bucket.cost + spent.cost, tokens: bucket.tokens + spent.tokens });
     }
-    // Every event of it up to `acked`: what a row an older cockpit never wrote is folded from.
+    // Every event of it up to `acked`, but its transcript: what a row an older cockpit never wrote is
+    // folded from, and none of those rows is built from a transcript.
     const all = () => ctx.db
       .query("events")
       .withIndex("by_session_seq", (q) => q.eq("factory", factory).eq("session", session).lte("seq", acked))
@@ -106,7 +113,12 @@ export const append = internalMutation({
     const waiting = summary.waitingFor !== null;
     // Whether it holds a transcript, and from when that ages out (retention.ts).
     const transcript = retained(record === null ? false : record.transcripts, fresh, summary);
-    const fields = { acked, summary, activity, waiting, phased: true, chaptered: true, scored: true, ...transcript };
+    // ...and whether it ever shipped one, which pruning never takes back: what the page says of transcripts.
+    // Left unset on a session an older cockpit stored: the move (transcripts.ts) has yet to look at its events.
+    const shipped = fresh.some((event) => isTranscript(event.kind));
+    const transcribed = record === null ? shipped : record.transcribed === undefined ? undefined : record.transcribed || shipped;
+    const fields = { acked, summary, activity, waiting, transcribed, phased: true, chaptered: true, scored: true,
+                     ...transcript };
     const id = record === null ? await ctx.db.insert("sessions", { factory, session, ...fields }) : record._id;
     if (record !== null) await ctx.db.patch(record._id, fields);
     // Its scores' rows: what the Scorers view reads (model/scores.ts). Written after the session's own

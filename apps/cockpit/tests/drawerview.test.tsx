@@ -9,7 +9,7 @@ import { SHOWN, type Shown } from "../components/session/shown";
 import { ViewerLogin } from "../components/viewer";
 import type { Phase } from "../convex/model/graph";
 import { phaseView, view } from "../convex/model/session";
-import { recorded, type WireEvent } from "./helpers";
+import { loadedOf, recorded, type WireEvent } from "./helpers";
 
 // The one drawer a stage and a phase open into (#110), rendered from the
 // golden corpus the way a browser first paints it: what the address says is
@@ -29,7 +29,8 @@ function page(events: WireEvent[]): Page {
 function html(shown: Partial<Shown>, { events = STAGED, viewer = null as string | null } = {}): string {
   // A phase's tabs, the way the live page asks for them: its detail is a query of its own.
   const phase = (item: Phase, tab: string | null): ReactNode => (
-    <PhaseTabs item={item} detail={phaseView(stored(events), events.at(-1)!.seq, item.phaseId)!} where={WHERE} tab={tab} />
+    <PhaseTabs item={item} detail={phaseView(stored(events), events.at(-1)!.seq, item.phaseId)!} where={WHERE} tab={tab}
+               loaded={loadedOf(stored(events), events.at(-1)!.seq, item.phaseId)} />
   );
   return renderToStaticMarkup(
     <ViewerLogin.Provider value={viewer}>
@@ -92,9 +93,9 @@ describe("without the transcript opt-in", () => {
   const TRANSCRIPT = ["prompt_rendered", "harness_output"];
   const shipped = STAGED.filter((event) => !TRANSCRIPT.includes(event.kind)).map((event, index) => ({ ...event, seq: index + 1 }));
 
-  it("marks an agent's Transcript tab off on whichever tab the drawer opens, and says why on it", () => {
-    expect(read(html({ phase: "a9f259f0_03_plan" }, { events: shipped }))).toContain("Transcript · off");
-    const transcript = read(html({ phase: "a9f259f0_03_plan", phaseTab: "transcript" }, { events: shipped }));
+  it("marks an agent's transcript tabs off on whichever tab the drawer opens, and says why on them", () => {
+    expect(read(html({ phase: "a9f259f0_03_plan" }, { events: shipped }))).toContain("Agent prompt · off Harness output · off");
+    const transcript = read(html({ phase: "a9f259f0_03_plan", phaseTab: "output" }, { events: shipped }));
     expect(transcript).toContain("Transcripts are off for this factory: the session shipped no prompt and no harness output.");
     expect(transcript).toContain("cockpit: {transcripts: true} in asf/factory.yaml turns them on");
   });

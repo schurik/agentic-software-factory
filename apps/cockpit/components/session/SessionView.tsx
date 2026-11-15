@@ -108,7 +108,7 @@ export function SessionView({ page, now, shown = SHOWN, onShow, steering, onComm
     <div className="flex flex-col gap-5">
       <Header page={page} action={actionFor(session, summary, story, steering, now, { viewer, who })}
               onCommand={onCommand} onPurge={onPurge} />
-      {summary.unread > 0 ? <Unread page={page} /> : null}
+      {page.unread.length > 0 ? <Unread page={page} /> : null}
       <div className="flex flex-col gap-2 max-md:order-2">
         {story.chapters.map((chapter) => {
           const open = chapterOpen(shown, chapter.number, latest);
@@ -340,7 +340,7 @@ function Scores({ scores, unjudged, openPhase }: { scores: Score[]; unjudged: Un
 
 /** The events this cockpit cannot read, listed as they were sent: nothing is hidden, and the page says to upgrade. */
 function Unread({ page }: { page: Page }) {
-  const unread = page.events.filter((row) => row.unreadBecause);
+  const { unread } = page;
   return (
     <Notice>
       <details open>

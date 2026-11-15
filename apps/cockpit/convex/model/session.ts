@@ -13,8 +13,8 @@
  */
 import { v, type Infer } from "convex/values";
 import { Payload } from "./payload";
-import { beginDetail, detail, finishDetail, type DetailState, type PhaseDetail } from "./phase";
-import { prunedOf, prunedWord } from "./retention";
+import { beginDetail, detail, finishDetail, isAbout, type DetailState, type PhaseDetail, type ToolCall } from "./phase";
+import { isTranscript, prunedOf, prunedWord } from "./retention";
 import { begin, finish, tell, type Story, type StoryState } from "./story";
 import { isRecord, type StoredEvent } from "./wire";
 
@@ -132,26 +132,59 @@ export interface Row {
 export interface SessionView {
   summary: Summary;
   story: Story;
-  events: Row[];
+  // The rows of the events this cockpit cannot read, which the page lists so
+  // nothing is hidden. Every other row is a phase's Events tab's (`rowsOf`).
+  unread: Row[];
   // Whether the session shipped any transcript event: its factory opted in
   // (`cockpit: {transcripts: true}`). Their bodies age out; that they came does not.
   transcripts: boolean;
 }
 
-const TRANSCRIPT_KINDS = ["prompt_rendered", "harness_output"];
+/**
+ * What the session's record says, beside its events: the summary ingest folded
+ * from every one of them, transcripts included, and whether any transcript came.
+ */
+export interface Recorded {
+  summary: Summary;
+  transcribed: boolean;
+}
 
-/** The whole page: every stored event a row, and what those up to `acked` tell (`fold`). */
-export function view(events: StoredEvent[], acked: number): SessionView {
+/**
+ * The whole page: what the events up to `acked` tell (`fold`), and the ones it
+ * cannot read. The session page hands it no transcript event (they are stored
+ * apart, schema.ts) and the record they were folded into instead, so the page
+ * says when the session was last heard from by its harness's output too.
+ * Handed every event and no record, it reads all of it off the events.
+ */
+export function view(events: StoredEvent[], acked: number, recorded?: Recorded): SessionView {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: begin(), detail: null };
   const rows = fold(state, events, acked);
-  return { summary: state.summary, story: finish(state.story!, state.summary), events: rows,
-           transcripts: rows.some((row) => TRANSCRIPT_KINDS.includes(row.kind)) };
+  const summary = recorded?.summary ?? state.summary;
+  return { summary, story: finish(state.story!, summary), unread: rows.filter((row) => row.unreadBecause !== null),
+           transcripts: recorded?.transcribed ?? events.some((event) => isTranscript(event.kind)) };
 }
 
 /** One phase of the page, opened into its tabs (phase.ts); null for a phase it never started. */
 export function phaseView(events: StoredEvent[], acked: number, phaseId: string): PhaseDetail | null {
+  return finishDetail(phaseState(events, acked, phaseId));
+}
+
+/** That phase's Tools tab: every tool call it made, in the order they came. */
+export function toolsOf(events: StoredEvent[], acked: number, phaseId: string): ToolCall[] {
+  return phaseState(events, acked, phaseId).tools;
+}
+
+function phaseState(events: StoredEvent[], acked: number, phaseId: string): DetailState {
   const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: null, detail: beginDetail(phaseId) };
-  return finishDetail(state.detail!, fold(state, events, acked));
+  fold(state, events, acked);
+  return state.detail!;
+}
+
+/** Every stored event a row, in seq order — or, with a phase, that phase's Events tab (`isAbout`). */
+export function rowsOf(events: StoredEvent[], phaseId?: string): Row[] {
+  const state: State = { summary: structuredClone(EMPTY_SUMMARY), story: null, detail: null };
+  const rows = fold(state, events, 0);
+  return phaseId === undefined ? rows : rows.filter((row) => isAbout(row, phaseId));
 }
 
 /**

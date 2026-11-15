@@ -1,8 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
+import { isTranscript } from "../convex/model/retention";
+import { described } from "../convex/model/session";
 import { cockpit, corpus, factory, fixture, ingest, type Cockpit, type WireEvent } from "./helpers";
 
 const WHERE = { factory: "acme/widgets", session: "5c0075aa" };
+
+/** Every row of the session, as a phase's Events tab takes its share of them (`sessions.events`): its transcript aside. */
+async function rows(t: Cockpit) {
+  return (await t.query(api.sessions.events, WHERE))!;
+}
+
+/** A transcript event as its tab reads it, read back by seq from where it is stored (`transcripts`). */
+async function transcribed(t: Cockpit, seq: number) {
+  const stored = await t.run(async (ctx) => await ctx.db.query("transcripts")
+    .withIndex("by_session_seq", (q) => q.eq("factory", WHERE.factory).eq("session", WHERE.session).eq("seq", seq))
+    .unique());
+  return stored && { seq, kind: stored.kind, v: stored.v, detail: described(stored) };
+}
 
 async function ship(t: Cockpit, token: string, events: WireEvent[]) {
   const response = await ingest(t, token, { session: WHERE.session, events });
@@ -96,10 +111,11 @@ describe("the golden corpus", () => {
     });
 
     const view = await t.query(api.sessions.get, WHERE);
-    const row = view!.events.at(-1)!;
+    // A transcript event is stored apart, and its tabs read it there; every other is a row.
+    const row = isTranscript(event.kind) ? (await transcribed(t, 2))! : (await rows(t)).at(-1)!;
     expect(row.kind).toBe(event.kind);
     expect(row.v).toBe(event.v);
-    expect(row.unreadBecause).toBeNull();
+    if ("unreadBecause" in row) expect(row.unreadBecause).toBeNull();
     expect(row.detail, `how does the cockpit read ${name}? add it to DESCRIBED`).toBe(DESCRIBED[name]);
     expect(view!.summary.unread).toBe(0);
   });
@@ -177,7 +193,7 @@ describe("a session told by its events", () => {
           description: "Write the plan the builder will follow", cost: 0.0185, tokens: 1200 },
       ] },
     ]);
-    expect(view!.events.map((row) => row.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect((await rows(t)).map((row) => row.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it("stops waiting once a decision is consumed, and ends how session_finished says", async () => {
@@ -203,7 +219,7 @@ describe("a session told by its events", () => {
 
     const page = await t.query(api.sessions.get, WHERE);
     expect(page!.summary.status).toBe("running");
-    expect(page!.events.map((row) => row.seq)).toEqual([1, 3]);
+    expect((await rows(t)).map((row) => row.seq)).toEqual([1, 3]);
 
     await ship(t, token, [fixture("phase_started", 2)]);
     expect((await t.query(api.sessions.list, {}))!.sessions[0].summary.status).toBe("fail");
@@ -222,7 +238,7 @@ describe("a session told by its events", () => {
     expect(after.summary).toEqual({ ...before.summary, lastEventAt: after.summary.lastEventAt });
     expect(after.summary).toMatchObject({ status: "fail", endedAt: "2026-09-29T12:00:00.000+00:00", unread: 0 });
     expect(after.story.chapters).toEqual(before.story.chapters);
-    expect(after.events.at(-1)).toMatchObject({ seq: 11, kind: "pull_request_closed", unreadBecause: null,
+    expect((await rows(t)).at(-1)).toMatchObject({ seq: 11, kind: "pull_request_closed", unreadBecause: null,
                                                 detail: "pull request #43 merged with 2 commits" });
     const [listed] = (await t.query(api.sessions.list, {}))!.sessions;
     expect(listed.summary.status).toBe("fail");
@@ -250,8 +266,7 @@ describe("an artifact", () => {
       written(4, { location: "repo", path: "docs/asf/spec/plan.md", size: 38, content: "" }),
     ]);
 
-    const view = await t.query(api.sessions.get, WHERE);
-    expect(view!.events.slice(1).map((row) => row.detail)).toEqual([
+    expect((await rows(t)).slice(1).map((row) => row.detail)).toEqual([
       "output context_handoff/scout_findings.md written: 300001 bytes, inline, cut at the cap",
       "output context_handoff/core.dump written: 4008 bytes, not text, not sent",
       "output docs/asf/spec/plan.md written: 38 bytes, in the repository",
@@ -271,12 +286,15 @@ describe("an event this cockpit cannot read", () => {
       .toEqual({ acked: 3 });
 
     const view = await t.query(api.sessions.get, WHERE);
-    expect(view!.events.slice(1)).toEqual([
+    const unread = [
       { seq: 2, ts: "2026-09-29T12:01:00.000+00:00", kind: "claim_granted", v: 1,
         unreadBecause: "unknown kind", detail: "", raw: JSON.stringify(unknownKind.payload) },
       { seq: 3, ts: "2026-09-29T12:00:00.000+00:00", kind: "session_finished", v: 2,
         unreadBecause: "newer version", detail: "", raw: JSON.stringify(newerVersion.payload) },
-    ]);
+    ];
+    expect((await rows(t)).slice(1)).toEqual(unread);
+    // ...and the page lists them, so nothing is hidden: the only rows it carries.
+    expect(view!.unread).toEqual(unread);
     expect(view!.summary).toMatchObject({ status: "running", unread: 2 });
     expect((await t.query(api.sessions.list, {}))!.sessions[0].summary).toEqual(view!.summary);
   });

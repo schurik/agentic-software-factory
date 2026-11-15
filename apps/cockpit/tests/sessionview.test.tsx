@@ -13,7 +13,7 @@ import type { SteeringView } from "../convex/model/command";
 import type { Phase } from "../convex/model/graph";
 import { phaseView, view } from "../convex/model/session";
 import type { GateItem } from "../convex/model/story";
-import { fixture, recorded, type WireEvent } from "./helpers";
+import { fixture, loadedOf, recorded, type WireEvent } from "./helpers";
 
 // The session page rendered from the golden corpus, the way a browser first
 // paints it: the same fold the query runs (model/session.ts), straight into the
@@ -58,7 +58,8 @@ interface Rendered {
  */
 function html({ events = STAGED, shown = {}, steering, claims, extra, viewer }: Rendered = {}): string {
   const phase = (item: Phase, tab: string | null): ReactNode => (
-    <PhaseTabs item={item} detail={phaseView(stored(events), events.at(-1)!.seq, item.phaseId)!} where={WHERE} tab={tab} />
+    <PhaseTabs item={item} detail={phaseView(stored(events), events.at(-1)!.seq, item.phaseId)!} where={WHERE} tab={tab}
+               loaded={loadedOf(stored(events), events.at(-1)!.seq, item.phaseId)} />
   );
   // The gate's drawer is a live query of its own (gateview.test.tsx renders it): here, which gate it was asked for.
   const gate = (item: GateItem, tab: string | null): ReactNode => <p>the gate drawer of {item.phaseId} on {tab ?? "its first tab"}</p>;

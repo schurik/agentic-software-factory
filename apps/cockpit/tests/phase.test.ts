@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../convex/_generated/api";
-import { detailedVersions } from "../convex/model/phase";
+import { detailedVersions, joined, runsOf } from "../convex/model/phase";
 import { cockpit, corpus, factory, fixture, ingest, recorded, type Cockpit, type WireEvent } from "./helpers";
 
 // A phase opened into its tabs, read off the golden corpus's recorded session
@@ -17,9 +17,17 @@ async function told(events: WireEvent[] = RECORDED): Promise<Cockpit> {
   return t;
 }
 
+const at = (phaseId: string) => ({ factory: "acme/widgets", session: SESSION, phaseId });
+
 async function phase(t: Cockpit, phaseId: string) {
-  return (await t.query(api.sessions.phase, { factory: "acme/widgets", session: SESSION, phaseId }))!;
+  return (await t.query(api.sessions.phase, at(phaseId)))!;
 }
+
+/** What a tab that reads on its own shows: its query, asked for as the tab is (`PhaseDetails`). */
+const tools = async (t: Cockpit, phaseId: string) => (await t.query(api.sessions.phaseTools, at(phaseId)))!;
+const rows = async (t: Cockpit, phaseId: string) => (await t.query(api.sessions.events, at(phaseId)))!;
+const prompts = async (t: Cockpit, phaseId: string) => (await t.query(api.sessions.prompts, at(phaseId)))!;
+const output = async (t: Cockpit, phaseId: string) => (await t.query(api.sessions.output, at(phaseId)))!;
 
 beforeEach(() => {
   vi.stubEnv("COCKPIT_MODE", "local");
@@ -129,9 +137,8 @@ describe("the Tools tab", () => {
   it("lists every tool call with whether it worked and how long it took, never what it was given", async () => {
     const t = await told();
 
-    const { tools } = await phase(t, "a9f259f0_02_scout");
-
-    expect(tools).toEqual([
+    expect((await phase(t, "a9f259f0_02_scout")).toolCalls).toBe(3);
+    expect(await tools(t, "a9f259f0_02_scout")).toEqual([
       { seq: 11, at: "2026-09-30T17:22:35.686+00:00", agent: "scout", tool: "grep", ok: true, durationMs: 0,
         callId: "", parentCallId: "" },
       { seq: 12, at: "2026-09-30T17:22:35.689+00:00", agent: "scout", tool: "read", ok: true, durationMs: 0,
@@ -144,9 +151,7 @@ describe("the Tools tab", () => {
   it("says which call's subagent made a call, from tool_called v2 on", async () => {
     const t = await told([fixture("session_started", 1), fixture("phase_started", 2, 2), fixture("tool_called", 3, 2)]);
 
-    const { tools } = await phase(t, "5c0075aa_03_plan");
-
-    expect(tools).toMatchObject([{ tool: "Grep", callId: "toolu_01Hq7Vb2xY4kLmN8pR3sT6wZ",
+    expect(await tools(t, "5c0075aa_03_plan")).toMatchObject([{ tool: "Grep", callId: "toolu_01Hq7Vb2xY4kLmN8pR3sT6wZ",
                                    parentCallId: "toolu_01AbC9dEfG2hJkL5mN7pQ8rS" }]);
   });
 });
@@ -198,31 +203,46 @@ describe("the Overview tab", () => {
   });
 });
 
-describe("the Transcript tab", () => {
-  it("holds the prompts sent and the harness's raw output, run by run, when the factory opted in", async () => {
+describe("the Agent prompt and Harness output tabs", () => {
+  it("hold the prompts sent and the harness's raw output, run by run, when the factory opted in", async () => {
     const t = await told();
 
-    const { transcript } = await phase(t, "a9f259f0_05_plan_revise_1");
+    const detail = await phase(t, "a9f259f0_05_plan_revise_1");
+    const sent = await prompts(t, "a9f259f0_05_plan_revise_1");
+    const streamed = await output(t, "a9f259f0_05_plan_revise_1");
 
-    expect(transcript.on).toBe(true);
+    expect(detail.transcripts).toBe(true);
     // One run sent anything; the resume that replayed the phase sent nothing, and is not a run here.
-    expect(transcript.runs).toHaveLength(1);
-    const [run] = transcript.runs;
-    expect(run.sends.map(({ send, truncated }) => ({ send, truncated }))).toEqual([
+    const runs = runsOf(detail.walks, sent.items);
+    expect(runs).toHaveLength(1);
+    const [run] = runs;
+    expect(run.items.map(({ send, truncated }) => ({ send, truncated }))).toEqual([
       { send: 1, truncated: false }, { send: 2, truncated: false },
     ]);
-    expect(run.sends[0].system).toContain("# Planner");
-    expect(run.sends[1].prompt).toContain("Your response was not valid JSON");
-    expect(run.output).toContain('"I revised the plan."');
+    expect(run.items[0].system).toContain("# Planner");
+    expect(run.items[1].prompt).toContain("Your response was not valid JSON");
+    expect(sent.pruned).toBeNull();
+    const outputRuns = runsOf(detail.walks, streamed.items);
+    expect(outputRuns.map((each) => each.at)).toEqual([run.at]);
+    expect(joined(outputRuns[0].items)).toContain('"I revised the plan."');
   });
 
-  it("says transcripts are off when the session shipped none at all", async () => {
+  it("each read only their own phase's own part of the transcript", async () => {
+    const t = await told();
+
+    const sent = (kind: string) => RECORDED
+      .filter((event) => event.kind === kind && event.payload.phase_id === "a9f259f0_05_plan_revise_1")
+      .map((event) => event.seq);
+    expect((await prompts(t, "a9f259f0_05_plan_revise_1")).items.map(({ seq }) => seq)).toEqual(sent("prompt_rendered"));
+    expect((await output(t, "a9f259f0_05_plan_revise_1")).items.map(({ seq }) => seq)).toEqual(sent("harness_output"));
+  });
+
+  it("say transcripts are off when the session shipped none at all", async () => {
     const t = await told(RECORDED.filter((event) => !["prompt_rendered", "harness_output"].includes(event.kind))
       .map((event, index) => ({ ...event, seq: index + 1 })));
 
-    const { transcript } = await phase(t, "a9f259f0_05_plan_revise_1");
-
-    expect(transcript).toEqual({ on: false, runs: [], pruned: null });
+    expect((await phase(t, "a9f259f0_05_plan_revise_1")).transcripts).toBe(false);
+    expect(await prompts(t, "a9f259f0_05_plan_revise_1")).toEqual({ pruned: null, items: [], newer: 0 });
   });
 });
 
@@ -233,7 +253,7 @@ describe("the Events tab", () => {
     const t = await told([fixture("session_started", 1), fixture("phase_started", 2, 2), fixture("tool_called", 3), unknown,
                           fixture("usage", 5)]);
 
-    const { events } = await phase(t, "5c0075aa_03_plan");
+    const events = await rows(t, "5c0075aa_03_plan");
 
     expect(events.map(({ seq, kind, unreadBecause }) => ({ seq, kind, unreadBecause }))).toEqual([
       { seq: 2, kind: "phase_started", unreadBecause: null },
@@ -244,10 +264,17 @@ describe("the Events tab", () => {
     expect(events[1].detail).toBe("planner called bash: failed after 1840ms");
   });
 
+  it("leaves the phase's transcript to the tabs that show it", async () => {
+    const t = await told();
+
+    expect((await rows(t, "a9f259f0_05_plan_revise_1")).map(({ kind }) => kind))
+      .not.toContain("prompt_rendered");
+  });
+
   it("includes the suspend that asked a gate phase's question", async () => {
     const t = await told();
 
-    const { events } = await phase(t, "a9f259f0_04_approve_plan");
+    const events = await rows(t, "a9f259f0_04_approve_plan");
 
     expect(events.map(({ kind }) => kind)).toContain("suspended");
   });

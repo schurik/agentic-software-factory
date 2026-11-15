@@ -61,6 +61,21 @@ export default defineSchema({
     ...storedEventFields,
   }).index("by_session_seq", ["factory", "session", "seq"]),
 
+  // A session's transcript events (`prompt_rendered`, `harness_output`), kept
+  // apart from `events` because they are the heavy ones and only a phase's
+  // Agent prompt and Harness output tabs read them (#275): the session page,
+  // its rows on Now and every other view read `events` and never load a
+  // transcript body. Stored exactly like an event, with the phase it is of
+  // (`phase_id`), so one phase's prompts or output are one index range.
+  transcripts: defineTable({
+    factory: v.string(),
+    session: v.string(),
+    phase: v.string(),
+    ...storedEventFields,
+  })
+    .index("by_session_seq", ["factory", "session", "seq"])
+    .index("by_phase", ["factory", "session", "phase", "kind", "seq"]),
+
   sessions: defineTable({
     factory: v.string(),
     session: v.string(),
@@ -85,6 +100,13 @@ export default defineSchema({
     // (retention.ts) has looked at its events.
     transcripts: v.optional(v.boolean()),
     transcriptsDue: v.optional(v.number()),
+    // Whether it ever shipped a transcript event: its factory opted in
+    // (`cockpit: {transcripts: true}`). Unlike `transcripts`, pruning never
+    // clears it — their bodies age out, that they came does not. What the page
+    // says of transcripts without reading one. Unset on a session stored before
+    // it existed, until the move (transcripts.ts) has looked at its events and
+    // moved its transcript out of them; unset reads as none.
+    transcribed: v.optional(v.boolean()),
     // Whether its phases' rows (`phases`) were written from its first event.
     // Unset on a session stored before they existed: the backfill, or its next
     // batch, writes them from the start (phases.ts).
@@ -101,6 +123,7 @@ export default defineSchema({
     .index("by_chaptered", ["chaptered"])
     .index("by_scored", ["scored"])
     .index("by_transcripts", ["transcripts"])
+    .index("by_transcribed", ["transcribed"])
     .index("by_transcripts_due", ["transcriptsDue"])
     .index("by_activity", ["activity"])
     .index("by_factory_activity", ["factory", "activity"])

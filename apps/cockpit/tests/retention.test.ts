@@ -44,10 +44,9 @@ function finished(days = 0): WireEvent[] {
 const ENDED = Date.parse("2026-09-29T12:00:00.000Z");
 const DAY = 24 * 3600_000;
 
-/** Every stored payload of the session, by seq, as the Events tab shows it. */
+/** Every stored payload of the session, by seq: its events as the Events tab shows them, and its transcript. */
 async function payloads(t: Cockpit): Promise<Record<number, Record<string, unknown>>> {
-  const view = await t.query(api.sessions.get, WHERE);
-  return Object.fromEntries(view!.events.map((row) => [row.seq, JSON.parse(row.raw) as Record<string, unknown>]));
+  return await payloadsAs(t, undefined);
 }
 
 /** The transcript retention cron, as it runs once `ms` after the session ended. */
@@ -175,26 +174,30 @@ describe("a transcript", () => {
   });
 });
 
-describe("the Transcript tab", () => {
-  it("says when the transcript aged out, rather than show nothing", async () => {
+describe("the Agent prompt and Harness output tabs", () => {
+  const PHASE = { ...WHERE, phaseId: "5c0075aa_03_plan" };
+
+  it("say when the transcript aged out, rather than show nothing", async () => {
     const t = cockpit();
     await ship(t, await factory(t), finished());
 
     await ageOutAt(t, 31 * DAY);
 
-    const detail = await t.query(api.sessions.phase, { ...WHERE, phaseId: "5c0075aa_03_plan" });
-    expect(detail!.transcript).toMatchObject({
-      on: true, pruned: { on: new Date(ENDED + 31 * DAY).toISOString(), reason: "aged_out", by: "" },
-    });
+    expect((await t.query(api.sessions.phase, PHASE))!.transcripts).toBe(true);
+    for (const part of [api.sessions.prompts, api.sessions.output]) {
+      expect(await t.query(part, PHASE)).toMatchObject({
+        pruned: { on: new Date(ENDED + 31 * DAY).toISOString(), reason: "aged_out", by: "" },
+      });
+    }
   });
 
-  it("holds the transcript, unpruned, until then", async () => {
+  it("hold the transcript, unpruned, until then", async () => {
     const t = cockpit();
     await ship(t, await factory(t), finished());
 
-    const detail = await t.query(api.sessions.phase, { ...WHERE, phaseId: "5c0075aa_03_plan" });
-    expect(detail!.transcript.pruned).toBeNull();
-    expect(detail!.transcript.runs[0].sends[0].prompt).toContain("# Plan");
+    const prompts = (await t.query(api.sessions.prompts, PHASE))!;
+    expect(prompts.pruned).toBeNull();
+    expect(prompts.items[0].prompt).toContain("# Plan");
   });
 });
 
@@ -215,9 +218,14 @@ async function teamWithSessions(forge: FakeForge) {
   return t;
 }
 
-async function payloadsAs(t: Cockpit, held: string, session = SESSION) {
-  const view = await t.query(api.sessions.get, { factory: WHERE.factory, session, signIn: held });
-  return Object.fromEntries(view!.events.map((row) => [row.seq, JSON.parse(row.raw) as Record<string, unknown>]));
+/** ...as `held` may see them: a transcript is stored apart (`transcripts`), and read back from there. */
+async function payloadsAs(t: Cockpit, held: string | undefined, session = SESSION) {
+  const rows = await t.query(api.sessions.events, { factory: WHERE.factory, session, signIn: held });
+  const transcript = await t.run(async (ctx) => await ctx.db.query("transcripts")
+    .withIndex("by_session_seq", (q) => q.eq("factory", WHERE.factory).eq("session", session))
+    .collect());
+  return Object.fromEntries([...rows!, ...transcript].map((row) =>
+    [row.seq, JSON.parse("raw" in row ? row.raw : row.payload) as Record<string, unknown>]));
 }
 
 function forgeOfAcme() {
@@ -285,6 +293,36 @@ describe("purging a session's bodies", () => {
   });
 });
 
+describe("a sweep an older cockpit scheduled, which names no table", () => {
+  const pruned = (reason: "purged" | "aged_out") => ({ on: new Date(ENDED).toISOString(), reason, by: "" });
+
+  it("purges every body still, in both tables, so a purge in flight across the upgrade is not lost", async () => {
+    const t = cockpit();
+    await ship(t, await factory(t), finished());
+
+    await t.mutation(internal.retention.sweep, { ...WHERE, pruned: pruned("purged"), cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const after = await payloads(t);
+    for (const seq of Object.keys(BODIES)) expect(after[Number(seq)].pruned).toMatchObject({ reason: "purged" });
+  });
+
+  it("ages out the transcript only, and never a handoff body", async () => {
+    const t = cockpit();
+    await ship(t, await factory(t), finished());
+    vi.setSystemTime(ENDED + 31 * DAY);
+
+    await t.mutation(internal.retention.sweep, { ...WHERE, pruned: pruned("aged_out"), cursor: null });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const after = await payloads(t);
+    expect(after[3].pruned).toMatchObject({ reason: "aged_out" });
+    expect(after[4].pruned).toMatchObject({ reason: "aged_out" });
+    expect(after[5].pruned).toBeUndefined();
+    expect(after[6].pruned).toBeUndefined();
+  });
+});
+
 describe("purging a factory", () => {
   it("is for an owner of the organization the repository belongs to, and purges every session's bodies", async () => {
     const forge = forgeOfAcme();
@@ -339,7 +377,7 @@ describe("purging a factory", () => {
 
     expect(said).toContain("acme/widgets");
     const stored = await t.run(async (ctx) => ({
-      events: await ctx.db.query("events").collect(),
+      events: [...await ctx.db.query("events").collect(), ...await ctx.db.query("transcripts").collect()],
       purges: await ctx.db.query("purges").collect(),
     }));
     for (const event of stored.events.filter((each) => [3, 4, 5, 6].includes(each.seq))) {
